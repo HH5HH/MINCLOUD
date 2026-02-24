@@ -1,4 +1,5 @@
-const BUILD_INFO_KEY = "mincloudlogin_build_info";
+const BUILD_INFO_KEY = "underpar_build_info";
+const LEGACY_BUILD_INFO_KEY = "mincloudlogin_build_info";
 const AVATAR_MAX_DATAURL_BYTES = 6000000;
 const IMS_CLIENT_ID = "adobeExperienceCloudDebugger";
 const IMS_AVATAR_CLIENT_IDS = ["AdobePass1", IMS_CLIENT_ID];
@@ -11,8 +12,18 @@ const DEBUG_TRACE_EVENT_STORAGE_LIMIT = 600;
 const DEBUG_TRACE_BODY_PREVIEW_LIMIT = 12000;
 const DEBUG_TRACE_REQUEST_MAP_LIMIT = 200;
 const DEBUG_REDACT_SENSITIVE = false;
-const DEBUG_FLOW_STORAGE_INDEX_KEY = "minclouddebug_flow_index_v1";
-const DEBUG_FLOW_STORAGE_PREFIX = "minclouddebug_flow_v1:";
+const DEBUG_FLOW_STORAGE_INDEX_KEY = "underpardebug_flow_index_v1";
+const DEBUG_FLOW_STORAGE_PREFIX = "underpardebug_flow_v1:";
+const LEGACY_DEBUG_FLOW_STORAGE_INDEX_KEY = "minclouddebug_flow_index_v1";
+const LEGACY_DEBUG_FLOW_STORAGE_PREFIX = "minclouddebug_flow_v1:";
+const BUILD_INFO_REQUEST_TYPE = "underpar:getBuildInfo";
+const LEGACY_BUILD_INFO_REQUEST_TYPE = "mincloudlogin:getBuildInfo";
+const FETCH_AVATAR_REQUEST_TYPE = "underpar:fetchAvatarDataUrl";
+const LEGACY_FETCH_AVATAR_REQUEST_TYPE = "mincloudlogin:fetchAvatarDataUrl";
+const DEBUG_MESSAGE_TYPE_PREFIX = "underpardebug:";
+const LEGACY_DEBUG_MESSAGE_TYPE_PREFIX = "minclouddebug:";
+const DEBUG_DEVTOOLS_PORT_NAME = "underpardebug-devtools";
+const LEGACY_DEBUG_DEVTOOLS_PORT_NAME = "minclouddebug-devtools";
 const DEBUG_FLOW_PERSIST_MAX = 8;
 const DEBUG_FLOW_PERSIST_DEBOUNCE_MS = 250;
 // Redirect-host filtering mode for flow capture trimming.
@@ -28,11 +39,14 @@ const BUILD_FINGERPRINT_FILES = [
   "popup.html",
   "sidepanel.html",
   "popup.css",
+  "decomp-workspace.html",
+  "decomp-workspace.css",
+  "decomp-workspace.js",
   "devtools.html",
   "devtools.js",
-  "mincloud-devtools-panel.html",
-  "mincloud-devtools-panel.js",
-  "mincloud-devtools-panel.css",
+  "up-devtools-panel.html",
+  "up-devtools-panel.js",
+  "up-devtools-panel.css",
   "src/login/login.html",
   "src/login/login.js",
   "src/login/login.css",
@@ -106,18 +120,22 @@ async function ensureImsLoginRedirectRule() {
 }
 
 async function getBuildInfo() {
-  const data = await chrome.storage.local.get(BUILD_INFO_KEY);
-  return data?.[BUILD_INFO_KEY] || null;
+  const data = await chrome.storage.local.get([BUILD_INFO_KEY, LEGACY_BUILD_INFO_KEY]);
+  return data?.[BUILD_INFO_KEY] || data?.[LEGACY_BUILD_INFO_KEY] || null;
 }
 
 async function setBuildInfo(info) {
   await chrome.storage.local.set({ [BUILD_INFO_KEY]: info });
+  try {
+    await chrome.storage.local.remove(LEGACY_BUILD_INFO_KEY);
+  } catch {
+    // Ignore cleanup failures.
+  }
 }
 
-async function updateActionBadge(counter) {
+async function updateActionBadge() {
   try {
-    await chrome.action.setBadgeBackgroundColor({ color: "#1d4ed8" });
-    await chrome.action.setBadgeText({ text: String(counter) });
+    await chrome.action.setBadgeText({ text: "" });
   } catch {
     // Ignore badge API failures.
   }
@@ -156,12 +174,15 @@ async function computeBuildFingerprint() {
   return hashText(chunks.join("\n"));
 }
 
-function normalizeCounter(counter) {
-  const parsed = Number(counter || 0);
-  if (Number.isFinite(parsed) && parsed > 0) {
-    return parsed;
+function getManifestPatchCounter(manifestVersion) {
+  const parts = String(manifestVersion || "")
+    .trim()
+    .split(".")
+    .map((part) => Number(part));
+  if (parts.length < 3 || parts.some((value) => !Number.isInteger(value) || value < 0)) {
+    return 0;
   }
-  return 0;
+  return parts[2];
 }
 
 function bufferToBase64(buffer) {
@@ -446,17 +467,9 @@ async function fetchAvatarAsDataUrl(url, accessToken = "") {
 }
 
 async function syncBuildInfo(trigger) {
-  const existing = await getBuildInfo();
   const manifestVersion = chrome.runtime.getManifest().version;
   const fingerprint = await computeBuildFingerprint();
-
-  const existingCounter = normalizeCounter(existing?.counter);
-  const shouldIncrement =
-    !existing ||
-    existing.manifestVersion !== manifestVersion ||
-    existing.fingerprint !== fingerprint;
-
-  const nextCounter = shouldIncrement ? existingCounter + 1 : Math.max(existingCounter, 1);
+  const nextCounter = getManifestPatchCounter(manifestVersion);
   const info = {
     counter: nextCounter,
     manifestVersion,
@@ -466,12 +479,20 @@ async function syncBuildInfo(trigger) {
   };
 
   await setBuildInfo(info);
-  await updateActionBadge(nextCounter);
+  await updateActionBadge();
   return info;
 }
 
 function getFlowStorageKey(flowId) {
   return `${DEBUG_FLOW_STORAGE_PREFIX}${String(flowId || "")}`;
+}
+
+function getLegacyFlowStorageKey(flowId) {
+  return `${LEGACY_DEBUG_FLOW_STORAGE_PREFIX}${String(flowId || "")}`;
+}
+
+function getFlowStorageKeyCandidates(flowId) {
+  return [getFlowStorageKey(flowId), getLegacyFlowStorageKey(flowId)];
 }
 
 function isStorageQuotaError(error) {
@@ -487,7 +508,11 @@ async function clearPersistedDebugFlowStorage() {
   try {
     const payload = await chrome.storage.local.get(null);
     const keysToRemove = Object.keys(payload || {}).filter(
-      (key) => key === DEBUG_FLOW_STORAGE_INDEX_KEY || key.startsWith(DEBUG_FLOW_STORAGE_PREFIX)
+      (key) =>
+        key === DEBUG_FLOW_STORAGE_INDEX_KEY ||
+        key === LEGACY_DEBUG_FLOW_STORAGE_INDEX_KEY ||
+        key.startsWith(DEBUG_FLOW_STORAGE_PREFIX) ||
+        key.startsWith(LEGACY_DEBUG_FLOW_STORAGE_PREFIX)
     );
     if (keysToRemove.length === 0) {
       return 0;
@@ -688,15 +713,15 @@ function removeFlowStorage(flowId) {
   if (!flowId) {
     return;
   }
-  void chrome.storage.local.remove(getFlowStorageKey(flowId)).catch(() => {
+  void chrome.storage.local.remove(getFlowStorageKeyCandidates(flowId)).catch(() => {
     // Ignore storage removal failures.
   });
 }
 
 async function restoreDebugStateFromStorage() {
   try {
-    const payload = await chrome.storage.local.get(DEBUG_FLOW_STORAGE_INDEX_KEY);
-    const index = payload?.[DEBUG_FLOW_STORAGE_INDEX_KEY];
+    const payload = await chrome.storage.local.get([DEBUG_FLOW_STORAGE_INDEX_KEY, LEGACY_DEBUG_FLOW_STORAGE_INDEX_KEY]);
+    const index = payload?.[DEBUG_FLOW_STORAGE_INDEX_KEY] || payload?.[LEGACY_DEBUG_FLOW_STORAGE_INDEX_KEY];
     if (!index || typeof index !== "object") {
       return;
     }
@@ -709,10 +734,11 @@ async function restoreDebugStateFromStorage() {
       return;
     }
 
-    const storageKeys = flowIds.map((flowId) => getFlowStorageKey(flowId));
+    const storageKeys = flowIds.flatMap((flowId) => getFlowStorageKeyCandidates(flowId));
     const storedFlowsPayload = await chrome.storage.local.get(storageKeys);
-    for (const storageKey of storageKeys) {
-      const restored = restoreFlowFromStorage(storedFlowsPayload?.[storageKey]);
+    for (const flowId of flowIds) {
+      const [primaryKey, legacyKey] = getFlowStorageKeyCandidates(flowId);
+      const restored = restoreFlowFromStorage(storedFlowsPayload?.[primaryKey] || storedFlowsPayload?.[legacyKey]);
       if (!restored) {
         continue;
       }
@@ -744,8 +770,8 @@ async function restoreFlowForTabFromStorage(tabId) {
   }
 
   try {
-    const payload = await chrome.storage.local.get(DEBUG_FLOW_STORAGE_INDEX_KEY);
-    const index = payload?.[DEBUG_FLOW_STORAGE_INDEX_KEY];
+    const payload = await chrome.storage.local.get([DEBUG_FLOW_STORAGE_INDEX_KEY, LEGACY_DEBUG_FLOW_STORAGE_INDEX_KEY]);
+    const index = payload?.[DEBUG_FLOW_STORAGE_INDEX_KEY] || payload?.[LEGACY_DEBUG_FLOW_STORAGE_INDEX_KEY];
     if (!index || typeof index !== "object") {
       return null;
     }
@@ -755,8 +781,9 @@ async function restoreFlowForTabFromStorage(tabId) {
       return null;
     }
 
-    const flowPayload = await chrome.storage.local.get(getFlowStorageKey(flowId));
-    const restored = restoreFlowFromStorage(flowPayload?.[getFlowStorageKey(flowId)]);
+    const [primaryKey, legacyKey] = getFlowStorageKeyCandidates(flowId);
+    const flowPayload = await chrome.storage.local.get([primaryKey, legacyKey]);
+    const restored = restoreFlowFromStorage(flowPayload?.[primaryKey] || flowPayload?.[legacyKey]);
     if (!restored) {
       return null;
     }
@@ -1662,17 +1689,19 @@ function handleWebRequestError(details) {
 chrome.runtime.onInstalled.addListener((details) => {
   void configureSidePanelBehavior();
   void ensureImsLoginRedirectRule();
+  void updateActionBadge();
   void syncBuildInfo(`onInstalled:${details?.reason || "unknown"}`);
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void configureSidePanelBehavior();
   void ensureImsLoginRedirectRule();
+  void updateActionBadge();
   void syncBuildInfo("onStartup");
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "mincloudlogin:getBuildInfo") {
+  if (message?.type === BUILD_INFO_REQUEST_TYPE || message?.type === LEGACY_BUILD_INFO_REQUEST_TYPE) {
     void syncBuildInfo("buildInfoRequest")
       .then((info) => {
         sendResponse({ ok: true, info });
@@ -1684,7 +1713,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "mincloudlogin:fetchAvatarDataUrl") {
+  if (message?.type === FETCH_AVATAR_REQUEST_TYPE || message?.type === LEGACY_FETCH_AVATAR_REQUEST_TYPE) {
     void fetchAvatarAsDataUrl(message?.url || "", message?.accessToken || "")
       .then((dataUrl) => {
         sendResponse({ ok: true, dataUrl });
@@ -1696,7 +1725,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "minclouddebug:startFlow") {
+  if (message?.type === `${DEBUG_MESSAGE_TYPE_PREFIX}startFlow` || message?.type === `${LEGACY_DEBUG_MESSAGE_TYPE_PREFIX}startFlow`) {
     const flow = createDebugFlow(message?.context || {});
     appendFlowEvent(flow, {
       source: "extension",
@@ -1707,7 +1736,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  if (message?.type === "minclouddebug:traceEvent") {
+  if (message?.type === `${DEBUG_MESSAGE_TYPE_PREFIX}traceEvent` || message?.type === `${LEGACY_DEBUG_MESSAGE_TYPE_PREFIX}traceEvent`) {
     const flow = getFlowById(message?.flowId || "");
     if (!flow) {
       sendResponse({ ok: false, error: "Debug flow not found." });
@@ -1723,7 +1752,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  if (message?.type === "minclouddebug:bindFlowTab") {
+  if (message?.type === `${DEBUG_MESSAGE_TYPE_PREFIX}bindFlowTab` || message?.type === `${LEGACY_DEBUG_MESSAGE_TYPE_PREFIX}bindFlowTab`) {
     void bindFlowToTab(message?.flowId || "", message?.tabId || 0, message?.metadata || {})
       .then(() => {
         sendResponse({ ok: true });
@@ -1734,7 +1763,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
-  if (message?.type === "minclouddebug:stopFlow") {
+  if (message?.type === `${DEBUG_MESSAGE_TYPE_PREFIX}stopFlow` || message?.type === `${LEGACY_DEBUG_MESSAGE_TYPE_PREFIX}stopFlow`) {
     const flow = getFlowById(message?.flowId || "");
     if (!flow) {
       sendResponse({ ok: true, flow: null });
@@ -1764,7 +1793,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 chrome.runtime.onConnect.addListener((port) => {
-  if (!port || port.name !== "minclouddebug-devtools") {
+  if (!port || (port.name !== DEBUG_DEVTOOLS_PORT_NAME && port.name !== LEGACY_DEBUG_DEVTOOLS_PORT_NAME)) {
     return;
   }
 
@@ -1866,5 +1895,6 @@ if (chrome.webRequest) {
 
 void configureSidePanelBehavior();
 void ensureImsLoginRedirectRule();
+void updateActionBadge();
 void syncBuildInfo("serviceWorkerStart");
 void restoreDebugStateFromStorage().then(() => reattachDebuggersFromState());

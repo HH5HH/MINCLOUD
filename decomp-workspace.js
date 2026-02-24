@@ -1,0 +1,770 @@
+const DECOMP_MESSAGE_TYPE = "underpar:decomp";
+const ESM_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
+const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const ESM_METRIC_COLUMNS = new Set([
+  "authn-attempts",
+  "authn-successful",
+  "authn-pending",
+  "authn-failed",
+  "clientless-tokens",
+  "clientless-failures",
+  "authz-attempts",
+  "authz-successful",
+  "authz-failed",
+  "authz-rejected",
+  "authz-latency",
+  "media-tokens",
+  "unique-accounts",
+  "unique-sessions",
+  "count",
+  "decision-attempts",
+  "decision-successful",
+  "decision-failed",
+  "decision-media-tokens",
+]);
+const ESM_DATE_PARTS = ["year", "month", "day", "hour", "minute"];
+
+const state = {
+  windowId: 0,
+  controllerOnline: false,
+  programmerId: "",
+  programmerName: "",
+  requestorIds: [],
+  mvpdIds: [],
+  cardsById: new Map(),
+  batchRunning: false,
+};
+
+const els = {
+  controllerState: document.getElementById("workspace-controller-state"),
+  filterState: document.getElementById("workspace-filter-state"),
+  status: document.getElementById("workspace-status"),
+  rerunAllButton: document.getElementById("workspace-rerun-all"),
+  clearButton: document.getElementById("workspace-clear-all"),
+  cardsHost: document.getElementById("workspace-cards"),
+  emptyState: document.getElementById("workspace-empty"),
+};
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function setStatus(message = "", type = "info") {
+  const text = String(message || "").trim();
+  els.status.textContent = text;
+  els.status.classList.remove("error");
+  if (type === "error") {
+    els.status.classList.add("error");
+  }
+}
+
+function setActionButtonsDisabled(disabled) {
+  const isDisabled = Boolean(disabled);
+  if (els.rerunAllButton) {
+    els.rerunAllButton.disabled = isDisabled;
+  }
+}
+
+function updateControllerBanner() {
+  if (!els.controllerState || !els.filterState) {
+    return;
+  }
+
+  if (!state.controllerOnline) {
+    els.controllerState.textContent = "Waiting for UnderPAR side panel controller...";
+    els.filterState.textContent = "";
+    return;
+  }
+
+  const programmerLabel = state.programmerName
+    ? `${state.programmerName} (${state.programmerId || "unknown"})`
+    : state.programmerId || "Selected media company";
+  els.controllerState.textContent = `Controller connected: ${programmerLabel}`;
+
+  const requestorLabel = state.requestorIds.length > 0 ? state.requestorIds.join(", ") : "All requestors";
+  const mvpdLabel = state.mvpdIds.length > 0 ? state.mvpdIds.join(", ") : "All MVPDs";
+  els.filterState.textContent = `RequestorId(s): ${requestorLabel} | MVPD(s): ${mvpdLabel}`;
+}
+
+function setEmptyStateVisibility() {
+  if (!els.emptyState || !els.cardsHost) {
+    return;
+  }
+  const hasCards = state.cardsById.size > 0;
+  els.emptyState.hidden = hasCards;
+}
+
+function getDefaultSortStack() {
+  return [{ col: "DATE", dir: "DESC" }];
+}
+
+function esmPartsToUtcMs(row) {
+  const year = Number(row?.year ?? 1970);
+  const month = Number(row?.month ?? 1);
+  const day = Number(row?.day ?? 1);
+  const hour = Number(row?.hour ?? 0);
+  const minute = Number(row?.minute ?? 0);
+
+  return (
+    Date.UTC(
+      Number.isFinite(year) ? year : 1970,
+      Number.isFinite(month) ? month - 1 : 0,
+      Number.isFinite(day) ? day : 1,
+      Number.isFinite(hour) ? hour : 0,
+      Number.isFinite(minute) ? minute : 0
+    ) -
+    ESM_SOURCE_UTC_OFFSET_MINUTES * 60 * 1000
+  );
+}
+
+function buildEsmDateLabel(row) {
+  const date = new Date(esmPartsToUtcMs(row));
+  return date.toLocaleString("en-US", {
+    timeZone: CLIENT_TIMEZONE,
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZoneName: "short",
+  });
+}
+
+function getLastModifiedSourceTimezone(rawHttpDate) {
+  if (rawHttpDate == null || typeof rawHttpDate !== "string") {
+    return "";
+  }
+  const tail = rawHttpDate.trim().split(/\s+/).pop();
+  if (!tail) {
+    return "";
+  }
+  if (/^[A-Z]{2,4}$/i.test(tail)) {
+    return tail.toUpperCase();
+  }
+  if (/^[+-]\d{4}$/.test(tail)) {
+    return tail;
+  }
+  return "";
+}
+
+function formatLastModifiedForDisplay(rawHttpDate) {
+  if (rawHttpDate == null || String(rawHttpDate).trim() === "") {
+    return rawHttpDate;
+  }
+  const date = new Date(rawHttpDate);
+  if (Number.isNaN(date.getTime())) {
+    return rawHttpDate;
+  }
+
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: CLIENT_TIMEZONE,
+    month: "2-digit",
+    day: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "short",
+  });
+  const parts = formatter.formatToParts(date);
+  const getPart = (type) => parts.find((part) => part.type === type)?.value ?? "";
+  const tzName = getPart("timeZoneName");
+  return `${getPart("month")}/${getPart("day")}/${getPart("year")} ${getPart("hour")}:${getPart("minute")}:${getPart("second")} ${tzName || CLIENT_TIMEZONE}`;
+}
+
+function toNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function safeRate(numerator, denominator) {
+  const n = toNumber(numerator);
+  const d = toNumber(denominator);
+  if (n == null || d == null || d <= 0) {
+    return null;
+  }
+  const rate = n / d;
+  return Number.isFinite(rate) ? rate : null;
+}
+
+function formatPercent(rate) {
+  if (rate == null) {
+    return "—";
+  }
+  return `${(rate * 100).toFixed(2)}%`;
+}
+
+function createCell(value) {
+  const cell = document.createElement("td");
+  const text = value == null ? "" : String(value);
+  cell.textContent = text;
+  cell.title = text;
+  return cell;
+}
+
+function getCellValue(row, columnKey, context) {
+  if (columnKey === "DATE") {
+    return esmPartsToUtcMs(row);
+  }
+
+  if (context.hasAuthN && columnKey === "AuthN Success") {
+    const rate = safeRate(row["authn-successful"], row["authn-attempts"]);
+    return rate == null ? -1 : rate;
+  }
+
+  if (context.hasAuthZ && columnKey === "AuthZ Success") {
+    const rate = safeRate(row["authz-successful"], row["authz-attempts"]);
+    return rate == null ? -1 : rate;
+  }
+
+  if (columnKey === "COUNT") {
+    const value = toNumber(row.count);
+    return value == null ? 0 : value;
+  }
+
+  const rawValue = row[columnKey];
+  if (rawValue == null) {
+    return "";
+  }
+
+  if (typeof rawValue === "number" && Number.isFinite(rawValue)) {
+    return rawValue;
+  }
+
+  const converted = toNumber(rawValue);
+  if (converted != null) {
+    return converted;
+  }
+  return String(rawValue).toLowerCase();
+}
+
+function sortRows(rows, sortStack, context) {
+  const stack = Array.isArray(sortStack) && sortStack.length > 0 ? sortStack : getDefaultSortStack();
+  return [...rows].sort((left, right) => {
+    for (const sortRule of stack) {
+      const factor = sortRule.dir === "ASC" ? 1 : -1;
+      const leftValue = getCellValue(left, sortRule.col, context);
+      const rightValue = getCellValue(right, sortRule.col, context);
+      if (leftValue < rightValue) {
+        return -1 * factor;
+      }
+      if (leftValue > rightValue) {
+        return 1 * factor;
+      }
+    }
+    return getCellValue(right, "DATE", context) - getCellValue(left, "DATE", context);
+  });
+}
+
+function refreshHeaderStates(tableState) {
+  if (!tableState?.thead) {
+    return;
+  }
+  tableState.thead.querySelectorAll("th").forEach((headerCell) => {
+    if (typeof headerCell._updateState === "function") {
+      headerCell._updateState();
+    }
+  });
+}
+
+function renderTableBody(tableState) {
+  tableState.tbody.innerHTML = "";
+  tableState.data.forEach((row) => {
+    const tr = document.createElement("tr");
+    tr.appendChild(createCell(buildEsmDateLabel(row)));
+
+    if (tableState.hasAuthN) {
+      tr.appendChild(createCell(formatPercent(safeRate(row["authn-successful"], row["authn-attempts"]))));
+    }
+    if (tableState.hasAuthZ) {
+      tr.appendChild(createCell(formatPercent(safeRate(row["authz-successful"], row["authz-attempts"]))));
+    }
+    if (!tableState.hasAuthN && !tableState.hasAuthZ && tableState.hasCount) {
+      tr.appendChild(createCell(row.count));
+    }
+
+    tableState.displayColumns.forEach((column) => {
+      tr.appendChild(createCell(row[column] ?? ""));
+    });
+    tableState.tbody.appendChild(tr);
+  });
+}
+
+function getCardPayload(cardState) {
+  return {
+    cardId: cardState.cardId,
+    endpointUrl: cardState.endpointUrl,
+    zoomKey: cardState.zoomKey,
+    columns: cardState.columns,
+  };
+}
+
+function buildCardColumnsMarkup(cardState) {
+  const columns = Array.isArray(cardState?.columns) ? cardState.columns : [];
+  const content = columns.length > 0 ? columns.join("\n") : "No report columns";
+  const endpointUrl = String(cardState?.endpointUrl || "").trim();
+  const endpointMarkup = endpointUrl
+    ? `<a class="card-col-parent-url" href="${escapeHtml(endpointUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(
+        endpointUrl
+      )}</a>`
+    : "";
+
+  return `
+    <div class="card-col-list">
+      ${endpointMarkup}
+      <pre class="card-col-columns">${escapeHtml(content)}</pre>
+    </div>
+  `;
+}
+
+function renderCardMessage(cardState, message, options = {}) {
+  const cssClass = options.error ? "card-message error" : "card-message";
+  cardState.bodyElement.innerHTML = `${buildCardColumnsMarkup(cardState)}<p class="${cssClass}">${escapeHtml(
+    message || ""
+  )}</p>`;
+}
+
+function createCardElements(cardState) {
+  const article = document.createElement("article");
+  article.className = "report-card";
+  article.setAttribute("data-card-id", cardState.cardId);
+
+  article.innerHTML = `
+    <div class="card-head">
+      <div class="card-title-wrap">
+        <p class="card-title"></p>
+        <p class="card-subtitle"></p>
+      </div>
+      <div class="card-actions">
+        <button type="button" class="card-rerun">Re-run</button>
+        <button type="button" class="card-close">Close</button>
+      </div>
+    </div>
+    <div class="card-body"></div>
+  `;
+
+  const title = article.querySelector(".card-title");
+  const subtitle = article.querySelector(".card-subtitle");
+  const rerunButton = article.querySelector(".card-rerun");
+  const closeButton = article.querySelector(".card-close");
+  const body = article.querySelector(".card-body");
+
+  cardState.element = article;
+  cardState.titleElement = title;
+  cardState.subtitleElement = subtitle;
+  cardState.rerunButton = rerunButton;
+  cardState.closeButton = closeButton;
+  cardState.bodyElement = body;
+}
+
+function updateCardHeader(cardState) {
+  cardState.titleElement.textContent = cardState.endpointUrl;
+  const zoom = cardState.zoomKey ? `Zoom: ${cardState.zoomKey}` : "Zoom: --";
+  const rows = Array.isArray(cardState.rows) ? cardState.rows.length : 0;
+  cardState.subtitleElement.textContent = `${zoom} | Rows: ${rows}`;
+}
+
+function ensureCard(cardMeta) {
+  const cardId = String(cardMeta?.cardId || "").trim();
+  if (!cardId) {
+    return null;
+  }
+
+  if (state.cardsById.has(cardId)) {
+    const existing = state.cardsById.get(cardId);
+    if (cardMeta?.endpointUrl) {
+      existing.endpointUrl = String(cardMeta.endpointUrl);
+    }
+    if (cardMeta?.zoomKey) {
+      existing.zoomKey = String(cardMeta.zoomKey);
+    }
+    if (Array.isArray(cardMeta?.columns)) {
+      existing.columns = cardMeta.columns.map((value) => String(value || "").trim()).filter(Boolean);
+    }
+    updateCardHeader(existing);
+    return existing;
+  }
+
+  const cardState = {
+    cardId,
+    endpointUrl: String(cardMeta?.endpointUrl || ""),
+    zoomKey: String(cardMeta?.zoomKey || ""),
+    columns: Array.isArray(cardMeta?.columns) ? cardMeta.columns.map((value) => String(value || "").trim()).filter(Boolean) : [],
+    rows: [],
+    sortStack: getDefaultSortStack(),
+    lastModified: "",
+    running: false,
+    element: null,
+    titleElement: null,
+    subtitleElement: null,
+    rerunButton: null,
+    closeButton: null,
+    bodyElement: null,
+  };
+
+  createCardElements(cardState);
+  updateCardHeader(cardState);
+  renderCardMessage(cardState, "Waiting for data...");
+
+  cardState.rerunButton.addEventListener("click", async () => {
+    const result = await sendWorkspaceAction("run-card", {
+      card: getCardPayload(cardState),
+    });
+    if (!result?.ok) {
+      renderCardMessage(cardState, result?.error || "Unable to run report from UnderPAR side panel controller.", { error: true });
+      setStatus(result?.error || "Unable to run report from UnderPAR side panel controller.", "error");
+    }
+  });
+
+  cardState.closeButton.addEventListener("click", () => {
+    cardState.element.remove();
+    state.cardsById.delete(cardState.cardId);
+    setEmptyStateVisibility();
+  });
+
+  state.cardsById.set(cardId, cardState);
+  els.cardsHost.prepend(cardState.element);
+  setEmptyStateVisibility();
+  return cardState;
+}
+
+function renderCardTable(cardState, rows, lastModified) {
+  const firstRow = rows[0];
+  const hasAuthN = firstRow["authn-attempts"] != null && firstRow["authn-successful"] != null;
+  const hasAuthZ = firstRow["authz-attempts"] != null && firstRow["authz-successful"] != null;
+  const hasCount = firstRow.count != null;
+  const displayColumns = Object.keys(firstRow).filter(
+    (column) => !ESM_METRIC_COLUMNS.has(column) && !ESM_DATE_PARTS.includes(column) && column !== "media-company"
+  );
+
+  const headers = ["DATE"];
+  if (hasAuthN) {
+    headers.push("AuthN Success");
+  }
+  if (hasAuthZ) {
+    headers.push("AuthZ Success");
+  }
+  if (!hasAuthN && !hasAuthZ && hasCount) {
+    headers.push("COUNT");
+  }
+  headers.push(...displayColumns);
+
+  cardState.bodyElement.innerHTML = `
+    ${buildCardColumnsMarkup(cardState)}
+    <div class="esm-table-wrapper">
+      <table class="esm-table">
+        <thead><tr></tr></thead>
+        <tbody></tbody>
+        <tfoot>
+          <tr>
+            <td class="esm-footer-cell">
+              <div class="esm-footer">
+                <a href="#" class="esm-csv-link">CSV</a>
+                <span class="esm-last-modified"></span>
+                <span class="esm-close" title="Close table"> x </span>
+              </div>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  `;
+
+  const table = cardState.bodyElement.querySelector(".esm-table");
+  const thead = table.querySelector("thead");
+  const tbody = table.querySelector("tbody");
+  const footerCell = cardState.bodyElement.querySelector(".esm-footer-cell");
+  const lastModifiedLabel = cardState.bodyElement.querySelector(".esm-last-modified");
+  const csvLink = cardState.bodyElement.querySelector(".esm-csv-link");
+  const closeButton = cardState.bodyElement.querySelector(".esm-close");
+
+  const tableState = {
+    thead,
+    tbody,
+    data: rows,
+    sortStack: getDefaultSortStack(),
+    hasAuthN,
+    hasAuthZ,
+    hasCount,
+    displayColumns,
+    context: {
+      hasAuthN,
+      hasAuthZ,
+    },
+  };
+
+  const headerRow = thead.querySelector("tr");
+  headers.forEach((header) => {
+    const th = document.createElement("th");
+    th.textContent = header;
+    th.title = header === "DATE" ? `DATE (${CLIENT_TIMEZONE}, converted from PST)` : header;
+    const icon = document.createElement("span");
+    icon.className = "sort-icon";
+    icon.style.marginLeft = "6px";
+    th.appendChild(icon);
+
+    th._updateState = () => {
+      const isActive = tableState.sortStack[0]?.col === header;
+      th.classList.toggle("active-sort", isActive);
+      icon.textContent = isActive ? (tableState.sortStack[0].dir === "ASC" ? "▲" : "▼") : "";
+    };
+
+    th.addEventListener("click", (event) => {
+      const existingRule = tableState.sortStack.find((rule) => rule.col === header);
+      if (event.shiftKey && existingRule) {
+        existingRule.dir = existingRule.dir === "DESC" ? "ASC" : "DESC";
+      } else if (event.shiftKey) {
+        tableState.sortStack.push({ col: header, dir: "DESC" });
+      } else {
+        tableState.sortStack = [
+          {
+            col: header,
+            dir: existingRule ? (existingRule.dir === "DESC" ? "ASC" : "DESC") : "DESC",
+          },
+        ];
+      }
+      tableState.data = sortRows(tableState.data, tableState.sortStack, tableState.context);
+      renderTableBody(tableState);
+      refreshHeaderStates(tableState);
+      cardState.sortStack = tableState.sortStack;
+    });
+    headerRow.appendChild(th);
+  });
+
+  if (footerCell) {
+    footerCell.colSpan = Math.max(1, headers.length);
+  }
+
+  if (lastModifiedLabel) {
+    if (lastModified) {
+      const sourceTz = getLastModifiedSourceTimezone(lastModified);
+      lastModifiedLabel.textContent = `Last-Modified: ${formatLastModifiedForDisplay(lastModified)}`;
+      lastModifiedLabel.title = sourceTz
+        ? `Server time: ${sourceTz} (converted to your timezone)`
+        : "Converted to your timezone";
+    } else {
+      lastModifiedLabel.textContent = "Last-Modified: (real-time)";
+    }
+  }
+
+  if (csvLink) {
+    csvLink.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const result = await sendWorkspaceAction("download-csv", {
+        card: getCardPayload(cardState),
+        sortRule: cardState.sortStack?.[0] || getDefaultSortStack()[0],
+      });
+      if (!result?.ok) {
+        setStatus(result?.error || "Unable to download CSV.", "error");
+      } else {
+        setStatus("CSV download started.");
+      }
+    });
+  }
+
+  if (closeButton) {
+    closeButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      cardState.rows = [];
+      cardState.lastModified = "";
+      cardState.sortStack = getDefaultSortStack();
+      updateCardHeader(cardState);
+      renderCardMessage(cardState, "Table closed.");
+    });
+  }
+
+  tableState.data = sortRows(tableState.data, tableState.sortStack, tableState.context);
+  renderTableBody(tableState);
+  refreshHeaderStates(tableState);
+  cardState.sortStack = tableState.sortStack;
+}
+
+function applyReportStart(payload) {
+  const cardState = ensureCard(payload);
+  if (!cardState) {
+    return;
+  }
+  cardState.running = true;
+  cardState.rows = [];
+  cardState.sortStack = getDefaultSortStack();
+  updateCardHeader(cardState);
+  renderCardMessage(cardState, "Loading report...");
+  if (cardState.element && !document.hidden) {
+    cardState.element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+function applyReportResult(payload) {
+  const cardState = ensureCard(payload);
+  if (!cardState) {
+    return;
+  }
+  cardState.running = false;
+
+  if (!payload?.ok) {
+    const error = payload?.error || "Request failed.";
+    renderCardMessage(cardState, error, { error: true });
+    setStatus(error, "error");
+    return;
+  }
+
+  const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+  cardState.rows = rows;
+  cardState.lastModified = String(payload?.lastModified || "");
+  cardState.sortStack = getDefaultSortStack();
+  updateCardHeader(cardState);
+
+  if (rows.length === 0) {
+    renderCardMessage(cardState, "No data");
+    return;
+  }
+
+  renderCardTable(cardState, rows, cardState.lastModified);
+}
+
+function applyControllerState(payload) {
+  state.controllerOnline = payload?.controllerOnline === true;
+  state.programmerId = String(payload?.programmerId || "");
+  state.programmerName = String(payload?.programmerName || "");
+  state.requestorIds = Array.isArray(payload?.requestorIds)
+    ? payload.requestorIds.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  state.mvpdIds = Array.isArray(payload?.mvpdIds)
+    ? payload.mvpdIds.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  updateControllerBanner();
+}
+
+function handleWorkspaceEvent(eventName, payload) {
+  const event = String(eventName || "").trim();
+  if (!event) {
+    return;
+  }
+
+  if (event === "controller-state") {
+    applyControllerState(payload);
+    return;
+  }
+
+  if (event === "report-start") {
+    applyReportStart(payload);
+    return;
+  }
+
+  if (event === "report-result") {
+    applyReportResult(payload);
+    return;
+  }
+
+  if (event === "batch-start") {
+    state.batchRunning = true;
+    setActionButtonsDisabled(true);
+    const total = Number(payload?.total || 0);
+    setStatus(total > 0 ? `Re-running ${total} report(s)...` : "Re-running reports...");
+    return;
+  }
+
+  if (event === "batch-end") {
+    state.batchRunning = false;
+    setActionButtonsDisabled(false);
+    const total = Number(payload?.total || 0);
+    setStatus(total > 0 ? `Re-run completed for ${total} report(s).` : "Re-run completed.");
+    return;
+  }
+
+  if (event === "csv-complete") {
+    setStatus("CSV download started.");
+  }
+}
+
+async function sendWorkspaceAction(action, payload = {}) {
+  try {
+    return await chrome.runtime.sendMessage({
+      type: DECOMP_MESSAGE_TYPE,
+      channel: "workspace-action",
+      action,
+      ...payload,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function rerunAllCards() {
+  if (state.cardsById.size === 0) {
+    setStatus("No reports are open.");
+    return;
+  }
+
+  const cards = [...state.cardsById.values()].map((cardState) => getCardPayload(cardState));
+  setActionButtonsDisabled(true);
+  setStatus(`Re-running ${cards.length} report(s)...`);
+  const result = await sendWorkspaceAction("rerun-all", { cards });
+  if (!result?.ok) {
+    setActionButtonsDisabled(false);
+    setStatus(result?.error || "Unable to re-run reports.", "error");
+    return;
+  }
+}
+
+function clearWorkspace() {
+  state.cardsById.forEach((cardState) => {
+    cardState.element?.remove();
+  });
+  state.cardsById.clear();
+  setEmptyStateVisibility();
+  setStatus("Workspace cleared.");
+}
+
+function registerEventHandlers() {
+  if (els.rerunAllButton) {
+    els.rerunAllButton.addEventListener("click", () => {
+      void rerunAllCards();
+    });
+  }
+
+  if (els.clearButton) {
+    els.clearButton.addEventListener("click", () => {
+      clearWorkspace();
+    });
+  }
+
+  chrome.runtime.onMessage.addListener((message) => {
+    if (message?.type !== DECOMP_MESSAGE_TYPE || message?.channel !== "workspace-event") {
+      return false;
+    }
+    const targetWindowId = Number(message?.targetWindowId || 0);
+    if (targetWindowId > 0 && Number(state.windowId || 0) > 0 && targetWindowId !== Number(state.windowId)) {
+      return false;
+    }
+    handleWorkspaceEvent(message?.event, message?.payload || {});
+    return false;
+  });
+}
+
+async function init() {
+  try {
+    const currentWindow = await chrome.windows.getCurrent();
+    state.windowId = Number(currentWindow?.id || 0);
+  } catch {
+    state.windowId = 0;
+  }
+  registerEventHandlers();
+  setEmptyStateVisibility();
+  updateControllerBanner();
+  const result = await sendWorkspaceAction("workspace-ready");
+  if (!result?.ok) {
+    setStatus(result?.error || "Unable to contact UnderPAR side panel controller.", "error");
+  }
+}
+
+void init();

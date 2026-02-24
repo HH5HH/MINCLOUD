@@ -35,7 +35,7 @@ let showExtensionEvents = false;
 let flowListKeyboardActive = false;
 const eventRowsBySeq = new Map();
 
-const port = chrome.runtime.connect({ name: "minclouddebug-devtools" });
+const port = chrome.runtime.connect({ name: "underpardebug-devtools" });
 
 function setStatus(text) {
   statusEl.textContent = String(text || "");
@@ -492,7 +492,7 @@ function renderEventListFromSnapshot() {
     empty.textContent =
       events.length > 0
         ? "No visible events. Use \"Show Extension Rows\" to include extension events."
-        : "No trace events yet. Click START RECORDING in MinCloud sidepanel to start capture.";
+        : "No trace events yet. Click START RECORDING in the UnderPAR side panel to start capture.";
     eventsEl.appendChild(empty);
     renderSelectedEventDetails(null);
     return;
@@ -689,12 +689,12 @@ window.addEventListener("beforeunload", () => {
 if (tabId > 0) {
   tabLabelEl.textContent = `Tab ${tabId}`;
   setFlowSummary();
-  setStatus("Subscribing to MinCloud trace stream...");
+  setStatus("Subscribing to UP trace stream...");
   port.postMessage({ type: "subscribe", tabId });
 } else {
   tabLabelEl.textContent = queryFlowId ? `Flow ${queryFlowId}` : "No tab binding";
   setFlowSummary();
   renderEventListFromSnapshot();
-  setStatus("No tab binding yet. Click START RECORDING in MinCloud sidepanel to stream events here.");
+  setStatus("No tab binding yet. Click START RECORDING in the UnderPAR side panel to stream events here.");
   clearButton.disabled = true;
 }

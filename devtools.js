@@ -1,1 +1,1 @@
-chrome.devtools.panels.create("MinTools", "", "mincloud-devtools-panel.html");
+chrome.devtools.panels.create("UP", "", "up-devtools-panel.html");

@@ -846,6 +846,266 @@ select:disabled {
   color: #c24f40;
 }
 
+.decomp-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.decomp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.decomp-zoom-filter {
+  width: 72px;
+  height: 30px;
+  padding: 0 8px;
+}
+
+.decomp-search {
+  flex: 1 1 180px;
+  min-width: 140px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.decomp-find-btn,
+.decomp-reset-btn {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.decomp-reset-btn {
+  border-color: #e26a5a;
+  background: #e26a5a;
+}
+
+.decomp-find-btn:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.decomp-reset-btn:hover:not(:disabled) {
+  background: #c24f40;
+}
+
+.decomp-net-indicator {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(30, 41, 59, 0.25);
+  border-top-color: rgba(30, 41, 59, 0.75);
+  animation: click-esm-spin 0.8s linear infinite;
+}
+
+.decomp-shell.net-busy {
+  cursor: progress;
+}
+
+.decomp-tree-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #d7dce4;
+  border-radius: 10px;
+  background: #f6f7f6;
+}
+
+.decomp-tree-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.decomp-tree-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.decomp-open-workspace-btn,
+.decomp-expand-btn,
+.decomp-collapse-btn {
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0 8px;
+}
+
+.decomp-open-workspace-btn {
+  border-color: #2563eb;
+  color: #1d4ed8;
+}
+
+.decomp-open-workspace-btn:hover,
+.decomp-expand-btn:hover,
+.decomp-collapse-btn:hover {
+  background: #fafafa;
+}
+
+.decomp-tree-stats {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.decomp-tree-scroll {
+  max-height: 18em;
+  overflow: auto;
+  border: 1px solid #d7dce4;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px;
+}
+
+.decomp-tree-root {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.decomp-tree-root ul {
+  list-style: none;
+  margin: 0;
+  padding-left: 18px;
+  border-left: 1px dashed rgba(0, 0, 0, 0.14);
+}
+
+.decomp-tree-root ul.decomp-root {
+  padding-left: 0;
+  border-left: none;
+}
+
+.decomp-tree-root li {
+  margin: 2px 0;
+  padding: 1px 0;
+}
+
+.decomp-node {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.decomp-twisty {
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: 4px;
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.decomp-twisty.hidden {
+  visibility: hidden;
+}
+
+.decomp-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.decomp-label:hover {
+  background: #f0eee9;
+}
+
+.decomp-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.decomp-chip mark {
+  background: #e8c400;
+  color: #101010;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.decomp-meta {
+  color: #64748b;
+  font-size: 11px;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.decomp-run {
+  flex: 0 0 auto;
+  font-size: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  background: #ffffff;
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+}
+
+.decomp-run:hover {
+  background: #fafafa;
+}
+
+.decomp-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(0, 0, 0, 0.04);
+  color: #555555;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.decomp-label.decomp-col-match {
+  background: rgba(255, 200, 0, 0.2);
+}
+
+.decomp-footer {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.decomp-requestor-select,
+.decomp-mvpd-select {
+  flex: 1 1 220px;
+  height: 32px;
+}
+
 .rest-v2-login-tool {
   margin-top: 2px;
   border: 1px solid #d8e4f8;

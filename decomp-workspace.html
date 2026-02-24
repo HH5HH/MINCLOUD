@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UP decomp Workspace</title>
+    <link rel="stylesheet" href="decomp-workspace.css" />
+  </head>
+  <body>
+    <main class="workspace-app">
+      <header class="workspace-header">
+        <div class="workspace-title-wrap">
+          <h1>UP decomp Workspace</h1>
+          <p id="workspace-controller-state" class="workspace-controller-state">
+            Waiting for UnderPAR side panel controller...
+          </p>
+          <p id="workspace-filter-state" class="workspace-filter-state"></p>
+        </div>
+        <div class="workspace-actions">
+          <button id="workspace-rerun-all" type="button">Re-run all</button>
+          <button id="workspace-clear-all" type="button">Clear</button>
+        </div>
+      </header>
+
+      <p id="workspace-status" class="workspace-status" aria-live="polite"></p>
+
+      <section id="workspace-cards" class="workspace-cards">
+        <p id="workspace-empty" class="workspace-empty">
+          Use decomp in the UnderPAR side panel to open reports here.
+        </p>
+      </section>
+    </main>
+
+    <script src="decomp-workspace.js"></script>
+  </body>
+</html>

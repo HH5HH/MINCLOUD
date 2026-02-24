@@ -6,8 +6,10 @@ const IMS_PROFILE_URL = "https://ims-na1.adobelogin.com/ims/profile/v1";
 const IMS_ORGS_URL = "https://ims-na1.adobelogin.com/ims/organizations/v5";
 const IMS_LEGACY_REDIRECT_URI = "https://login.aepdebugger.adobe.com";
 const LOGIN_HELPER_PATH = "src/login/login.html";
-const LOGIN_HELPER_RESULT_PREFIX = "mincloudlogin_helper_result_v1:";
-const LOGIN_HELPER_RESULT_MESSAGE_TYPE = "mincloudlogin:loginHelperResult";
+const LOGIN_HELPER_RESULT_PREFIX = "underpar_helper_result_v1:";
+const LEGACY_LOGIN_HELPER_RESULT_PREFIX = "mincloudlogin_helper_result_v1:";
+const LOGIN_HELPER_RESULT_MESSAGE_TYPE = "underpar:loginHelperResult";
+const LEGACY_LOGIN_HELPER_RESULT_MESSAGE_TYPE = "mincloudlogin:loginHelperResult";
 const CONSOLE_AUTH_CALLBACK_PREFIX = "https://console.auth.adobe.com/oauth2/callback";
 
 const ADOBE_CONSOLE_BASE = "https://console.auth.adobe.com";
@@ -20,9 +22,10 @@ const PROGRAMMER_ENDPOINTS = [
   `${ADOBE_CONSOLE_BASE}/rest/api/programmers`,
   `${ADOBE_CONSOLE_BASE}/rest/api/v1/programmers`,
 ];
-const DCR_CACHE_PREFIX = "mincloudlogin_dcr_cache_v1";
+const DCR_CACHE_PREFIX = "underpar_dcr_cache_v1";
+const LEGACY_DCR_CACHE_PREFIX = "mincloudlogin_dcr_cache_v1";
 const PREMIUM_SERVICE_ORDER = ["restV2", "esm", "degradation"];
-const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "clickEsm", "degradation"];
+const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "clickEsm", "decompTree", "degradation"];
 const PREMIUM_SERVICE_SCOPE_BY_KEY = {
   degradation: "decisions:owner",
   esm: "analytics:client",
@@ -33,9 +36,11 @@ const PREMIUM_SERVICE_TITLE_BY_KEY = {
   degradation: "Degradation",
   esm: "ESM",
   clickEsm: "clickESM",
+  decompTree: "decomp",
   restV2: "REST V2",
 };
-const REST_V2_DEVICE_ID_STORAGE_KEY = "mincloudlogin_restv2_device_id_v1";
+const REST_V2_DEVICE_ID_STORAGE_KEY = "underpar_restv2_device_id_v1";
+const LEGACY_REST_V2_DEVICE_ID_STORAGE_KEY = "mincloudlogin_restv2_device_id_v1";
 const REST_V2_DEFAULT_DOMAIN = "adobe.com";
 const REST_V2_REDIRECT_CANDIDATES = [
   "https://sp.auth-staging.adobe.com/apitest/api.html",
@@ -44,9 +49,10 @@ const REST_V2_REDIRECT_CANDIDATES = [
 ];
 
 const STORAGE_KEY = "ims_login_data";
-const BUILD_INFO_KEY = "mincloudlogin_build_info";
-const DEBUG_FLOW_STORAGE_INDEX_KEY = "minclouddebug_flow_index_v1";
-const DEBUG_FLOW_STORAGE_PREFIX = "minclouddebug_flow_v1:";
+const DEBUG_FLOW_STORAGE_INDEX_KEY = "underpardebug_flow_index_v1";
+const LEGACY_DEBUG_FLOW_STORAGE_INDEX_KEY = "minclouddebug_flow_index_v1";
+const DEBUG_FLOW_STORAGE_PREFIX = "underpardebug_flow_v1:";
+const LEGACY_DEBUG_FLOW_STORAGE_PREFIX = "minclouddebug_flow_v1:";
 const AUTH_WINDOW_TIMEOUT_MS = 180000;
 const TOKEN_REFRESH_LEEWAY_MS = 2 * 60 * 1000;
 const AUTH_DEBUGGER_PROTOCOL_VERSION = "1.3";
@@ -58,7 +64,7 @@ const REST_V2_CONFIG_ATTEMPT_CONCURRENCY = 2;
 const REST_V2_PREPARED_LOGIN_MAX_AGE_MS = 2 * 60 * 1000;
 const DEBUG_TEXT_PREVIEW_LIMIT = 12000;
 const DEBUG_REDACT_SENSITIVE = false;
-const MINTOOLS_TRACE_VIEW_PATH = "mincloud-devtools-panel.html";
+const UP_TRACE_VIEW_PATH = "up-devtools-panel.html";
 const REST_V2_LOGIN_WINDOW_WIDTH = 980;
 const REST_V2_LOGIN_WINDOW_HEIGHT = 860;
 const REST_V2_LOGOUT_NAVIGATION_TIMEOUT_MS = 35000;
@@ -68,6 +74,11 @@ const ESM_AUTO_REFRESH_INTERVAL_MS = 60 * 1000;
 const CLICK_ESM_INLINE_RESULT_LIMIT = 50;
 const CLICK_ESM_CSV_RESULT_LIMIT = 10000;
 const CLICK_ESM_ENDPOINTS_PATH = "click-esm-endpoints.json";
+const DECOMP_INLINE_RESULT_LIMIT = 50;
+const DECOMP_CSV_RESULT_LIMIT = 10000;
+const DECOMP_WORKSPACE_PATH = "decomp-workspace.html";
+const DECOMP_MESSAGE_TYPE = "underpar:decomp";
+const LEGACY_DECOMP_MESSAGE_TYPE = "mincloud:decomp";
 const ESM_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
 const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 // Redirect-host filtering mode for HAR trimming.
@@ -88,13 +99,19 @@ const AVATAR_DIRECT_LOAD_TIMEOUT_MS = 1200;
 const AVATAR_IMS_REFRESH_COOLDOWN_MS = 2 * 60 * 1000;
 const IMS_AVATAR_CLIENT_IDS = ["AdobePass1", IMS_CLIENT_ID];
 const IMS_PROFILE_CLIENT_IDS = [IMS_CLIENT_ID, "AdobePass1"];
-const AVATAR_CACHE_STORAGE_PREFIX = "mincloudlogin_avatar_cache_v2:";
+const AVATAR_CACHE_STORAGE_PREFIX = "underpar_avatar_cache_v2:";
+const LEGACY_AVATAR_CACHE_STORAGE_PREFIX = "mincloudlogin_avatar_cache_v2:";
 const AVATAR_MAX_LOCALSTORAGE_DATAURL_BYTES = 220000;
 const IMS_LOGOUT_URLS = [
   `https://ims-na1.adobelogin.com/ims/logout/v1?client_id=${encodeURIComponent(IMS_CLIENT_ID)}&locale=en_US`,
   "https://ims-na1.adobelogin.com/ims/logout/v1?client_id=AdobePass1&locale=en_US",
   "https://ims-na1.adobelogin.com/ims/logout?locale=en_US",
 ];
+const LOGIN_HELPER_RESULT_MESSAGE_TYPES = new Set([
+  LOGIN_HELPER_RESULT_MESSAGE_TYPE,
+  LEGACY_LOGIN_HELPER_RESULT_MESSAGE_TYPE,
+]);
+const DECOMP_MESSAGE_TYPES = new Set([DECOMP_MESSAGE_TYPE, LEGACY_DECOMP_MESSAGE_TYPE]);
 
 const state = {
   busy: false,
@@ -150,6 +167,11 @@ const state = {
   consoleContextReady: false,
   consoleContextPromise: null,
   isBootstrapping: false,
+  decompWorkspaceTabId: 0,
+  decompWorkspaceWindowId: 0,
+  decompWorkspaceTabIdByWindowId: new Map(),
+  decompRuntimeListenerBound: false,
+  decompWorkspaceTabWatcherBound: false,
 };
 
 const els = {
@@ -184,10 +206,10 @@ let clickEsmEndpointsPromise = null;
 
 function log(message, details = null) {
   if (details === null) {
-    console.log(`[MinCloudLogin] ${message}`);
+    console.log(`[UnderPAR] ${message}`);
     return;
   }
-  console.log(`[MinCloudLogin] ${message}`, details);
+  console.log(`[UnderPAR] ${message}`, details);
 }
 
 function setStatus(message = "", type = "info") {
@@ -280,7 +302,7 @@ async function sendRuntimeMessageSafe(payload) {
 
 async function startRestV2DebugFlow(context = {}, trigger = "test-mvpd-login") {
   const response = await sendRuntimeMessageSafe({
-    type: "minclouddebug:startFlow",
+    type: "underpardebug:startFlow",
     trigger,
     context,
   });
@@ -296,7 +318,7 @@ function emitRestV2DebugEvent(flowId, event = {}) {
   }
 
   void sendRuntimeMessageSafe({
-    type: "minclouddebug:traceEvent",
+    type: "underpardebug:traceEvent",
     flowId,
     event,
   });
@@ -308,7 +330,7 @@ async function bindRestV2DebugFlowToTab(flowId, tabId, metadata = {}) {
   }
 
   const response = await sendRuntimeMessageSafe({
-    type: "minclouddebug:bindFlowTab",
+    type: "underpardebug:bindFlowTab",
     flowId,
     tabId: Number(tabId),
     metadata,
@@ -323,7 +345,7 @@ async function stopRestV2DebugFlowAndSnapshot(flowId, reason = "manual") {
   }
 
   const response = await sendRuntimeMessageSafe({
-    type: "minclouddebug:stopFlow",
+    type: "underpardebug:stopFlow",
     flowId: normalizedFlowId,
     reason,
   });
@@ -560,7 +582,7 @@ function buildDcrDeviceInfo() {
 
   return JSON.stringify({
     deviceType: "ChromeExtension",
-    deviceName: "MinCloudLogin",
+    deviceName: "UnderPAR",
     deviceOS: "Desktop",
     userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "",
     screen: screenInfo,
@@ -581,6 +603,12 @@ function getStableRestV2DeviceIdentifier() {
     const cached = localStorage.getItem(REST_V2_DEVICE_ID_STORAGE_KEY);
     if (cached) {
       return cached;
+    }
+
+    const legacyCached = localStorage.getItem(LEGACY_REST_V2_DEVICE_ID_STORAGE_KEY);
+    if (legacyCached) {
+      localStorage.setItem(REST_V2_DEVICE_ID_STORAGE_KEY, legacyCached);
+      return legacyCached;
     }
 
     const generated =
@@ -655,7 +683,7 @@ function buildLegacyDeviceInfoPayload(requestorId) {
     userAgent: navigator.userAgent || "",
     connectionType: navigator.connection?.effectiveType || "WiFi",
     connectionSecure: window.location.protocol === "https:",
-    applicationId: requestorId || window.location.hostname || "MinCloudLogin",
+    applicationId: requestorId || window.location.hostname || "UnderPAR",
   };
 }
 
@@ -949,8 +977,8 @@ async function openRestV2LoginPopupWindow() {
   };
 }
 
-function getMinToolsTraceViewerUrl(tabId, flowId = "") {
-  const url = new URL(chrome.runtime.getURL(MINTOOLS_TRACE_VIEW_PATH));
+function getUPTraceViewerUrl(tabId, flowId = "") {
+  const url = new URL(chrome.runtime.getURL(UP_TRACE_VIEW_PATH));
   const normalizedTabId = Number(tabId || 0);
   if (Number.isFinite(normalizedTabId) && normalizedTabId > 0) {
     url.searchParams.set("tabId", String(normalizedTabId));
@@ -963,13 +991,13 @@ function getMinToolsTraceViewerUrl(tabId, flowId = "") {
   return url.toString();
 }
 
-async function openOrFocusMinToolsTraceViewer(tabId, flowId = "") {
+async function openOrFocusUPTraceViewer(tabId, flowId = "") {
   const normalizedTabId = Number(tabId || 0);
   if (!Number.isFinite(normalizedTabId) || normalizedTabId <= 0) {
-    return { ok: false, error: "Unable to open MinTools trace: missing login tab id." };
+    return { ok: false, error: "Unable to open UP trace: missing login tab id." };
   }
 
-  const traceViewerUrl = getMinToolsTraceViewerUrl(normalizedTabId, flowId);
+  const traceViewerUrl = getUPTraceViewerUrl(normalizedTabId, flowId);
   const existingTraceViewerTabId = Number(state.restV2TraceViewerTabId || 0);
 
   if (Number.isFinite(existingTraceViewerTabId) && existingTraceViewerTabId > 0) {
@@ -1018,7 +1046,7 @@ async function openOrFocusMinToolsTraceViewer(tabId, flowId = "") {
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "Unable to open MinTools trace viewer.",
+      error: error instanceof Error ? error.message : "Unable to open UP trace viewer.",
     };
   }
 }
@@ -1379,7 +1407,7 @@ async function launchRestV2MvpdLogin(section, programmer, appInfo) {
       "start-recording-click"
     );
     if (!debugFlowId) {
-      throw new Error("Unable to start MinTools HTTP recording flow.");
+      throw new Error("Unable to start UP HTTP recording flow.");
     }
 
     state.restV2DebugFlowId = debugFlowId;
@@ -1464,7 +1492,7 @@ async function launchRestV2MvpdLogin(section, programmer, appInfo) {
         active: true,
       });
 
-      const traceViewerResult = await openOrFocusMinToolsTraceViewer(state.restV2LastLaunchTabId, debugFlowId);
+      const traceViewerResult = await openOrFocusUPTraceViewer(state.restV2LastLaunchTabId, debugFlowId);
       if (traceViewerResult.ok) {
         emitRestV2DebugEvent(debugFlowId, {
           source: "extension",
@@ -1477,7 +1505,7 @@ async function launchRestV2MvpdLogin(section, programmer, appInfo) {
         emitRestV2DebugEvent(debugFlowId, {
           source: "extension",
           phase: "trace-view-open-failed",
-          error: traceViewerResult.error || "Unable to open MinTools trace viewer.",
+          error: traceViewerResult.error || "Unable to open UP trace viewer.",
         });
       }
     } else {
@@ -2261,7 +2289,7 @@ function buildWebRequestHarEntries(flowEvents = [], context = null) {
         wait: durationMs,
         receive: 0,
       },
-      _mincloud: {
+      _underpar: {
         source: "web-request",
         tabId: record.tabId,
         requestId: record.requestId,
@@ -2366,7 +2394,7 @@ function buildExtensionHarEntries(flowEvents = []) {
         wait: durationMs,
         receive: 0,
       },
-      _mincloud: {
+      _underpar: {
         source: "extension-restv2",
         requestorId: String(event?.requestorId || requestEvent?.requestorId || ""),
         mvpd: String(event?.mvpd || requestEvent?.mvpd || ""),
@@ -2420,7 +2448,7 @@ function buildExtensionHarEntries(flowEvents = []) {
           wait: 0,
           receive: 0,
         },
-        _mincloud: {
+        _underpar: {
           source: "extension-restv2",
           requestorId: String(requestEvent?.requestorId || ""),
           mvpd: String(requestEvent?.mvpd || ""),
@@ -2463,7 +2491,7 @@ function buildHarLogFromFlowSnapshot(flowSnapshot, context = null, logoutResult 
     log: {
       version: "1.2",
       creator: {
-        name: "MinCloudLogin",
+        name: "UnderPAR",
         version: String(manifestVersion || "0"),
       },
       browser: {
@@ -2482,7 +2510,7 @@ function buildHarLogFromFlowSnapshot(flowSnapshot, context = null, logoutResult 
         ...entry,
         pageref: pageId,
       })),
-      _mincloud: {
+      _underpar: {
         flowId: String(flowSnapshot?.flowId || ""),
         eventCount: flowEvents.length,
         context: compactContext,
@@ -2507,7 +2535,7 @@ function buildRestV2HarFilename(context = null, logoutResult = null) {
   const mvpd = sanitizeHarFileSegment(context?.mvpd || "mvpd", "mvpd");
   const mode = logoutResult?.performed ? "full-login-logout" : "failed-login-attempt";
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return `mincloud-restv2-${requestor}-${mvpd}-${mode}-${stamp}.har`;
+  return `underpar-restv2-${requestor}-${mvpd}-${mode}-${stamp}.har`;
 }
 
 function downloadHarFile(harPayload, fileName) {
@@ -3165,11 +3193,11 @@ function refreshEsmPanels() {
   }
 
   sections.forEach((section) => {
-    if (typeof section.__mincloudRefreshEsm === "function") {
-      void section.__mincloudRefreshEsm();
+    if (typeof section.__underparRefreshEsm === "function") {
+      void section.__underparRefreshEsm();
     }
-    if (typeof section.__mincloudRefreshClickEsm === "function") {
-      void section.__mincloudRefreshClickEsm();
+    if (typeof section.__underparRefreshClickEsm === "function") {
+      void section.__underparRefreshClickEsm();
     }
   });
 }
@@ -3606,9 +3634,7 @@ function syncClickEsmMvpdMenusForRequestor(requestorId, mvpdMap) {
     return;
   }
 
-  const sections = document.querySelectorAll(".premium-service-section.service-esm-click");
-  sections.forEach((section) => {
-    const clickState = section?.__mincloudClickEsmState || null;
+  getInteractiveEsmStates().forEach((clickState) => {
     if (!clickState?.section?.isConnected || !clickState.requestorSelect || !clickState.mvpdSelect) {
       return;
     }
@@ -3636,15 +3662,16 @@ function syncClickEsmMvpdMenusForRequestor(requestorId, mvpdMap) {
     clickEsmApplyMvpdOptions(clickState, [...mvpdMap.entries()], desiredSelectedIds);
     clickState.mvpdSelect.disabled = false;
     clickEsmRememberMvpdSelection(clickState);
+    if (clickState.serviceType === "decompTree") {
+      decompBroadcastControllerState(clickState);
+    }
   });
 }
 
 function clearClickEsmMvpdMenusForRequestor(requestorId, label = "-- MVPD config unavailable --") {
   const normalizedRequestorId = String(requestorId || "").trim();
   const clearAll = normalizedRequestorId.length === 0;
-  const sections = document.querySelectorAll(".premium-service-section.service-esm-click");
-  sections.forEach((section) => {
-    const clickState = section?.__mincloudClickEsmState || null;
+  getInteractiveEsmStates().forEach((clickState) => {
     if (!clickState?.section?.isConnected || !clickState.requestorSelect || !clickState.mvpdSelect) {
       return;
     }
@@ -3662,6 +3689,9 @@ function clearClickEsmMvpdMenusForRequestor(requestorId, label = "-- MVPD config
     clickState.mvpdSelect.disabled = true;
     clickState.mvpdSelect.hidden = false;
     clickState.lastKnownSelectedMvpdIds = new Set();
+    if (clickState.serviceType === "decompTree") {
+      decompBroadcastControllerState(clickState);
+    }
   });
 }
 
@@ -3783,9 +3813,13 @@ async function clickEsmApplyRequestorSelection(clickState, requestorIds, request
   if (!clickState.mvpdSelect) {
     return;
   }
+  const serviceLabel = clickState?.serviceType === "decompTree" ? "decomp" : "clickESM";
 
   if (!requestorIds.length) {
     clickEsmHideMvpdSelector(clickState);
+    if (clickState?.serviceType === "decompTree") {
+      decompBroadcastControllerState(clickState);
+    }
     return;
   }
 
@@ -3813,13 +3847,16 @@ async function clickEsmApplyRequestorSelection(clickState, requestorIds, request
     if (failures.length > 0) {
       const firstFailure = failures[0];
       const reason = firstFailure instanceof Error ? firstFailure.message : String(firstFailure);
-      setStatus(`REST V2 configuration failed for clickESM MVPD list: ${reason}`, "error");
+      setStatus(`REST V2 configuration failed for ${serviceLabel} MVPD list: ${reason}`, "error");
+    }
+    if (clickState?.serviceType === "decompTree") {
+      decompBroadcastControllerState(clickState);
     }
     return;
   }
   if (failures.length > 0) {
     const firstFailure = failures[0];
-    log("clickESM MVPD merge fallback", {
+    log(`${serviceLabel} MVPD merge fallback`, {
       failedRequests: failures.length,
       reason: firstFailure instanceof Error ? firstFailure.message : String(firstFailure),
     });
@@ -3848,6 +3885,9 @@ async function clickEsmApplyRequestorSelection(clickState, requestorIds, request
   if (mergedMap.size === 0) {
     clickState.mvpdSelect.innerHTML = '<option value="">-- No MVPDs available --</option>';
     clickState.mvpdSelect.disabled = true;
+    if (clickState?.serviceType === "decompTree") {
+      decompBroadcastControllerState(clickState);
+    }
     return;
   }
 
@@ -3855,6 +3895,9 @@ async function clickEsmApplyRequestorSelection(clickState, requestorIds, request
   clickEsmRememberMvpdSelection(clickState);
   clickState.mvpdSelect.disabled = false;
   setStatus("", "info");
+  if (clickState?.serviceType === "decompTree") {
+    decompBroadcastControllerState(clickState);
+  }
 }
 
 function clickEsmScheduleRequestorSelection(clickState, requestToken) {
@@ -3954,9 +3997,7 @@ function syncClickEsmRequestorMenus(requestorIds, selectedRequestorId = "", opti
   const targetSelection = String(selectedRequestorId || "").trim();
   const requestToken = Number(options.requestToken || state.premiumPanelRequestToken);
   const emptyLabel = String(options.emptyLabel || "No requestor-id values returned.");
-  const sections = document.querySelectorAll(".premium-service-section.service-esm-click");
-  sections.forEach((section) => {
-    const clickState = section?.__mincloudClickEsmState || null;
+  getInteractiveEsmStates().forEach((clickState) => {
     if (!clickState?.section?.isConnected || !clickState.requestorSelect) {
       return;
     }
@@ -3968,6 +4009,9 @@ function syncClickEsmRequestorMenus(requestorIds, selectedRequestorId = "", opti
       selectedRequestorId: targetSelection,
       emptyLabel,
     });
+    if (clickState.serviceType === "decompTree") {
+      decompBroadcastControllerState(clickState);
+    }
   });
 }
 
@@ -4313,11 +4357,11 @@ async function loadClickEsmService(programmer, appInfo, section, contentElement,
     return;
   }
 
-  const existingClickState = section?.__mincloudClickEsmState;
+  const existingClickState = section?.__underparClickEsmState;
   if (existingClickState?.requestorApplyTimer) {
     clearTimeout(existingClickState.requestorApplyTimer);
   }
-  section.__mincloudClickEsmState = null;
+  section.__underparClickEsmState = null;
 
   if (refreshButton) {
     refreshButton.disabled = true;
@@ -4336,6 +4380,7 @@ async function loadClickEsmService(programmer, appInfo, section, contentElement,
 
     contentElement.innerHTML = clickEsmBuildShellHtml(endpoints);
     const clickState = {
+      serviceType: "clickEsm",
       section,
       contentElement,
       programmer,
@@ -4353,7 +4398,7 @@ async function loadClickEsmService(programmer, appInfo, section, contentElement,
       mvpdSelect: contentElement.querySelector(".click-esm-mvpd-select"),
     };
 
-    section.__mincloudClickEsmState = clickState;
+    section.__underparClickEsmState = clickState;
     wireClickEsmInteractions(clickState, requestToken);
     clickEsmApplyEndpointFilters(clickState, { highlight: false });
     clickEsmApplySharedRequestorOptions(clickState, requestToken, {
@@ -4369,6 +4414,1323 @@ async function loadClickEsmService(programmer, appInfo, section, contentElement,
       });
       clickEsmRememberMvpdSelection(clickState);
     }
+  } catch (error) {
+    if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      return;
+    }
+    contentElement.innerHTML = `<div class="service-error">${escapeHtml(
+      error instanceof Error ? error.message : String(error)
+    )}</div>`;
+  } finally {
+    if (refreshButton && isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      refreshButton.disabled = false;
+    }
+  }
+}
+
+const DECOMP_SEGMENT_COLORS = {
+  "media-company": "#222222",
+  year: "#2D8CFF",
+  month: "#28C76F",
+  day: "#EA5455",
+  hour: "#FF9F43",
+  minute: "#A97142",
+  "requestor-id": "#D4A106",
+  proxy: "#8B5E34",
+  mvpd: "#00B8D9",
+  platform: "#6C7A89",
+  "platform-version": "#95A5A6",
+  dc: "#E67E22",
+  channel: "#1ABC9C",
+  "customer-app": "#2E86DE",
+  "application-name": "#9B59B6",
+  "application-version": "#AF7AC5",
+  nsdk: "#27AE60",
+  "nsdk-version": "#2ECC71",
+  "sso-type": "#F1C40F",
+  cdt: "#D35400",
+  eap: "#34495E",
+  "content-category": "#16A085",
+  "os-family": "#2980B9",
+  "browser-family": "#5DADE2",
+  "browser-version": "#85C1E9",
+  device: "#7F8C8D",
+  reason: "#C0392B",
+  "decision-type": "#7D3C98",
+  api: "#6C3483",
+  event: "#E84393",
+};
+
+function decompHexToRgb(hexValue) {
+  const match = String(hexValue || "")
+    .trim()
+    .match(/^#?([0-9a-f]{6})$/i);
+  if (!match) {
+    return null;
+  }
+  const parsed = Number.parseInt(match[1], 16);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return {
+    red: (parsed >> 16) & 255,
+    green: (parsed >> 8) & 255,
+    blue: parsed & 255,
+  };
+}
+
+function decompGetSegmentColor(segment) {
+  const key = String(segment || "").trim().toLowerCase();
+  return DECOMP_SEGMENT_COLORS[key] || "#6A6A6A";
+}
+
+function decompApplyChipColor(chipElement, segment) {
+  if (!chipElement) {
+    return;
+  }
+  const rgb = decompHexToRgb(decompGetSegmentColor(segment));
+  if (!rgb) {
+    return;
+  }
+  chipElement.style.color = `rgb(${rgb.red}, ${rgb.green}, ${rgb.blue})`;
+  chipElement.style.backgroundColor = `rgba(${rgb.red}, ${rgb.green}, ${rgb.blue}, 0.14)`;
+  chipElement.style.borderColor = `rgba(${rgb.red}, ${rgb.green}, ${rgb.blue}, 0.35)`;
+}
+
+function decompCompareSegments(left, right) {
+  const rank = {
+    "media-company": 0,
+    year: 1,
+    month: 2,
+    day: 3,
+    hour: 4,
+    minute: 5,
+  };
+  const leftKey = String(left || "").toLowerCase();
+  const rightKey = String(right || "").toLowerCase();
+  const leftRank = Object.prototype.hasOwnProperty.call(rank, leftKey) ? rank[leftKey] : 99;
+  const rightRank = Object.prototype.hasOwnProperty.call(rank, rightKey) ? rank[rightKey] : 99;
+  if (leftRank !== rightRank) {
+    return leftRank - rightRank;
+  }
+  return leftKey.localeCompare(rightKey, undefined, { sensitivity: "base" });
+}
+
+function decompExtractSegments(endpointUrl) {
+  try {
+    const parsed = new URL(endpointUrl);
+    const marker = "/esm/v3/";
+    let pathname = String(parsed.pathname || "");
+    const markerIndex = pathname.indexOf(marker);
+    if (markerIndex >= 0) {
+      pathname = pathname.slice(markerIndex + marker.length);
+    }
+    return pathname
+      .split("/")
+      .map((segment) => String(segment || "").trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function decompBuildCatalog(endpoints) {
+  return (Array.isArray(endpoints) ? endpoints : [])
+    .map((endpoint) => {
+      if (!endpoint || typeof endpoint !== "object") {
+        return null;
+      }
+      const url = String(endpoint.url || "").trim();
+      if (!url) {
+        return null;
+      }
+      const segs = decompExtractSegments(url);
+      const columns = Array.isArray(endpoint.columns)
+        ? endpoint.columns.map((value) => String(value || "").trim()).filter(Boolean)
+        : [];
+      const zoomKey = clickEsmGetZoomKey(endpoint);
+      return {
+        url,
+        zoomKey,
+        columns,
+        segs,
+        hay: `${segs.join(" ")} ${columns.join(" ")}`
+          .toLowerCase()
+          .replace(/\s+/g, ""),
+      };
+    })
+    .filter(Boolean);
+}
+
+function decompBuildTrie(catalog) {
+  const root = { key: "", endpointIndex: null, children: new Map() };
+  catalog.forEach((item, index) => {
+    let node = root;
+    item.segs.forEach((segment) => {
+      if (!node.children.has(segment)) {
+        node.children.set(segment, { key: segment, endpointIndex: null, children: new Map() });
+      }
+      node = node.children.get(segment);
+    });
+    node.endpointIndex = index;
+  });
+  return root;
+}
+
+function decompCompressTrie(node) {
+  let cursor = node;
+  const parts = [];
+  if (cursor.key) {
+    parts.push(cursor.key);
+  }
+
+  while (cursor.children.size === 1 && cursor.endpointIndex == null) {
+    const onlyChild = cursor.children.values().next().value;
+    parts.push(onlyChild.key);
+    cursor = onlyChild;
+  }
+
+  const output = {
+    parts,
+    endpointIndex: cursor.endpointIndex,
+    children: [],
+    count: 0,
+  };
+
+  const children = [...cursor.children.values()].sort((left, right) => decompCompareSegments(left.key, right.key));
+  output.children = children.map((child) => decompCompressTrie(child));
+  return output;
+}
+
+function decompCountEndpoints(node) {
+  let count = node.endpointIndex != null ? 1 : 0;
+  node.children.forEach((child) => {
+    count += decompCountEndpoints(child);
+  });
+  node.count = count;
+  return count;
+}
+
+function decompGetWorkspaceUrl() {
+  return chrome.runtime.getURL(DECOMP_WORKSPACE_PATH);
+}
+
+function decompIsWorkspaceTab(tabLike) {
+  return String(tabLike?.url || "").startsWith(decompGetWorkspaceUrl());
+}
+
+async function decompGetCurrentWindowId() {
+  try {
+    const currentWindow = await chrome.windows.getCurrent();
+    return Number(currentWindow?.id || 0);
+  } catch {
+    return 0;
+  }
+}
+
+function decompBindWorkspaceTab(windowId, tabId) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId > 0 && normalizedTabId > 0) {
+    state.decompWorkspaceTabIdByWindowId.set(normalizedWindowId, normalizedTabId);
+  }
+  if (normalizedWindowId > 0) {
+    state.decompWorkspaceWindowId = normalizedWindowId;
+  }
+  if (normalizedTabId > 0) {
+    state.decompWorkspaceTabId = normalizedTabId;
+  }
+}
+
+function decompUnbindWorkspaceTab(tabId) {
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedTabId > 0) {
+    for (const [windowId, mappedTabId] of state.decompWorkspaceTabIdByWindowId.entries()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        state.decompWorkspaceTabIdByWindowId.delete(windowId);
+      }
+    }
+  }
+
+  if (!normalizedTabId || Number(state.decompWorkspaceTabId || 0) === normalizedTabId) {
+    state.decompWorkspaceTabId = 0;
+    state.decompWorkspaceWindowId = 0;
+  }
+}
+
+function decompGetBoundWorkspaceTabId(windowId) {
+  const normalizedWindowId = Number(windowId || 0);
+  if (normalizedWindowId > 0) {
+    const mapped = Number(state.decompWorkspaceTabIdByWindowId.get(normalizedWindowId) || 0);
+    if (mapped > 0) {
+      return mapped;
+    }
+  }
+  return Number(state.decompWorkspaceTabId || 0);
+}
+
+function decompGetControllerStatePayload(decompState) {
+  const requestorIds = clickEsmGetSelectedValues(decompState?.requestorSelect);
+  const mvpdIds = decompState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(decompState?.mvpdSelect);
+  return {
+    controllerOnline: Boolean(decompState?.section?.isConnected),
+    programmerId: String(decompState?.programmer?.programmerId || ""),
+    programmerName: String(decompState?.programmer?.programmerName || ""),
+    requestorIds,
+    mvpdIds,
+    updatedAt: Date.now(),
+  };
+}
+
+async function decompSendWorkspaceMessage(event, payload = {}, options = {}) {
+  const targetWindowId = Number(options.targetWindowId || 0);
+  try {
+    const message = {
+      type: DECOMP_MESSAGE_TYPE,
+      channel: "workspace-event",
+      event: String(event || ""),
+      payload,
+    };
+    if (targetWindowId > 0) {
+      message.targetWindowId = targetWindowId;
+    }
+    await chrome.runtime.sendMessage(message);
+  } catch {
+    // Ignore when no workspace listener is active.
+  }
+}
+
+function decompBroadcastControllerState(decompState, targetWindowId = 0) {
+  if (!decompState) {
+    return;
+  }
+  const resolvedWindowId =
+    Number(targetWindowId || 0) || Number(decompState.controllerWindowId || 0) || Number(state.decompWorkspaceWindowId || 0);
+  void decompSendWorkspaceMessage("controller-state", decompGetControllerStatePayload(decompState), {
+    targetWindowId: resolvedWindowId,
+  });
+}
+
+async function decompEnsureWorkspaceTab(options = {}) {
+  const shouldActivate = options.activate !== false;
+  const requestedWindowId = Number(options.windowId || 0);
+  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await decompGetCurrentWindowId();
+  const useWindowFilter = targetWindowId > 0;
+  let workspaceTab = null;
+
+  const boundTabId = decompGetBoundWorkspaceTabId(targetWindowId);
+  if (boundTabId > 0) {
+    try {
+      const existing = await chrome.tabs.get(boundTabId);
+      if (decompIsWorkspaceTab(existing) && (!useWindowFilter || Number(existing.windowId || 0) === targetWindowId)) {
+        workspaceTab = existing;
+      }
+    } catch {
+      decompUnbindWorkspaceTab(boundTabId);
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    try {
+      const allTabs = await chrome.tabs.query(useWindowFilter ? { windowId: targetWindowId } : { currentWindow: true });
+      workspaceTab = allTabs.find((tab) => decompIsWorkspaceTab(tab)) || null;
+    } catch {
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    workspaceTab = await chrome.tabs.create({
+      url: decompGetWorkspaceUrl(),
+      active: shouldActivate,
+      ...(useWindowFilter ? { windowId: targetWindowId } : {}),
+    });
+  } else if (shouldActivate && workspaceTab.id) {
+    try {
+      workspaceTab = await chrome.tabs.update(workspaceTab.id, { active: true });
+      if (Number(workspaceTab?.windowId || 0) > 0) {
+        await chrome.windows.update(Number(workspaceTab.windowId), { focused: true });
+      }
+    } catch {
+      // Ignore activation failures; workspace may still be available.
+    }
+  }
+
+  decompBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+  return workspaceTab;
+}
+
+function decompSetNetworkBusy(decompState, isBusy) {
+  if (!decompState?.contentElement) {
+    return;
+  }
+  const shell = decompState.contentElement.querySelector(".decomp-shell");
+  const indicator = decompState.contentElement.querySelector(".decomp-net-indicator");
+  if (shell) {
+    shell.classList.toggle("net-busy", Boolean(isBusy));
+  }
+  if (indicator) {
+    indicator.hidden = !isBusy;
+  }
+}
+
+function decompStartNetwork(decompState) {
+  if (!decompState) {
+    return;
+  }
+  decompState.netInFlight = Number(decompState.netInFlight || 0) + 1;
+  if (decompState.netInFlight === 1) {
+    decompSetNetworkBusy(decompState, true);
+  }
+}
+
+function decompEndNetwork(decompState) {
+  if (!decompState) {
+    return;
+  }
+  decompState.netInFlight = Math.max(0, Number(decompState.netInFlight || 0) - 1);
+  if (decompState.netInFlight === 0) {
+    decompSetNetworkBusy(decompState, false);
+  }
+}
+
+function decompBuildEndpointUrl(decompState, endpoint) {
+  const zoomKey = clickEsmGetZoomKey(endpoint);
+  const timeWindow = clickEsmComputeTimeWindow(zoomKey);
+  const requestorIds = clickEsmGetSelectedValues(decompState?.requestorSelect);
+  const mvpdIds = decompState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(decompState?.mvpdSelect);
+
+  const parsed = new URL(endpoint.url);
+  parsed.searchParams.set("start", timeWindow.start);
+  parsed.searchParams.set("end", timeWindow.end);
+  parsed.searchParams.set("format", "json");
+  parsed.searchParams.delete("requestor-id");
+  parsed.searchParams.delete("mvpd");
+  requestorIds.forEach((requestorId) => {
+    parsed.searchParams.append("requestor-id", requestorId);
+  });
+  mvpdIds.forEach((mvpdId) => {
+    parsed.searchParams.append("mvpd", mvpdId);
+  });
+  return parsed.toString();
+}
+
+function decompBuildRequestMetadata(decompState) {
+  const requestorIds = clickEsmGetSelectedValues(decompState?.requestorSelect);
+  const mvpds = clickEsmGetSelectedValues(decompState?.mvpdSelect);
+  return {
+    requestorId: requestorIds[0] || "",
+    mvpd: mvpds[0] || "",
+  };
+}
+
+async function decompFetchWithPremiumAuth(decompState, url, options = {}, limit = DECOMP_CSV_RESULT_LIMIT) {
+  const finalUrl = clickEsmEnsureLimit(url, limit);
+  const requestMeta = decompBuildRequestMetadata(decompState);
+  decompStartNetwork(decompState);
+  try {
+    return await fetchWithPremiumAuth(
+      decompState.programmer?.programmerId,
+      decompState.appInfo,
+      finalUrl,
+      options,
+      "refresh",
+      {
+        scope: "esm-decomp",
+        requestorId: requestMeta.requestorId,
+        mvpd: requestMeta.mvpd,
+      }
+    );
+  } finally {
+    decompEndNetwork(decompState);
+  }
+}
+
+function decompNormalizeSortRule(rule) {
+  if (!rule || typeof rule !== "object") {
+    return null;
+  }
+  const col = String(rule.col || "").trim();
+  if (!col) {
+    return null;
+  }
+  const dir = String(rule.dir || "DESC").toUpperCase() === "ASC" ? "ASC" : "DESC";
+  return { col, dir };
+}
+
+function decompBuildCsvFileName(decompState, endpointUrl) {
+  let endpointPath = "endpoint";
+  try {
+    const parsed = new URL(endpointUrl);
+    endpointPath = parsed.pathname.replace(/^\/+/, "").replace(/\//g, "-");
+  } catch {
+    endpointPath = "endpoint";
+  }
+
+  const selectedRequestorIds = clickEsmGetSelectedValues(decompState?.requestorSelect);
+  const selectedMvpds = decompState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(decompState?.mvpdSelect);
+  const requestorId = sanitizeHarFileSegment(selectedRequestorIds.join("-") || "all-requestors", "all-requestors");
+  const mvpdId = sanitizeHarFileSegment(selectedMvpds.join("-") || "all-mvpds", "all-mvpds");
+  const endpointSegment = sanitizeHarFileSegment(endpointPath, "endpoint");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `decomp_${sanitizeHarFileSegment(decompState?.programmer?.programmerId, "programmer")}_${requestorId}_${mvpdId}_${endpointSegment}_${stamp}.csv`;
+}
+
+function decompFindEndpointByUrl(decompState, endpointUrl, fallback = {}) {
+  const normalizedUrl = String(endpointUrl || "").trim();
+  if (!normalizedUrl) {
+    return null;
+  }
+  const mappedEndpoint = decompState?.endpointByUrl?.get(normalizedUrl) || null;
+  if (mappedEndpoint) {
+    return mappedEndpoint;
+  }
+  return {
+    url: normalizedUrl,
+    zoomKey: String(fallback.zoomKey || clickEsmGetZoomKey({ url: normalizedUrl }) || ""),
+    columns: Array.isArray(fallback.columns)
+      ? fallback.columns.map((value) => String(value || "").trim()).filter(Boolean)
+      : [],
+  };
+}
+
+async function decompDownloadCsvForCard(decompState, endpoint, sortRule, requestToken, cardId = "") {
+  const targetWindowId = Number(decompState?.controllerWindowId || state.decompWorkspaceWindowId || 0);
+  const normalizedSort = decompNormalizeSortRule(sortRule);
+  const dataUrl = decompBuildEndpointUrl(decompState, endpoint);
+  const response = await decompFetchWithPremiumAuth(decompState, dataUrl, { method: "GET" }, DECOMP_CSV_RESULT_LIMIT);
+  if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
+    return;
+  }
+  if (!response.ok) {
+    throw new Error(`CSV request failed (${response.status})`);
+  }
+
+  const payload = await response.json().catch(() => null);
+  const rows = Array.isArray(payload?.report) ? payload.report : [];
+  if (rows.length === 0) {
+    return;
+  }
+
+  const firstRow = rows[0];
+  const context = {
+    hasAuthN: firstRow["authn-attempts"] != null && firstRow["authn-successful"] != null,
+    hasAuthZ: firstRow["authz-attempts"] != null && firstRow["authz-successful"] != null,
+  };
+
+  downloadEsmCsv(rows, normalizedSort || getDefaultEsmSortStack()[0], context, decompBuildCsvFileName(decompState, endpoint.url));
+  if (cardId) {
+    void decompSendWorkspaceMessage("csv-complete", {
+      cardId: String(cardId),
+      endpointUrl: endpoint.url,
+      completedAt: Date.now(),
+    }, {
+      targetWindowId,
+    });
+  }
+}
+
+async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, requestToken, options = {}) {
+  if (!endpoint?.url) {
+    return;
+  }
+  const normalizedCardId = String(cardId || generateRequestId());
+  const reportMeta = {
+    cardId: normalizedCardId,
+    endpointUrl: endpoint.url,
+    zoomKey: clickEsmGetZoomKey(endpoint),
+    columns: Array.isArray(endpoint.columns)
+      ? endpoint.columns.map((value) => String(value || "").trim()).filter(Boolean)
+      : [],
+  };
+  const targetWindowId = Number(decompState?.controllerWindowId || state.decompWorkspaceWindowId || 0);
+
+  if (options.emitStart !== false) {
+    void decompSendWorkspaceMessage("report-start", {
+      ...reportMeta,
+      requestSource: String(options.requestSource || "tree"),
+      startedAt: Date.now(),
+    }, {
+      targetWindowId,
+    });
+  }
+
+  if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
+    return;
+  }
+
+  const requestUrl = decompBuildEndpointUrl(decompState, endpoint);
+  let response;
+  try {
+    response = await decompFetchWithPremiumAuth(decompState, requestUrl, { method: "GET" }, DECOMP_INLINE_RESULT_LIMIT);
+  } catch (error) {
+    void decompSendWorkspaceMessage("report-result", {
+      ...reportMeta,
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+      rows: [],
+      completedAt: Date.now(),
+    }, {
+      targetWindowId,
+    });
+    return;
+  }
+
+  if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
+    return;
+  }
+
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => "");
+    void decompSendWorkspaceMessage("report-result", {
+      ...reportMeta,
+      ok: false,
+      error: `HTTP ${response.status} ${normalizeHttpErrorMessage(bodyText) || response.statusText || "Request failed"}`,
+      status: Number(response.status || 0),
+      rows: [],
+      completedAt: Date.now(),
+    }, {
+      targetWindowId,
+    });
+    return;
+  }
+
+  const bodyText = await response.text().catch(() => "");
+  let payload = null;
+  if (bodyText) {
+    try {
+      payload = JSON.parse(bodyText);
+    } catch {
+      payload = null;
+    }
+  }
+
+  if (!payload && bodyText.trim()) {
+    void decompSendWorkspaceMessage("report-result", {
+      ...reportMeta,
+      ok: false,
+      error: bodyText.trim(),
+      rows: [],
+      completedAt: Date.now(),
+    }, {
+      targetWindowId,
+    });
+    return;
+  }
+
+  const rows = Array.isArray(payload?.report) ? payload.report : [];
+  void decompSendWorkspaceMessage("report-result", {
+    ...reportMeta,
+    ok: true,
+    rows,
+    noData: rows.length === 0,
+    lastModified: response.headers.get("Last-Modified") || response.headers.get("Date") || "",
+    completedAt: Date.now(),
+  }, {
+    targetWindowId,
+  });
+}
+
+function decompBuildShellHtml() {
+  const zoomOptions = CLICK_ESM_ZOOM_OPTIONS.map((key) => {
+    const value = escapeHtml(key);
+    const label = key ? escapeHtml(key) : "";
+    return `<option value="${value}">${label}</option>`;
+  }).join("");
+
+  return `
+    <div class="decomp-shell">
+      <div class="decomp-toolbar">
+        <select class="decomp-zoom-filter" title="Zoom Level">${zoomOptions}</select>
+        <input type="text" class="decomp-search" placeholder="Search segments / columns..." />
+        <button type="button" class="decomp-find-btn">FIND IT</button>
+        <button type="button" class="decomp-reset-btn">RESET</button>
+        <span class="decomp-net-indicator" title="Loading" aria-label="Loading" hidden></span>
+      </div>
+      <div class="decomp-tree-head">
+        <div class="decomp-tree-title">decomp</div>
+        <div class="decomp-tree-actions">
+          <button type="button" class="decomp-open-workspace-btn">OPEN WORKSPACE</button>
+          <button type="button" class="decomp-expand-btn">Expand</button>
+          <button type="button" class="decomp-collapse-btn">Collapse</button>
+          <span class="decomp-tree-stats"></span>
+        </div>
+      </div>
+      <div class="decomp-tree-scroll">
+        <div class="decomp-tree-root"></div>
+      </div>
+      <div class="decomp-footer">
+        <select
+          class="decomp-requestor-select click-esm-requestor-select"
+          multiple
+          size="1"
+          title="Filter by selected requestor-id(s)"
+        ></select>
+        <select
+          class="decomp-mvpd-select click-esm-mvpd-select"
+          multiple
+          size="1"
+          title="Filter by selected MVPD(s)"
+          disabled
+          hidden
+        ></select>
+      </div>
+    </div>
+  `;
+}
+
+function decompRenderTreeNode(decompState, node, parentUl, requestToken) {
+  const item = document.createElement("li");
+  const nodeRow = document.createElement("div");
+  nodeRow.className = "decomp-node";
+
+  const twisty = document.createElement("span");
+  twisty.className = "decomp-twisty";
+  const hasChildren = Array.isArray(node.children) && node.children.length > 0;
+  twisty.textContent = hasChildren ? "+" : "";
+  if (!hasChildren) {
+    twisty.classList.add("hidden");
+  }
+
+  const label = document.createElement("span");
+  label.className = "decomp-label";
+  const parts = Array.isArray(node.parts) ? node.parts : [];
+  parts.forEach((segment, index) => {
+    const chip = document.createElement("span");
+    chip.className = "decomp-chip";
+    chip.dataset.raw = String(segment || "");
+    chip.textContent = String(segment || "");
+    decompApplyChipColor(chip, segment);
+    label.appendChild(chip);
+
+    if (index < parts.length - 1) {
+      const separator = document.createElement("span");
+      separator.className = "decomp-badge";
+      separator.textContent = "/";
+      separator.title = "Compressed path";
+      label.appendChild(separator);
+    }
+  });
+
+  const meta = document.createElement("span");
+  meta.className = "decomp-meta";
+  const endpointCount = Number(node.count || 0);
+  meta.textContent = endpointCount ? String(endpointCount) : "";
+
+  nodeRow.appendChild(twisty);
+  nodeRow.appendChild(label);
+  nodeRow.appendChild(meta);
+
+  if (node.endpointIndex != null) {
+    const endpoint = decompState.catalog[node.endpointIndex];
+    item.dataset.endpointIndex = String(node.endpointIndex);
+    item.dataset.zoomKey = String(endpoint?.zoomKey || "");
+    item.dataset.hay = String(endpoint?.hay || "");
+    item.dataset.href = String(endpoint?.url || "");
+    if (endpoint?.zoomKey) {
+      meta.textContent = `${endpointCount} • [${endpoint.zoomKey}]`;
+    }
+
+    const runButton = document.createElement("button");
+    runButton.className = "decomp-run";
+    runButton.type = "button";
+    runButton.textContent = "▶";
+    runButton.title = "Run this endpoint in Workspace";
+    runButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void decompEnsureWorkspaceTab({ activate: true, windowId: decompState.controllerWindowId })
+        .then(() => {
+          decompBroadcastControllerState(decompState);
+          return decompRunEndpointToWorkspace(decompState, endpoint, generateRequestId(), requestToken, {
+            emitStart: true,
+            requestSource: "tree",
+          });
+        })
+        .catch((error) => {
+          setStatus(`Unable to open decomp workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
+        });
+    });
+    nodeRow.appendChild(runButton);
+  }
+
+  const toggleNode = () => {
+    const childList = item.querySelector(":scope > ul");
+    if (!childList) {
+      return;
+    }
+    const collapsed = childList.style.display === "none";
+    childList.style.display = collapsed ? "" : "none";
+    twisty.textContent = collapsed ? "−" : "+";
+  };
+
+  twisty.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleNode();
+  });
+
+  label.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const isLeaf = !hasChildren;
+    if (isLeaf && node.endpointIndex != null) {
+      const endpoint = decompState.catalog[node.endpointIndex];
+      void decompEnsureWorkspaceTab({ activate: true, windowId: decompState.controllerWindowId })
+        .then(() => {
+          decompBroadcastControllerState(decompState);
+          return decompRunEndpointToWorkspace(decompState, endpoint, generateRequestId(), requestToken, {
+            emitStart: true,
+            requestSource: "tree",
+          });
+        })
+        .catch((error) => {
+          setStatus(`Unable to open decomp workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
+        });
+      return;
+    }
+    if (hasChildren) {
+      toggleNode();
+    }
+  });
+
+  item.appendChild(nodeRow);
+  if (hasChildren) {
+    const childUl = document.createElement("ul");
+    childUl.style.display = "none";
+    node.children.forEach((child) => {
+      decompRenderTreeNode(decompState, child, childUl, requestToken);
+    });
+    item.appendChild(childUl);
+  }
+  parentUl.appendChild(item);
+}
+
+function decompExpandCollapseAll(decompState, shouldExpand) {
+  const root = decompState?.treeRootElement;
+  if (!root) {
+    return;
+  }
+  root.querySelectorAll("li > ul").forEach((nested) => {
+    nested.style.display = shouldExpand ? "" : "none";
+  });
+  root.querySelectorAll(".decomp-twisty").forEach((twisty) => {
+    if (!twisty.classList.contains("hidden")) {
+      twisty.textContent = shouldExpand ? "−" : "+";
+    }
+  });
+}
+
+function decompExpandTrunk(decompState) {
+  const root = decompState?.treeRootElement;
+  if (!root) {
+    return;
+  }
+  let current = root.querySelector("ul.decomp-root > li");
+  while (current) {
+    const childUl = current.querySelector(":scope > ul");
+    if (!childUl) {
+      break;
+    }
+    childUl.style.display = "";
+    const twisty = current.querySelector(":scope .decomp-twisty");
+    if (twisty && !twisty.classList.contains("hidden")) {
+      twisty.textContent = "−";
+    }
+
+    const children = [...childUl.children];
+    if (children.length !== 1) {
+      break;
+    }
+    current = children[0];
+  }
+}
+
+function decompApplyTreeFilters(decompState, options = {}) {
+  const root = decompState?.treeRootElement;
+  if (!root) {
+    return;
+  }
+
+  const zoomFilter = String(options.zoomFilter ?? decompState.zoomFilterSelect?.value ?? "")
+    .trim()
+    .toUpperCase();
+  const term = clickEsmNormalizeSearchTerm(options.term ?? decompState.searchInput?.value ?? "");
+  const doHighlight = Boolean(options.highlight && term);
+  const highlightPattern = doHighlight ? new RegExp(clickEsmEscapeRegExp(term), "gi") : null;
+  let visibleEndpoints = 0;
+
+  const walk = (item) => {
+    let anyVisibleChild = false;
+    const childList = item.querySelector(":scope > ul");
+    if (childList) {
+      [...childList.children].forEach((childItem) => {
+        if (walk(childItem)) {
+          anyVisibleChild = true;
+        }
+      });
+    }
+
+    const endpointIndex = item.getAttribute("data-endpoint-index");
+    const isEndpoint = endpointIndex != null;
+    let selfVisible = false;
+
+    const label = item.querySelector(":scope > .decomp-node > .decomp-label");
+    if (label) {
+      label.querySelectorAll(".decomp-chip").forEach((chip) => {
+        const rawValue = String(chip.dataset.raw || chip.textContent || "");
+        if (highlightPattern && rawValue.toLowerCase().replace(/\s+/g, "").includes(term)) {
+          chip.innerHTML = rawValue.replace(highlightPattern, (match) => `<mark>${escapeHtml(match)}</mark>`);
+        } else {
+          chip.textContent = rawValue;
+        }
+        decompApplyChipColor(chip, rawValue);
+      });
+    }
+
+    if (isEndpoint) {
+      const endpointZoom = String(item.dataset.zoomKey || "").trim().toUpperCase();
+      const haystack = String(item.dataset.hay || "").toLowerCase();
+      const zoomPass = !zoomFilter || endpointZoom === zoomFilter;
+      const termPass = !term || haystack.includes(term);
+      selfVisible = zoomPass && termPass;
+      if (selfVisible) {
+        visibleEndpoints += 1;
+      }
+
+      const runButton = item.querySelector(":scope > .decomp-node > .decomp-run");
+      if (runButton) {
+        runButton.style.display = selfVisible ? "" : "none";
+      }
+
+      if (label) {
+        const labelNormalized = label.textContent.toLowerCase().replace(/\s+/g, "");
+        const segMatch = Boolean(term && labelNormalized.includes(term));
+        const colOnlyMatch = Boolean(term && termPass && !segMatch);
+        label.classList.toggle("decomp-col-match", colOnlyMatch);
+      }
+    }
+
+    const shouldShow = selfVisible || anyVisibleChild;
+    item.style.display = shouldShow ? "" : "none";
+
+    if (doHighlight && term && shouldShow && anyVisibleChild && childList) {
+      childList.style.display = "";
+      const twisty = item.querySelector(":scope > .decomp-node > .decomp-twisty");
+      if (twisty && !twisty.classList.contains("hidden")) {
+        twisty.textContent = "−";
+      }
+    }
+
+    return shouldShow;
+  };
+
+  const topList = root.querySelector("ul.decomp-root");
+  if (topList) {
+    [...topList.children].forEach((topItem) => {
+      walk(topItem);
+    });
+  }
+
+  if (decompState.treeStatsElement) {
+    const zoomLabel = zoomFilter ? ` • ${zoomFilter}` : "";
+    decompState.treeStatsElement.textContent = `${visibleEndpoints} endpoints${zoomLabel}`;
+  }
+}
+
+function decompBuildTree(decompState, requestToken) {
+  const treeRoot = decompState?.treeRootElement;
+  if (!treeRoot) {
+    return;
+  }
+
+  const trie = decompBuildTrie(decompState.catalog);
+  const model = decompCompressTrie(trie);
+  decompCountEndpoints(model);
+  decompState.treeModel = model;
+
+  treeRoot.innerHTML = "";
+  const rootList = document.createElement("ul");
+  rootList.className = "decomp-root";
+  const hasSyntheticRootParts = Array.isArray(model.parts) && model.parts.length > 0;
+
+  if (hasSyntheticRootParts || model.endpointIndex != null) {
+    decompRenderTreeNode(decompState, model, rootList, requestToken);
+  } else {
+    model.children.forEach((childNode) => {
+      decompRenderTreeNode(decompState, childNode, rootList, requestToken);
+    });
+  }
+
+  treeRoot.appendChild(rootList);
+  decompExpandTrunk(decompState);
+  decompApplyTreeFilters(decompState, { highlight: false });
+}
+
+function wireDecompInteractions(decompState, requestToken) {
+  if (!decompState?.contentElement) {
+    return;
+  }
+
+  decompState.findButton?.addEventListener("click", () => {
+    if (decompState.searchInput) {
+      decompState.searchInput.value = clickEsmNormalizeSearchTerm(decompState.searchInput.value);
+    }
+    decompApplyTreeFilters(decompState, { highlight: true });
+  });
+
+  decompState.resetButton?.addEventListener("click", () => {
+    if (decompState.searchInput) {
+      decompState.searchInput.value = "";
+    }
+    if (decompState.zoomFilterSelect) {
+      decompState.zoomFilterSelect.value = "";
+    }
+    decompApplyTreeFilters(decompState, { highlight: false });
+  });
+
+  decompState.zoomFilterSelect?.addEventListener("change", () => {
+    const term = clickEsmNormalizeSearchTerm(decompState.searchInput?.value || "");
+    decompApplyTreeFilters(decompState, { highlight: Boolean(term) });
+  });
+
+  decompState.searchInput?.addEventListener("input", () => {
+    const term = clickEsmNormalizeSearchTerm(decompState.searchInput?.value || "");
+    decompApplyTreeFilters(decompState, { highlight: Boolean(term) });
+  });
+
+  decompState.searchInput?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      decompState.searchInput.value = clickEsmNormalizeSearchTerm(decompState.searchInput.value);
+      decompApplyTreeFilters(decompState, { highlight: true });
+    }
+  });
+
+  decompState.expandAllButton?.addEventListener("click", () => {
+    decompExpandCollapseAll(decompState, true);
+  });
+
+  decompState.collapseAllButton?.addEventListener("click", () => {
+    decompExpandCollapseAll(decompState, false);
+  });
+
+  decompState.openWorkspaceButton?.addEventListener("click", () => {
+    void decompEnsureWorkspaceTab({ activate: true, windowId: decompState.controllerWindowId })
+      .then(() => {
+        decompBroadcastControllerState(decompState);
+      })
+      .catch((error) => {
+        setStatus(`Unable to open decomp workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
+      });
+  });
+
+  decompState.requestorSelect?.addEventListener("change", () => {
+    clickEsmHandleRequestorChange(decompState, requestToken);
+    decompBroadcastControllerState(decompState);
+  });
+
+  decompState.mvpdSelect?.addEventListener("change", () => {
+    clickEsmRememberMvpdSelection(decompState);
+    decompBroadcastControllerState(decompState);
+  });
+
+  clickEsmEnableMvpdHoverHint(decompState);
+}
+
+function getActiveDecompState() {
+  const sections = document.querySelectorAll(".premium-service-section.service-esm-decomp");
+  for (const section of sections) {
+    const decompState = section?.__underparDecompState || null;
+    if (decompState?.section?.isConnected) {
+      return decompState;
+    }
+  }
+  return null;
+}
+
+function getInteractiveEsmStates() {
+  const states = [];
+  document.querySelectorAll(".premium-service-section.service-esm-click").forEach((section) => {
+    const clickState = section?.__underparClickEsmState || null;
+    if (clickState?.section?.isConnected) {
+      states.push(clickState);
+    }
+  });
+  document.querySelectorAll(".premium-service-section.service-esm-decomp").forEach((section) => {
+    const decompState = section?.__underparDecompState || null;
+    if (decompState?.section?.isConnected) {
+      states.push(decompState);
+    }
+  });
+  return states;
+}
+
+async function handleDecompWorkspaceAction(message, sender = null) {
+  const action = String(message?.action || "").trim().toLowerCase();
+  const decompState = getActiveDecompState();
+  const senderWindowId = Number(sender?.tab?.windowId || 0);
+  const senderTabId = Number(sender?.tab?.id || 0);
+  const controllerWindowId = decompState
+    ? Number(decompState.controllerWindowId || state.decompWorkspaceWindowId || 0)
+    : 0;
+  const mappedSenderTabId =
+    senderWindowId > 0 ? Number(state.decompWorkspaceTabIdByWindowId.get(senderWindowId) || 0) : 0;
+
+  if (senderWindowId > 0 && controllerWindowId > 0 && senderWindowId !== controllerWindowId) {
+    return { ok: false, error: "decomp controller is attached to a different window." };
+  }
+  if (senderWindowId > 0 && senderTabId > 0 && mappedSenderTabId > 0 && senderTabId !== mappedSenderTabId) {
+    return { ok: false, error: "This is not the bound decomp workspace tab for the window." };
+  }
+  if (senderWindowId > 0 && senderTabId > 0 && (!mappedSenderTabId || mappedSenderTabId <= 0)) {
+    decompBindWorkspaceTab(senderWindowId, senderTabId);
+  }
+  if (decompState && senderWindowId > 0 && Number(decompState.controllerWindowId || 0) <= 0) {
+    decompState.controllerWindowId = senderWindowId;
+  }
+
+  if (action === "workspace-ready") {
+    if (decompState) {
+      if (senderWindowId > 0) {
+        decompBindWorkspaceTab(senderWindowId, senderTabId);
+      }
+      decompBroadcastControllerState(decompState, senderWindowId);
+    } else {
+      void decompSendWorkspaceMessage("controller-state", {
+        controllerOnline: false,
+        programmerId: "",
+        programmerName: "",
+        requestorIds: [],
+        mvpdIds: [],
+        updatedAt: Date.now(),
+      }, {
+        targetWindowId: senderWindowId,
+      });
+    }
+    return { ok: true, controllerOnline: Boolean(decompState) };
+  }
+
+  if (!decompState) {
+    return { ok: false, error: "Open decomp in the UnderPAR side panel to run reports." };
+  }
+
+  const requestToken = Number(state.premiumPanelRequestToken || 0);
+  if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
+    return { ok: false, error: "decomp controller is no longer active for the selected media company." };
+  }
+
+  if (action === "open-workspace") {
+    const targetWindowId = senderWindowId || Number(decompState.controllerWindowId || 0);
+    await decompEnsureWorkspaceTab({ activate: true, windowId: targetWindowId });
+    decompBroadcastControllerState(decompState, targetWindowId);
+    return { ok: true };
+  }
+
+  if (action === "run-card") {
+    const card = message?.card && typeof message.card === "object" ? message.card : {};
+    const endpoint = decompFindEndpointByUrl(decompState, card.endpointUrl, card);
+    if (!endpoint) {
+      return { ok: false, error: "Endpoint URL is required." };
+    }
+    await decompRunEndpointToWorkspace(decompState, endpoint, String(card.cardId || generateRequestId()), requestToken, {
+      emitStart: true,
+      requestSource: "workspace",
+    });
+    return { ok: true };
+  }
+
+  if (action === "rerun-all") {
+    const cards = Array.isArray(message?.cards) ? message.cards : [];
+    void decompSendWorkspaceMessage("batch-start", {
+      total: cards.length,
+      startedAt: Date.now(),
+    }, {
+      targetWindowId: senderWindowId || Number(decompState.controllerWindowId || 0),
+    });
+    for (const card of cards) {
+      const endpoint = decompFindEndpointByUrl(decompState, card?.endpointUrl, card || {});
+      if (!endpoint) {
+        continue;
+      }
+      await decompRunEndpointToWorkspace(decompState, endpoint, String(card?.cardId || generateRequestId()), requestToken, {
+        emitStart: true,
+        requestSource: "workspace",
+      });
+    }
+    void decompSendWorkspaceMessage("batch-end", {
+      total: cards.length,
+      completedAt: Date.now(),
+    }, {
+      targetWindowId: senderWindowId || Number(decompState.controllerWindowId || 0),
+    });
+    return { ok: true };
+  }
+
+  if (action === "download-csv") {
+    const card = message?.card && typeof message.card === "object" ? message.card : {};
+    const endpoint = decompFindEndpointByUrl(decompState, card.endpointUrl, card);
+    if (!endpoint) {
+      return { ok: false, error: "Endpoint URL is required." };
+    }
+    await decompDownloadCsvForCard(
+      decompState,
+      endpoint,
+      decompNormalizeSortRule(message?.sortRule),
+      requestToken,
+      String(card.cardId || "")
+    );
+    return { ok: true };
+  }
+
+  return { ok: false, error: `Unsupported workspace action: ${action}` };
+}
+
+function ensureDecompRuntimeListener() {
+  if (state.decompRuntimeListenerBound) {
+    return;
+  }
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!DECOMP_MESSAGE_TYPES.has(String(message?.type || "")) || message?.channel !== "workspace-action") {
+      return false;
+    }
+
+    void handleDecompWorkspaceAction(message, sender)
+      .then((result) => {
+        sendResponse(result && typeof result === "object" ? result : { ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+    return true;
+  });
+  state.decompRuntimeListenerBound = true;
+}
+
+function ensureDecompWorkspaceTabWatcher() {
+  if (state.decompWorkspaceTabWatcherBound) {
+    return;
+  }
+
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    decompUnbindWorkspaceTab(tabId);
+  });
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const normalizedTabId = Number(tabId || 0);
+    if (!normalizedTabId || !changeInfo?.url) {
+      return;
+    }
+    if (decompIsWorkspaceTab(tab)) {
+      decompBindWorkspaceTab(tab?.windowId, normalizedTabId);
+      return;
+    }
+    const boundTabId = Number(state.decompWorkspaceTabId || 0);
+    let isMappedTab = false;
+    for (const mappedTabId of state.decompWorkspaceTabIdByWindowId.values()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        isMappedTab = true;
+        break;
+      }
+    }
+    if (isMappedTab || normalizedTabId === boundTabId) {
+      decompUnbindWorkspaceTab(normalizedTabId);
+    }
+  });
+  state.decompWorkspaceTabWatcherBound = true;
+}
+
+async function loadDecompService(programmer, appInfo, section, contentElement, refreshButton, requestToken) {
+  if (!contentElement) {
+    return;
+  }
+  if (!programmer?.programmerId || !appInfo?.guid) {
+    contentElement.innerHTML = '<div class="service-error">Missing media company or ESM application details.</div>';
+    return;
+  }
+
+  const existingDecompState = section?.__underparDecompState || null;
+  if (existingDecompState?.requestorApplyTimer) {
+    clearTimeout(existingDecompState.requestorApplyTimer);
+  }
+  section.__underparDecompState = null;
+
+  if (refreshButton) {
+    refreshButton.disabled = true;
+  }
+  contentElement.innerHTML = '<div class="loading">Loading decomp...</div>';
+
+  try {
+    const controllerWindowId = await decompGetCurrentWindowId();
+    const endpoints = await loadClickEsmEndpoints();
+    if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      return;
+    }
+    if (!Array.isArray(endpoints) || endpoints.length === 0) {
+      contentElement.innerHTML = '<div class="service-error">No ESM endpoints were found for decomp.</div>';
+      return;
+    }
+
+    const catalog = decompBuildCatalog(endpoints);
+    const endpointByUrl = new Map();
+    catalog.forEach((item) => {
+      endpointByUrl.set(item.url, {
+        url: item.url,
+        zoomKey: item.zoomKey,
+        columns: item.columns,
+      });
+    });
+
+    contentElement.innerHTML = decompBuildShellHtml();
+    const decompState = {
+      serviceType: "decompTree",
+      controllerWindowId: Number(controllerWindowId || 0),
+      section,
+      contentElement,
+      programmer,
+      appInfo,
+      endpoints,
+      catalog,
+      endpointByUrl,
+      treeModel: null,
+      netInFlight: 0,
+      requestorApplyTimer: 0,
+      pendingRequestorIds: [],
+      lastKnownSelectedMvpdIds: new Set(),
+      zoomFilterSelect: contentElement.querySelector(".decomp-zoom-filter"),
+      searchInput: contentElement.querySelector(".decomp-search"),
+      findButton: contentElement.querySelector(".decomp-find-btn"),
+      resetButton: contentElement.querySelector(".decomp-reset-btn"),
+      expandAllButton: contentElement.querySelector(".decomp-expand-btn"),
+      collapseAllButton: contentElement.querySelector(".decomp-collapse-btn"),
+      openWorkspaceButton: contentElement.querySelector(".decomp-open-workspace-btn"),
+      treeStatsElement: contentElement.querySelector(".decomp-tree-stats"),
+      treeRootElement: contentElement.querySelector(".decomp-tree-root"),
+      requestorSelect: contentElement.querySelector(".decomp-requestor-select"),
+      mvpdSelect: contentElement.querySelector(".decomp-mvpd-select"),
+    };
+
+    section.__underparDecompState = decompState;
+    wireDecompInteractions(decompState, requestToken);
+    decompBuildTree(decompState, requestToken);
+    clickEsmApplySharedRequestorOptions(decompState, requestToken, {
+      selectedRequestorId: state.selectedRequestorId,
+      emptyLabel: "-- Select a Media Company first --",
+    });
+
+    if (decompState.mvpdSelect && state.selectedMvpdId) {
+      [...decompState.mvpdSelect.options].forEach((option) => {
+        if (option.value === state.selectedMvpdId) {
+          option.selected = true;
+        }
+      });
+      clickEsmRememberMvpdSelection(decompState);
+    }
+
+    ensureDecompRuntimeListener();
+    ensureDecompWorkspaceTabWatcher();
+    await decompEnsureWorkspaceTab({ activate: false, windowId: decompState.controllerWindowId });
+    decompBroadcastControllerState(decompState);
   } catch (error) {
     if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
       return;
@@ -4421,12 +5783,12 @@ function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
 }
 
 function stopPremiumServiceAutoRefresh(section) {
-  const timerId = Number(section?.__mincloudAutoRefreshTimer || 0);
+  const timerId = Number(section?.__underparAutoRefreshTimer || 0);
   if (!timerId) {
     return;
   }
   clearInterval(timerId);
-  section.__mincloudAutoRefreshTimer = 0;
+  section.__underparAutoRefreshTimer = 0;
 }
 
 function startPremiumServiceAutoRefresh(section, container, refreshFn, intervalMs) {
@@ -4446,7 +5808,7 @@ function startPremiumServiceAutoRefresh(section, container, refreshFn, intervalM
     void refreshFn();
   };
 
-  section.__mincloudAutoRefreshTimer = window.setInterval(tick, Math.max(15000, Number(intervalMs) || ESM_AUTO_REFRESH_INTERVAL_MS));
+  section.__underparAutoRefreshTimer = window.setInterval(tick, Math.max(15000, Number(intervalMs) || ESM_AUTO_REFRESH_INTERVAL_MS));
 }
 
 function clearPremiumServiceAutoRefreshTimers() {
@@ -4465,6 +5827,7 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     degradation: "service-degradation",
     esm: "service-esm",
     clickEsm: "service-esm-click",
+    decompTree: "service-esm-decomp",
     restV2: "service-rest-v2",
   };
 
@@ -4487,8 +5850,10 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       ? '<div class="loading">Loading ESM data...</div>'
       : serviceKey === "clickEsm"
         ? '<div class="loading">Loading clickESM...</div>'
+      : serviceKey === "decompTree"
+        ? '<div class="loading">Loading decomp...</div>'
       : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
-  const showManualRefresh = serviceKey !== "esm" && serviceKey !== "clickEsm";
+  const showManualRefresh = serviceKey !== "esm" && serviceKey !== "clickEsm" && serviceKey !== "decompTree";
   const serviceActionsHtml = showManualRefresh
     ? `
       <div class="service-actions">
@@ -4499,6 +5864,8 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const sectionLabel =
     serviceKey === "clickEsm"
       ? `clickESM w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`
+      : serviceKey === "decompTree"
+        ? `decomp w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`
       : `${title} w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`;
   section.innerHTML = `
     <button type="button" class="metadata-header service-box-header">
@@ -4522,27 +5889,35 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   wireCollapsibleSection(toggleButton, container, initialCollapsed, (collapsed) => {
     setPremiumSectionCollapsed(programmer?.programmerId, serviceKey, collapsed);
     if (!collapsed) {
-      if (serviceKey === "esm" && typeof section.__mincloudRefreshEsm === "function") {
-        void section.__mincloudRefreshEsm();
-      } else if (serviceKey === "clickEsm" && typeof section.__mincloudRefreshClickEsm === "function") {
-        void section.__mincloudRefreshClickEsm();
+      if (serviceKey === "esm" && typeof section.__underparRefreshEsm === "function") {
+        void section.__underparRefreshEsm();
+      } else if (serviceKey === "clickEsm" && typeof section.__underparRefreshClickEsm === "function") {
+        void section.__underparRefreshClickEsm();
+      } else if (serviceKey === "decompTree" && typeof section.__underparRefreshDecomp === "function") {
+        void section.__underparRefreshDecomp();
       }
     }
   });
 
   if (serviceKey === "esm") {
-    section.__mincloudRefreshEsm = () => {
+    section.__underparRefreshEsm = () => {
       const requestToken = state.premiumPanelRequestToken;
       return loadEsmService(programmer, appInfo, section, contentElement, refreshButton, requestToken);
     };
-    void section.__mincloudRefreshEsm();
-    startPremiumServiceAutoRefresh(section, container, section.__mincloudRefreshEsm, ESM_AUTO_REFRESH_INTERVAL_MS);
+    void section.__underparRefreshEsm();
+    startPremiumServiceAutoRefresh(section, container, section.__underparRefreshEsm, ESM_AUTO_REFRESH_INTERVAL_MS);
   } else if (serviceKey === "clickEsm") {
-    section.__mincloudRefreshClickEsm = () => {
+    section.__underparRefreshClickEsm = () => {
       const requestToken = state.premiumPanelRequestToken;
       return loadClickEsmService(programmer, appInfo, section, contentElement, refreshButton, requestToken);
     };
-    void section.__mincloudRefreshClickEsm();
+    void section.__underparRefreshClickEsm();
+  } else if (serviceKey === "decompTree") {
+    section.__underparRefreshDecomp = () => {
+      const requestToken = state.premiumPanelRequestToken;
+      return loadDecompService(programmer, appInfo, section, contentElement, refreshButton, requestToken);
+    };
+    void section.__underparRefreshDecomp();
   } else {
     refreshButton.addEventListener("click", async (event) => {
       event.stopPropagation();
@@ -4625,6 +6000,9 @@ function renderPremiumServices(services, programmer = null) {
     if (serviceKey === "clickEsm") {
       return Boolean(services?.esm);
     }
+    if (serviceKey === "decompTree") {
+      return Boolean(services?.esm);
+    }
     return Boolean(services?.[serviceKey]);
   });
   if (availableKeys.length === 0) {
@@ -4635,7 +6013,7 @@ function renderPremiumServices(services, programmer = null) {
 
   els.premiumServicesContainer.innerHTML = "";
   for (const serviceKey of availableKeys) {
-    const appInfo = serviceKey === "clickEsm" ? services.esm : services[serviceKey];
+    const appInfo = serviceKey === "clickEsm" || serviceKey === "decompTree" ? services.esm : services[serviceKey];
     const section = createPremiumServiceSection(programmer, serviceKey, appInfo);
     els.premiumServicesContainer.appendChild(section);
   }
@@ -4660,6 +6038,18 @@ function resetWorkflowForLoggedOut() {
   state.restV2PrewarmedAppsByProgrammerId.clear();
   clearRestV2PreparedLoginState();
   state.consoleContextReady = false;
+  state.decompWorkspaceTabId = 0;
+  state.decompWorkspaceWindowId = 0;
+  state.decompWorkspaceTabIdByWindowId.clear();
+
+  void decompSendWorkspaceMessage("controller-state", {
+    controllerOnline: false,
+    programmerId: "",
+    programmerName: "",
+    requestorIds: [],
+    mvpdIds: [],
+    updatedAt: Date.now(),
+  });
 
   els.mediaCompanySelect.disabled = true;
   els.mediaCompanySelect.innerHTML = '<option value="">-- Please login first --</option>';
@@ -4889,36 +6279,44 @@ function getLoginHelperStorageArea() {
   return chrome.storage?.session || chrome.storage.local;
 }
 
-function buildLoginHelperResultKey(requestId) {
+function buildLoginHelperResultKeys(requestId) {
   const normalized = String(requestId || "").trim();
-  return normalized ? `${LOGIN_HELPER_RESULT_PREFIX}${normalized}` : "";
+  if (!normalized) {
+    return [];
+  }
+  return [`${LOGIN_HELPER_RESULT_PREFIX}${normalized}`, `${LEGACY_LOGIN_HELPER_RESULT_PREFIX}${normalized}`];
 }
 
 async function readLoginHelperResult(requestId) {
-  const key = buildLoginHelperResultKey(requestId);
+  const keys = buildLoginHelperResultKeys(requestId);
   const storageArea = getLoginHelperStorageArea();
-  if (!key || !storageArea?.get) {
+  if (keys.length === 0 || !storageArea?.get) {
     return null;
   }
 
   try {
-    const payload = await storageArea.get(key);
-    const result = payload?.[key];
-    return result && typeof result === "object" ? result : null;
+    const payload = await storageArea.get(keys);
+    for (const key of keys) {
+      const result = payload?.[key];
+      if (result && typeof result === "object") {
+        return result;
+      }
+    }
+    return null;
   } catch {
     return null;
   }
 }
 
 async function clearLoginHelperResult(requestId) {
-  const key = buildLoginHelperResultKey(requestId);
+  const keys = buildLoginHelperResultKeys(requestId);
   const storageArea = getLoginHelperStorageArea();
-  if (!key || !storageArea?.remove) {
+  if (keys.length === 0 || !storageArea?.remove) {
     return;
   }
 
   try {
-    await storageArea.remove(key);
+    await storageArea.remove(keys);
   } catch {
     // Ignore storage cleanup failures.
   }
@@ -5021,7 +6419,7 @@ async function runLoginHelperFlow(requestState, extraParams = {}) {
     };
 
     const onRuntimeMessage = (incomingMessage) => {
-      if (!incomingMessage || incomingMessage.type !== LOGIN_HELPER_RESULT_MESSAGE_TYPE) {
+      if (!incomingMessage || !LOGIN_HELPER_RESULT_MESSAGE_TYPES.has(String(incomingMessage.type || ""))) {
         return;
       }
 
@@ -6912,7 +8310,10 @@ function purgeAvatarCaches() {
     const keysToRemove = [];
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index);
-      if (typeof key === "string" && key.startsWith(AVATAR_CACHE_STORAGE_PREFIX)) {
+      if (
+        typeof key === "string" &&
+        (key.startsWith(AVATAR_CACHE_STORAGE_PREFIX) || key.startsWith(LEGACY_AVATAR_CACHE_STORAGE_PREFIX))
+      ) {
         keysToRemove.push(key);
       }
     }
@@ -6931,7 +8332,10 @@ function purgeDcrCaches() {
     const keysToRemove = [];
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index);
-      if (typeof key === "string" && key.startsWith(`${DCR_CACHE_PREFIX}:`)) {
+      if (
+        typeof key === "string" &&
+        (key.startsWith(`${DCR_CACHE_PREFIX}:`) || key.startsWith(`${LEGACY_DCR_CACHE_PREFIX}:`))
+      ) {
         keysToRemove.push(key);
       }
     }
@@ -7366,7 +8770,7 @@ async function fetchAvatarDataUrlViaBackground(url) {
   }
 
   const response = await sendRuntimeMessageSafe({
-    type: "mincloudlogin:fetchAvatarDataUrl",
+    type: "underpar:fetchAvatarDataUrl",
     url,
     accessToken: state.loginData?.accessToken || "",
   });
@@ -8055,7 +9459,11 @@ async function clearDebugFlowStorageFromChromeStorage() {
   try {
     const payload = await chrome.storage.local.get(null);
     const keysToRemove = Object.keys(payload || {}).filter(
-      (key) => key === DEBUG_FLOW_STORAGE_INDEX_KEY || key.startsWith(DEBUG_FLOW_STORAGE_PREFIX)
+      (key) =>
+        key === DEBUG_FLOW_STORAGE_INDEX_KEY ||
+        key === LEGACY_DEBUG_FLOW_STORAGE_INDEX_KEY ||
+        key.startsWith(DEBUG_FLOW_STORAGE_PREFIX) ||
+        key.startsWith(LEGACY_DEBUG_FLOW_STORAGE_PREFIX)
     );
     if (keysToRemove.length === 0) {
       return 0;
@@ -8086,7 +9494,7 @@ async function saveLoginData(loginData) {
     if (removedDebugKeys > 0) {
       try {
         await chrome.storage.local.set({ [STORAGE_KEY]: normalized });
-        log("Recovered storage quota by clearing persisted MinTools debug flow keys.", { removedDebugKeys });
+        log("Recovered storage quota by clearing persisted UP debug flow keys.", { removedDebugKeys });
         return true;
       } catch {
         // Fallback to minimal payload below.
@@ -9168,9 +10576,15 @@ function getDcrCacheKey(programmerId, appGuid) {
   return `${DCR_CACHE_PREFIX}:${programmerId}:${appGuid}`;
 }
 
+function getLegacyDcrCacheKey(programmerId, appGuid) {
+  return `${LEGACY_DCR_CACHE_PREFIX}:${programmerId}:${appGuid}`;
+}
+
 function loadDcrCache(programmerId, appGuid) {
   try {
-    const raw = localStorage.getItem(getDcrCacheKey(programmerId, appGuid));
+    const raw =
+      localStorage.getItem(getDcrCacheKey(programmerId, appGuid)) ||
+      localStorage.getItem(getLegacyDcrCacheKey(programmerId, appGuid));
     if (!raw) {
       return null;
     }
@@ -9208,6 +10622,7 @@ function saveDcrCache(programmerId, appGuid, value) {
 function clearDcrCache(programmerId, appGuid) {
   try {
     localStorage.removeItem(getDcrCacheKey(programmerId, appGuid));
+    localStorage.removeItem(getLegacyDcrCacheKey(programmerId, appGuid));
   } catch {
     // Ignore localStorage cache cleanup failures.
   }
@@ -10416,39 +11831,12 @@ async function hydrateCookieSessionWithProfile() {
   }
 }
 
-async function getLatestBuildInfo() {
-  try {
-    const response = await chrome.runtime.sendMessage({ type: "mincloudlogin:getBuildInfo" });
-    if (response?.ok && response.info) {
-      return response.info;
-    }
-  } catch {
-    // Fallback to storage lookup.
-  }
-
-  const data = await chrome.storage.local.get(BUILD_INFO_KEY);
-  return data?.[BUILD_INFO_KEY] || null;
-}
-
-async function renderBuildInfo() {
+function renderBuildInfo() {
   const manifestVersion = chrome.runtime.getManifest().version;
   if (!els.buildInfo) {
     return;
   }
-
-  try {
-    const info = await getLatestBuildInfo();
-    const counter = Number(info?.counter || 0);
-
-    if (counter > 0) {
-      els.buildInfo.textContent = `v${manifestVersion}+b${counter}`;
-      return;
-    }
-
-    els.buildInfo.textContent = `v${manifestVersion}+b?`;
-  } catch {
-    els.buildInfo.textContent = `v${manifestVersion}+b?`;
-  }
+  els.buildInfo.textContent = `v${manifestVersion}`;
 }
 
 function renderRestrictedView() {
@@ -10884,6 +12272,10 @@ function registerEventHandlers() {
     state.selectedMvpdId = String(event.target.value || "");
     refreshRestV2LoginPanels();
     refreshEsmPanels();
+    const decompState = getActiveDecompState();
+    if (decompState) {
+      decompBroadcastControllerState(decompState);
+    }
   });
 
   document.addEventListener("click", (event) => {
@@ -10911,6 +12303,8 @@ function registerEventHandlers() {
 }
 
 function init() {
+  ensureDecompRuntimeListener();
+  ensureDecompWorkspaceTabWatcher();
   void renderBuildInfo();
   resetWorkflowForLoggedOut();
   registerEventHandlers();

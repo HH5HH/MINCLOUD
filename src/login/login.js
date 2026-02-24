@@ -13,9 +13,12 @@ const IMS_LOGOUT_URLS = [
   "https://ims-na1.adobelogin.com/ims/logout/v1?client_id=AdobePass1&locale=en_US",
   "https://ims-na1.adobelogin.com/ims/logout?locale=en_US",
 ];
-const HELPER_STATE_KEY = "mincloudlogin_helper_state_v1";
-const HELPER_RESULT_PREFIX = "mincloudlogin_helper_result_v1:";
-const HELPER_RESULT_MESSAGE_TYPE = "mincloudlogin:loginHelperResult";
+const HELPER_STATE_KEY = "underpar_helper_state_v1";
+const LEGACY_HELPER_STATE_KEY = "mincloudlogin_helper_state_v1";
+const HELPER_RESULT_PREFIX = "underpar_helper_result_v1:";
+const LEGACY_HELPER_RESULT_PREFIX = "mincloudlogin_helper_result_v1:";
+const HELPER_RESULT_MESSAGE_TYPE = "underpar:loginHelperResult";
+const LEGACY_HELPER_RESULT_MESSAGE_TYPE = "mincloudlogin:loginHelperResult";
 const CLOSE_WINDOW_DELAY_MS = 350;
 
 const statusElement = document.getElementById("status");
@@ -224,7 +227,7 @@ async function fetchOrganizations(accessToken = "") {
 
 function readHelperState() {
   try {
-    const raw = sessionStorage.getItem(HELPER_STATE_KEY);
+    const raw = sessionStorage.getItem(HELPER_STATE_KEY) || sessionStorage.getItem(LEGACY_HELPER_STATE_KEY);
     if (!raw) {
       return null;
     }
@@ -241,6 +244,7 @@ function readHelperState() {
 function writeHelperState(nextState) {
   try {
     sessionStorage.setItem(HELPER_STATE_KEY, JSON.stringify(nextState || {}));
+    sessionStorage.removeItem(LEGACY_HELPER_STATE_KEY);
   } catch {
     // Ignore storage failures in helper window.
   }
@@ -249,13 +253,18 @@ function writeHelperState(nextState) {
 function clearHelperState() {
   try {
     sessionStorage.removeItem(HELPER_STATE_KEY);
+    sessionStorage.removeItem(LEGACY_HELPER_STATE_KEY);
   } catch {
     // Ignore storage failures in helper window.
   }
 }
 
-function getResultStorageKey(requestId) {
-  return `${HELPER_RESULT_PREFIX}${String(requestId || "").trim()}`;
+function getResultStorageKeys(requestId) {
+  const normalized = String(requestId || "").trim();
+  if (!normalized) {
+    return [];
+  }
+  return [`${HELPER_RESULT_PREFIX}${normalized}`, `${LEGACY_HELPER_RESULT_PREFIX}${normalized}`];
 }
 
 function getResultStorageArea() {
@@ -269,11 +278,13 @@ async function cacheResultForPopup(payload) {
     return;
   }
 
-  const key = getResultStorageKey(requestId);
+  const keys = getResultStorageKeys(requestId);
+  const persistPayload = {};
+  for (const key of keys) {
+    persistPayload[key] = payload;
+  }
   try {
-    await storageArea.set({
-      [key]: payload,
-    });
+    await storageArea.set(persistPayload);
   } catch {
     // Ignore storage session failures.
   }
@@ -294,6 +305,15 @@ async function emitResult(payload) {
     });
   } catch {
     // The opener may be closed; storage-backed polling still covers this.
+  }
+
+  try {
+    await chrome.runtime.sendMessage({
+      type: LEGACY_HELPER_RESULT_MESSAGE_TYPE,
+      message: normalizedPayload,
+    });
+  } catch {
+    // Legacy opener may be unavailable; ignore.
   }
 }
 
