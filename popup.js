@@ -22,7 +22,7 @@ const PROGRAMMER_ENDPOINTS = [
 ];
 const DCR_CACHE_PREFIX = "mincloudlogin_dcr_cache_v1";
 const PREMIUM_SERVICE_ORDER = ["restV2", "esm", "degradation"];
-const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "esm", "degradation"];
+const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "clickEsm", "degradation"];
 const PREMIUM_SERVICE_SCOPE_BY_KEY = {
   degradation: "decisions:owner",
   esm: "analytics:client",
@@ -32,6 +32,7 @@ const REST_V2_SCOPE = PREMIUM_SERVICE_SCOPE_BY_KEY.restV2;
 const PREMIUM_SERVICE_TITLE_BY_KEY = {
   degradation: "Degradation",
   esm: "ESM",
+  clickEsm: "clickESM",
   restV2: "REST V2",
 };
 const REST_V2_DEVICE_ID_STORAGE_KEY = "mincloudlogin_restv2_device_id_v1";
@@ -63,6 +64,10 @@ const REST_V2_LOGIN_WINDOW_HEIGHT = 860;
 const REST_V2_LOGOUT_NAVIGATION_TIMEOUT_MS = 35000;
 const REST_V2_LOGOUT_POST_NAV_DELAY_MS = 1200;
 const ESM_INLINE_RESULT_LIMIT = 50;
+const ESM_AUTO_REFRESH_INTERVAL_MS = 60 * 1000;
+const CLICK_ESM_INLINE_RESULT_LIMIT = 50;
+const CLICK_ESM_CSV_RESULT_LIMIT = 10000;
+const CLICK_ESM_ENDPOINTS_PATH = "click-esm-endpoints.json";
 const ESM_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
 const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 // Redirect-host filtering mode for HAR trimming.
@@ -173,6 +178,9 @@ const els = {
   mvpdSelect: document.getElementById("mvpd-select"),
   premiumServicesContainer: document.getElementById("premium-services-container"),
 };
+
+let clickEsmEndpoints = [];
+let clickEsmEndpointsPromise = null;
 
 function log(message, details = null) {
   if (details === null) {
@@ -701,7 +709,11 @@ function getPremiumCollapseKey(programmerId, serviceKey) {
 }
 
 function getPremiumSectionCollapsed(programmerId, serviceKey) {
-  return Boolean(state.premiumSectionCollapsedByKey.get(getPremiumCollapseKey(programmerId, serviceKey)));
+  const key = getPremiumCollapseKey(programmerId, serviceKey);
+  if (!state.premiumSectionCollapsedByKey.has(key)) {
+    return true;
+  }
+  return Boolean(state.premiumSectionCollapsedByKey.get(key));
 }
 
 function setPremiumSectionCollapsed(programmerId, serviceKey, isCollapsed) {
@@ -3145,7 +3157,9 @@ ${escapeHtml(bodyText || "")}</div>`;
 }
 
 function refreshEsmPanels() {
-  const sections = document.querySelectorAll(".premium-service-section.service-esm");
+  const sections = document.querySelectorAll(
+    ".premium-service-section.service-esm, .premium-service-section.service-esm-click"
+  );
   if (!sections || sections.length === 0) {
     return;
   }
@@ -3154,7 +3168,1219 @@ function refreshEsmPanels() {
     if (typeof section.__mincloudRefreshEsm === "function") {
       void section.__mincloudRefreshEsm();
     }
+    if (typeof section.__mincloudRefreshClickEsm === "function") {
+      void section.__mincloudRefreshClickEsm();
+    }
   });
+}
+
+const CLICK_ESM_ZOOM_OPTIONS = ["", "YR", "MO", "DAY", "HR", "MIN"];
+const CLICK_ESM_ZOOM_TOKEN_BY_KEY = {
+  YR: "/year",
+  MO: "/month",
+  DAY: "/day",
+  HR: "/hour",
+  MIN: "/minute",
+};
+const CLICK_ESM_METRIC_COLUMNS = new Set([...ESM_METRIC_COLUMNS, "authn-failed", "decision-media-tokens"]);
+
+function clickEsmEscapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function clickEsmNormalizeSearchTerm(rawValue) {
+  return String(rawValue || "")
+    .toLowerCase()
+    .split(" ")
+    .join("");
+}
+
+function clickEsmGetZoomKey(endpoint) {
+  const explicit = String(endpoint?.zoomKey || "").trim().toUpperCase();
+  if (CLICK_ESM_ZOOM_OPTIONS.includes(explicit)) {
+    return explicit;
+  }
+
+  const href = String(endpoint?.url || "");
+  let detected = "";
+  let bestIndex = -1;
+  Object.entries(CLICK_ESM_ZOOM_TOKEN_BY_KEY).forEach(([key, token]) => {
+    const index = href.lastIndexOf(token);
+    if (index > bestIndex) {
+      detected = key;
+      bestIndex = index;
+    }
+  });
+  return detected;
+}
+
+function clickEsmIso(date) {
+  return new Date(date).toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+function clickEsmShiftInstantToPstCalendar(date) {
+  return new Date(date.getTime() + ESM_SOURCE_UTC_OFFSET_MINUTES * 60 * 1000);
+}
+
+function clickEsmComputeTimeWindow(zoomKey) {
+  const now = new Date();
+  const nowPst = clickEsmShiftInstantToPstCalendar(now);
+
+  if (zoomKey === "YR") {
+    return {
+      start: String(nowPst.getUTCFullYear() - 1),
+      end: clickEsmIso(now),
+    };
+  }
+
+  if (zoomKey === "MO") {
+    const previousMonth = new Date(Date.UTC(nowPst.getUTCFullYear(), nowPst.getUTCMonth() - 1, 1));
+    return {
+      start: `${previousMonth.getUTCFullYear()}-${String(previousMonth.getUTCMonth() + 1).padStart(2, "0")}`,
+      end: clickEsmIso(now),
+    };
+  }
+
+  if (zoomKey === "DAY") {
+    const previousDay = new Date(
+      Date.UTC(nowPst.getUTCFullYear(), nowPst.getUTCMonth(), nowPst.getUTCDate() - 1)
+    );
+    return {
+      start: `${previousDay.getUTCFullYear()}-${String(previousDay.getUTCMonth() + 1).padStart(2, "0")}-${String(
+        previousDay.getUTCDate()
+      ).padStart(2, "0")}`,
+      end: clickEsmIso(now),
+    };
+  }
+
+  if (zoomKey === "HR") {
+    return {
+      start: clickEsmIso(new Date(now.getTime() - 12 * 60 * 60 * 1000)),
+      end: clickEsmIso(now),
+    };
+  }
+
+  if (zoomKey === "MIN") {
+    return {
+      start: clickEsmIso(new Date(now.getTime() - 60 * 60 * 1000)),
+      end: clickEsmIso(now),
+    };
+  }
+
+  return { start: clickEsmIso(now), end: clickEsmIso(now) };
+}
+
+function clickEsmGetSelectedValues(selectElement) {
+  if (!selectElement) {
+    return [];
+  }
+  return [...selectElement.selectedOptions].map((option) => String(option.value || "").trim()).filter(Boolean);
+}
+
+function clickEsmBuildRequestMetadata(clickState) {
+  const requestorSelect = clickState.contentElement?.querySelector(".click-esm-requestor-select");
+  const mvpdSelect = clickState.contentElement?.querySelector(".click-esm-mvpd-select");
+  const requestorIds = clickEsmGetSelectedValues(requestorSelect);
+  const mvpds = clickEsmGetSelectedValues(mvpdSelect);
+  return {
+    requestorId: requestorIds[0] || "",
+    mvpd: mvpds[0] || "",
+  };
+}
+
+function clickEsmEnsureLimit(url, limit) {
+  try {
+    const parsed = new URL(url);
+    const isEsmEndpoint = parsed.origin === ADOBE_MGMT_BASE && parsed.pathname.includes("/esm/");
+    if (!isEsmEndpoint) {
+      return parsed.toString();
+    }
+    parsed.searchParams.set("limit", String(limit));
+    return parsed.toString();
+  } catch {
+    return String(url || "");
+  }
+}
+
+function clickEsmBuildEndpointUrl(clickState, endpoint) {
+  const zoomKey = clickEsmGetZoomKey(endpoint);
+  const timeWindow = clickEsmComputeTimeWindow(zoomKey);
+  const requestorSelect = clickState.contentElement?.querySelector(".click-esm-requestor-select");
+  const mvpdSelect = clickState.contentElement?.querySelector(".click-esm-mvpd-select");
+  const requestorIds = clickEsmGetSelectedValues(requestorSelect);
+  const mvpdIds = mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(mvpdSelect);
+
+  const parsed = new URL(endpoint.url);
+  parsed.searchParams.set("start", timeWindow.start);
+  parsed.searchParams.set("end", timeWindow.end);
+  parsed.searchParams.set("format", "json");
+  parsed.searchParams.delete("requestor-id");
+  parsed.searchParams.delete("mvpd");
+  requestorIds.forEach((requestorId) => {
+    parsed.searchParams.append("requestor-id", requestorId);
+  });
+  mvpdIds.forEach((mvpd) => {
+    parsed.searchParams.append("mvpd", mvpd);
+  });
+
+  return parsed.toString();
+}
+
+function clickEsmSetNetworkBusy(clickState, isBusy) {
+  if (!clickState?.contentElement) {
+    return;
+  }
+  const shell = clickState.contentElement.querySelector(".click-esm-shell");
+  const indicator = clickState.contentElement.querySelector(".click-esm-net-indicator");
+  if (shell) {
+    shell.classList.toggle("net-busy", Boolean(isBusy));
+  }
+  if (indicator) {
+    indicator.hidden = !isBusy;
+  }
+}
+
+function clickEsmStartNetwork(clickState) {
+  if (!clickState) {
+    return;
+  }
+  clickState.netInFlight = Number(clickState.netInFlight || 0) + 1;
+  if (clickState.netInFlight === 1) {
+    clickEsmSetNetworkBusy(clickState, true);
+  }
+}
+
+function clickEsmEndNetwork(clickState) {
+  if (!clickState) {
+    return;
+  }
+  clickState.netInFlight = Math.max(0, Number(clickState.netInFlight || 0) - 1);
+  if (clickState.netInFlight === 0) {
+    clickEsmSetNetworkBusy(clickState, false);
+  }
+}
+
+async function clickEsmFetchWithPremiumAuth(clickState, url, options = {}, limit = CLICK_ESM_CSV_RESULT_LIMIT) {
+  const finalUrl = clickEsmEnsureLimit(url, limit);
+  const requestMeta = clickEsmBuildRequestMetadata(clickState);
+  clickEsmStartNetwork(clickState);
+  try {
+    return await fetchWithPremiumAuth(
+      clickState.programmer?.programmerId,
+      clickState.appInfo,
+      finalUrl,
+      options,
+      "refresh",
+      {
+        scope: "esm-click",
+        requestorId: requestMeta.requestorId,
+        mvpd: requestMeta.mvpd,
+      }
+    );
+  } finally {
+    clickEsmEndNetwork(clickState);
+  }
+}
+
+async function loadClickEsmEndpoints() {
+  if (Array.isArray(clickEsmEndpoints) && clickEsmEndpoints.length > 0) {
+    return clickEsmEndpoints;
+  }
+  if (clickEsmEndpointsPromise) {
+    return clickEsmEndpointsPromise;
+  }
+
+  clickEsmEndpointsPromise = (async () => {
+    const resourceUrl = chrome.runtime.getURL(CLICK_ESM_ENDPOINTS_PATH);
+    const response = await fetch(resourceUrl, {
+      method: "GET",
+      credentials: "omit",
+      cache: "no-cache",
+    });
+    if (!response.ok) {
+      throw new Error(`Unable to load clickESM endpoint catalog (${response.status}).`);
+    }
+
+    const payload = await response.json().catch(() => null);
+    const endpoints = Array.isArray(payload?.endpoints) ? payload.endpoints : [];
+    clickEsmEndpoints = endpoints
+      .map((endpoint) => {
+        if (!endpoint || typeof endpoint !== "object") {
+          return null;
+        }
+        const url = String(endpoint.url || "").trim();
+        if (!url) {
+          return null;
+        }
+        const zoomKey = clickEsmGetZoomKey(endpoint);
+        return {
+          url,
+          zoomClass: String(endpoint.zoomClass || "").trim(),
+          zoomKey,
+          columns: Array.isArray(endpoint.columns) ? endpoint.columns.map((value) => String(value || "").trim()).filter(Boolean) : [],
+        };
+      })
+      .filter(Boolean);
+
+    return clickEsmEndpoints;
+  })();
+
+  try {
+    return await clickEsmEndpointsPromise;
+  } finally {
+    clickEsmEndpointsPromise = null;
+  }
+}
+
+function clickEsmBuildShellHtml(endpoints) {
+  const endpointRows = endpoints
+    .map((endpoint, index) => {
+      const zoomKey = clickEsmGetZoomKey(endpoint);
+      return `
+        <dl class="click-esm-item" data-endpoint-index="${index}" data-zoom-key="${escapeHtml(zoomKey)}">
+          <dt>
+            <button type="button" class="click-esm-link" data-endpoint-index="${index}" title="${escapeHtml(endpoint.url)}">
+              ${escapeHtml(endpoint.url)}
+            </button>
+          </dt>
+          <dd class="click-esm-col-list"></dd>
+          <dd class="click-esm-table-host" data-endpoint-index="${index}"></dd>
+        </dl>
+      `;
+    })
+    .join("");
+
+  const zoomOptions = CLICK_ESM_ZOOM_OPTIONS.map((key) => {
+    const value = escapeHtml(key);
+    const label = key ? escapeHtml(key) : "";
+    return `<option value="${value}">${label}</option>`;
+  }).join("");
+
+  return `
+    <div class="click-esm-shell">
+      <div class="click-esm-toolbar">
+        <select class="click-esm-zoom-filter" title="Zoom Level">${zoomOptions}</select>
+        <input type="text" class="click-esm-search" placeholder="ESM Column search..." />
+        <button type="button" class="click-esm-find-btn">FIND IT</button>
+        <button type="button" class="click-esm-reset-btn">RESET</button>
+        <span class="click-esm-net-indicator" title="Loading" aria-label="Loading" hidden></span>
+      </div>
+      <div class="click-esm-scroll-container">
+        ${endpointRows}
+      </div>
+      <div class="click-esm-footer">
+        <select
+          class="click-esm-requestor-select"
+          multiple
+          size="1"
+          title="Filter by selected requestor-id(s)"
+        ></select>
+        <select
+          class="click-esm-mvpd-select"
+          multiple
+          size="1"
+          title="Filter by selected MVPD(s)"
+          disabled
+          hidden
+        ></select>
+      </div>
+    </div>
+  `;
+}
+
+function clickEsmSetColumnListMarkup(columnElement, columns = [], highlightedTerm = "") {
+  if (!columnElement) {
+    return;
+  }
+
+  const normalizedColumns = Array.isArray(columns) ? columns.map((value) => String(value || "").trim()).filter(Boolean) : [];
+  if (normalizedColumns.length === 0) {
+    columnElement.innerHTML = '<span class="click-esm-col-chip">No report columns</span>';
+    return;
+  }
+
+  const markMatches = (value, term) => {
+    if (!term) {
+      return escapeHtml(value);
+    }
+    const safeTerm = clickEsmEscapeRegExp(term);
+    const pattern = new RegExp(safeTerm, "gi");
+    let output = "";
+    let cursor = 0;
+    let match = pattern.exec(value);
+    while (match) {
+      output += escapeHtml(value.slice(cursor, match.index));
+      output += `<span class="click-esm-highlight">${escapeHtml(match[0])}</span>`;
+      cursor = match.index + match[0].length;
+      if (match[0].length === 0) {
+        break;
+      }
+      match = pattern.exec(value);
+    }
+    output += escapeHtml(value.slice(cursor));
+    return output;
+  };
+
+  const chipsHtml = normalizedColumns
+    .map((columnValue) => {
+      const hasMatch = highlightedTerm && columnValue.toLowerCase().includes(highlightedTerm);
+      const chipClass = hasMatch ? "click-esm-col-chip click-esm-col-chip-match" : "click-esm-col-chip";
+      return `<span class="${chipClass}">${markMatches(columnValue, highlightedTerm)}</span>`;
+    })
+    .join("");
+  columnElement.innerHTML = chipsHtml;
+}
+
+function clickEsmApplyEndpointFilters(clickState, options = {}) {
+  const zoomFilter = String(clickState.zoomFilterSelect?.value || "").trim().toUpperCase();
+  const rawSearch = String(clickState.searchInput?.value || "");
+  const normalizedTerm = clickEsmNormalizeSearchTerm(rawSearch);
+  const shouldHighlight = Boolean(options.highlight && normalizedTerm);
+
+  clickState.contentElement?.querySelectorAll(".click-esm-item").forEach((itemElement) => {
+    const endpointIndex = Number(itemElement.getAttribute("data-endpoint-index"));
+    const endpoint = clickState.endpoints[endpointIndex];
+    const endpointZoom = clickEsmGetZoomKey(endpoint);
+    const columnElement = itemElement.querySelector(".click-esm-col-list");
+    const columnValues = Array.isArray(endpoint?.columns) ? endpoint.columns : [];
+    const columnsRawText = columnValues.join(" ");
+
+    if (columnElement) {
+      clickEsmSetColumnListMarkup(columnElement, columnValues, shouldHighlight ? normalizedTerm : "");
+    }
+    itemElement.classList.remove("click-esm-parent-highlight");
+
+    const zoomPass = !zoomFilter || endpointZoom === zoomFilter;
+    const searchPass = !normalizedTerm || String(columnsRawText || "").toLowerCase().includes(normalizedTerm);
+    const shouldShow = zoomPass && searchPass;
+    itemElement.hidden = !shouldShow;
+
+    if (shouldShow && shouldHighlight) {
+      itemElement.classList.add("click-esm-parent-highlight");
+    }
+  });
+}
+
+function clickEsmHideMvpdSelector(clickState) {
+  const mvpdSelect = clickState.mvpdSelect;
+  if (!mvpdSelect) {
+    return;
+  }
+  mvpdSelect.innerHTML = "";
+  mvpdSelect.disabled = true;
+  mvpdSelect.hidden = true;
+  clickState.lastKnownSelectedMvpdIds = new Set();
+}
+
+function clickEsmRememberMvpdSelection(clickState) {
+  clickState.lastKnownSelectedMvpdIds = new Set(clickEsmGetSelectedValues(clickState.mvpdSelect));
+}
+
+function clickEsmGetSharedMvpdMapForRequestor(requestorId) {
+  const normalizedRequestorId = String(requestorId || "").trim();
+  if (!normalizedRequestorId) {
+    return null;
+  }
+  const map = state.mvpdCacheByRequestor.get(normalizedRequestorId);
+  if (map instanceof Map && map.size > 0) {
+    return map;
+  }
+  return null;
+}
+
+async function clickEsmLoadMvpdMapForRequestor(requestorId) {
+  const normalizedRequestorId = String(requestorId || "").trim();
+  if (!normalizedRequestorId) {
+    return new Map();
+  }
+  const sharedMap = clickEsmGetSharedMvpdMapForRequestor(normalizedRequestorId);
+  if (sharedMap) {
+    return sharedMap;
+  }
+  return loadMvpdsFromRestV2(normalizedRequestorId);
+}
+
+function syncClickEsmMvpdMenusForRequestor(requestorId, mvpdMap) {
+  const normalizedRequestorId = String(requestorId || "").trim();
+  if (!normalizedRequestorId || !(mvpdMap instanceof Map)) {
+    return;
+  }
+
+  const sections = document.querySelectorAll(".premium-service-section.service-esm-click");
+  sections.forEach((section) => {
+    const clickState = section?.__mincloudClickEsmState || null;
+    if (!clickState?.section?.isConnected || !clickState.requestorSelect || !clickState.mvpdSelect) {
+      return;
+    }
+
+    const selectedRequestorIds = clickEsmGetSelectedValues(clickState.requestorSelect);
+    const isExactRequestorSelection =
+      selectedRequestorIds.length === 1 && selectedRequestorIds[0] === normalizedRequestorId;
+    const isImplicitTopSelection =
+      selectedRequestorIds.length === 0 && String(state.selectedRequestorId || "").trim() === normalizedRequestorId;
+    if (!isExactRequestorSelection && !isImplicitTopSelection) {
+      return;
+    }
+
+    if (isImplicitTopSelection && clickState.requestorSelect?.options?.length) {
+      [...clickState.requestorSelect.options].forEach((option) => {
+        option.selected = option.value === normalizedRequestorId;
+      });
+      clickState.pendingRequestorIds = [normalizedRequestorId];
+    }
+
+    const currentSelected = new Set(clickEsmGetSelectedValues(clickState.mvpdSelect));
+    const desiredSelectedIds = currentSelected.size ? currentSelected : new Set(clickState.lastKnownSelectedMvpdIds);
+    clickState.mvpdSelect.disabled = true;
+    clickState.mvpdSelect.hidden = false;
+    clickEsmApplyMvpdOptions(clickState, [...mvpdMap.entries()], desiredSelectedIds);
+    clickState.mvpdSelect.disabled = false;
+    clickEsmRememberMvpdSelection(clickState);
+  });
+}
+
+function clearClickEsmMvpdMenusForRequestor(requestorId, label = "-- MVPD config unavailable --") {
+  const normalizedRequestorId = String(requestorId || "").trim();
+  const clearAll = normalizedRequestorId.length === 0;
+  const sections = document.querySelectorAll(".premium-service-section.service-esm-click");
+  sections.forEach((section) => {
+    const clickState = section?.__mincloudClickEsmState || null;
+    if (!clickState?.section?.isConnected || !clickState.requestorSelect || !clickState.mvpdSelect) {
+      return;
+    }
+
+    const selectedRequestorIds = clickEsmGetSelectedValues(clickState.requestorSelect);
+    const isExactRequestorSelection =
+      selectedRequestorIds.length === 1 && selectedRequestorIds[0] === normalizedRequestorId;
+    const isImplicitTopSelection =
+      selectedRequestorIds.length === 0 && String(state.selectedRequestorId || "").trim() === normalizedRequestorId;
+    if (!clearAll && !isExactRequestorSelection && !isImplicitTopSelection) {
+      return;
+    }
+
+    clickState.mvpdSelect.innerHTML = `<option value="">${escapeHtml(label)}</option>`;
+    clickState.mvpdSelect.disabled = true;
+    clickState.mvpdSelect.hidden = false;
+    clickState.lastKnownSelectedMvpdIds = new Set();
+  });
+}
+
+function clickEsmApplyMvpdOptions(clickState, entries, desiredSelectedIds) {
+  const mvpdSelect = clickState.mvpdSelect;
+  if (!mvpdSelect) {
+    return;
+  }
+  mvpdSelect.innerHTML = "";
+
+  let lastLetter = "";
+  let indexWithinGroup = 0;
+  const orderedEntries = [...entries].sort((left, right) => {
+    const leftName = String(left?.[1]?.name || left?.[0] || "");
+    const rightName = String(right?.[1]?.name || right?.[0] || "");
+    return leftName.localeCompare(rightName, undefined, { sensitivity: "base" });
+  });
+
+  orderedEntries.forEach(([mvpdId, metadata]) => {
+    const option = document.createElement("option");
+    const displayName = String(metadata?.name || mvpdId || "");
+    const isProxy = metadata?.isProxy === false ? false : true;
+    option.value = mvpdId;
+    option.textContent = `${displayName} (${mvpdId})`;
+    option.classList.add(isProxy ? "click-esm-mvpd-proxy" : "click-esm-mvpd-direct");
+    option.style.fontWeight = isProxy ? "400" : "700";
+
+    const letterMatch = displayName.match(/[A-Za-z]/);
+    const currentLetter = letterMatch ? letterMatch[0].toUpperCase() : "A";
+    if (currentLetter !== lastLetter) {
+      lastLetter = currentLetter;
+      indexWithinGroup = 0;
+    }
+
+    const isGroupA = (currentLetter.charCodeAt(0) - 65) % 2 === 0;
+    const isOdd = indexWithinGroup % 2 === 1;
+    if (isGroupA) {
+      option.classList.add(isOdd ? "click-esm-mvpd-tone-a2" : "click-esm-mvpd-tone-a1");
+      option.style.backgroundColor = isOdd ? "#dcebff" : "#eaf3ff";
+    } else {
+      option.classList.add(isOdd ? "click-esm-mvpd-tone-b2" : "click-esm-mvpd-tone-b1");
+      option.style.backgroundColor = isOdd ? "#ffe3d1" : "#fff1e6";
+    }
+    indexWithinGroup += 1;
+
+    if (desiredSelectedIds && desiredSelectedIds.has(mvpdId)) {
+      option.selected = true;
+    }
+    mvpdSelect.appendChild(option);
+  });
+
+  if (![...mvpdSelect.options].some((option) => option.selected)) {
+    mvpdSelect.selectedIndex = -1;
+  }
+}
+
+function clickEsmEnableMvpdHoverHint(clickState) {
+  const mvpdSelect = clickState?.mvpdSelect;
+  if (!mvpdSelect || mvpdSelect.__clickEsmHoverAttached) {
+    return;
+  }
+  mvpdSelect.__clickEsmHoverAttached = true;
+
+  let lastOption = null;
+  const clearHover = () => {
+    if (lastOption) {
+      lastOption.classList.remove("click-esm-mvpd-hover");
+    }
+    lastOption = null;
+  };
+  const setHover = (option) => {
+    if (!option || option === lastOption) {
+      return;
+    }
+    if (lastOption) {
+      lastOption.classList.remove("click-esm-mvpd-hover");
+    }
+    option.classList.add("click-esm-mvpd-hover");
+    lastOption = option;
+  };
+  const resolveOptionFromEvent = (event) => {
+    if (event?.target?.tagName === "OPTION") {
+      return event.target;
+    }
+
+    const optionCount = Number(mvpdSelect.options?.length || 0);
+    if (optionCount <= 0) {
+      return null;
+    }
+    if (!mvpdSelect.multiple && Number(mvpdSelect.size || 0) <= 1) {
+      return null;
+    }
+
+    const rect = mvpdSelect.getBoundingClientRect();
+    const y = Number(event?.clientY || 0) - rect.top + mvpdSelect.scrollTop;
+    const optionHeight = mvpdSelect.scrollHeight / optionCount;
+    if (!Number.isFinite(optionHeight) || optionHeight < 12 || optionHeight > 60) {
+      return null;
+    }
+
+    const optionIndex = Math.floor(y / optionHeight);
+    if (optionIndex < 0 || optionIndex >= optionCount) {
+      return null;
+    }
+    return mvpdSelect.options[optionIndex];
+  };
+
+  mvpdSelect.addEventListener("mousemove", (event) => {
+    const option = resolveOptionFromEvent(event);
+    if (option) {
+      setHover(option);
+    }
+  });
+  mvpdSelect.addEventListener("mouseleave", clearHover);
+  mvpdSelect.addEventListener("blur", clearHover);
+}
+
+async function clickEsmApplyRequestorSelection(clickState, requestorIds, requestToken) {
+  if (!clickState.mvpdSelect) {
+    return;
+  }
+
+  if (!requestorIds.length) {
+    clickEsmHideMvpdSelector(clickState);
+    return;
+  }
+
+  const currentSelected = new Set(clickEsmGetSelectedValues(clickState.mvpdSelect));
+  const desiredSelectedIds = currentSelected.size ? currentSelected : new Set(clickState.lastKnownSelectedMvpdIds);
+
+  clickState.mvpdSelect.disabled = true;
+  clickState.mvpdSelect.hidden = false;
+  if (!clickState.mvpdSelect.options.length) {
+    clickState.mvpdSelect.innerHTML = '<option value="">Loading MVPDs...</option>';
+  }
+
+  const settledMaps = await Promise.allSettled(
+    requestorIds.map((requestorId) => clickEsmLoadMvpdMapForRequestor(requestorId))
+  );
+  if (!isEsmServiceRequestActive(clickState.section, requestToken, clickState.programmer?.programmerId)) {
+    return;
+  }
+
+  const maps = settledMaps.filter((entry) => entry.status === "fulfilled").map((entry) => entry.value);
+  const failures = settledMaps.filter((entry) => entry.status === "rejected").map((entry) => entry.reason);
+  if (maps.length === 0) {
+    clickState.mvpdSelect.innerHTML = '<option value="">-- MVPD config unavailable --</option>';
+    clickState.mvpdSelect.disabled = true;
+    if (failures.length > 0) {
+      const firstFailure = failures[0];
+      const reason = firstFailure instanceof Error ? firstFailure.message : String(firstFailure);
+      setStatus(`REST V2 configuration failed for clickESM MVPD list: ${reason}`, "error");
+    }
+    return;
+  }
+  if (failures.length > 0) {
+    const firstFailure = failures[0];
+    log("clickESM MVPD merge fallback", {
+      failedRequests: failures.length,
+      reason: firstFailure instanceof Error ? firstFailure.message : String(firstFailure),
+    });
+  }
+
+  const mergedMap = new Map();
+  maps.forEach((mvpdMap) => {
+    mvpdMap.forEach((metadata, mvpdId) => {
+      const normalized = {
+        name: String(metadata?.name || mvpdId || "").trim() || mvpdId,
+        isProxy: metadata?.isProxy === false ? false : true,
+      };
+      if (!mergedMap.has(mvpdId)) {
+        mergedMap.set(mvpdId, normalized);
+        return;
+      }
+
+      const existing = mergedMap.get(mvpdId) || {};
+      mergedMap.set(mvpdId, {
+        name: String(existing.name || normalized.name || mvpdId),
+        isProxy: existing.isProxy === false || normalized.isProxy === false ? false : true,
+      });
+    });
+  });
+
+  if (mergedMap.size === 0) {
+    clickState.mvpdSelect.innerHTML = '<option value="">-- No MVPDs available --</option>';
+    clickState.mvpdSelect.disabled = true;
+    return;
+  }
+
+  clickEsmApplyMvpdOptions(clickState, [...mergedMap.entries()], desiredSelectedIds);
+  clickEsmRememberMvpdSelection(clickState);
+  clickState.mvpdSelect.disabled = false;
+  setStatus("", "info");
+}
+
+function clickEsmScheduleRequestorSelection(clickState, requestToken) {
+  if (clickState.requestorApplyTimer) {
+    clearTimeout(clickState.requestorApplyTimer);
+    clickState.requestorApplyTimer = 0;
+  }
+
+  clickState.requestorApplyTimer = setTimeout(() => {
+    clickState.requestorApplyTimer = 0;
+    void clickEsmApplyRequestorSelection(clickState, clickState.pendingRequestorIds, requestToken);
+  }, 350);
+}
+
+function clickEsmHandleRequestorChange(clickState, requestToken, options = {}) {
+  clickState.pendingRequestorIds = clickEsmGetSelectedValues(clickState.requestorSelect);
+
+  if (!clickState.pendingRequestorIds.length) {
+    if (clickState.requestorApplyTimer) {
+      clearTimeout(clickState.requestorApplyTimer);
+      clickState.requestorApplyTimer = 0;
+    }
+    clickEsmHideMvpdSelector(clickState);
+    return;
+  }
+
+  if (options.immediate) {
+    void clickEsmApplyRequestorSelection(clickState, clickState.pendingRequestorIds, requestToken);
+    return;
+  }
+  clickEsmScheduleRequestorSelection(clickState, requestToken);
+}
+
+function clickEsmResolveSharedRequestorIds(clickState) {
+  const programmerRequestorIds = Array.isArray(clickState?.programmer?.requestorIds)
+    ? clickState.programmer.requestorIds
+    : [];
+  const normalizedProgrammerIds = uniqueSorted(programmerRequestorIds.map((value) => String(value || "").trim()).filter(Boolean));
+  if (normalizedProgrammerIds.length > 0) {
+    return normalizedProgrammerIds;
+  }
+  return getRequestorsForSelectedMediaCompany();
+}
+
+function clickEsmApplySharedRequestorOptions(clickState, requestToken, options = {}) {
+  if (!clickState.requestorSelect) {
+    return;
+  }
+
+  const rawRequestorIds = Array.isArray(options.requestorIds)
+    ? options.requestorIds
+    : clickEsmResolveSharedRequestorIds(clickState);
+  const requestorIds = uniqueSorted(rawRequestorIds.map((value) => String(value || "").trim()).filter(Boolean));
+  const selectedTopRequestorId =
+    options.selectedRequestorId !== undefined
+      ? String(options.selectedRequestorId || "").trim()
+      : String(state.selectedRequestorId || "").trim();
+  const existingSelectedIds = new Set(clickEsmGetSelectedValues(clickState.requestorSelect));
+  const desiredSelectedIds = selectedTopRequestorId
+    ? new Set([selectedTopRequestorId])
+    : existingSelectedIds;
+
+  clickState.requestorSelect.innerHTML = "";
+  if (requestorIds.length === 0) {
+    const emptyLabel = String(options.emptyLabel || "No requestor-id values returned.");
+    clickState.requestorSelect.innerHTML = `<option value="">${escapeHtml(emptyLabel)}</option>`;
+    clickState.requestorSelect.disabled = true;
+    clickEsmHideMvpdSelector(clickState);
+    return;
+  }
+
+  requestorIds.forEach((requestorId, index) => {
+    const option = document.createElement("option");
+    option.value = requestorId;
+    option.textContent = requestorId;
+    const isOdd = index % 2 === 1;
+    option.classList.add(isOdd ? "click-esm-requestor-tone-b" : "click-esm-requestor-tone-a");
+    // Inline fallback for environments that under-apply <option> class backgrounds.
+    option.style.backgroundColor = isOdd ? "#f2f5f8" : "#f9fafb";
+    if (desiredSelectedIds.has(requestorId)) {
+      option.selected = true;
+    }
+    clickState.requestorSelect.appendChild(option);
+  });
+
+  if (![...clickState.requestorSelect.options].some((option) => option.selected)) {
+    clickState.requestorSelect.selectedIndex = -1;
+  }
+  clickState.requestorSelect.disabled = false;
+  clickEsmHandleRequestorChange(clickState, requestToken, { immediate: true });
+}
+
+function syncClickEsmRequestorMenus(requestorIds, selectedRequestorId = "", options = {}) {
+  const normalizedRequestorIds = uniqueSorted(
+    (Array.isArray(requestorIds) ? requestorIds : []).map((value) => String(value || "").trim()).filter(Boolean)
+  );
+  const targetSelection = String(selectedRequestorId || "").trim();
+  const requestToken = Number(options.requestToken || state.premiumPanelRequestToken);
+  const emptyLabel = String(options.emptyLabel || "No requestor-id values returned.");
+  const sections = document.querySelectorAll(".premium-service-section.service-esm-click");
+  sections.forEach((section) => {
+    const clickState = section?.__mincloudClickEsmState || null;
+    if (!clickState?.section?.isConnected || !clickState.requestorSelect) {
+      return;
+    }
+    if (!isEsmServiceRequestActive(clickState.section, requestToken, clickState.programmer?.programmerId)) {
+      return;
+    }
+    clickEsmApplySharedRequestorOptions(clickState, requestToken, {
+      requestorIds: normalizedRequestorIds,
+      selectedRequestorId: targetSelection,
+      emptyLabel,
+    });
+  });
+}
+
+function clickEsmBuildCsvFileName(clickState, endpointUrl) {
+  let endpointPath = "endpoint";
+  try {
+    const parsed = new URL(endpointUrl);
+    endpointPath = parsed.pathname.replace(/^\/+/, "").replace(/\//g, "-");
+  } catch {
+    endpointPath = "endpoint";
+  }
+  const selectedRequestorIds = clickEsmGetSelectedValues(clickState?.requestorSelect);
+  const selectedMvpds = clickState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(clickState?.mvpdSelect);
+  const requestorId = sanitizeHarFileSegment(selectedRequestorIds.join("-") || "all-requestors", "all-requestors");
+  const mvpdId = sanitizeHarFileSegment(selectedMvpds.join("-") || "all-mvpds", "all-mvpds");
+  const endpointSegment = sanitizeHarFileSegment(endpointPath, "endpoint");
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `clickesm_${sanitizeHarFileSegment(clickState?.programmer?.programmerId, "programmer")}_${requestorId}_${mvpdId}_${endpointSegment}_${stamp}.csv`;
+}
+
+async function clickEsmDownloadCsv(clickState, endpoint, sortRule, requestToken) {
+  const dataUrl = clickEsmBuildEndpointUrl(clickState, endpoint);
+  const response = await clickEsmFetchWithPremiumAuth(
+    clickState,
+    dataUrl,
+    { method: "GET" },
+    CLICK_ESM_CSV_RESULT_LIMIT
+  );
+  if (!isEsmServiceRequestActive(clickState.section, requestToken, clickState.programmer?.programmerId)) {
+    return;
+  }
+  if (!response.ok) {
+    throw new Error(`CSV request failed (${response.status})`);
+  }
+
+  const payload = await response.json().catch(() => null);
+  const rows = Array.isArray(payload?.report) ? payload.report : [];
+  if (rows.length === 0) {
+    return;
+  }
+
+  const firstRow = rows[0];
+  const sortContext = {
+    hasAuthN: firstRow["authn-attempts"] != null && firstRow["authn-successful"] != null,
+    hasAuthZ: firstRow["authz-attempts"] != null && firstRow["authz-successful"] != null,
+  };
+  const fileName = clickEsmBuildCsvFileName(clickState, endpoint.url);
+  downloadEsmCsv(rows, sortRule, sortContext, fileName);
+}
+
+function clickEsmRenderTableMessage(hostElement, message) {
+  hostElement.innerHTML = `
+    <div class="metadata-item">
+      <p class="metadata-key">clickESM</p>
+      <p class="metadata-value"><span class="null-value">${escapeHtml(message)}</span></p>
+    </div>
+  `;
+}
+
+function clickEsmRenderTable(clickState, endpoint, hostElement, reportRows, lastModified, requestToken) {
+  if (!Array.isArray(reportRows) || reportRows.length === 0) {
+    clickEsmRenderTableMessage(hostElement, "No data");
+    return;
+  }
+
+  hostElement.innerHTML = `
+    <div class="esm-table-wrapper">
+      <table class="esm-table">
+        <thead><tr></tr></thead>
+        <tbody></tbody>
+        <tfoot>
+          <tr>
+            <td class="esm-footer-cell">
+              <div class="esm-footer click-esm-table-footer">
+                <a href="#" class="esm-csv-link">CSV</a>
+                <span class="esm-last-modified"></span>
+                <button type="button" class="click-esm-close" title="Close table">x</button>
+              </div>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  `;
+
+  const table = hostElement.querySelector(".esm-table");
+  const thead = table?.querySelector("thead");
+  const tbody = table?.querySelector("tbody");
+  if (!table || !thead || !tbody) {
+    return;
+  }
+
+  const firstRow = reportRows[0];
+  const hasAuthN = firstRow["authn-attempts"] != null && firstRow["authn-successful"] != null;
+  const hasAuthZ = firstRow["authz-attempts"] != null && firstRow["authz-successful"] != null;
+  const hasCount = firstRow.count != null;
+  const displayColumns = Object.keys(firstRow).filter(
+    (column) => !CLICK_ESM_METRIC_COLUMNS.has(column) && !ESM_DATE_PARTS.includes(column) && column !== "media-company"
+  );
+
+  const headers = ["DATE"];
+  if (hasAuthN) {
+    headers.push("AuthN Success");
+  }
+  if (hasAuthZ) {
+    headers.push("AuthZ Success");
+  }
+  if (!hasAuthN && !hasAuthZ && hasCount) {
+    headers.push("COUNT");
+  }
+  headers.push(...displayColumns);
+
+  const tableState = {
+    thead,
+    tbody,
+    data: reportRows,
+    sortStack: getDefaultEsmSortStack(),
+    hasAuthN,
+    hasAuthZ,
+    hasCount,
+    displayColumns,
+    context: {
+      hasAuthN,
+      hasAuthZ,
+    },
+  };
+
+  const headerRow = thead.querySelector("tr");
+  headers.forEach((header) => {
+    const th = document.createElement("th");
+    th.style.cursor = "pointer";
+    th.textContent = header;
+    th.title = header === "DATE" ? `DATE (${CLIENT_TIMEZONE}, converted from PST)` : header;
+    const icon = document.createElement("span");
+    icon.className = "sort-icon";
+    icon.style.marginLeft = "6px";
+    th.appendChild(icon);
+
+    th._updateState = () => {
+      const isActive = tableState.sortStack[0]?.col === header;
+      th.classList.toggle("active-sort", isActive);
+      icon.textContent = isActive ? (tableState.sortStack[0].dir === "ASC" ? "▲" : "▼") : "";
+    };
+
+    th.addEventListener("click", (event) => {
+      const existingRule = tableState.sortStack.find((rule) => rule.col === header);
+      if (event.shiftKey && existingRule) {
+        existingRule.dir = existingRule.dir === "DESC" ? "ASC" : "DESC";
+      } else if (event.shiftKey) {
+        tableState.sortStack.push({ col: header, dir: "DESC" });
+      } else {
+        tableState.sortStack = [
+          {
+            col: header,
+            dir: existingRule ? (existingRule.dir === "DESC" ? "ASC" : "DESC") : "DESC",
+          },
+        ];
+      }
+
+      tableState.data = sortEsmRows(tableState.data, tableState.sortStack, tableState.context);
+      renderEsmTableBody(tableState);
+      refreshEsmHeaderStates(tableState);
+    });
+
+    headerRow.appendChild(th);
+  });
+
+  const footerCell = hostElement.querySelector(".esm-footer-cell");
+  if (footerCell) {
+    footerCell.colSpan = Math.max(1, headers.length);
+  }
+
+  tableState.data = sortEsmRows(tableState.data, tableState.sortStack, tableState.context);
+  renderEsmTableBody(tableState);
+  refreshEsmHeaderStates(tableState);
+
+  const csvLink = hostElement.querySelector(".esm-csv-link");
+  if (csvLink) {
+    csvLink.addEventListener("click", async (event) => {
+      event.preventDefault();
+      try {
+        await clickEsmDownloadCsv(clickState, endpoint, tableState.sortStack[0], requestToken);
+      } catch (error) {
+        setStatus(`clickESM CSV download failed: ${error instanceof Error ? error.message : String(error)}`, "error");
+      }
+    });
+  }
+
+  const closeButton = hostElement.querySelector(".click-esm-close");
+  if (closeButton) {
+    closeButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      hostElement.innerHTML = "";
+    });
+  }
+
+  const lastModifiedLabel = hostElement.querySelector(".esm-last-modified");
+  if (lastModifiedLabel) {
+    if (lastModified) {
+      const sourceTz = getLastModifiedSourceTimezone(lastModified);
+      lastModifiedLabel.textContent = `Last-Modified: ${formatLastModifiedForDisplay(lastModified)}`;
+      lastModifiedLabel.title = sourceTz
+        ? `Server time: ${sourceTz} (converted to your timezone)`
+        : "Converted to your timezone";
+    } else {
+      lastModifiedLabel.textContent = "Last-Modified: (real-time)";
+    }
+  }
+}
+
+async function clickEsmRunEndpoint(clickState, endpointIndex, requestToken) {
+  const endpoint = clickState.endpoints[endpointIndex];
+  const hostElement = clickState.contentElement?.querySelector(`.click-esm-table-host[data-endpoint-index="${endpointIndex}"]`);
+  if (!endpoint || !hostElement) {
+    return;
+  }
+
+  hostElement.innerHTML = '<div class="loading">Loading ESM data...</div>';
+
+  let response;
+  try {
+    const url = clickEsmBuildEndpointUrl(clickState, endpoint);
+    response = await clickEsmFetchWithPremiumAuth(
+      clickState,
+      url,
+      {
+        method: "GET",
+      },
+      CLICK_ESM_INLINE_RESULT_LIMIT
+    );
+  } catch (error) {
+    if (isEsmServiceRequestActive(clickState.section, requestToken, clickState.programmer?.programmerId)) {
+      clickEsmRenderTableMessage(hostElement, error instanceof Error ? error.message : String(error));
+    }
+    return;
+  }
+
+  if (!isEsmServiceRequestActive(clickState.section, requestToken, clickState.programmer?.programmerId)) {
+    return;
+  }
+
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => "");
+    clickEsmRenderTableMessage(
+      hostElement,
+      `HTTP ${response.status} ${normalizeHttpErrorMessage(bodyText) || response.statusText || "Request failed"}`
+    );
+    return;
+  }
+
+  const bodyText = await response.text().catch(() => "");
+  let jsonPayload = null;
+  if (bodyText) {
+    try {
+      jsonPayload = JSON.parse(bodyText);
+    } catch {
+      jsonPayload = null;
+    }
+  }
+  if (!jsonPayload && bodyText.trim()) {
+    clickEsmRenderTableMessage(hostElement, bodyText.trim());
+    return;
+  }
+  const reportRows = Array.isArray(jsonPayload?.report) ? jsonPayload.report : [];
+  clickEsmRenderTable(clickState, endpoint, hostElement, reportRows, response.headers.get("Last-Modified"), requestToken);
+}
+
+function wireClickEsmInteractions(clickState, requestToken) {
+  const { contentElement } = clickState;
+  if (!contentElement) {
+    return;
+  }
+
+  contentElement.querySelectorAll(".click-esm-link").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      const endpointIndex = Number(button.getAttribute("data-endpoint-index"));
+      void clickEsmRunEndpoint(clickState, endpointIndex, requestToken);
+    });
+  });
+
+  if (clickState.findButton) {
+    clickState.findButton.addEventListener("click", () => {
+      clickState.searchInput.value = clickEsmNormalizeSearchTerm(clickState.searchInput.value);
+      clickEsmApplyEndpointFilters(clickState, { highlight: true });
+    });
+  }
+
+  if (clickState.resetButton) {
+    clickState.resetButton.addEventListener("click", () => {
+      if (clickState.searchInput) {
+        clickState.searchInput.value = "";
+      }
+      if (clickState.zoomFilterSelect) {
+        clickState.zoomFilterSelect.value = "";
+      }
+      clickEsmApplyEndpointFilters(clickState, { highlight: false });
+    });
+  }
+
+  if (clickState.zoomFilterSelect) {
+    clickState.zoomFilterSelect.addEventListener("change", () => {
+      const term = clickEsmNormalizeSearchTerm(clickState.searchInput?.value || "");
+      clickEsmApplyEndpointFilters(clickState, { highlight: Boolean(term) });
+    });
+  }
+
+  if (clickState.searchInput) {
+    clickState.searchInput.addEventListener("input", () => {
+      const term = clickEsmNormalizeSearchTerm(clickState.searchInput.value);
+      clickEsmApplyEndpointFilters(clickState, { highlight: Boolean(term) });
+    });
+
+    clickState.searchInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        clickState.searchInput.value = clickEsmNormalizeSearchTerm(clickState.searchInput.value);
+        clickEsmApplyEndpointFilters(clickState, { highlight: true });
+      }
+    });
+  }
+
+  if (clickState.requestorSelect) {
+    clickState.requestorSelect.addEventListener("change", () => {
+      clickEsmHandleRequestorChange(clickState, requestToken);
+    });
+  }
+
+  if (clickState.mvpdSelect) {
+    clickEsmEnableMvpdHoverHint(clickState);
+    clickState.mvpdSelect.addEventListener("change", () => {
+      clickEsmRememberMvpdSelection(clickState);
+    });
+  }
+}
+
+async function loadClickEsmService(programmer, appInfo, section, contentElement, refreshButton, requestToken) {
+  if (!contentElement) {
+    return;
+  }
+  if (!programmer?.programmerId || !appInfo?.guid) {
+    contentElement.innerHTML = '<div class="service-error">Missing media company or ESM application details.</div>';
+    return;
+  }
+
+  const existingClickState = section?.__mincloudClickEsmState;
+  if (existingClickState?.requestorApplyTimer) {
+    clearTimeout(existingClickState.requestorApplyTimer);
+  }
+  section.__mincloudClickEsmState = null;
+
+  if (refreshButton) {
+    refreshButton.disabled = true;
+  }
+  contentElement.innerHTML = '<div class="loading">Loading clickESM...</div>';
+
+  try {
+    const endpoints = await loadClickEsmEndpoints();
+    if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      return;
+    }
+    if (!Array.isArray(endpoints) || endpoints.length === 0) {
+      contentElement.innerHTML = '<div class="service-error">No clickESM endpoints were found.</div>';
+      return;
+    }
+
+    contentElement.innerHTML = clickEsmBuildShellHtml(endpoints);
+    const clickState = {
+      section,
+      contentElement,
+      programmer,
+      appInfo,
+      endpoints,
+      netInFlight: 0,
+      requestorApplyTimer: 0,
+      pendingRequestorIds: [],
+      lastKnownSelectedMvpdIds: new Set(),
+      zoomFilterSelect: contentElement.querySelector(".click-esm-zoom-filter"),
+      searchInput: contentElement.querySelector(".click-esm-search"),
+      findButton: contentElement.querySelector(".click-esm-find-btn"),
+      resetButton: contentElement.querySelector(".click-esm-reset-btn"),
+      requestorSelect: contentElement.querySelector(".click-esm-requestor-select"),
+      mvpdSelect: contentElement.querySelector(".click-esm-mvpd-select"),
+    };
+
+    section.__mincloudClickEsmState = clickState;
+    wireClickEsmInteractions(clickState, requestToken);
+    clickEsmApplyEndpointFilters(clickState, { highlight: false });
+    clickEsmApplySharedRequestorOptions(clickState, requestToken, {
+      selectedRequestorId: state.selectedRequestorId,
+      emptyLabel: "-- Select a Media Company first --",
+    });
+
+    if (clickState.mvpdSelect && state.selectedMvpdId) {
+      [...clickState.mvpdSelect.options].forEach((option) => {
+        if (option.value === state.selectedMvpdId) {
+          option.selected = true;
+        }
+      });
+      clickEsmRememberMvpdSelection(clickState);
+    }
+  } catch (error) {
+    if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      return;
+    }
+    contentElement.innerHTML = `<div class="service-error">${escapeHtml(
+      error instanceof Error ? error.message : String(error)
+    )}</div>`;
+  } finally {
+    if (refreshButton && isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      refreshButton.disabled = false;
+    }
+  }
 }
 
 function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
@@ -3194,11 +4420,51 @@ function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
   return summaryItems.join("");
 }
 
+function stopPremiumServiceAutoRefresh(section) {
+  const timerId = Number(section?.__mincloudAutoRefreshTimer || 0);
+  if (!timerId) {
+    return;
+  }
+  clearInterval(timerId);
+  section.__mincloudAutoRefreshTimer = 0;
+}
+
+function startPremiumServiceAutoRefresh(section, container, refreshFn, intervalMs) {
+  stopPremiumServiceAutoRefresh(section);
+  if (typeof refreshFn !== "function") {
+    return;
+  }
+
+  const tick = () => {
+    if (!section?.isConnected) {
+      stopPremiumServiceAutoRefresh(section);
+      return;
+    }
+    if (container?.classList.contains("collapsed")) {
+      return;
+    }
+    void refreshFn();
+  };
+
+  section.__mincloudAutoRefreshTimer = window.setInterval(tick, Math.max(15000, Number(intervalMs) || ESM_AUTO_REFRESH_INTERVAL_MS));
+}
+
+function clearPremiumServiceAutoRefreshTimers() {
+  if (!els.premiumServicesContainer) {
+    return;
+  }
+  const sections = els.premiumServicesContainer.querySelectorAll(".premium-service-section");
+  sections.forEach((section) => {
+    stopPremiumServiceAutoRefresh(section);
+  });
+}
+
 function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const title = PREMIUM_SERVICE_TITLE_BY_KEY[serviceKey] || serviceKey;
   const serviceClassByKey = {
     degradation: "service-degradation",
     esm: "service-esm",
+    clickEsm: "service-esm-click",
     restV2: "service-rest-v2",
   };
 
@@ -3219,16 +4485,28 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const serviceBodyHtml =
     serviceKey === "esm"
       ? '<div class="loading">Loading ESM data...</div>'
+      : serviceKey === "clickEsm"
+        ? '<div class="loading">Loading clickESM...</div>'
       : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
-  section.innerHTML = `
-    <button type="button" class="metadata-header service-box-header">
-      <span>${escapeHtml(`${title} w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`)}</span>
-      <span class="collapse-icon">▼</span>
-    </button>
-    <div class="metadata-container service-box-container">
+  const showManualRefresh = serviceKey !== "esm" && serviceKey !== "clickEsm";
+  const serviceActionsHtml = showManualRefresh
+    ? `
       <div class="service-actions">
         <button type="button" class="service-refresh-btn">Refresh ${escapeHtml(title)}</button>
       </div>
+    `
+    : "";
+  const sectionLabel =
+    serviceKey === "clickEsm"
+      ? `clickESM w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`
+      : `${title} w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`;
+  section.innerHTML = `
+    <button type="button" class="metadata-header service-box-header">
+      <span>${escapeHtml(sectionLabel)}</span>
+      <span class="collapse-icon">▼</span>
+    </button>
+    <div class="metadata-container service-box-container">
+      ${serviceActionsHtml}
       <div class="service-content">
         ${restV2LoginToolHtml}
         ${serviceBodyHtml}
@@ -3243,6 +4521,13 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const initialCollapsed = getPremiumSectionCollapsed(programmer?.programmerId, serviceKey);
   wireCollapsibleSection(toggleButton, container, initialCollapsed, (collapsed) => {
     setPremiumSectionCollapsed(programmer?.programmerId, serviceKey, collapsed);
+    if (!collapsed) {
+      if (serviceKey === "esm" && typeof section.__mincloudRefreshEsm === "function") {
+        void section.__mincloudRefreshEsm();
+      } else if (serviceKey === "clickEsm" && typeof section.__mincloudRefreshClickEsm === "function") {
+        void section.__mincloudRefreshClickEsm();
+      }
+    }
   });
 
   if (serviceKey === "esm") {
@@ -3250,12 +4535,14 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       const requestToken = state.premiumPanelRequestToken;
       return loadEsmService(programmer, appInfo, section, contentElement, refreshButton, requestToken);
     };
-
-    refreshButton.addEventListener("click", (event) => {
-      event.stopPropagation();
-      void section.__mincloudRefreshEsm();
-    });
     void section.__mincloudRefreshEsm();
+    startPremiumServiceAutoRefresh(section, container, section.__mincloudRefreshEsm, ESM_AUTO_REFRESH_INTERVAL_MS);
+  } else if (serviceKey === "clickEsm") {
+    section.__mincloudRefreshClickEsm = () => {
+      const requestToken = state.premiumPanelRequestToken;
+      return loadClickEsmService(programmer, appInfo, section, contentElement, refreshButton, requestToken);
+    };
+    void section.__mincloudRefreshClickEsm();
   } else {
     refreshButton.addEventListener("click", async (event) => {
       event.stopPropagation();
@@ -3305,6 +4592,7 @@ function renderPremiumServicesLoading(programmer) {
   if (!els.premiumServicesContainer) {
     return;
   }
+  clearPremiumServiceAutoRefreshTimers();
 
   const label = programmer?.programmerName
     ? `Loading premium services for ${programmer.programmerName}...`
@@ -3316,6 +4604,7 @@ function renderPremiumServicesError(error) {
   if (!els.premiumServicesContainer) {
     return;
   }
+  clearPremiumServiceAutoRefreshTimers();
   const reason = error instanceof Error ? error.message : String(error);
   els.premiumServicesContainer.innerHTML = `<p class="metadata-empty service-error">${escapeHtml(reason)}</p>`;
 }
@@ -3324,6 +4613,7 @@ function renderPremiumServices(services, programmer = null) {
   if (!els.premiumServicesContainer) {
     return;
   }
+  clearPremiumServiceAutoRefreshTimers();
 
   if (!services) {
     els.premiumServicesContainer.innerHTML =
@@ -3331,7 +4621,12 @@ function renderPremiumServices(services, programmer = null) {
     return;
   }
 
-  const availableKeys = PREMIUM_SERVICE_DISPLAY_ORDER.filter((serviceKey) => Boolean(services?.[serviceKey]));
+  const availableKeys = PREMIUM_SERVICE_DISPLAY_ORDER.filter((serviceKey) => {
+    if (serviceKey === "clickEsm") {
+      return Boolean(services?.esm);
+    }
+    return Boolean(services?.[serviceKey]);
+  });
   if (availableKeys.length === 0) {
     els.premiumServicesContainer.innerHTML =
       '<p class="metadata-empty">No premium scoped applications found for this media company.</p>';
@@ -3340,7 +4635,8 @@ function renderPremiumServices(services, programmer = null) {
 
   els.premiumServicesContainer.innerHTML = "";
   for (const serviceKey of availableKeys) {
-    const section = createPremiumServiceSection(programmer, serviceKey, services[serviceKey]);
+    const appInfo = serviceKey === "clickEsm" ? services.esm : services[serviceKey];
+    const section = createPremiumServiceSection(programmer, serviceKey, appInfo);
     els.premiumServicesContainer.appendChild(section);
   }
   refreshRestV2LoginPanels();
@@ -7105,6 +8401,7 @@ function getRequestorsForSelectedMediaCompany() {
 function populateRequestorSelect() {
   state.selectedMvpdId = "";
   const requestorIds = getRequestorsForSelectedMediaCompany();
+  const selectedRequestorId = String(state.selectedRequestorId || "").trim();
 
   els.requestorSelect.innerHTML = "";
   const defaultOption = document.createElement("option");
@@ -7123,6 +8420,9 @@ function populateRequestorSelect() {
 
   els.mvpdSelect.disabled = true;
   els.mvpdSelect.innerHTML = '<option value="">-- Select Requestor first --</option>';
+  syncClickEsmRequestorMenus(requestorIds, selectedRequestorId, {
+    emptyLabel: "-- Select a Media Company first --",
+  });
   refreshRestV2LoginPanels();
 }
 
@@ -8783,6 +10083,7 @@ async function populateMvpdSelectForRequestor(requestorId) {
     els.mvpdSelect.disabled = true;
     els.mvpdSelect.innerHTML = '<option value="">-- Select Requestor first --</option>';
     state.selectedMvpdId = "";
+    clearClickEsmMvpdMenusForRequestor(expectedRequestorId, "-- Select Requestor first --");
     refreshRestV2LoginPanels();
     return;
   }
@@ -8828,6 +10129,7 @@ async function populateMvpdSelectForRequestor(requestorId) {
     els.mvpdSelect.disabled = false;
     state.selectedMvpdId = "";
     els.mvpdSelect.value = "";
+    syncClickEsmMvpdMenusForRequestor(expectedRequestorId, merged);
     refreshRestV2LoginPanels();
     setStatus("", "info");
   } catch (error) {
@@ -8837,6 +10139,7 @@ async function populateMvpdSelectForRequestor(requestorId) {
     els.mvpdSelect.disabled = true;
     els.mvpdSelect.innerHTML = '<option value="">-- MVPD config unavailable --</option>';
     state.selectedMvpdId = "";
+    clearClickEsmMvpdMenusForRequestor(expectedRequestorId, "-- MVPD config unavailable --");
     refreshRestV2LoginPanels();
     const reason = error instanceof Error ? error.message : String(error);
     setStatus(`REST V2 configuration failed for MVPD list: ${reason}`, "error");
@@ -9570,6 +10873,9 @@ function registerEventHandlers() {
   els.requestorSelect.addEventListener("change", (event) => {
     state.selectedRequestorId = String(event.target.value || "");
     state.selectedMvpdId = "";
+    syncClickEsmRequestorMenus(getRequestorsForSelectedMediaCompany(), state.selectedRequestorId, {
+      emptyLabel: "-- Select a Media Company first --",
+    });
     void refreshProgrammerPanels();
     void populateMvpdSelectForRequestor(state.selectedRequestorId);
   });
