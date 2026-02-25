@@ -51,6 +51,217 @@ function parseJsonText(text, fallback = null) {
   }
 }
 
+function normalizeAvatarCandidate(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const trimmed = value.trim().replace(/^['"]+|['"]+$/g, "");
+  if (!trimmed) {
+    return "";
+  }
+
+  if (/^data:image\//i.test(trimmed) || /^blob:/i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith("//")) {
+    return `https:${trimmed}`;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === "http:") {
+      parsed.protocol = "https:";
+    }
+    if (parsed.protocol !== "https:") {
+      return "";
+    }
+    return parsed.toString();
+  } catch {
+    return "";
+  }
+}
+
+function isImsAvatarDownloadUrl(url) {
+  if (!url || url.startsWith("data:image/") || url.startsWith("blob:")) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return /(^|\.)adobelogin\.com$/i.test(parsed.hostname) && /\/ims\/avatar\/download\//i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function isPpsProfileImageUrl(url) {
+  if (!url || url.startsWith("data:image/") || url.startsWith("blob:")) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return /(^|\.)pps\.services\.adobe\.com$/i.test(parsed.hostname) && /\/api\/profile\/[^/]+\/image(\/|$)/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function firstNonEmptyString(values) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function getProfileIdentityValue(profilePayload) {
+  if (!profilePayload || typeof profilePayload !== "object") {
+    return "";
+  }
+
+  return firstNonEmptyString([
+    profilePayload?.userId,
+    profilePayload?.user_id,
+    profilePayload?.sub,
+    profilePayload?.id,
+  ]);
+}
+
+function isSyntheticIdentityAvatarCandidate(profilePayload, candidate) {
+  const identity = getProfileIdentityValue(profilePayload);
+  const normalized = normalizeAvatarCandidate(candidate);
+  if (!identity || !normalized || !isImsAvatarDownloadUrl(normalized)) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const match = parsed.pathname.match(/\/ims\/avatar\/download\/([^/?#]+)/i);
+    if (!match) {
+      return false;
+    }
+    const decodedIdentity = decodeURIComponent(String(match[1] || "")).trim();
+    return decodedIdentity === identity;
+  } catch {
+    return false;
+  }
+}
+
+function collectProfileAvatarCandidates(profilePayload) {
+  if (!profilePayload || typeof profilePayload !== "object") {
+    return [];
+  }
+
+  const candidates = new Set();
+  const pushCandidate = (value) => {
+    const normalized = normalizeAvatarCandidate(value);
+    if (normalized) {
+      candidates.add(normalized);
+    }
+  };
+
+  const explicitValues = [
+    profilePayload?.user_image_url,
+    profilePayload?.userImageUrl,
+    profilePayload?.avatar,
+    profilePayload?.avatarUrl,
+    profilePayload?.avatar_url,
+    profilePayload?.additional_info?.user_image_url,
+    profilePayload?.additional_info?.userImageUrl,
+    profilePayload?.additional_info?.avatar,
+    profilePayload?.additional_info?.avatarUrl,
+    profilePayload?.additional_info?.avatar_url,
+    profilePayload?.picture,
+    profilePayload?.photo,
+    profilePayload?.imageUrl,
+    profilePayload?.images?.avatar?.url,
+    profilePayload?.images?.avatar?.href,
+    profilePayload?.images?.profile?.url,
+    profilePayload?.images?.profile?.href,
+  ];
+
+  for (const value of explicitValues) {
+    pushCandidate(value);
+  }
+
+  const seen = new WeakSet();
+  const queue = [profilePayload];
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || typeof current !== "object" || seen.has(current)) {
+      continue;
+    }
+    seen.add(current);
+
+    if (Array.isArray(current)) {
+      for (const entry of current) {
+        if (entry && typeof entry === "object") {
+          queue.push(entry);
+        } else if (typeof entry === "string") {
+          pushCandidate(entry);
+        }
+      }
+      continue;
+    }
+
+    for (const [key, value] of Object.entries(current)) {
+      if (value && typeof value === "object") {
+        queue.push(value);
+        continue;
+      }
+      if (typeof value !== "string") {
+        continue;
+      }
+
+      if (/avatar|photo|picture|image|thumbnail|icon/i.test(key) || /\/api\/profile\/[^/]+\/image\//i.test(value)) {
+        pushCandidate(value);
+      }
+    }
+  }
+
+  return [...candidates];
+}
+
+function scoreProfileAvatarPayload(profilePayload) {
+  if (!profilePayload || typeof profilePayload !== "object") {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const candidates = collectProfileAvatarCandidates(profilePayload).filter(
+    (candidate) => !isSyntheticIdentityAvatarCandidate(profilePayload, candidate)
+  );
+  if (candidates.length === 0) {
+    return -100;
+  }
+
+  let bestScore = -100;
+  for (const candidate of candidates.slice(0, 10)) {
+    let score = 0;
+    if (candidate.startsWith("data:image/")) {
+      score += 420;
+    } else if (isPpsProfileImageUrl(candidate)) {
+      score += 340;
+    } else if (isImsAvatarDownloadUrl(candidate)) {
+      score += 260;
+    } else if (/\/ims\/avatar\//i.test(candidate)) {
+      score += 220;
+    } else {
+      score += 140;
+    }
+
+    if (/avatar|profile|picture|photo|image/i.test(candidate)) {
+      score += 16;
+    }
+    bestScore = Math.max(bestScore, score);
+  }
+
+  return bestScore + Math.min(candidates.length, 10) * 3;
+}
+
 function decodeBase64Url(value) {
   if (!value) {
     return "";
@@ -173,6 +384,8 @@ async function fetchProfile(accessToken = "") {
     },
   ];
 
+  let bestPayload = null;
+  let bestPayloadScore = Number.NEGATIVE_INFINITY;
   for (const endpoint of endpoints) {
     const attempts = [{ credentials: "omit" }, { credentials: "include" }];
 
@@ -190,7 +403,14 @@ async function fetchProfile(accessToken = "") {
         const text = await response.text().catch(() => "");
         const parsed = parseJsonText(text, null);
         if (parsed && typeof parsed === "object") {
-          return parsed;
+          const payloadScore = scoreProfileAvatarPayload(parsed);
+          if (payloadScore > bestPayloadScore) {
+            bestPayload = parsed;
+            bestPayloadScore = payloadScore;
+          }
+          if (payloadScore >= 320) {
+            return parsed;
+          }
         }
       } catch {
         // Continue to next variant.
@@ -198,7 +418,7 @@ async function fetchProfile(accessToken = "") {
     }
   }
 
-  return null;
+  return bestPayload;
 }
 
 async function fetchOrganizations(accessToken = "") {
@@ -377,7 +597,7 @@ function beginLogin(query) {
     createdAt: Date.now(),
   });
 
-  setStatus("Redirecting to Adobe IMS...");
+  setStatus("Redirecting to UnderPAR IMS...");
   window.location.replace(authUrl);
 }
 

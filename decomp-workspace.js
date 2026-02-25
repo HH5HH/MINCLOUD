@@ -23,6 +23,7 @@ const ESM_METRIC_COLUMNS = new Set([
   "decision-media-tokens",
 ]);
 const ESM_DATE_PARTS = ["year", "month", "day", "hour", "minute"];
+const ESM_NODE_BASE_URL = "https://mgmt.auth.adobe.com/esm/v3/media-company/";
 
 const state = {
   windowId: 0,
@@ -84,7 +85,7 @@ function updateControllerBanner() {
   const programmerLabel = state.programmerName
     ? `${state.programmerName} (${state.programmerId || "unknown"})`
     : state.programmerId || "Selected media company";
-  els.controllerState.textContent = `Controller connected: ${programmerLabel}`;
+  els.controllerState.textContent = `Selected Media Company: ${programmerLabel}`;
 
   const requestorLabel = state.requestorIds.length > 0 ? state.requestorIds.join(", ") : "All requestors";
   const mvpdLabel = state.mvpdIds.length > 0 ? state.mvpdIds.join(", ") : "All MVPDs";
@@ -300,34 +301,80 @@ function getCardPayload(cardState) {
   return {
     cardId: cardState.cardId,
     endpointUrl: cardState.endpointUrl,
+    requestUrl: cardState.requestUrl,
     zoomKey: cardState.zoomKey,
     columns: cardState.columns,
   };
 }
 
+function safeDecodeUrlSegment(segment) {
+  const raw = String(segment || "");
+  try {
+    return decodeURIComponent(raw);
+  } catch (_error) {
+    return raw;
+  }
+}
+
+function getEsmNodeLabel(urlValue) {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return "node";
+  }
+
+  try {
+    const parsed = new URL(raw);
+    let path = String(parsed.pathname || "").replace(/^\/+|\/+$/g, "");
+    if (path.startsWith("esm/v3/media-company/")) {
+      path = path.slice("esm/v3/media-company/".length);
+    }
+    const segments = path.split("/").map((segment) => segment.trim()).filter(Boolean);
+    const leaf = segments.length > 0 ? segments[segments.length - 1] : "";
+    if (leaf) {
+      return safeDecodeUrlSegment(leaf);
+    }
+  } catch (_error) {
+    // Ignore parse failures and continue with fallback path parsing.
+  }
+
+  const withoutQuery = raw.split(/[?#]/, 1)[0] || raw;
+  const withoutBase = withoutQuery.startsWith(ESM_NODE_BASE_URL)
+    ? withoutQuery.slice(ESM_NODE_BASE_URL.length)
+    : withoutQuery;
+  const segments = withoutBase.split("/").map((segment) => segment.trim()).filter(Boolean);
+  return segments.length > 0 ? safeDecodeUrlSegment(segments[segments.length - 1]) : "node";
+}
+
 function buildCardColumnsMarkup(cardState) {
   const columns = Array.isArray(cardState?.columns) ? cardState.columns : [];
-  const content = columns.length > 0 ? columns.join("\n") : "No report columns";
-  const endpointUrl = String(cardState?.endpointUrl || "").trim();
-  const endpointMarkup = endpointUrl
-    ? `<a class="card-col-parent-url" href="${escapeHtml(endpointUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(
-        endpointUrl
-      )}</a>`
-    : "";
+  const requestUrl = String(cardState?.requestUrl || cardState?.endpointUrl || "").trim();
+  const nodeLabel = getEsmNodeLabel(requestUrl);
+  const endpointMarkup = requestUrl
+    ? `<a class="card-col-parent-url card-rerun-url" href="${escapeHtml(requestUrl)}" title="${escapeHtml(
+        requestUrl
+      )}">${escapeHtml(nodeLabel)}</a>`
+    : `<span class="card-col-parent-url card-col-parent-url-empty">node</span>`;
+  const columnsMarkup =
+    columns.length > 0
+      ? columns
+          .map((column) => `<span class="card-col-chip">${escapeHtml(column)}</span>`)
+          .join("")
+      : `<span class="card-col-empty">No columns</span>`;
 
   return `
     <div class="card-col-list">
-      ${endpointMarkup}
-      <pre class="card-col-columns">${escapeHtml(content)}</pre>
+      <div class="card-col-layout">
+        <div class="card-col-node">${endpointMarkup}</div>
+        <div class="card-col-columns" aria-label="ESM columns">${columnsMarkup}</div>
+      </div>
     </div>
   `;
 }
 
 function renderCardMessage(cardState, message, options = {}) {
   const cssClass = options.error ? "card-message error" : "card-message";
-  cardState.bodyElement.innerHTML = `${buildCardColumnsMarkup(cardState)}<p class="${cssClass}">${escapeHtml(
-    message || ""
-  )}</p>`;
+  cardState.bodyElement.innerHTML = `<p class="${cssClass}">${escapeHtml(message || "")}</p>${buildCardColumnsMarkup(cardState)}`;
+  wireCardRerunUrl(cardState);
 }
 
 function createCardElements(cardState) {
@@ -342,8 +389,7 @@ function createCardElements(cardState) {
         <p class="card-subtitle"></p>
       </div>
       <div class="card-actions">
-        <button type="button" class="card-rerun">Re-run</button>
-        <button type="button" class="card-close">Close</button>
+        <button type="button" class="card-close" aria-label="Close report card" title="Close report card">x</button>
       </div>
     </div>
     <div class="card-body"></div>
@@ -351,23 +397,44 @@ function createCardElements(cardState) {
 
   const title = article.querySelector(".card-title");
   const subtitle = article.querySelector(".card-subtitle");
-  const rerunButton = article.querySelector(".card-rerun");
   const closeButton = article.querySelector(".card-close");
   const body = article.querySelector(".card-body");
 
   cardState.element = article;
   cardState.titleElement = title;
   cardState.subtitleElement = subtitle;
-  cardState.rerunButton = rerunButton;
   cardState.closeButton = closeButton;
   cardState.bodyElement = body;
 }
 
 function updateCardHeader(cardState) {
-  cardState.titleElement.textContent = cardState.endpointUrl;
+  const requestUrl = String(cardState.requestUrl || cardState.endpointUrl || "").trim();
+  cardState.titleElement.textContent = requestUrl || "No ESM URL";
+  cardState.titleElement.title = requestUrl || "No ESM URL";
   const zoom = cardState.zoomKey ? `Zoom: ${cardState.zoomKey}` : "Zoom: --";
   const rows = Array.isArray(cardState.rows) ? cardState.rows.length : 0;
   cardState.subtitleElement.textContent = `${zoom} | Rows: ${rows}`;
+}
+
+async function rerunCard(cardState) {
+  const result = await sendWorkspaceAction("run-card", {
+    card: getCardPayload(cardState),
+  });
+  if (!result?.ok) {
+    renderCardMessage(cardState, result?.error || "Unable to run report from UnderPAR side panel controller.", { error: true });
+    setStatus(result?.error || "Unable to run report from UnderPAR side panel controller.", "error");
+  }
+}
+
+function wireCardRerunUrl(cardState) {
+  const rerunUrl = cardState?.bodyElement?.querySelector(".card-rerun-url");
+  if (!rerunUrl) {
+    return;
+  }
+  rerunUrl.addEventListener("click", (event) => {
+    event.preventDefault();
+    void rerunCard(cardState);
+  });
 }
 
 function ensureCard(cardMeta) {
@@ -380,6 +447,9 @@ function ensureCard(cardMeta) {
     const existing = state.cardsById.get(cardId);
     if (cardMeta?.endpointUrl) {
       existing.endpointUrl = String(cardMeta.endpointUrl);
+    }
+    if (cardMeta?.requestUrl) {
+      existing.requestUrl = String(cardMeta.requestUrl);
     }
     if (cardMeta?.zoomKey) {
       existing.zoomKey = String(cardMeta.zoomKey);
@@ -394,6 +464,7 @@ function ensureCard(cardMeta) {
   const cardState = {
     cardId,
     endpointUrl: String(cardMeta?.endpointUrl || ""),
+    requestUrl: String(cardMeta?.requestUrl || cardMeta?.endpointUrl || ""),
     zoomKey: String(cardMeta?.zoomKey || ""),
     columns: Array.isArray(cardMeta?.columns) ? cardMeta.columns.map((value) => String(value || "").trim()).filter(Boolean) : [],
     rows: [],
@@ -403,7 +474,6 @@ function ensureCard(cardMeta) {
     element: null,
     titleElement: null,
     subtitleElement: null,
-    rerunButton: null,
     closeButton: null,
     bodyElement: null,
   };
@@ -411,16 +481,6 @@ function ensureCard(cardMeta) {
   createCardElements(cardState);
   updateCardHeader(cardState);
   renderCardMessage(cardState, "Waiting for data...");
-
-  cardState.rerunButton.addEventListener("click", async () => {
-    const result = await sendWorkspaceAction("run-card", {
-      card: getCardPayload(cardState),
-    });
-    if (!result?.ok) {
-      renderCardMessage(cardState, result?.error || "Unable to run report from UnderPAR side panel controller.", { error: true });
-      setStatus(result?.error || "Unable to run report from UnderPAR side panel controller.", "error");
-    }
-  });
 
   cardState.closeButton.addEventListener("click", () => {
     cardState.element.remove();
@@ -456,7 +516,6 @@ function renderCardTable(cardState, rows, lastModified) {
   headers.push(...displayColumns);
 
   cardState.bodyElement.innerHTML = `
-    ${buildCardColumnsMarkup(cardState)}
     <div class="esm-table-wrapper">
       <table class="esm-table">
         <thead><tr></tr></thead>
@@ -474,6 +533,7 @@ function renderCardTable(cardState, rows, lastModified) {
         </tfoot>
       </table>
     </div>
+    ${buildCardColumnsMarkup(cardState)}
   `;
 
   const table = cardState.bodyElement.querySelector(".esm-table");
@@ -579,6 +639,7 @@ function renderCardTable(cardState, rows, lastModified) {
     });
   }
 
+  wireCardRerunUrl(cardState);
   tableState.data = sortRows(tableState.data, tableState.sortStack, tableState.context);
   renderTableBody(tableState);
   refreshHeaderStates(tableState);

@@ -297,6 +297,42 @@ function isImsAvatarDownloadUrl(url) {
   }
 }
 
+function isPpsProfileImageUrl(url) {
+  if (!url || url.startsWith("data:image/") || url.startsWith("blob:")) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return /(^|\.)pps\.services\.adobe\.com$/i.test(parsed.hostname) && /\/api\/profile\/[^/]+\/image(\/|$)/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function toPpsProfileImageSizeUrl(url, size) {
+  const normalized = normalizeAvatarCandidate(url);
+  if (!normalized || !isPpsProfileImageUrl(normalized) || !Number.isFinite(size) || size <= 0) {
+    return normalized;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const nextSize = String(Math.floor(size));
+    const withTrailingSize = parsed.pathname.replace(/\/(\d+)(\/?)$/i, `/${nextSize}$2`);
+
+    if (withTrailingSize !== parsed.pathname) {
+      parsed.pathname = withTrailingSize;
+      return parsed.toString();
+    }
+
+    parsed.pathname = `${parsed.pathname.replace(/\/?$/, "")}/${nextSize}`;
+    return parsed.toString();
+  } catch {
+    return normalized;
+  }
+}
+
 function buildAvatarFetchUrlCandidates(url) {
   const normalized = normalizeAvatarCandidate(url);
   if (!normalized) {
@@ -304,16 +340,32 @@ function buildAvatarFetchUrlCandidates(url) {
   }
 
   const candidates = [normalized];
-  if (!isImsAvatarDownloadUrl(normalized)) {
-    return candidates;
-  }
-
   const pushCandidate = (value) => {
     const candidate = normalizeAvatarCandidate(value);
     if (candidate && !candidates.includes(candidate)) {
       candidates.push(candidate);
     }
   };
+
+  if (isPpsProfileImageUrl(normalized)) {
+    for (const size of AVATAR_SIZE_PREFERENCES) {
+      pushCandidate(toPpsProfileImageSizeUrl(normalized, size));
+    }
+    return candidates;
+  }
+
+  if (!isImsAvatarDownloadUrl(normalized)) {
+    for (const size of AVATAR_SIZE_PREFERENCES) {
+      try {
+        const parsed = new URL(normalized);
+        parsed.searchParams.set("size", String(size));
+        pushCandidate(parsed.toString());
+      } catch {
+        // Keep original URL when query updates fail.
+      }
+    }
+    return candidates;
+  }
 
   try {
     const parsed = new URL(normalized);
@@ -329,10 +381,11 @@ function buildAvatarFetchUrlCandidates(url) {
   return candidates;
 }
 
-function buildAvatarFetchAttempts(accessToken = "") {
+function buildAvatarFetchAttempts(accessToken = "", url = "") {
   const baseHeaders = {
     Accept: "image/*,*/*;q=0.8",
   };
+  const preferCookieSessionFirst = isPpsProfileImageUrl(url);
 
   const attempts = [];
   const seen = new Set();
@@ -347,6 +400,11 @@ function buildAvatarFetchAttempts(accessToken = "") {
     seen.add(key);
     attempts.push({ headers, credentials });
   };
+
+  if (preferCookieSessionFirst) {
+    pushAttempt(baseHeaders, "include");
+    pushAttempt(baseHeaders, "omit");
+  }
 
   if (accessToken) {
     pushAttempt(
@@ -396,8 +454,13 @@ function buildAvatarFetchAttempts(accessToken = "") {
     }
   }
 
-  pushAttempt(baseHeaders, "omit");
-  pushAttempt(baseHeaders, "include");
+  if (!preferCookieSessionFirst) {
+    pushAttempt(baseHeaders, "omit");
+    pushAttempt(baseHeaders, "include");
+  } else {
+    pushAttempt({ Accept: "*/*" }, "include");
+    pushAttempt({ Accept: "*/*" }, "omit");
+  }
   return attempts;
 }
 
@@ -407,12 +470,12 @@ async function fetchAvatarAsDataUrl(url, accessToken = "") {
   }
 
   const urlCandidates = buildAvatarFetchUrlCandidates(url);
-  const attempts = buildAvatarFetchAttempts(accessToken);
   const maxAttempts = 14;
   let attemptCount = 0;
 
   let lastError = null;
   for (const targetUrl of urlCandidates) {
+    const attempts = buildAvatarFetchAttempts(accessToken, targetUrl);
     for (const attempt of attempts) {
       attemptCount += 1;
       if (attemptCount > maxAttempts) {

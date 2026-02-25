@@ -925,6 +925,76 @@ select:disabled {
   background: #f6f7f6;
 }
 
+.decomp-recording-tool {
+  border: 1px solid #d8e4f8;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 10px;
+}
+
+.decomp-recording-status {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #334155;
+  line-height: 1.35;
+}
+
+.decomp-recording-status.success {
+  color: #166534;
+}
+
+.decomp-recording-status.error {
+  color: #b91c1c;
+}
+
+.decomp-recording-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.decomp-start-record-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #059669;
+  border-radius: 999px;
+  background: #059669;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.decomp-start-record-btn:hover:not(:disabled) {
+  background: #047857;
+}
+
+.decomp-start-record-btn:disabled {
+  opacity: 0.68;
+  cursor: default;
+}
+
+.decomp-stop-record-btn {
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #b91c1c;
+  border-radius: 999px;
+  background: #b91c1c;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.decomp-stop-record-btn:hover:not(:disabled) {
+  background: #991b1b;
+}
+
+.decomp-stop-record-btn:disabled {
+  opacity: 0.68;
+  cursor: default;
+}
+
 .decomp-tree-title {
   font-size: 13px;
   font-weight: 700;

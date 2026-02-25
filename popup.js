@@ -90,8 +90,9 @@ const REDIRECT_IGNORE_MATCHER_MODE = "origin_except_pass";
 const ADOBEPASS_ORG_KEYWORD = "adobepass";
 const ADOBEPASS_ORG_HANDLE = "@adobepass";
 const ADOBEPASS_ORG_ID_ALLOWLIST = [];
-const DEFAULT_AVATAR = "experience_platform_128.5d253c40.png";
-const ADOBEPASS_FALLBACK_AVATAR = chrome.runtime.getURL("adobepass_org_avatar.svg");
+const DEFAULT_AVATAR = "icons/underpar-128.png";
+const FALLBACK_AVATAR_ASSET = "icons/underpar-128.png";
+const FALLBACK_AVATAR = chrome.runtime.getURL(FALLBACK_AVATAR_ASSET);
 const AVATAR_CACHE_TTL_SECONDS = 3600;
 const AVATAR_SIZE_PREFERENCES = [128, 64, 256, 32];
 const AVATAR_MAX_RESOLVE_CANDIDATES = 20;
@@ -172,6 +173,13 @@ const state = {
   decompWorkspaceTabIdByWindowId: new Map(),
   decompRuntimeListenerBound: false,
   decompWorkspaceTabWatcherBound: false,
+  decompDebugFlowId: "",
+  decompRecordingActive: false,
+  decompRecordingStartedAt: 0,
+  decompRecordingContext: null,
+  decompStopping: false,
+  decompTraceViewerWindowId: 0,
+  decompTraceViewerTabId: 0,
 };
 
 const els = {
@@ -977,7 +985,7 @@ async function openRestV2LoginPopupWindow() {
   };
 }
 
-function getUPTraceViewerUrl(tabId, flowId = "") {
+function getUPTraceViewerUrl(tabId, flowId = "", source = "test-mvpd-login") {
   const url = new URL(chrome.runtime.getURL(UP_TRACE_VIEW_PATH));
   const normalizedTabId = Number(tabId || 0);
   if (Number.isFinite(normalizedTabId) && normalizedTabId > 0) {
@@ -987,18 +995,21 @@ function getUPTraceViewerUrl(tabId, flowId = "") {
   if (normalizedFlowId) {
     url.searchParams.set("flowId", normalizedFlowId);
   }
-  url.searchParams.set("source", "test-mvpd-login");
+  url.searchParams.set("source", String(source || "test-mvpd-login"));
   return url.toString();
 }
 
-async function openOrFocusUPTraceViewer(tabId, flowId = "") {
+async function openOrFocusUPTraceViewerWithState(tabId, flowId = "", options = {}) {
   const normalizedTabId = Number(tabId || 0);
   if (!Number.isFinite(normalizedTabId) || normalizedTabId <= 0) {
-    return { ok: false, error: "Unable to open UP trace: missing login tab id." };
+    return { ok: false, error: "Unable to open UP trace: missing target tab id." };
   }
 
-  const traceViewerUrl = getUPTraceViewerUrl(normalizedTabId, flowId);
-  const existingTraceViewerTabId = Number(state.restV2TraceViewerTabId || 0);
+  const traceTabStateKey = String(options.traceTabStateKey || "restV2TraceViewerTabId");
+  const traceWindowStateKey = String(options.traceWindowStateKey || "restV2TraceViewerWindowId");
+  const source = String(options.source || "test-mvpd-login");
+  const traceViewerUrl = getUPTraceViewerUrl(normalizedTabId, flowId, source);
+  const existingTraceViewerTabId = Number(state?.[traceTabStateKey] || 0);
 
   if (Number.isFinite(existingTraceViewerTabId) && existingTraceViewerTabId > 0) {
     try {
@@ -1010,9 +1021,9 @@ async function openOrFocusUPTraceViewer(tabId, flowId = "") {
         });
         if (Number.isFinite(Number(existingTab.windowId)) && Number(existingTab.windowId) > 0) {
           await chrome.windows.update(Number(existingTab.windowId), { focused: true });
-          state.restV2TraceViewerWindowId = Number(existingTab.windowId);
+          state[traceWindowStateKey] = Number(existingTab.windowId);
         }
-        state.restV2TraceViewerTabId = Number(existingTab.id);
+        state[traceTabStateKey] = Number(existingTab.id);
         return {
           ok: true,
           reused: true,
@@ -1021,8 +1032,8 @@ async function openOrFocusUPTraceViewer(tabId, flowId = "") {
         };
       }
     } catch {
-      state.restV2TraceViewerTabId = 0;
-      state.restV2TraceViewerWindowId = 0;
+      state[traceTabStateKey] = 0;
+      state[traceWindowStateKey] = 0;
     }
   }
 
@@ -1031,16 +1042,16 @@ async function openOrFocusUPTraceViewer(tabId, flowId = "") {
       url: traceViewerUrl,
       active: true,
     });
-    state.restV2TraceViewerTabId =
+    state[traceTabStateKey] =
       Number.isFinite(Number(createdTab?.id)) && Number(createdTab.id) > 0 ? Number(createdTab.id) : 0;
-    state.restV2TraceViewerWindowId =
+    state[traceWindowStateKey] =
       Number.isFinite(Number(createdTab?.windowId)) && Number(createdTab.windowId) > 0 ? Number(createdTab.windowId) : 0;
 
     return {
       ok: true,
       reused: false,
-      tabId: state.restV2TraceViewerTabId,
-      windowId: state.restV2TraceViewerWindowId,
+      tabId: Number(state[traceTabStateKey] || 0),
+      windowId: Number(state[traceWindowStateKey] || 0),
       mode: "tab",
     };
   } catch (error) {
@@ -1049,6 +1060,22 @@ async function openOrFocusUPTraceViewer(tabId, flowId = "") {
       error: error instanceof Error ? error.message : "Unable to open UP trace viewer.",
     };
   }
+}
+
+async function openOrFocusUPTraceViewer(tabId, flowId = "") {
+  return openOrFocusUPTraceViewerWithState(tabId, flowId, {
+    source: "test-mvpd-login",
+    traceTabStateKey: "restV2TraceViewerTabId",
+    traceWindowStateKey: "restV2TraceViewerWindowId",
+  });
+}
+
+async function openOrFocusDecompTraceViewer(tabId, flowId = "") {
+  return openOrFocusUPTraceViewerWithState(tabId, flowId, {
+    source: "esm-decomp-recording",
+    traceTabStateKey: "decompTraceViewerTabId",
+    traceWindowStateKey: "decompTraceViewerWindowId",
+  });
 }
 
 function isCurrentRestV2SelectionKey(selectionKey) {
@@ -2302,11 +2329,22 @@ function buildWebRequestHarEntries(flowEvents = [], context = null) {
 
 function buildExtensionHarEntries(flowEvents = []) {
   const entries = [];
-  const pendingByKey = new Map();
+  const pendingApiByKey = new Map();
+  const pendingTokenByKey = new Map();
 
-  const getKey = (event) => {
+  const getApiKey = (event) => {
     return [
       String(event?.method || "GET").toUpperCase(),
+      String(event?.url || ""),
+      String(event?.requestorId || ""),
+      String(event?.mvpd || ""),
+      String(event?.requestScope || ""),
+    ].join("|");
+  };
+  const getTokenKey = (event) => {
+    return [
+      String(event?.transport || ""),
+      String(event?.method || "POST").toUpperCase(),
       String(event?.url || ""),
       String(event?.requestorId || ""),
       String(event?.mvpd || ""),
@@ -2320,72 +2358,141 @@ function buildExtensionHarEntries(flowEvents = []) {
     }
 
     if (event.phase === "restv2-request") {
-      const key = getKey(event);
-      const queue = pendingByKey.get(key) || [];
+      const key = getApiKey(event);
+      const queue = pendingApiByKey.get(key) || [];
       queue.push(event);
-      pendingByKey.set(key, queue);
+      pendingApiByKey.set(key, queue);
       continue;
     }
 
-    if (event.phase !== "restv2-response") {
+    if (event.phase === "restv2-response") {
+      const key = getApiKey(event);
+      const queue = pendingApiByKey.get(key) || [];
+      const requestEvent = queue.length > 0 ? queue.shift() : null;
+      if (queue.length === 0) {
+        pendingApiByKey.delete(key);
+      } else {
+        pendingApiByKey.set(key, queue);
+      }
+
+      const startedMs = pickFlowEventTimestampMs(requestEvent || event, Date.now());
+      const endedMs = pickFlowEventTimestampMs(event, startedMs);
+      const durationMs = Math.max(0, endedMs - startedMs);
+      const requestHeaders = toHarHeadersArray(requestEvent?.requestHeaders || {});
+      const responseHeaders = toHarHeadersArray(event?.responseHeaders || {});
+      const requestBodyText = String(requestEvent?.requestBodyPreview || "");
+      const responseBodyText = String(event?.responsePreview || "");
+      const requestUrl = String(event?.url || requestEvent?.url || "");
+      const status = Number(event?.status || 0);
+      const responseMimeType = firstNonEmptyString([
+        getHarHeaderValue(responseHeaders, "content-type").split(";")[0],
+        "application/json",
+      ]);
+
+      entries.push({
+        startedDateTime: new Date(startedMs).toISOString(),
+        time: durationMs,
+        request: {
+          method: String(event?.method || requestEvent?.method || "GET").toUpperCase(),
+          url: requestUrl,
+          httpVersion: "HTTP/1.1",
+          headers: requestHeaders,
+          queryString: toHarQueryStringArray(requestUrl),
+          cookies: [],
+          headersSize: -1,
+          bodySize: requestBodyText ? requestBodyText.length : 0,
+          postData: requestBodyText
+            ? {
+                mimeType: firstNonEmptyString([getHarHeaderValue(requestHeaders, "content-type"), "text/plain"]),
+                text: truncateDebugText(requestBodyText, 10000),
+              }
+            : undefined,
+        },
+        response: {
+          status,
+          statusText: String(event?.statusText || ""),
+          httpVersion: "HTTP/1.1",
+          headers: responseHeaders,
+          cookies: [],
+          redirectURL: "",
+          headersSize: -1,
+          bodySize: responseBodyText ? responseBodyText.length : -1,
+          content: {
+            size: responseBodyText.length,
+            mimeType: responseMimeType,
+            text: responseBodyText ? truncateDebugText(responseBodyText, 10000) : undefined,
+          },
+        },
+        cache: {},
+        timings: {
+          send: 0,
+          wait: durationMs,
+          receive: 0,
+        },
+        _underpar: {
+          source: "extension-restv2",
+          requestorId: String(event?.requestorId || requestEvent?.requestorId || ""),
+          mvpd: String(event?.mvpd || requestEvent?.mvpd || ""),
+          requestScope: String(event?.requestScope || requestEvent?.requestScope || ""),
+        },
+      });
       continue;
     }
 
-    const key = getKey(event);
-    const queue = pendingByKey.get(key) || [];
+    if (event.phase === "token-request-attempt") {
+      const key = getTokenKey(event);
+      const queue = pendingTokenByKey.get(key) || [];
+      queue.push(event);
+      pendingTokenByKey.set(key, queue);
+      continue;
+    }
+
+    if (event.phase !== "token-request-attempt-succeeded" && event.phase !== "token-request-attempt-failed") {
+      continue;
+    }
+
+    const key = getTokenKey(event);
+    const queue = pendingTokenByKey.get(key) || [];
     const requestEvent = queue.length > 0 ? queue.shift() : null;
     if (queue.length === 0) {
-      pendingByKey.delete(key);
+      pendingTokenByKey.delete(key);
     } else {
-      pendingByKey.set(key, queue);
+      pendingTokenByKey.set(key, queue);
     }
 
     const startedMs = pickFlowEventTimestampMs(requestEvent || event, Date.now());
     const endedMs = pickFlowEventTimestampMs(event, startedMs);
     const durationMs = Math.max(0, endedMs - startedMs);
-    const requestHeaders = toHarHeadersArray(requestEvent?.requestHeaders || {});
-    const responseHeaders = toHarHeadersArray(event?.responseHeaders || {});
-    const requestBodyText = String(requestEvent?.requestBodyPreview || "");
-    const responseBodyText = String(event?.responsePreview || "");
-    const requestUrl = String(event?.url || requestEvent?.url || "");
+    const requestUrl = String(requestEvent?.url || event?.url || `${ADOBE_SP_BASE}/o/client/token`);
+    const requestMethod = String(requestEvent?.method || event?.method || "POST").toUpperCase();
     const status = Number(event?.status || 0);
-    const responseMimeType = firstNonEmptyString([
-      getHarHeaderValue(responseHeaders, "content-type").split(";")[0],
-      "application/json",
-    ]);
+    const statusText = String(event?.statusText || event?.error || "");
 
     entries.push({
       startedDateTime: new Date(startedMs).toISOString(),
       time: durationMs,
       request: {
-        method: String(event?.method || requestEvent?.method || "GET").toUpperCase(),
+        method: requestMethod,
         url: requestUrl,
         httpVersion: "HTTP/1.1",
-        headers: requestHeaders,
+        headers: [],
         queryString: toHarQueryStringArray(requestUrl),
         cookies: [],
         headersSize: -1,
-        bodySize: requestBodyText ? requestBodyText.length : 0,
-        postData: requestBodyText
-          ? {
-              mimeType: firstNonEmptyString([getHarHeaderValue(requestHeaders, "content-type"), "text/plain"]),
-              text: truncateDebugText(requestBodyText, 10000),
-            }
-          : undefined,
+        bodySize: 0,
       },
       response: {
         status,
-        statusText: String(event?.statusText || ""),
+        statusText: statusText || (status > 0 ? "" : "TOKEN_REQUEST_FAILED"),
         httpVersion: "HTTP/1.1",
-        headers: responseHeaders,
+        headers: [],
         cookies: [],
         redirectURL: "",
         headersSize: -1,
-        bodySize: responseBodyText ? responseBodyText.length : -1,
+        bodySize: -1,
         content: {
-          size: responseBodyText.length,
-          mimeType: responseMimeType,
-          text: responseBodyText ? truncateDebugText(responseBodyText, 10000) : undefined,
+          size: 0,
+          mimeType: "application/json",
         },
       },
       cache: {},
@@ -2395,15 +2502,16 @@ function buildExtensionHarEntries(flowEvents = []) {
         receive: 0,
       },
       _underpar: {
-        source: "extension-restv2",
+        source: "extension-token",
         requestorId: String(event?.requestorId || requestEvent?.requestorId || ""),
         mvpd: String(event?.mvpd || requestEvent?.mvpd || ""),
         requestScope: String(event?.requestScope || requestEvent?.requestScope || ""),
+        transport: String(event?.transport || requestEvent?.transport || ""),
       },
     });
   }
 
-  for (const queue of pendingByKey.values()) {
+  for (const queue of pendingApiByKey.values()) {
     for (const requestEvent of queue) {
       const startedMs = pickFlowEventTimestampMs(requestEvent, Date.now());
       const requestHeaders = toHarHeadersArray(requestEvent?.requestHeaders || {});
@@ -2458,6 +2566,55 @@ function buildExtensionHarEntries(flowEvents = []) {
     }
   }
 
+  for (const queue of pendingTokenByKey.values()) {
+    for (const requestEvent of queue) {
+      const startedMs = pickFlowEventTimestampMs(requestEvent, Date.now());
+      const requestUrl = String(requestEvent?.url || `${ADOBE_SP_BASE}/o/client/token`);
+      const requestMethod = String(requestEvent?.method || "POST").toUpperCase();
+      entries.push({
+        startedDateTime: new Date(startedMs).toISOString(),
+        time: 0,
+        request: {
+          method: requestMethod,
+          url: requestUrl,
+          httpVersion: "HTTP/1.1",
+          headers: [],
+          queryString: toHarQueryStringArray(requestUrl),
+          cookies: [],
+          headersSize: -1,
+          bodySize: 0,
+        },
+        response: {
+          status: 0,
+          statusText: "NO_RESPONSE",
+          httpVersion: "HTTP/1.1",
+          headers: [],
+          cookies: [],
+          redirectURL: "",
+          headersSize: -1,
+          bodySize: -1,
+          content: {
+            size: 0,
+            mimeType: "application/json",
+          },
+        },
+        cache: {},
+        timings: {
+          send: 0,
+          wait: 0,
+          receive: 0,
+        },
+        _underpar: {
+          source: "extension-token",
+          requestorId: String(requestEvent?.requestorId || ""),
+          mvpd: String(requestEvent?.mvpd || ""),
+          requestScope: String(requestEvent?.requestScope || ""),
+          transport: String(requestEvent?.transport || ""),
+        },
+      });
+    }
+  }
+
   return entries;
 }
 
@@ -2474,12 +2631,20 @@ function buildHarLogFromFlowSnapshot(flowSnapshot, context = null, logoutResult 
   const startedDateTime = entries[0]?.startedDateTime || new Date().toISOString();
   const pageId = `page-${String(flowSnapshot?.flowId || "capture")}`;
   const manifestVersion = chrome.runtime.getManifest().version;
-  const pageTitle = context?.requestorId && context?.mvpd ? `${context.requestorId} x ${context.mvpd}` : "MVPD session";
+  const pageTitle =
+    context?.serviceType === "esm-decomp"
+      ? "ESM decomp session"
+      : context?.requestorId && context?.mvpd
+        ? `${context.requestorId} x ${context.mvpd}`
+        : "MVPD session";
   const compactContext = context
     ? {
+        serviceType: String(context.serviceType || ""),
         programmerId: String(context.programmerId || ""),
         requestorId: String(context.requestorId || ""),
         mvpd: String(context.mvpd || ""),
+        requestorIds: Array.isArray(context.requestorIds) ? context.requestorIds.slice(0, 24) : [],
+        mvpdIds: Array.isArray(context.mvpdIds) ? context.mvpdIds.slice(0, 24) : [],
         serviceProviderId: String(context.serviceProviderId || ""),
         appGuid: String(context?.appInfo?.guid || ""),
         appName: String(context?.appInfo?.appName || ""),
@@ -3516,6 +3681,34 @@ function clickEsmBuildShellHtml(endpoints) {
   `;
 }
 
+function clickEsmSetEndpointButtonUrl(clickState, endpointIndex, fullUrl) {
+  if (!clickState?.contentElement) {
+    return;
+  }
+  const button = clickState.contentElement.querySelector(`.click-esm-link[data-endpoint-index="${endpointIndex}"]`);
+  if (!button) {
+    return;
+  }
+
+  const normalized = String(fullUrl || "").trim();
+  if (!normalized) {
+    return;
+  }
+
+  button.textContent = normalized;
+  button.title = normalized;
+}
+
+function clickEsmRefreshEndpointUrls(clickState) {
+  if (!clickState?.contentElement || !Array.isArray(clickState.endpoints)) {
+    return;
+  }
+  clickState.endpoints.forEach((endpoint, endpointIndex) => {
+    const url = clickEsmBuildEndpointUrl(clickState, endpoint);
+    clickEsmSetEndpointButtonUrl(clickState, endpointIndex, url);
+  });
+}
+
 function clickEsmSetColumnListMarkup(columnElement, columns = [], highlightedTerm = "") {
   if (!columnElement) {
     return;
@@ -4234,6 +4427,7 @@ async function clickEsmRunEndpoint(clickState, endpointIndex, requestToken) {
   let response;
   try {
     const url = clickEsmBuildEndpointUrl(clickState, endpoint);
+    clickEsmSetEndpointButtonUrl(clickState, endpointIndex, url);
     response = await clickEsmFetchWithPremiumAuth(
       clickState,
       url,
@@ -4337,6 +4531,7 @@ function wireClickEsmInteractions(clickState, requestToken) {
   if (clickState.requestorSelect) {
     clickState.requestorSelect.addEventListener("change", () => {
       clickEsmHandleRequestorChange(clickState, requestToken);
+      clickEsmRefreshEndpointUrls(clickState);
     });
   }
 
@@ -4344,6 +4539,7 @@ function wireClickEsmInteractions(clickState, requestToken) {
     clickEsmEnableMvpdHoverHint(clickState);
     clickState.mvpdSelect.addEventListener("change", () => {
       clickEsmRememberMvpdSelection(clickState);
+      clickEsmRefreshEndpointUrls(clickState);
     });
   }
 }
@@ -4405,6 +4601,7 @@ async function loadClickEsmService(programmer, appInfo, section, contentElement,
       selectedRequestorId: state.selectedRequestorId,
       emptyLabel: "-- Select a Media Company first --",
     });
+    clickEsmRefreshEndpointUrls(clickState);
 
     if (clickState.mvpdSelect && state.selectedMvpdId) {
       [...clickState.mvpdSelect.options].forEach((option) => {
@@ -4413,6 +4610,7 @@ async function loadClickEsmService(programmer, appInfo, section, contentElement,
         }
       });
       clickEsmRememberMvpdSelection(clickState);
+      clickEsmRefreshEndpointUrls(clickState);
     }
   } catch (error) {
     if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
@@ -4761,6 +4959,351 @@ async function decompEnsureWorkspaceTab(options = {}) {
   return workspaceTab;
 }
 
+function getDecompRecordingSelections(decompState) {
+  const requestorIds = clickEsmGetSelectedValues(decompState?.requestorSelect);
+  const mvpdIds = decompState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(decompState?.mvpdSelect);
+  return { requestorIds, mvpdIds };
+}
+
+function toDecompRecordingContext(decompState) {
+  const selections = getDecompRecordingSelections(decompState);
+  return {
+    serviceType: "esm-decomp",
+    programmerId: String(decompState?.programmer?.programmerId || ""),
+    programmerName: String(decompState?.programmer?.programmerName || ""),
+    requestorIds: selections.requestorIds.slice(0, 24),
+    mvpdIds: selections.mvpdIds.slice(0, 24),
+    requestorId: String(selections.requestorIds[0] || ""),
+    mvpd: String(selections.mvpdIds[0] || ""),
+    appInfo: decompState?.appInfo
+      ? {
+          guid: String(decompState.appInfo.guid || ""),
+          appName: String(decompState.appInfo.appName || decompState.appInfo.guid || ""),
+          scopes: Array.isArray(decompState.appInfo.scopes) ? decompState.appInfo.scopes.slice(0, 12) : [],
+        }
+      : null,
+    startedAt: Date.now(),
+  };
+}
+
+function getActiveDecompDebugFlowId() {
+  if (!state.decompRecordingActive) {
+    return "";
+  }
+  return String(state.decompDebugFlowId || "").trim();
+}
+
+function emitDecompDebugEvent(flowId, event = {}) {
+  const normalizedFlowId = String(flowId || "").trim();
+  if (!normalizedFlowId) {
+    return;
+  }
+
+  emitRestV2DebugEvent(normalizedFlowId, {
+    source: "extension",
+    service: "esm-decomp",
+    ...event,
+  });
+}
+
+function setDecompRecordingStatus(decompState, message = "", type = "info") {
+  if (!decompState?.recordingStatusElement) {
+    return;
+  }
+
+  decompState.recordingStatusElement.textContent = String(message || "").trim();
+  decompState.recordingStatusElement.classList.remove("success", "error");
+  if (type === "success") {
+    decompState.recordingStatusElement.classList.add("success");
+  } else if (type === "error") {
+    decompState.recordingStatusElement.classList.add("error");
+  }
+}
+
+function syncDecompRecordingControls(decompState) {
+  if (!decompState) {
+    return;
+  }
+
+  const startButton = decompState.startRecordingButton;
+  const stopButton = decompState.stopRecordingButton;
+  const context = toDecompRecordingContext(decompState);
+  const hasProgrammer = Boolean(context.programmerId);
+
+  if (!startButton || !stopButton) {
+    return;
+  }
+
+  if (state.decompStopping) {
+    startButton.disabled = true;
+    stopButton.hidden = false;
+    stopButton.disabled = true;
+    setDecompRecordingStatus(decompState, "Finalizing ESM recording...");
+    return;
+  }
+
+  const activeFlowId = getActiveDecompDebugFlowId();
+  if (activeFlowId) {
+    startButton.disabled = true;
+    stopButton.hidden = false;
+    stopButton.disabled = false;
+
+    const requestorLabel = context.requestorIds.length > 0 ? context.requestorIds.join(", ") : "all requestors";
+    const mvpdLabel = context.mvpdIds.length > 0 ? context.mvpdIds.join(", ") : "all MVPDs";
+    setDecompRecordingStatus(
+      decompState,
+      `Recording ESM flow for ${requestorLabel} / ${mvpdLabel}. Click STOP to end capture.`,
+      "success"
+    );
+    return;
+  }
+
+  startButton.disabled = !hasProgrammer;
+  stopButton.hidden = true;
+  stopButton.disabled = true;
+
+  if (!hasProgrammer) {
+    setDecompRecordingStatus(decompState, "Select a Media Company first.");
+    return;
+  }
+
+  setDecompRecordingStatus(
+    decompState,
+    "Click START RECORDING to capture token + decomp ESM API activity in the UP trace."
+  );
+}
+
+function buildDecompHarFilename(recordingContext = null) {
+  const programmer = sanitizeHarFileSegment(recordingContext?.programmerId || "programmer", "programmer");
+  const requestors = sanitizeHarFileSegment(
+    Array.isArray(recordingContext?.requestorIds) && recordingContext.requestorIds.length > 0
+      ? recordingContext.requestorIds.join("-")
+      : "all-requestors",
+    "all-requestors"
+  );
+  const mvpds = sanitizeHarFileSegment(
+    Array.isArray(recordingContext?.mvpdIds) && recordingContext.mvpdIds.length > 0
+      ? recordingContext.mvpdIds.join("-")
+      : "all-mvpds",
+    "all-mvpds"
+  );
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `underpar-esm-decomp-${programmer}-${requestors}-${mvpds}-${stamp}.har`;
+}
+
+function clearDecompRecordingState(reason = "state-reset", options = {}) {
+  const shouldStopFlow = options?.stopFlow !== false;
+  const activeFlowId = String(state.decompDebugFlowId || "").trim();
+  if (activeFlowId && shouldStopFlow) {
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "recording-force-stop",
+      reason: String(reason || "state-reset"),
+    });
+    void stopRestV2DebugFlowAndSnapshot(activeFlowId, String(reason || "state-reset"));
+  }
+
+  state.decompDebugFlowId = "";
+  state.decompRecordingActive = false;
+  state.decompRecordingStartedAt = 0;
+  state.decompRecordingContext = null;
+  state.decompStopping = false;
+  state.decompTraceViewerWindowId = 0;
+  state.decompTraceViewerTabId = 0;
+}
+
+async function startDecompEsmRecording(decompState, requestToken) {
+  if (!decompState) {
+    return;
+  }
+  if (state.decompStopping) {
+    return;
+  }
+  if (state.decompRecordingActive && state.decompDebugFlowId) {
+    syncDecompRecordingControls(decompState);
+    return;
+  }
+  if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
+    setDecompRecordingStatus(decompState, "decomp view is stale. Refresh this panel first.", "error");
+    return;
+  }
+
+  const recordingContext = toDecompRecordingContext(decompState);
+  if (!recordingContext.programmerId || !recordingContext.appInfo?.guid) {
+    setDecompRecordingStatus(decompState, "Missing decomp app context for recording.", "error");
+    return;
+  }
+
+  state.decompStopping = true;
+  syncDecompRecordingControls(decompState);
+
+  try {
+    const workspaceTab = await decompEnsureWorkspaceTab({
+      activate: true,
+      windowId: Number(decompState.controllerWindowId || 0),
+    });
+    const workspaceTabId = Number(workspaceTab?.id || decompGetBoundWorkspaceTabId(decompState.controllerWindowId));
+    if (!Number.isFinite(workspaceTabId) || workspaceTabId <= 0) {
+      throw new Error("Unable to open decomp workspace tab.");
+    }
+
+    const flowId = await startRestV2DebugFlow(
+      {
+        serviceType: "esm-decomp",
+        programmerId: recordingContext.programmerId,
+        programmerName: recordingContext.programmerName,
+        requestorId: recordingContext.requestorId,
+        mvpd: recordingContext.mvpd,
+        requestorIds: recordingContext.requestorIds,
+        mvpdIds: recordingContext.mvpdIds,
+      },
+      "start-esm-recording"
+    );
+    if (!flowId) {
+      throw new Error("Unable to start UP ESM recording flow.");
+    }
+
+    state.decompDebugFlowId = flowId;
+    state.decompRecordingActive = true;
+    state.decompRecordingStartedAt = Date.now();
+    state.decompRecordingContext = recordingContext;
+
+    emitDecompDebugEvent(flowId, {
+      phase: "recording-start",
+      workspaceTabId,
+      programmerId: recordingContext.programmerId,
+      requestorIds: recordingContext.requestorIds,
+      mvpdIds: recordingContext.mvpdIds,
+    });
+
+    const bound = await bindRestV2DebugFlowToTab(flowId, workspaceTabId, {
+      requestorId: recordingContext.requestorId,
+      mvpd: recordingContext.mvpd,
+      serviceType: "esm-decomp",
+    });
+    if (!bound) {
+      emitDecompDebugEvent(flowId, {
+        phase: "workspace-bind-failed",
+        workspaceTabId,
+      });
+    }
+
+    const traceViewerResult = await openOrFocusDecompTraceViewer(workspaceTabId, flowId);
+    if (traceViewerResult.ok) {
+      emitDecompDebugEvent(flowId, {
+        phase: "trace-view-opened",
+        traceTabId: traceViewerResult.tabId || 0,
+        traceWindowId: traceViewerResult.windowId || 0,
+        traceMode: traceViewerResult.mode || (traceViewerResult.reused ? "reuse" : "unknown"),
+      });
+    } else {
+      emitDecompDebugEvent(flowId, {
+        phase: "trace-view-open-failed",
+        error: traceViewerResult.error || "Unable to open UP trace viewer.",
+      });
+    }
+
+    try {
+      await ensureDcrAccessToken(recordingContext.programmerId, decompState.appInfo, true, {
+        flowId,
+        scope: "esm-access-token",
+        requestorId: recordingContext.requestorId,
+        mvpd: recordingContext.mvpd,
+        service: "esm-decomp",
+      });
+      emitDecompDebugEvent(flowId, {
+        phase: "access-token-ready",
+        appGuid: recordingContext.appInfo.guid,
+      });
+    } catch (error) {
+      emitDecompDebugEvent(flowId, {
+        phase: "access-token-prime-failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    state.decompStopping = false;
+    syncDecompRecordingControls(decompState);
+    setDecompRecordingStatus(
+      decompState,
+      "ESM recording started. Run reports / CSV actions and watch events live in the UP tab.",
+      "success"
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    emitDecompDebugEvent(state.decompDebugFlowId, {
+      phase: "recording-start-failed",
+      error: reason,
+    });
+    clearDecompRecordingState("start-failed");
+    state.decompStopping = false;
+    syncDecompRecordingControls(decompState);
+    setDecompRecordingStatus(decompState, reason, "error");
+  }
+}
+
+async function stopDecompEsmRecording(decompState) {
+  if (state.decompStopping) {
+    return;
+  }
+
+  const activeFlowId = String(state.decompDebugFlowId || "").trim();
+  if (!activeFlowId) {
+    clearDecompRecordingState("stop-empty");
+    syncDecompRecordingControls(decompState);
+    setDecompRecordingStatus(decompState, "No active ESM recording session was found.");
+    return;
+  }
+
+  state.decompStopping = true;
+  syncDecompRecordingControls(decompState);
+
+  const recordingContext =
+    state.decompRecordingContext && typeof state.decompRecordingContext === "object"
+      ? state.decompRecordingContext
+      : toDecompRecordingContext(decompState);
+
+  emitDecompDebugEvent(activeFlowId, {
+    phase: "recording-stop-request",
+    requestorIds: recordingContext?.requestorIds || [],
+    mvpdIds: recordingContext?.mvpdIds || [],
+  });
+
+  try {
+    await waitForDelay(400);
+    const stopResult = await stopRestV2DebugFlowAndSnapshot(activeFlowId, "esm-user-stop");
+    clearDecompRecordingState("stop-complete", { stopFlow: false });
+    state.decompStopping = false;
+    syncDecompRecordingControls(decompState);
+
+    if (stopResult?.flow) {
+      const harPayload = buildHarLogFromFlowSnapshot(stopResult.flow, recordingContext, null);
+      const fileName = buildDecompHarFilename(recordingContext);
+      downloadHarFile(harPayload, fileName);
+      setDecompRecordingStatus(
+        decompState,
+        `ESM recording stopped. HAR downloaded as ${fileName}.`,
+        "success"
+      );
+      return;
+    }
+
+    setDecompRecordingStatus(
+      decompState,
+      `Recording stopped, but snapshot export failed: ${stopResult?.error || "unknown error"}.`,
+      "error"
+    );
+  } catch (error) {
+    clearDecompRecordingState("stop-failed");
+    state.decompStopping = false;
+    syncDecompRecordingControls(decompState);
+    setDecompRecordingStatus(
+      decompState,
+      error instanceof Error ? error.message : String(error),
+      "error"
+    );
+  }
+}
+
 function decompSetNetworkBusy(decompState, isBusy) {
   if (!decompState?.contentElement) {
     return;
@@ -4818,16 +5361,20 @@ function decompBuildEndpointUrl(decompState, endpoint) {
 
 function decompBuildRequestMetadata(decompState) {
   const requestorIds = clickEsmGetSelectedValues(decompState?.requestorSelect);
-  const mvpds = clickEsmGetSelectedValues(decompState?.mvpdSelect);
+  const mvpds = decompState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(decompState?.mvpdSelect);
   return {
+    requestorIds,
+    mvpdIds: mvpds,
     requestorId: requestorIds[0] || "",
     mvpd: mvpds[0] || "",
   };
 }
 
-async function decompFetchWithPremiumAuth(decompState, url, options = {}, limit = DECOMP_CSV_RESULT_LIMIT) {
+async function decompFetchWithPremiumAuth(decompState, url, options = {}, limit = DECOMP_CSV_RESULT_LIMIT, debugMeta = {}) {
   const finalUrl = clickEsmEnsureLimit(url, limit);
   const requestMeta = decompBuildRequestMetadata(decompState);
+  const activeFlowId = getActiveDecompDebugFlowId();
+  const requestScope = String(debugMeta?.scope || "esm-decomp").trim() || "esm-decomp";
   decompStartNetwork(decompState);
   try {
     return await fetchWithPremiumAuth(
@@ -4837,9 +5384,15 @@ async function decompFetchWithPremiumAuth(decompState, url, options = {}, limit 
       options,
       "refresh",
       {
-        scope: "esm-decomp",
+        flowId: activeFlowId,
         requestorId: requestMeta.requestorId,
         mvpd: requestMeta.mvpd,
+        requestorIds: requestMeta.requestorIds,
+        mvpdIds: requestMeta.mvpdIds,
+        service: "esm-decomp",
+        endpointUrl: String(debugMeta?.endpointUrl || ""),
+        cardId: String(debugMeta?.cardId || ""),
+        scope: requestScope,
       }
     );
   } finally {
@@ -4899,17 +5452,57 @@ async function decompDownloadCsvForCard(decompState, endpoint, sortRule, request
   const targetWindowId = Number(decompState?.controllerWindowId || state.decompWorkspaceWindowId || 0);
   const normalizedSort = decompNormalizeSortRule(sortRule);
   const dataUrl = decompBuildEndpointUrl(decompState, endpoint);
-  const response = await decompFetchWithPremiumAuth(decompState, dataUrl, { method: "GET" }, DECOMP_CSV_RESULT_LIMIT);
+  const activeFlowId = getActiveDecompDebugFlowId();
+  emitDecompDebugEvent(activeFlowId, {
+    phase: "csv-download-start",
+    endpointUrl: String(endpoint?.url || ""),
+    cardId: String(cardId || ""),
+    requestUrl: dataUrl,
+  });
+  let response;
+  try {
+    response = await decompFetchWithPremiumAuth(
+      decompState,
+      dataUrl,
+      { method: "GET" },
+      DECOMP_CSV_RESULT_LIMIT,
+      {
+        scope: "esm-decomp-csv",
+        endpointUrl: endpoint?.url || "",
+        cardId: String(cardId || ""),
+      }
+    );
+  } catch (error) {
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "csv-download-error",
+      endpointUrl: String(endpoint?.url || ""),
+      cardId: String(cardId || ""),
+      error: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
+  }
   if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
     return;
   }
   if (!response.ok) {
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "csv-download-failed",
+      endpointUrl: String(endpoint?.url || ""),
+      cardId: String(cardId || ""),
+      status: Number(response.status || 0),
+      statusText: String(response.statusText || ""),
+    });
     throw new Error(`CSV request failed (${response.status})`);
   }
 
   const payload = await response.json().catch(() => null);
   const rows = Array.isArray(payload?.report) ? payload.report : [];
   if (rows.length === 0) {
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "csv-download-no-data",
+      endpointUrl: String(endpoint?.url || ""),
+      cardId: String(cardId || ""),
+    });
     return;
   }
 
@@ -4920,6 +5513,12 @@ async function decompDownloadCsvForCard(decompState, endpoint, sortRule, request
   };
 
   downloadEsmCsv(rows, normalizedSort || getDefaultEsmSortStack()[0], context, decompBuildCsvFileName(decompState, endpoint.url));
+  emitDecompDebugEvent(activeFlowId, {
+    phase: "csv-download-complete",
+    endpointUrl: String(endpoint?.url || ""),
+    cardId: String(cardId || ""),
+    rowCount: rows.length,
+  });
   if (cardId) {
     void decompSendWorkspaceMessage("csv-complete", {
       cardId: String(cardId),
@@ -4936,9 +5535,12 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
     return;
   }
   const normalizedCardId = String(cardId || generateRequestId());
+  const requestUrl = clickEsmEnsureLimit(decompBuildEndpointUrl(decompState, endpoint), DECOMP_INLINE_RESULT_LIMIT);
+  const activeFlowId = getActiveDecompDebugFlowId();
   const reportMeta = {
     cardId: normalizedCardId,
     endpointUrl: endpoint.url,
+    requestUrl,
     zoomKey: clickEsmGetZoomKey(endpoint),
     columns: Array.isArray(endpoint.columns)
       ? endpoint.columns.map((value) => String(value || "").trim()).filter(Boolean)
@@ -4947,6 +5549,13 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
   const targetWindowId = Number(decompState?.controllerWindowId || state.decompWorkspaceWindowId || 0);
 
   if (options.emitStart !== false) {
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "report-start",
+      cardId: normalizedCardId,
+      endpointUrl: endpoint.url,
+      requestUrl,
+      requestSource: String(options.requestSource || "tree"),
+    });
     void decompSendWorkspaceMessage("report-start", {
       ...reportMeta,
       requestSource: String(options.requestSource || "tree"),
@@ -4960,11 +5569,26 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
     return;
   }
 
-  const requestUrl = decompBuildEndpointUrl(decompState, endpoint);
   let response;
   try {
-    response = await decompFetchWithPremiumAuth(decompState, requestUrl, { method: "GET" }, DECOMP_INLINE_RESULT_LIMIT);
+    response = await decompFetchWithPremiumAuth(
+      decompState,
+      requestUrl,
+      { method: "GET" },
+      DECOMP_INLINE_RESULT_LIMIT,
+      {
+        scope: "esm-decomp-report",
+        endpointUrl: endpoint.url,
+        cardId: normalizedCardId,
+      }
+    );
   } catch (error) {
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "report-fetch-error",
+      cardId: normalizedCardId,
+      endpointUrl: endpoint.url,
+      error: error instanceof Error ? error.message : String(error),
+    });
     void decompSendWorkspaceMessage("report-result", {
       ...reportMeta,
       ok: false,
@@ -4983,6 +5607,14 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
 
   if (!response.ok) {
     const bodyText = await response.text().catch(() => "");
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "report-http-error",
+      cardId: normalizedCardId,
+      endpointUrl: endpoint.url,
+      status: Number(response.status || 0),
+      statusText: String(response.statusText || ""),
+      responsePreview: truncateDebugText(bodyText, 2000),
+    });
     void decompSendWorkspaceMessage("report-result", {
       ...reportMeta,
       ok: false,
@@ -5007,6 +5639,13 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
   }
 
   if (!payload && bodyText.trim()) {
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "report-parse-error",
+      cardId: normalizedCardId,
+      endpointUrl: endpoint.url,
+      error: "Response was not valid JSON.",
+      responsePreview: truncateDebugText(bodyText, 2000),
+    });
     void decompSendWorkspaceMessage("report-result", {
       ...reportMeta,
       ok: false,
@@ -5020,6 +5659,14 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
   }
 
   const rows = Array.isArray(payload?.report) ? payload.report : [];
+  emitDecompDebugEvent(activeFlowId, {
+    phase: "report-result",
+    cardId: normalizedCardId,
+    endpointUrl: endpoint.url,
+    rowCount: rows.length,
+    noData: rows.length === 0,
+    lastModified: response.headers.get("Last-Modified") || response.headers.get("Date") || "",
+  });
   void decompSendWorkspaceMessage("report-result", {
     ...reportMeta,
     ok: true,
@@ -5055,6 +5702,13 @@ function decompBuildShellHtml() {
           <button type="button" class="decomp-expand-btn">Expand</button>
           <button type="button" class="decomp-collapse-btn">Collapse</button>
           <span class="decomp-tree-stats"></span>
+        </div>
+      </div>
+      <div class="decomp-recording-tool">
+        <p class="decomp-recording-status">Click START RECORDING to capture decomp ESM traffic in the UP trace.</p>
+        <div class="decomp-recording-actions">
+          <button type="button" class="decomp-start-record-btn">START RECORDING</button>
+          <button type="button" class="decomp-stop-record-btn" disabled hidden>STOP</button>
         </div>
       </div>
       <div class="decomp-tree-scroll">
@@ -5373,6 +6027,18 @@ function wireDecompInteractions(decompState, requestToken) {
     return;
   }
 
+  decompState.startRecordingButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void startDecompEsmRecording(decompState, requestToken);
+  });
+
+  decompState.stopRecordingButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void stopDecompEsmRecording(decompState);
+  });
+
   decompState.findButton?.addEventListener("click", () => {
     if (decompState.searchInput) {
       decompState.searchInput.value = clickEsmNormalizeSearchTerm(decompState.searchInput.value);
@@ -5429,11 +6095,13 @@ function wireDecompInteractions(decompState, requestToken) {
   decompState.requestorSelect?.addEventListener("change", () => {
     clickEsmHandleRequestorChange(decompState, requestToken);
     decompBroadcastControllerState(decompState);
+    syncDecompRecordingControls(decompState);
   });
 
   decompState.mvpdSelect?.addEventListener("change", () => {
     clickEsmRememberMvpdSelection(decompState);
     decompBroadcastControllerState(decompState);
+    syncDecompRecordingControls(decompState);
   });
 
   clickEsmEnableMvpdHoverHint(decompState);
@@ -5492,6 +6160,12 @@ async function handleDecompWorkspaceAction(message, sender = null) {
   }
 
   if (action === "workspace-ready") {
+    emitDecompDebugEvent(getActiveDecompDebugFlowId(), {
+      phase: "workspace-ready",
+      source: "workspace",
+      windowId: senderWindowId,
+      tabId: senderTabId,
+    });
     if (decompState) {
       if (senderWindowId > 0) {
         decompBindWorkspaceTab(senderWindowId, senderTabId);
@@ -5520,8 +6194,15 @@ async function handleDecompWorkspaceAction(message, sender = null) {
   if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
     return { ok: false, error: "decomp controller is no longer active for the selected media company." };
   }
+  const activeFlowId = getActiveDecompDebugFlowId();
 
   if (action === "open-workspace") {
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "workspace-action",
+      action: "open-workspace",
+      source: "workspace",
+      windowId: senderWindowId || Number(decompState.controllerWindowId || 0),
+    });
     const targetWindowId = senderWindowId || Number(decompState.controllerWindowId || 0);
     await decompEnsureWorkspaceTab({ activate: true, windowId: targetWindowId });
     decompBroadcastControllerState(decompState, targetWindowId);
@@ -5530,6 +6211,13 @@ async function handleDecompWorkspaceAction(message, sender = null) {
 
   if (action === "run-card") {
     const card = message?.card && typeof message.card === "object" ? message.card : {};
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "workspace-action",
+      action: "run-card",
+      source: "workspace",
+      cardId: String(card?.cardId || ""),
+      endpointUrl: String(card?.endpointUrl || ""),
+    });
     const endpoint = decompFindEndpointByUrl(decompState, card.endpointUrl, card);
     if (!endpoint) {
       return { ok: false, error: "Endpoint URL is required." };
@@ -5543,6 +6231,12 @@ async function handleDecompWorkspaceAction(message, sender = null) {
 
   if (action === "rerun-all") {
     const cards = Array.isArray(message?.cards) ? message.cards : [];
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "workspace-action",
+      action: "rerun-all",
+      source: "workspace",
+      cardCount: cards.length,
+    });
     void decompSendWorkspaceMessage("batch-start", {
       total: cards.length,
       startedAt: Date.now(),
@@ -5570,6 +6264,13 @@ async function handleDecompWorkspaceAction(message, sender = null) {
 
   if (action === "download-csv") {
     const card = message?.card && typeof message.card === "object" ? message.card : {};
+    emitDecompDebugEvent(activeFlowId, {
+      phase: "workspace-action",
+      action: "download-csv",
+      source: "workspace",
+      cardId: String(card?.cardId || ""),
+      endpointUrl: String(card?.endpointUrl || ""),
+    });
     const endpoint = decompFindEndpointByUrl(decompState, card.endpointUrl, card);
     if (!endpoint) {
       return { ok: false, error: "Endpoint URL is required." };
@@ -5614,6 +6315,18 @@ function ensureDecompWorkspaceTabWatcher() {
   }
 
   chrome.tabs.onRemoved.addListener((tabId) => {
+    const removedTabId = Number(tabId || 0);
+    if (removedTabId > 0) {
+      const isBoundWorkspaceTab =
+        removedTabId === Number(state.decompWorkspaceTabId || 0) ||
+        [...state.decompWorkspaceTabIdByWindowId.values()].some((mappedTabId) => Number(mappedTabId || 0) === removedTabId);
+      if (isBoundWorkspaceTab) {
+        emitDecompDebugEvent(getActiveDecompDebugFlowId(), {
+          phase: "workspace-tab-closed",
+          tabId: removedTabId,
+        });
+      }
+    }
     decompUnbindWorkspaceTab(tabId);
   });
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -5654,6 +6367,14 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
     clearTimeout(existingDecompState.requestorApplyTimer);
   }
   section.__underparDecompState = null;
+  if (
+    state.decompRecordingActive &&
+    state.decompRecordingContext &&
+    String(state.decompRecordingContext.programmerId || "") &&
+    String(state.decompRecordingContext.programmerId || "") !== String(programmer.programmerId || "")
+  ) {
+    clearDecompRecordingState("programmer-change");
+  }
 
   if (refreshButton) {
     refreshButton.disabled = true;
@@ -5708,10 +6429,14 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
       treeRootElement: contentElement.querySelector(".decomp-tree-root"),
       requestorSelect: contentElement.querySelector(".decomp-requestor-select"),
       mvpdSelect: contentElement.querySelector(".decomp-mvpd-select"),
+      recordingStatusElement: contentElement.querySelector(".decomp-recording-status"),
+      startRecordingButton: contentElement.querySelector(".decomp-start-record-btn"),
+      stopRecordingButton: contentElement.querySelector(".decomp-stop-record-btn"),
     };
 
     section.__underparDecompState = decompState;
     wireDecompInteractions(decompState, requestToken);
+    syncDecompRecordingControls(decompState);
     decompBuildTree(decompState, requestToken);
     clickEsmApplySharedRequestorOptions(decompState, requestToken, {
       selectedRequestorId: state.selectedRequestorId,
@@ -5726,6 +6451,7 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
       });
       clickEsmRememberMvpdSelection(decompState);
     }
+    syncDecompRecordingControls(decompState);
 
     ensureDecompRuntimeListener();
     ensureDecompWorkspaceTabWatcher();
@@ -6037,6 +6763,7 @@ function resetWorkflowForLoggedOut() {
   state.restV2AuthContextByRequestor.clear();
   state.restV2PrewarmedAppsByProgrammerId.clear();
   clearRestV2PreparedLoginState();
+  clearDecompRecordingState("logout-reset");
   state.consoleContextReady = false;
   state.decompWorkspaceTabId = 0;
   state.decompWorkspaceWindowId = 0;
@@ -6674,6 +7401,87 @@ function buildImsProfileHeaders(accessToken = "", clientId = "") {
   return headers;
 }
 
+function getProfileIdentityValue(profilePayload) {
+  if (!profilePayload || typeof profilePayload !== "object") {
+    return "";
+  }
+
+  return firstNonEmptyString([
+    profilePayload?.userId,
+    profilePayload?.user_id,
+    profilePayload?.sub,
+    profilePayload?.id,
+  ]);
+}
+
+function isImsAvatarForIdentity(candidate, identityValue) {
+  const normalized = normalizeAvatarCandidate(candidate);
+  const identity = String(identityValue || "").trim();
+  if (!normalized || !identity || !isImsAvatarDownloadUrl(normalized)) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const match = parsed.pathname.match(/\/ims\/avatar\/download\/([^/?#]+)/i);
+    if (!match) {
+      return false;
+    }
+
+    const decodedIdentity = decodeURIComponent(String(match[1] || "")).trim();
+    return decodedIdentity === identity;
+  } catch {
+    return false;
+  }
+}
+
+function isSyntheticIdentityAvatarCandidate(profilePayload, candidate) {
+  const identity = getProfileIdentityValue(profilePayload);
+  if (!identity) {
+    return false;
+  }
+  return isImsAvatarForIdentity(candidate, identity);
+}
+
+function getNonSyntheticProfileAvatarCandidates(profilePayload) {
+  if (!profilePayload || typeof profilePayload !== "object") {
+    return [];
+  }
+
+  const allCandidates = [
+    ...getProfileInlineAvatarDataCandidates(profilePayload),
+    ...getProfileAvatarCandidates(profilePayload),
+    ...collectAvatarCandidatesFromProfileShape(profilePayload),
+  ]
+    .map((value) => normalizeAvatarCandidate(value) || normalizeInlineAvatarData(value))
+    .filter(Boolean);
+
+  const unique = [...new Set(allCandidates)];
+  const nonSynthetic = unique.filter((candidate) => !isSyntheticIdentityAvatarCandidate(profilePayload, candidate));
+  return prioritizeAvatarCandidates(nonSynthetic);
+}
+
+function getBestNonSyntheticProfileAvatarCandidate(profilePayload) {
+  return getNonSyntheticProfileAvatarCandidates(profilePayload)[0] || "";
+}
+
+function scoreProfileAvatarPayload(profilePayload) {
+  if (!profilePayload || typeof profilePayload !== "object") {
+    return Number.NEGATIVE_INFINITY;
+  }
+
+  const nonSyntheticCandidates = getNonSyntheticProfileAvatarCandidates(profilePayload);
+  if (nonSyntheticCandidates.length === 0) {
+    const fallbackCandidates = getProfileAvatarCandidates(profilePayload).filter(Boolean);
+    return fallbackCandidates.length > 0 ? -20 : -100;
+  }
+
+  const bestCandidateScore = nonSyntheticCandidates
+    .slice(0, 10)
+    .reduce((bestScore, candidate) => Math.max(bestScore, scoreAvatarCandidatePriority(candidate)), -100);
+  return bestCandidateScore + Math.min(nonSyntheticCandidates.length, 10) * 4;
+}
+
 function normalizeProfileAvatarFields(profilePayload) {
   if (!profilePayload || typeof profilePayload !== "object") {
     return profilePayload;
@@ -6694,7 +7502,8 @@ function normalizeProfileAvatarFields(profilePayload) {
       profilePayload?.additional_info?.avatar_url,
     ])
   );
-  const avatar = directAvatar || inlineAvatar || getProfileAvatarUrl(profilePayload);
+  const discoveredAvatar = getBestNonSyntheticProfileAvatarCandidate(profilePayload);
+  const avatar = directAvatar || inlineAvatar || discoveredAvatar;
   if (!avatar) {
     return profilePayload;
   }
@@ -6724,6 +7533,8 @@ async function fetchProfile(accessToken) {
   ];
 
   let lastError = null;
+  let bestPayload = null;
+  let bestPayloadScore = Number.NEGATIVE_INFINITY;
   for (const endpoint of endpoints) {
     const attempts = [
       { credentials: "omit" },
@@ -6754,11 +7565,23 @@ async function fetchProfile(accessToken) {
           continue;
         }
 
-        return normalizeProfileAvatarFields(parsed);
+        const normalizedPayload = normalizeProfileAvatarFields(parsed);
+        const payloadScore = scoreProfileAvatarPayload(normalizedPayload);
+        if (payloadScore > bestPayloadScore) {
+          bestPayload = normalizedPayload;
+          bestPayloadScore = payloadScore;
+        }
+        if (payloadScore >= 320) {
+          return normalizedPayload;
+        }
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
       }
     }
+  }
+
+  if (bestPayload) {
+    return bestPayload;
   }
 
   throw lastError || new Error("Profile request failed.");
@@ -6789,7 +7612,7 @@ function mergeProfilePayloads(baseProfile, updateProfile) {
   };
 }
 
-async function fetchExperienceCloudSessionProfile(accessToken = "") {
+async function fetchImsSessionProfile(accessToken = "") {
   const imsBase = IMS_AUTHORIZE_URL.split("/ims/")[0];
   const endpoints = [
     `${IMS_PROFILE_URL}?client_id=AdobePass1`,
@@ -6828,6 +7651,8 @@ async function fetchExperienceCloudSessionProfile(accessToken = "") {
     pushVariant("", "include", true);
   }
 
+  let bestPayload = null;
+  let bestPayloadScore = Number.NEGATIVE_INFINITY;
   for (const endpoint of endpoints) {
     for (const variant of variants) {
       try {
@@ -6847,14 +7672,22 @@ async function fetchExperienceCloudSessionProfile(accessToken = "") {
           continue;
         }
 
-        return normalizeProfileAvatarFields(parsed);
+        const normalizedPayload = normalizeProfileAvatarFields(parsed);
+        const payloadScore = scoreProfileAvatarPayload(normalizedPayload);
+        if (payloadScore > bestPayloadScore) {
+          bestPayload = normalizedPayload;
+          bestPayloadScore = payloadScore;
+        }
+        if (payloadScore >= 320) {
+          return normalizedPayload;
+        }
       } catch {
         // Continue to next endpoint/variant.
       }
     }
   }
 
-  return null;
+  return bestPayload;
 }
 
 async function fetchOrganizations(accessToken) {
@@ -7281,7 +8114,7 @@ function isLikelyImageAssetPath(value) {
 
   return (
     normalized === DEFAULT_AVATAR ||
-    normalized === "adobepass_org_avatar.svg" ||
+    normalized === FALLBACK_AVATAR_ASSET ||
     /\.(png|jpg|jpeg|gif|webp|svg)(\?|$)/i.test(normalized)
   );
 }
@@ -7378,6 +8211,103 @@ function normalizeAvatarCandidate(value) {
   } catch {
     return "";
   }
+}
+
+function isPpsProfileImageUrl(url) {
+  if (!url || url.startsWith("data:image/") || url.startsWith("blob:")) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(url);
+    return /(^|\.)pps\.services\.adobe\.com$/i.test(parsed.hostname) && /\/api\/profile\/[^/]+\/image(\/|$)/i.test(parsed.pathname);
+  } catch {
+    return false;
+  }
+}
+
+function toPpsProfileImageSizeUrl(url, size) {
+  const normalized = normalizeAvatarCandidate(url);
+  if (!normalized || !isPpsProfileImageUrl(normalized) || !Number.isFinite(size) || size <= 0) {
+    return normalized;
+  }
+
+  try {
+    const parsed = new URL(normalized);
+    const nextSize = String(Math.floor(size));
+    const withTrailingSize = parsed.pathname.replace(/\/(\d+)(\/?)$/i, `/${nextSize}$2`);
+
+    if (withTrailingSize !== parsed.pathname) {
+      parsed.pathname = withTrailingSize;
+      return parsed.toString();
+    }
+
+    parsed.pathname = `${parsed.pathname.replace(/\/?$/, "")}/${nextSize}`;
+    return parsed.toString();
+  } catch {
+    return normalized;
+  }
+}
+
+function scoreAvatarCandidatePriority(value) {
+  const normalized = normalizeAvatarCandidate(value) || normalizeInlineAvatarData(value);
+  if (!normalized) {
+    return -1000;
+  }
+
+  const lower = normalized.toLowerCase();
+  if (
+    normalized === FALLBACK_AVATAR ||
+    /underpar(?:-round)?-[0-9]+\.png$/i.test(lower) ||
+    /underpar(?:-round)?\.ico$/i.test(lower)
+  ) {
+    return -200;
+  }
+
+  if (normalized.startsWith("data:image/")) {
+    return 420;
+  }
+  if (normalized.startsWith("blob:")) {
+    return 390;
+  }
+  if (normalized.startsWith("chrome-extension://") || normalized.startsWith("moz-extension://")) {
+    return 320;
+  }
+
+  let score = 0;
+  if (isPpsProfileImageUrl(normalized)) {
+    score += 340;
+  }
+  if (isImsAvatarDownloadUrl(normalized)) {
+    score += 280;
+  } else if (/\/ims\/avatar\//i.test(normalized)) {
+    score += 220;
+  }
+  if (/avatar|profile|picture|photo|image/i.test(normalized)) {
+    score += 24;
+  }
+  if (/\.(png|jpe?g|gif|webp|avif|svg)(\?|$)/i.test(normalized)) {
+    score += 12;
+  }
+  if (/^https:\/\//i.test(normalized)) {
+    score += 4;
+  }
+
+  return score;
+}
+
+function prioritizeAvatarCandidates(values) {
+  const normalized = [
+    ...new Set((values || []).map((value) => normalizeAvatarCandidate(value) || normalizeInlineAvatarData(value)).filter(Boolean)),
+  ];
+  return normalized
+    .map((value, index) => ({
+      value,
+      index,
+      score: scoreAvatarCandidatePriority(value),
+    }))
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .map((entry) => entry.value);
 }
 
 function inferImageMimeTypeFromBuffer(buffer) {
@@ -7887,7 +8817,7 @@ function getAvatarCandidates(loginData) {
   }
 
   if (loginData?.adobePassOrg) {
-    candidates.push(ADOBEPASS_FALLBACK_AVATAR);
+    candidates.push(FALLBACK_AVATAR);
   }
 
   candidates.push(DEFAULT_AVATAR);
@@ -7909,7 +8839,7 @@ function getAvatarRenderUrl(loginData) {
     return provisional;
   }
 
-  return ADOBEPASS_FALLBACK_AVATAR;
+  return FALLBACK_AVATAR;
 }
 
 function firstNonEmptyString(values) {
@@ -8455,7 +9385,7 @@ function shouldAttemptLiveAvatarRefresh(loginData) {
 }
 
 function buildAvatarResolveCandidateList(baseCandidates) {
-  const normalizedBase = [...new Set((baseCandidates || []).map((value) => normalizeAvatarCandidate(value)).filter(Boolean))];
+  const normalizedBase = prioritizeAvatarCandidates(baseCandidates || []);
   if (normalizedBase.length === 0) {
     return [];
   }
@@ -8477,6 +9407,19 @@ function buildAvatarResolveCandidateList(baseCandidates) {
 
   for (const size of AVATAR_SIZE_PREFERENCES) {
     for (const candidate of normalizedBase) {
+      if (
+        candidate === FALLBACK_AVATAR ||
+        /underpar(?:-round)?-[0-9]+\.png$/i.test(candidate) ||
+        /underpar(?:-round)?\.ico$/i.test(candidate)
+      ) {
+        continue;
+      }
+
+      if (isPpsProfileImageUrl(candidate)) {
+        pushCandidate(toPpsProfileImageSizeUrl(candidate, size));
+        continue;
+      }
+
       if (isImsAvatarDownloadUrl(candidate)) {
         continue;
       }
@@ -8484,7 +9427,7 @@ function buildAvatarResolveCandidateList(baseCandidates) {
     }
   }
 
-  return candidates.slice(0, AVATAR_MAX_RESOLVE_CANDIDATES);
+  return prioritizeAvatarCandidates(candidates).slice(0, AVATAR_MAX_RESOLVE_CANDIDATES);
 }
 
 async function fetchLiveAvatarCandidatesFromIms(loginData) {
@@ -8518,7 +9461,7 @@ async function fetchLiveAvatarCandidatesFromIms(loginData) {
   };
 
   try {
-    const profilePayload = await fetchExperienceCloudSessionProfile(token);
+    const profilePayload = await fetchImsSessionProfile(token);
     if (profilePayload && typeof profilePayload === "object") {
       mergeProfileIntoSession(profilePayload);
       for (const candidate of getProfileAvatarCandidates(profilePayload)) {
@@ -8563,10 +9506,6 @@ function buildAvatarFetchUrlCandidates(url) {
   }
 
   const candidates = [normalized];
-  if (!isImsAvatarDownloadUrl(normalized)) {
-    return candidates;
-  }
-
   const pushCandidate = (value) => {
     const candidate = normalizeAvatarCandidate(value);
     if (candidate && !candidates.includes(candidate)) {
@@ -8574,12 +9513,30 @@ function buildAvatarFetchUrlCandidates(url) {
     }
   };
 
+  if (isPpsProfileImageUrl(normalized)) {
+    for (const size of AVATAR_SIZE_PREFERENCES) {
+      pushCandidate(toPpsProfileImageSizeUrl(normalized, size));
+    }
+    return candidates;
+  }
+
+  if (!isImsAvatarDownloadUrl(normalized)) {
+    for (const size of AVATAR_SIZE_PREFERENCES) {
+      pushCandidate(appendAvatarSize(normalized, size));
+    }
+    return candidates;
+  }
+
   try {
     const parsed = new URL(normalized);
     if (!parsed.searchParams.has("size")) {
       const sized = new URL(parsed.toString());
       sized.searchParams.set("size", String(AVATAR_SIZE_PREFERENCES[0] || 128));
       pushCandidate(sized.toString());
+    } else {
+      for (const size of AVATAR_SIZE_PREFERENCES) {
+        pushCandidate(appendAvatarSize(normalized, size));
+      }
     }
   } catch {
     // Keep original candidates only.
@@ -8588,10 +9545,11 @@ function buildAvatarFetchUrlCandidates(url) {
   return candidates;
 }
 
-function buildAvatarFetchAttempts(accessToken = "") {
+function buildAvatarFetchAttempts(accessToken = "", url = "") {
   const baseHeaders = {
     Accept: "image/*,*/*;q=0.8",
   };
+  const preferCookieSessionFirst = isPpsProfileImageUrl(url);
 
   const attempts = [];
   const seen = new Set();
@@ -8606,6 +9564,11 @@ function buildAvatarFetchAttempts(accessToken = "") {
     seen.add(key);
     attempts.push({ headers, credentials });
   };
+
+  if (preferCookieSessionFirst) {
+    pushAttempt(baseHeaders, "include");
+    pushAttempt(baseHeaders, "omit");
+  }
 
   if (accessToken) {
     pushAttempt(
@@ -8655,8 +9618,13 @@ function buildAvatarFetchAttempts(accessToken = "") {
     }
   }
 
-  pushAttempt(baseHeaders, "omit");
-  pushAttempt(baseHeaders, "include");
+  if (!preferCookieSessionFirst) {
+    pushAttempt(baseHeaders, "omit");
+    pushAttempt(baseHeaders, "include");
+  } else {
+    pushAttempt({ Accept: "*/*" }, "include");
+    pushAttempt({ Accept: "*/*" }, "omit");
+  }
   return attempts;
 }
 
@@ -8713,10 +9681,10 @@ async function fetchAvatarBlobUrl(url) {
   }
 
   const urlCandidates = buildAvatarFetchUrlCandidates(url);
-  const attempts = buildAvatarFetchAttempts(state.loginData?.accessToken || "");
   let attemptCount = 0;
   const maxAttempts = 14;
   for (const targetUrl of urlCandidates) {
+    const attempts = buildAvatarFetchAttempts(state.loginData?.accessToken || "", targetUrl);
     for (const attempt of attempts) {
       attemptCount += 1;
       if (attemptCount > maxAttempts) {
@@ -8901,7 +9869,7 @@ async function ensureResolvedAvatarUrl() {
       hasProfile: Boolean(state.loginData?.profile),
       hasAccessToken: Boolean(state.loginData?.accessToken),
     });
-    setResolvedAvatarUrl(ADOBEPASS_FALLBACK_AVATAR);
+    setResolvedAvatarUrl(FALLBACK_AVATAR);
     render();
   } finally {
     state.avatarResolving = false;
@@ -8927,7 +9895,7 @@ function renderAvatarMenu() {
   const name = getProfileDisplayName(profile);
   const email = getProfileEmail(profile) || "No email available";
 
-  els.avatarMenuImage.style.backgroundImage = `url("${avatarUrl}"), url("${ADOBEPASS_FALLBACK_AVATAR}")`;
+  els.avatarMenuImage.style.backgroundImage = `url("${avatarUrl}"), url("${FALLBACK_AVATAR}")`;
   els.avatarMenuImage.setAttribute("role", "img");
   els.avatarMenuImage.setAttribute("aria-hidden", "false");
   els.avatarMenuImage.setAttribute("aria-label", `${name} avatar`);
@@ -9613,7 +10581,7 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
 
   let sessionProfile = resolveLoginProfile(enforced.loginData);
   try {
-    const profileFromSession = await fetchExperienceCloudSessionProfile(enforced.loginData.accessToken || "");
+    const profileFromSession = await fetchImsSessionProfile(enforced.loginData.accessToken || "");
     if (profileFromSession && typeof profileFromSession === "object") {
       sessionProfile = mergeProfilePayloads(sessionProfile, profileFromSession);
     }
@@ -10726,11 +11694,30 @@ async function registerClientWithSoftwareStatement(softwareStatement) {
   throw new Error(lastError);
 }
 
-async function requestClientCredentialsToken(clientId, clientSecret) {
+async function requestClientCredentialsToken(clientId, clientSecret, debugMeta = null) {
+  const debugFlowId = String(debugMeta?.flowId || "").trim();
+  const emitTokenDebugEvent = (phase, details = {}) => {
+    emitRestV2DebugEvent(debugFlowId, {
+      source: "extension",
+      service: String(debugMeta?.service || ""),
+      phase,
+      requestScope: String(debugMeta?.scope || ""),
+      requestorId: String(debugMeta?.requestorId || ""),
+      mvpd: String(debugMeta?.mvpd || ""),
+      appGuid: String(debugMeta?.appGuid || ""),
+      ...details,
+    });
+  };
+
   const attempts = [];
 
   attempts.push(async () => {
     const url = `${ADOBE_SP_BASE}/o/client/token?grant_type=client_credentials&client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}`;
+    emitTokenDebugEvent("token-request-attempt", {
+      transport: "query",
+      method: "POST",
+      url: `${ADOBE_SP_BASE}/o/client/token`,
+    });
     const response = await fetchWithRateLimitRetry(
       () =>
         fetch(url, {
@@ -10752,8 +11739,19 @@ async function requestClientCredentialsToken(clientId, clientSecret) {
     const parsed = parseJsonText(text, {});
     if (!response.ok) {
       const reason = normalizeHttpErrorMessage(text) || response.statusText;
+      emitTokenDebugEvent("token-request-attempt-failed", {
+        transport: "query",
+        status: Number(response.status || 0),
+        statusText: String(response.statusText || ""),
+        error: reason,
+      });
       throw new Error(`DCR token query failed (${response.status}): ${reason}`);
     }
+    emitTokenDebugEvent("token-request-attempt-succeeded", {
+      transport: "query",
+      status: Number(response.status || 0),
+      statusText: String(response.statusText || ""),
+    });
     return parsed || {};
   });
 
@@ -10762,6 +11760,11 @@ async function requestClientCredentialsToken(clientId, clientSecret) {
     body.set("grant_type", "client_credentials");
     body.set("client_id", clientId);
     body.set("client_secret", clientSecret);
+    emitTokenDebugEvent("token-request-attempt", {
+      transport: "form",
+      method: "POST",
+      url: `${ADOBE_SP_BASE}/o/client/token`,
+    });
     const response = await fetchWithRateLimitRetry(
       () =>
         fetch(`${ADOBE_SP_BASE}/o/client/token`, {
@@ -10788,8 +11791,19 @@ async function requestClientCredentialsToken(clientId, clientSecret) {
     const parsed = parseJsonText(text, {});
     if (!response.ok) {
       const reason = normalizeHttpErrorMessage(text) || response.statusText;
+      emitTokenDebugEvent("token-request-attempt-failed", {
+        transport: "form",
+        status: Number(response.status || 0),
+        statusText: String(response.statusText || ""),
+        error: reason,
+      });
       throw new Error(`DCR token form failed (${response.status}): ${reason}`);
     }
+    emitTokenDebugEvent("token-request-attempt-succeeded", {
+      transport: "form",
+      status: Number(response.status || 0),
+      statusText: String(response.statusText || ""),
+    });
     return parsed || {};
   });
 
@@ -10804,6 +11818,9 @@ async function requestClientCredentialsToken(clientId, clientSecret) {
 
       const expiresInSeconds = Number(data.expires_in || data.expiresIn);
       const ttlSeconds = Number.isFinite(expiresInSeconds) && expiresInSeconds > 0 ? expiresInSeconds : 6 * 60 * 60;
+      emitTokenDebugEvent("token-response", {
+        ttlSeconds,
+      });
       return {
         accessToken,
         tokenExpiresAt: Date.now() + ttlSeconds * 1000,
@@ -10813,10 +11830,13 @@ async function requestClientCredentialsToken(clientId, clientSecret) {
     }
   }
 
+  emitTokenDebugEvent("token-request-failed", {
+    error: String(lastError || "Token request failed."),
+  });
   throw new Error(lastError);
 }
 
-async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false) {
+async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false, debugMeta = null) {
   if (!programmerId) {
     throw new Error("Media company ID is required.");
   }
@@ -10824,8 +11844,25 @@ async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false)
     throw new Error("Registered application details are missing.");
   }
 
+  const debugFlowId = String(debugMeta?.flowId || "").trim();
+  const emitDcrDebugEvent = (phase, details = {}) => {
+    emitRestV2DebugEvent(debugFlowId, {
+      source: "extension",
+      service: String(debugMeta?.service || ""),
+      phase,
+      requestScope: String(debugMeta?.scope || ""),
+      requestorId: String(debugMeta?.requestorId || ""),
+      mvpd: String(debugMeta?.mvpd || ""),
+      programmerId: String(programmerId || ""),
+      appGuid: String(appInfo?.guid || ""),
+      appName: String(appInfo?.appName || appInfo?.guid || ""),
+      ...details,
+    });
+  };
+
   const promiseKey = getDcrCacheKey(programmerId, appInfo.guid);
   if (!forceRefresh && state.dcrEnsureTokenPromiseByKey.has(promiseKey)) {
+    emitDcrDebugEvent("token-promise-reuse");
     return state.dcrEnsureTokenPromiseByKey.get(promiseKey);
   }
 
@@ -10833,6 +11870,7 @@ async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false)
     let cache = loadDcrCache(programmerId, appInfo.guid) || {};
 
     if (!cache.clientId || !cache.clientSecret) {
+      emitDcrDebugEvent("dcr-registration-required");
       if (!appInfo.softwareStatement) {
         try {
           const details = await fetchApplicationDetailsByGuid(appInfo.guid);
@@ -10851,17 +11889,33 @@ async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false)
       const registered = await registerClientWithSoftwareStatement(appInfo.softwareStatement);
       cache.clientId = registered.clientId;
       cache.clientSecret = registered.clientSecret;
+      emitDcrDebugEvent("dcr-registration-succeeded");
     }
 
     const tokenMissing = !cache.accessToken || !cache.tokenExpiresAt;
     const tokenExpired = Date.now() >= Number(cache.tokenExpiresAt) - 60 * 1000;
     if (forceRefresh || tokenMissing || tokenExpired) {
-      const token = await requestClientCredentialsToken(cache.clientId, cache.clientSecret);
+      emitDcrDebugEvent("token-refresh-required", {
+        forceRefresh: forceRefresh === true,
+        tokenMissing: tokenMissing === true,
+        tokenExpired: tokenExpired === true,
+      });
+      const token = await requestClientCredentialsToken(cache.clientId, cache.clientSecret, {
+        ...debugMeta,
+        appGuid: String(appInfo?.guid || ""),
+      });
       cache.accessToken = token.accessToken;
       cache.tokenExpiresAt = token.tokenExpiresAt;
+    } else {
+      emitDcrDebugEvent("token-cache-hit", {
+        tokenExpiresAt: Number(cache.tokenExpiresAt || 0),
+      });
     }
 
     saveDcrCache(programmerId, appInfo.guid, cache);
+    emitDcrDebugEvent("token-ready", {
+      tokenExpiresAt: Number(cache.tokenExpiresAt || 0),
+    });
     return cache.accessToken;
   })();
 
@@ -10877,7 +11931,7 @@ async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false)
 
 async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, retryStage = "refresh", debugMeta = null) {
   const debugFlowId = String(debugMeta?.flowId || "").trim();
-  const token = await ensureDcrAccessToken(programmerId, appInfo, false);
+  const token = await ensureDcrAccessToken(programmerId, appInfo, false, debugMeta);
   const headers = new Headers(options.headers || {});
   headers.set("Authorization", `Bearer ${token}`);
   if (!headers.has("Accept")) {
@@ -10900,7 +11954,12 @@ async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, re
     requestBodyPreview,
     requestorId: String(debugMeta?.requestorId || ""),
     mvpd: String(debugMeta?.mvpd || ""),
+    requestorIds: Array.isArray(debugMeta?.requestorIds) ? debugMeta.requestorIds.slice(0, 24) : [],
+    mvpdIds: Array.isArray(debugMeta?.mvpdIds) ? debugMeta.mvpdIds.slice(0, 24) : [],
     requestScope: String(debugMeta?.scope || ""),
+    service: String(debugMeta?.service || ""),
+    endpointUrl: String(debugMeta?.endpointUrl || ""),
+    cardId: String(debugMeta?.cardId || ""),
   });
 
   const response = await fetchWithRateLimitRetry(
@@ -10942,7 +12001,12 @@ async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, re
     responsePreview,
     requestorId: String(debugMeta?.requestorId || ""),
     mvpd: String(debugMeta?.mvpd || ""),
+    requestorIds: Array.isArray(debugMeta?.requestorIds) ? debugMeta.requestorIds.slice(0, 24) : [],
+    mvpdIds: Array.isArray(debugMeta?.mvpdIds) ? debugMeta.mvpdIds.slice(0, 24) : [],
     requestScope: String(debugMeta?.scope || ""),
+    service: String(debugMeta?.service || ""),
+    endpointUrl: String(debugMeta?.endpointUrl || ""),
+    cardId: String(debugMeta?.cardId || ""),
   });
 
   if (response.status === 401 && retryStage === "refresh") {
@@ -10957,8 +12021,10 @@ async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, re
       url: String(url || ""),
       status: 401,
       responsePreview: truncateDebugText(bodyText, 1200),
+      service: String(debugMeta?.service || ""),
+      requestScope: String(debugMeta?.scope || ""),
     });
-    await ensureDcrAccessToken(programmerId, appInfo, true);
+    await ensureDcrAccessToken(programmerId, appInfo, true, debugMeta);
     return fetchWithPremiumAuth(programmerId, appInfo, url, options, "reprovision", debugMeta);
   }
 
@@ -10974,9 +12040,11 @@ async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, re
       url: String(url || ""),
       status: 401,
       responsePreview: truncateDebugText(bodyText, 1200),
+      service: String(debugMeta?.service || ""),
+      requestScope: String(debugMeta?.scope || ""),
     });
     clearDcrCache(programmerId, appInfo.guid);
-    await ensureDcrAccessToken(programmerId, appInfo, true);
+    await ensureDcrAccessToken(programmerId, appInfo, true, debugMeta);
     return fetchWithPremiumAuth(programmerId, appInfo, url, options, "none", debugMeta);
   }
 
@@ -11714,7 +12782,7 @@ async function tryActivateCookieSession(source, options = {}) {
     }
 
     try {
-      const profileFromSession = await fetchExperienceCloudSessionProfile("");
+      const profileFromSession = await fetchImsSessionProfile("");
       if (profileFromSession && typeof profileFromSession === "object") {
         const mergedProfile = mergeProfilePayloads(resolveLoginProfile(state.loginData), profileFromSession);
         state.loginData = {
@@ -11776,7 +12844,7 @@ async function hydrateCookieSessionWithProfile() {
   try {
     const silent = await attemptSilentBootstrapLogin();
     if (!silent) {
-      const cookieProfile = await fetchExperienceCloudSessionProfile("");
+      const cookieProfile = await fetchImsSessionProfile("");
       if (cookieProfile && typeof cookieProfile === "object" && state.loginData) {
         const mergedProfile = mergeProfilePayloads(resolveLoginProfile(state.loginData), cookieProfile);
         state.loginData = {
@@ -11798,7 +12866,7 @@ async function hydrateCookieSessionWithProfile() {
       return;
     }
 
-    const profileFromSession = await fetchExperienceCloudSessionProfile(enforced.loginData.accessToken || "");
+    const profileFromSession = await fetchImsSessionProfile(enforced.loginData.accessToken || "");
     const hydratedProfile = mergeProfilePayloads(resolveLoginProfile(enforced.loginData), profileFromSession);
     const hydratedImageUrl = resolveLoginImageUrl({
       ...enforced.loginData,
@@ -11940,7 +13008,7 @@ function render() {
   els.authBtn.classList.add("avatar");
   els.authBtn.classList.toggle("avatar-loading", state.avatarResolving);
   els.authBtn.classList.toggle("avatar-ready", !state.avatarResolving);
-  els.authBtn.style.backgroundImage = `url("${avatarUrl}"), url("${ADOBEPASS_FALLBACK_AVATAR}")`;
+  els.authBtn.style.backgroundImage = `url("${avatarUrl}"), url("${FALLBACK_AVATAR}")`;
   els.authBtn.textContent = "Account";
   els.authBtn.setAttribute("aria-label", `${getProfileDisplayName(resolveLoginProfile(state.loginData) || {})} account menu`);
   if (!state.busy) {
@@ -12275,6 +13343,7 @@ function registerEventHandlers() {
     const decompState = getActiveDecompState();
     if (decompState) {
       decompBroadcastControllerState(decompState);
+      syncDecompRecordingControls(decompState);
     }
   });
 

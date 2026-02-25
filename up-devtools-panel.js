@@ -1,6 +1,7 @@
 const queryParams = new URLSearchParams(window.location.search);
 const queryTabId = Number(queryParams.get("tabId") || 0);
 const queryFlowId = String(queryParams.get("flowId") || "").trim();
+const querySource = String(queryParams.get("source") || "").trim().toLowerCase();
 
 const inspectedTabId = (() => {
   try {
@@ -31,7 +32,7 @@ const keySortCollator = new Intl.Collator(undefined, { numeric: true, sensitivit
 let flow = null;
 let events = [];
 let selectedSeq = 0;
-let showExtensionEvents = false;
+let showExtensionEvents = querySource === "esm-decomp-recording";
 let flowListKeyboardActive = false;
 const eventRowsBySeq = new Map();
 
