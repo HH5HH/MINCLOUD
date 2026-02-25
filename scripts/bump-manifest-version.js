@@ -1,15 +1,65 @@
 #!/usr/bin/env node
 
+const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
 const CHROME_MAX_PART = 65535;
 const VERSION_PART_BASE = 100;
 const DEFAULT_PARTS = [1, 0, 0]; // major.minor.patch
+const STAGED_TRIGGER_EXCLUDED_PREFIXES = [".git/", ".githooks/", "scripts/"];
+const STAGED_TRIGGER_EXCLUDED_FILES = new Set(["manifest.json", ".DS_Store"]);
+const STAGED_TRIGGER_EXCLUDED_SEGMENTS = ["/docs/"];
 
 function fail(message) {
   console.error(`[bump-manifest-version] ${message}`);
   process.exit(1);
+}
+
+function listStagedPaths() {
+  try {
+    const output = execFileSync("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR"], {
+      encoding: "utf8",
+    });
+    return String(output || "")
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    fail(`Unable to inspect staged files: ${detail}`);
+  }
+}
+
+function shouldTriggerFromStagedPath(filePath) {
+  const normalized = String(filePath || "").trim();
+  if (!normalized) {
+    return false;
+  }
+  if (STAGED_TRIGGER_EXCLUDED_FILES.has(normalized)) {
+    return false;
+  }
+  if (normalized.endsWith(".zip")) {
+    return false;
+  }
+  const normalizedLower = normalized.toLowerCase();
+  if (normalizedLower.endsWith(".md")) {
+    return false;
+  }
+  if (normalizedLower.startsWith("docs/")) {
+    return false;
+  }
+  if (STAGED_TRIGGER_EXCLUDED_SEGMENTS.some((segment) => normalizedLower.includes(segment))) {
+    return false;
+  }
+  if (STAGED_TRIGGER_EXCLUDED_PREFIXES.some((prefix) => normalized.startsWith(prefix))) {
+    return false;
+  }
+  return true;
+}
+
+function hasStagedUnderparChanges() {
+  return listStagedPaths().some((filePath) => shouldTriggerFromStagedPath(filePath));
 }
 
 function parseVersion(value) {
@@ -75,6 +125,7 @@ function parseArgs(argv) {
   const args = Array.isArray(argv) ? [...argv] : [];
   let dryRun = false;
   let fromVersion = "";
+  let mode = "always";
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = String(args[index] || "");
@@ -83,6 +134,10 @@ function parseArgs(argv) {
     }
     if (arg === "--dry-run") {
       dryRun = true;
+      continue;
+    }
+    if (arg === "--if-staged-underpar-changes") {
+      mode = "staged";
       continue;
     }
     if (arg === "--from") {
@@ -95,17 +150,23 @@ function parseArgs(argv) {
       continue;
     }
     if (arg === "--help" || arg === "-h") {
-      console.log("Usage: node scripts/bump-manifest-version.js [--dry-run] [--from <major.minor.patch>]");
+      console.log(
+        "Usage: node scripts/bump-manifest-version.js [--dry-run] [--from <major.minor.patch>] [--if-staged-underpar-changes]"
+      );
       process.exit(0);
     }
     fail(`Unknown argument "${arg}". Use --help for usage.`);
   }
 
-  return { dryRun, fromVersion };
+  return { dryRun, fromVersion, mode };
 }
 
 function main() {
-  const { dryRun, fromVersion } = parseArgs(process.argv.slice(2));
+  const { dryRun, fromVersion, mode } = parseArgs(process.argv.slice(2));
+  if (mode === "staged" && !hasStagedUnderparChanges()) {
+    return;
+  }
+
   const manifestPath = path.resolve(__dirname, "..", "manifest.json");
   const manifestRaw = fs.readFileSync(manifestPath, "utf8");
   const manifest = JSON.parse(manifestRaw);
@@ -118,6 +179,11 @@ function main() {
     manifest.version = nextVersion;
     manifest.version_name = nextVersion;
     fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+  }
+
+  if (mode === "staged") {
+    console.log(nextVersion);
+    return;
   }
 
   const suffix = fromVersion || dryRun ? " (dry-run)" : "";

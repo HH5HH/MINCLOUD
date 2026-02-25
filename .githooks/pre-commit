@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+BUMP_SCRIPT="$ROOT/scripts/bump-manifest-version.js"
+if [[ ! -f "$BUMP_SCRIPT" ]]; then
+  exit 0
+fi
+
+new_version="$(node "$BUMP_SCRIPT" --if-staged-underpar-changes)"
+if [[ -n "$new_version" ]]; then
+  git add manifest.json
+  echo "pre-commit: auto-bumped UnderPAR manifest version to $new_version"
+fi
