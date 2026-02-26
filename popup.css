@@ -12,6 +12,15 @@
   --legacy-border: #dddddd;
   --legacy-text: #1f2937;
   --legacy-muted: #6a6a6a;
+  --s2-action-bg-default: #ffffff;
+  --s2-action-bg-hover: #f8f8f8;
+  --s2-action-border-default: #d5d5d5;
+  --s2-action-text-default: #2c2c2c;
+  --s2-action-bg-accent: #0265dc;
+  --s2-action-bg-accent-hover: #0353b4;
+  --s2-action-border-accent: #0265dc;
+  --s2-action-text-accent: #ffffff;
+  --s2-action-focus-ring: rgba(2, 101, 220, 0.24);
   background: var(--legacy-bg);
   color: var(--legacy-text);
 }
@@ -749,8 +758,7 @@ select:disabled {
 }
 
 .decomp-find-btn,
-.decomp-reset-btn,
-.decomp-make-clickesm-btn {
+.decomp-reset-btn {
   height: 30px;
   padding: 0 10px;
   border-radius: 8px;
@@ -767,10 +775,46 @@ select:disabled {
   background: var(--legacy-accent);
 }
 
-.decomp-make-clickesm-btn {
-  border-color: #1d4ed8;
-  background: #1d4ed8;
-  color: #ffffff;
+.decomp-toolbar-icon-btn {
+  appearance: none;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--s2-action-border-default);
+  background: var(--s2-action-bg-default);
+  color: var(--s2-action-text-default);
+  line-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.decomp-toolbar-icon-btn--tearsheet {
+  border-color: var(--s2-action-border-accent);
+  background: var(--s2-action-bg-accent);
+  color: var(--s2-action-text-accent);
+}
+
+.decomp-toolbar-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.decomp-toolbar-icon svg {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .decomp-find-btn:hover:not(:disabled) {
@@ -781,8 +825,19 @@ select:disabled {
   background: var(--legacy-accent-hover);
 }
 
-.decomp-make-clickesm-btn:hover:not(:disabled) {
-  background: #1e40af;
+.decomp-toolbar-icon-btn:hover:not(:disabled) {
+  background: var(--s2-action-bg-hover);
+  transform: translateY(-1px);
+}
+
+.decomp-toolbar-icon-btn--tearsheet:hover:not(:disabled) {
+  background: var(--s2-action-bg-accent-hover);
+  border-color: var(--s2-action-bg-accent-hover);
+}
+
+.decomp-toolbar-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--s2-action-focus-ring);
 }
 
 .decomp-net-indicator {

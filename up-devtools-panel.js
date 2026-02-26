@@ -32,7 +32,7 @@ const keySortCollator = new Intl.Collator(undefined, { numeric: true, sensitivit
 let flow = null;
 let events = [];
 let selectedSeq = 0;
-let showExtensionEvents = querySource === "esm-decomp-recording";
+let showExtensionEvents = querySource === "esm-decomp-recording" || querySource === "cm-recording";
 let flowListKeyboardActive = false;
 const eventRowsBySeq = new Map();
 
@@ -60,6 +60,20 @@ function getVisibleEventBySeq(seq) {
     return null;
   }
   return getVisibleEvents().find((event) => event.seq === seq) || null;
+}
+
+function flowHasCmExtensionEvents(items = []) {
+  return (Array.isArray(items) ? items : []).some((event) => {
+    if (!event || !isExtensionEvent(event)) {
+      return false;
+    }
+    const service = String(event?.service || "").trim().toLowerCase();
+    if (service === "cm") {
+      return true;
+    }
+    const phase = String(event?.phase || "").trim().toLowerCase();
+    return phase.startsWith("cm-");
+  });
 }
 
 function setFlowSummary(currentFlow = flow) {
@@ -517,6 +531,10 @@ function renderEventListFromSnapshot() {
 function applySnapshot(nextFlow) {
   flow = nextFlow || null;
   events = Array.isArray(flow?.events) ? [...flow.events] : [];
+  if (!showExtensionEvents && flowHasCmExtensionEvents(events)) {
+    showExtensionEvents = true;
+  }
+  updateExtensionToggleUi();
   if (!findEventBySeq(selectedSeq)) {
     selectedSeq = 0;
   }

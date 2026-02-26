@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>UP decomp Workspace</title>
-    <link rel="stylesheet" href="decomp-workspace.css" />
+    <link id="workspace-style-link" rel="stylesheet" href="decomp-workspace.css" />
   </head>
   <body>
-    <main class="workspace-app">
+    <main id="workspace-app-root" class="workspace-app">
       <header class="workspace-header">
         <div class="workspace-title-wrap">
           <p id="workspace-controller-state" class="workspace-controller-state">
@@ -18,22 +18,34 @@
         <div class="workspace-actions">
           <button
             id="workspace-make-clickesm"
-            class="workspace-pill-btn workspace-pill-btn--accent"
+            class="workspace-icon-btn workspace-icon-btn--tearsheet workspace-icon-btn--accent"
             type="button"
-            title="Generate media-company clickESM file"
-            aria-label="Generate media-company clickESM file"
+            title="Generate ESM tearsheet (clickESM)"
+            aria-label="Generate ESM tearsheet (clickESM)"
             hidden
           >
-            MAKE clickESM
+            <span class="workspace-icon workspace-icon--tearsheet" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
+                <path d="M14.25 3.75V8.5H19" />
+                <path d="M9.5 12.75 10 14.25 11.5 14.75 10 15.25 9.5 16.75 9 15.25 7.5 14.75 9 14.25 9.5 12.75Z" />
+                <path d="M14 12.25 14.3 13.1 15.2 13.4 14.3 13.7 14 14.55 13.7 13.7 12.8 13.4 13.7 13.1 14 12.25Z" />
+              </svg>
+            </span>
           </button>
           <button
             id="workspace-rerun-all"
-            class="workspace-icon-btn workspace-icon-btn--accent"
+            class="workspace-icon-btn workspace-icon-btn--rerun"
             type="button"
             title="Re-run all"
             aria-label="Re-run all"
           >
-            <span aria-hidden="true">↻</span>
+            <span class="workspace-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M18.75 12a6.75 6.75 0 1 1-1.98-4.77" />
+                <path d="M16.77 3.75h3.48v3.48" />
+              </svg>
+            </span>
           </button>
           <button
             id="workspace-clear-all"
@@ -42,7 +54,12 @@
             title="Clear"
             aria-label="Clear"
           >
-            <span aria-hidden="true">✕</span>
+            <span class="workspace-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M7 7 17 17" />
+                <path d="M17 7 7 17" />
+              </svg>
+            </span>
           </button>
         </div>
       </header>
@@ -53,6 +70,17 @@
       </section>
 
       <section id="workspace-cards" class="workspace-cards"></section>
+    </main>
+    <main id="workspace-non-esm-screen" hidden>
+      <h1>
+        <code><tt id="workspace-non-esm-headline">No Soup for Selected Media Company. No Premium, No ESM, No Dice.</tt></code>
+      </h1>
+      <p>
+        <small id="workspace-non-esm-note"
+          >* Please ensure the Adobe Pass console has all expected ESM Scoped Registered Applications across all up to date
+          Premium Workflow Customers.</small
+        >
+      </p>
     </main>
 
     <script src="decomp-workspace.js"></script>

@@ -40,9 +40,14 @@ const state = {
   cardsById: new Map(),
   batchRunning: false,
   workspaceLocked: false,
+  nonEsmMode: false,
 };
 
 const els = {
+  appRoot: document.getElementById("workspace-app-root"),
+  stylesheet: document.getElementById("workspace-style-link"),
+  nonEsmScreen: document.getElementById("workspace-non-esm-screen"),
+  nonEsmHeadline: document.getElementById("workspace-non-esm-headline"),
   controllerState: document.getElementById("workspace-controller-state"),
   filterState: document.getElementById("workspace-filter-state"),
   status: document.getElementById("workspace-status"),
@@ -141,9 +146,45 @@ function getWorkspaceLockMessage() {
   return `${getProgrammerLabel()} ${WORKSPACE_LOCK_MESSAGE_SUFFIX}`;
 }
 
+function hasProgrammerContext() {
+  return Boolean(String(state.programmerId || "").trim() || String(state.programmerName || "").trim());
+}
+
+function shouldShowNonEsmMode() {
+  return !state.controllerOnline && state.esmAvailable === false && hasProgrammerContext();
+}
+
+function clearWorkspaceCards() {
+  state.cardsById.forEach((cardState) => {
+    cardState.element?.remove();
+  });
+  state.cardsById.clear();
+}
+
+function updateNonEsmMode() {
+  const shouldShow = shouldShowNonEsmMode();
+  state.nonEsmMode = shouldShow;
+  if (els.nonEsmHeadline) {
+    els.nonEsmHeadline.textContent = `No Soup for ${getProgrammerLabel()}. No Premium, No ESM, No Dice.`;
+  }
+
+  if (shouldShow) {
+    clearWorkspaceCards();
+  }
+
+  if (els.stylesheet) {
+    els.stylesheet.disabled = shouldShow;
+  }
+  if (els.appRoot) {
+    els.appRoot.hidden = shouldShow;
+  }
+  if (els.nonEsmScreen) {
+    els.nonEsmScreen.hidden = !shouldShow;
+  }
+}
+
 function updateWorkspaceLockState() {
-  const hasProgrammerContext = Boolean(String(state.programmerId || "").trim() || String(state.programmerName || "").trim());
-  const shouldLock = !state.controllerOnline && state.esmAvailable === false && hasProgrammerContext;
+  const shouldLock = shouldShowNonEsmMode();
   state.workspaceLocked = shouldLock;
   document.body.classList.toggle("workspace-locked", shouldLock);
   if (els.lockBanner) {
@@ -153,6 +194,7 @@ function updateWorkspaceLockState() {
     els.lockMessage.textContent = shouldLock ? getWorkspaceLockMessage() : "";
   }
   syncActionButtonsDisabled();
+  updateNonEsmMode();
 }
 
 function updateControllerBanner() {
@@ -493,7 +535,12 @@ function createCardElements(cardState) {
         <p class="card-subtitle"></p>
       </div>
       <div class="card-actions">
-        <button type="button" class="card-close" aria-label="Close report card" title="Close report card">x</button>
+        <button type="button" class="card-close" aria-label="Close report card" title="Close report card">
+          <svg class="card-close-icon" viewBox="0 0 12 12" focusable="false" aria-hidden="true">
+            <path d="M2 2 10 10" />
+            <path d="M10 2 2 10" />
+          </svg>
+        </button>
       </div>
     </div>
     <div class="card-body"></div>
@@ -521,7 +568,7 @@ function updateCardHeader(cardState) {
 }
 
 function ensureWorkspaceUnlocked() {
-  if (!state.workspaceLocked) {
+  if (!state.workspaceLocked && !state.nonEsmMode) {
     return true;
   }
   setStatus(getWorkspaceLockMessage(), "error");
@@ -938,10 +985,7 @@ function clearWorkspace() {
   if (!ensureWorkspaceUnlocked()) {
     return;
   }
-  state.cardsById.forEach((cardState) => {
-    cardState.element?.remove();
-  });
-  state.cardsById.clear();
+  clearWorkspaceCards();
 }
 
 function registerEventHandlers() {

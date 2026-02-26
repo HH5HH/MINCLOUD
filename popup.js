@@ -85,57 +85,97 @@ const CM_MESSAGE_TYPE = "underpar:cm";
 const LEGACY_CM_MESSAGE_TYPE = "mincloud:cm";
 const ESM_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
 const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const CM_CONFIG_BASE_URL = "https://config.adobeprimetime.com";
+const CM_REPORTS_BASE_URL = "https://cm-reports.adobeprimetime.com";
+const CM_DEFAULT_TENANT_ORG_HINT = "adobe";
 const CM_TENANT_ENDPOINT_CANDIDATES = [
-  "https://cm-reports.adobeprimetime.com/api/v1/tenants",
-  "https://cm-reports.adobeprimetime.com/api/tenants",
-  "https://cm-reports.adobeprimetime.com/v1/tenants",
-  "https://cm-reports.adobeprimetime.com/tenants",
-  "https://cm-reports.adobeprimetime.com/cm/v1/tenants",
-  "https://cm-reports.adobeprimetime.com/cm/tenants",
-  "https://config.adobeprimetime.com/h1/cm/tenants",
-  "https://config.adobeprimetime.com/cm/tenants",
-  "https://config.adobeprimetime.com/api/cm/tenants",
-  "https://config.adobeprimetime.com/api/v1/cm/tenants",
-  "https://experience.adobe.com/cm-console/api/v1/tenants",
-  "https://experience.adobe.com/cm-console/api/tenants",
-  "https://experience.adobe.com/api/cm-console/tenants",
-  "https://experience.adobe.com/cm-console/tenants",
+  `${CM_CONFIG_BASE_URL}/core/tenants?orgId=${CM_DEFAULT_TENANT_ORG_HINT}`,
+  `${CM_CONFIG_BASE_URL}/core/tenants?orgId=adobepass`,
 ];
 const CM_TENANT_DETAIL_PATH_TEMPLATES = [
-  "/api/v1/tenants/{tenantId}",
-  "/api/tenants/{tenantId}",
-  "/v1/tenants/{tenantId}",
-  "/tenants/{tenantId}",
-  "/cm/v1/tenants/{tenantId}",
+  `/core/tenants?orgId=${CM_DEFAULT_TENANT_ORG_HINT}`,
 ];
 const CM_APPLICATIONS_PATH_TEMPLATES = [
-  "/api/v1/tenants/{tenantId}/applications",
-  "/api/tenants/{tenantId}/applications",
-  "/v1/tenants/{tenantId}/applications",
-  "/tenants/{tenantId}/applications",
-  "/cm/v1/tenants/{tenantId}/applications",
+  "/maitai/applications?orgId={tenantId}",
 ];
 const CM_POLICIES_PATH_TEMPLATES = [
-  "/api/v1/tenants/{tenantId}/policies",
-  "/api/tenants/{tenantId}/policies",
-  "/v1/tenants/{tenantId}/policies",
-  "/tenants/{tenantId}/policies",
-  "/cm/v1/tenants/{tenantId}/policies",
+  "/maitai/policy?orgId={tenantId}",
 ];
 const CM_USAGE_PATH_TEMPLATES = [
-  "/api/v1/tenants/{tenantId}/usage",
-  "/api/tenants/{tenantId}/usage",
-  "/v1/tenants/{tenantId}/usage",
-  "/tenants/{tenantId}/usage",
-  "/cm/v1/tenants/{tenantId}/usage",
-  "/api/v1/tenants/{tenantId}/cmu",
-  "/api/tenants/{tenantId}/cmu",
+  "/v2/year/month",
+  "/v2/year/month/duration",
+  "/v2/year/month/mvpd",
+  "/v2/year/month/mvpd/duration",
+  "/v2/year/month/mvpd/duration/occurrences",
+  "/v2/year/month/mvpd/duration/occurrences/activity-level",
+  "/v2/year/month/mvpd/duration/occurrences/activity-level/day",
+  "/v2/year/month/mvpd/duration/occurrences/activity-level/day/hour",
+  "/v2/year/month/mvpd/duration/occurrences/activity-level/day/hour/tenant",
+  "/v2/year/month/mvpd/concurrency-level",
+  "/v2/year/month/mvpd/concurrency-level/tenant",
+  "/v2/year/month/mvpd/concurrency-level/tenant/occurrences",
+  "/v2/year/month/mvpd/concurrency-level/tenant/occurrences/day",
+  "/v2/year/month/mvpd/concurrency-level/tenant/occurrences/day/duration",
+  "/v2/year/month/mvpd/concurrency-level/tenant/occurrences/day/duration/hour",
 ];
 const CM_BASE_URL_CANDIDATES = [
-  "https://cm-reports.adobeprimetime.com",
-  "https://config.adobeprimetime.com",
-  "https://experience.adobe.com",
+  CM_CONFIG_BASE_URL,
+  CM_REPORTS_BASE_URL,
 ];
+const CM_V2_API_BASE_DEFAULT = "https://streams-stage.adobeprimetime.com";
+const CM_V2_OPERATION_DEFINITIONS = [
+  {
+    key: "metadata",
+    label: "CM V2 Metadata",
+    method: "GET",
+    pathTemplate: "/v2/metadata",
+    parameters: [],
+  },
+  {
+    key: "running-streams",
+    label: "CM V2 Running Streams",
+    method: "GET",
+    pathTemplate: "/v2/runningStreams/{idp}/{subject}",
+    parameters: [
+      { name: "idp", in: "path", required: true, description: "Identity provider / MVPD identifier." },
+      { name: "subject", in: "path", required: true, description: "Subject (viewer/account identifier)." },
+    ],
+  },
+  {
+    key: "init-session",
+    label: "CM V2 Init Session",
+    method: "POST",
+    pathTemplate: "/v2/sessions/{idp}/{subject}",
+    parameters: [
+      { name: "idp", in: "path", required: true, description: "Identity provider / MVPD identifier." },
+      { name: "subject", in: "path", required: true, description: "Subject (viewer/account identifier)." },
+      { name: "X-Terminate", in: "header", required: false, description: "Optional list of session IDs to terminate." },
+    ],
+  },
+  {
+    key: "heartbeat",
+    label: "CM V2 Heartbeat",
+    method: "POST",
+    pathTemplate: "/v2/sessions/{idp}/{subject}/{session}",
+    parameters: [
+      { name: "idp", in: "path", required: true, description: "Identity provider / MVPD identifier." },
+      { name: "subject", in: "path", required: true, description: "Subject (viewer/account identifier)." },
+      { name: "session", in: "path", required: true, description: "Session identifier returned by init/evaluation." },
+    ],
+  },
+  {
+    key: "terminate-session",
+    label: "CM V2 Terminate Session",
+    method: "DELETE",
+    pathTemplate: "/v2/sessions/{idp}/{subject}/{session}",
+    parameters: [
+      { name: "idp", in: "path", required: true, description: "Identity provider / MVPD identifier." },
+      { name: "subject", in: "path", required: true, description: "Subject (viewer/account identifier)." },
+      { name: "session", in: "path", required: true, description: "Session identifier to terminate." },
+    ],
+  },
+];
+const CM_AUTH_BOOTSTRAP_RETRY_MS = 5 * 60 * 1000;
 const CM_MESSAGE_TYPES = new Set([CM_MESSAGE_TYPE, LEGACY_CM_MESSAGE_TYPE]);
 // Redirect-host filtering mode for HAR trimming.
 // - "exact_path": ignore only the exact redirect URL path
@@ -209,6 +249,9 @@ const state = {
   restV2PreparedLoginBySelectionKey: new Map(),
   restV2PreparePromiseBySelectionKey: new Map(),
   restV2PrepareErrorBySelectionKey: new Map(),
+  restV2ProfileHarvestBySelectionKey: new Map(),
+  restV2ProfileHarvestByProgrammerId: new Map(),
+  restV2ProfileHarvestLast: null,
   restV2LastLaunchTabId: 0,
   restV2LastLaunchWindowId: 0,
   restV2PreviousTabId: 0,
@@ -227,6 +270,8 @@ const state = {
   cmServiceLoadPromiseByProgrammerId: new Map(),
   cmTenantsCatalog: null,
   cmTenantsCatalogPromise: null,
+  cmAuthBootstrapPromise: null,
+  cmAuthBootstrapLastAttemptAt: 0,
   cmTenantBundleByTenantKey: new Map(),
   cmTenantBundlePromiseByTenantKey: new Map(),
   premiumSectionCollapsedByKey: new Map(),
@@ -403,6 +448,71 @@ function emitRestV2DebugEvent(flowId, event = {}) {
     type: "underpardebug:traceEvent",
     flowId,
     event,
+  });
+}
+
+function getActivePremiumDebugFlowId() {
+  if (state.restV2RecordingActive) {
+    const restFlowId = String(state.restV2DebugFlowId || "").trim();
+    if (restFlowId) {
+      return restFlowId;
+    }
+  }
+  return getActiveDecompDebugFlowId();
+}
+
+function resolveCmDebugFlowId(explicitFlowId = "") {
+  const direct = String(explicitFlowId || "").trim();
+  if (direct) {
+    return direct;
+  }
+  return String(getActivePremiumDebugFlowId() || "").trim();
+}
+
+function detectCmAuthMode(headersLike) {
+  if (!headersLike) {
+    return "none";
+  }
+
+  let authorizationValue = "";
+  if (headersLike instanceof Headers) {
+    authorizationValue = String(headersLike.get("Authorization") || headersLike.get("authorization") || "").trim();
+  } else if (typeof headersLike === "object") {
+    const directValue =
+      headersLike.Authorization ||
+      headersLike.authorization ||
+      headersLike.AUTHORIZATION ||
+      headersLike["auth-header"] ||
+      "";
+    authorizationValue = String(directValue || "").trim();
+  }
+
+  if (!authorizationValue) {
+    return "none";
+  }
+  if (/^basic\s+/i.test(authorizationValue)) {
+    return "basic";
+  }
+  if (/^bearer\s+/i.test(authorizationValue)) {
+    return "bearer";
+  }
+  return "custom";
+}
+
+function emitCmDebugEvent(event = {}, options = {}) {
+  const flowId = resolveCmDebugFlowId(options.flowId || "");
+  if (!flowId) {
+    return;
+  }
+
+  const debugContext = options.context && typeof options.context === "object" ? options.context : {};
+  emitRestV2DebugEvent(flowId, {
+    source: "extension",
+    service: "cm",
+    requestorId: String(debugContext.requestorId || state.selectedRequestorId || ""),
+    mvpd: String(debugContext.mvpd || state.selectedMvpdId || ""),
+    programmerId: String(debugContext.programmerId || resolveSelectedProgrammer()?.programmerId || ""),
+    ...event,
   });
 }
 
@@ -944,6 +1054,9 @@ function clearRestV2PreparedLoginState() {
   state.restV2PreparedLoginBySelectionKey.clear();
   state.restV2PreparePromiseBySelectionKey.clear();
   state.restV2PrepareErrorBySelectionKey.clear();
+  state.restV2ProfileHarvestBySelectionKey.clear();
+  state.restV2ProfileHarvestByProgrammerId.clear();
+  state.restV2ProfileHarvestLast = null;
   state.restV2LastLaunchTabId = 0;
   state.restV2LastLaunchWindowId = 0;
   state.restV2PreviousTabId = 0;
@@ -1937,9 +2050,219 @@ async function navigateRestV2LogoutUrlInLaunchTab(logoutUrl, flowId, context = n
   };
 }
 
-async function hasActiveRestV2Profile(context, flowId) {
+function buildRestV2ProfileHarvestSelectionKey(context = null) {
+  const programmerId = String(context?.programmerId || "").trim().toLowerCase();
+  const requestorId = String(context?.requestorId || "").trim().toLowerCase();
+  const mvpd = String(context?.mvpd || "").trim().toLowerCase();
+  return [programmerId, requestorId, mvpd].join("|");
+}
+
+function normalizeRestV2ProfileAttributeValue(value) {
+  if (value == null) {
+    return "";
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value).trim();
+  }
+  if (typeof value === "object") {
+    if (typeof value.value === "string" || typeof value.value === "number" || typeof value.value === "boolean") {
+      return String(value.value).trim();
+    }
+    if (typeof value.raw === "string" || typeof value.raw === "number" || typeof value.raw === "boolean") {
+      return String(value.raw).trim();
+    }
+  }
+  return "";
+}
+
+function getRestV2ProfileAttribute(profile, nameVariants = []) {
+  const attributes = profile?.attributes && typeof profile.attributes === "object" ? profile.attributes : {};
+  if (!attributes || typeof attributes !== "object") {
+    return "";
+  }
+
+  const attributeEntries = Object.entries(attributes);
+  const normalizedTargets = new Set(
+    (Array.isArray(nameVariants) ? nameVariants : [])
+      .map((name) => String(name || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  if (normalizedTargets.size === 0) {
+    return "";
+  }
+
+  for (const [rawKey, rawValue] of attributeEntries) {
+    const normalizedKey = String(rawKey || "").trim().toLowerCase();
+    if (!normalizedTargets.has(normalizedKey)) {
+      continue;
+    }
+    const value = normalizeRestV2ProfileAttributeValue(rawValue);
+    if (value) {
+      return value;
+    }
+  }
+  return "";
+}
+
+function buildRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
+  if (!context || !profileCheckResult || profileCheckResult.checked !== true) {
+    return null;
+  }
+
+  const payload = profileCheckResult.responsePayload;
+  const profiles =
+    payload && typeof payload === "object" && payload.profiles && typeof payload.profiles === "object" ? payload.profiles : null;
+  if (!profiles || Object.keys(profiles).length === 0) {
+    return null;
+  }
+
+  const preferredKey = String(context.mvpd || "").trim();
+  const profileKey =
+    (preferredKey && Object.prototype.hasOwnProperty.call(profiles, preferredKey) ? preferredKey : "") ||
+    Object.keys(profiles).find((key) => profiles[key] && typeof profiles[key] === "object") ||
+    "";
+  if (!profileKey) {
+    return null;
+  }
+
+  const profile = profiles[profileKey];
+  if (!profile || typeof profile !== "object") {
+    return null;
+  }
+
+  const upstreamUserId = firstNonEmptyString([
+    getRestV2ProfileAttribute(profile, ["upstreamuserid", "upstream_user_id"]),
+    normalizeRestV2ProfileAttributeValue(profile.upstreamUserID),
+    normalizeRestV2ProfileAttributeValue(profile.upstreamUserId),
+  ]);
+  const userId = firstNonEmptyString([
+    getRestV2ProfileAttribute(profile, ["userid", "user_id"]),
+    normalizeRestV2ProfileAttributeValue(profile.userID),
+    normalizeRestV2ProfileAttributeValue(profile.userId),
+  ]);
+  const sessionId = firstNonEmptyString([
+    normalizeRestV2ProfileAttributeValue(profile.sessionId),
+    normalizeRestV2ProfileAttributeValue(profile.sessionID),
+    getRestV2ProfileAttribute(profile, ["sessionid", "session_id"]),
+  ]);
+  const mvpd = firstNonEmptyString([
+    getRestV2ProfileAttribute(profile, ["mvpd", "idp"]),
+    normalizeRestV2ProfileAttributeValue(profile.mvpd),
+    profileKey,
+    context.mvpd,
+  ]);
+  const notBeforeMs = Number(profile.notBefore || profile.not_before || 0);
+  const notAfterMs = Number(profile.notAfter || profile.not_after || 0);
+  const harvestedAt = Date.now();
+  const subject = firstNonEmptyString([upstreamUserId, userId]);
+  if (!mvpd || !subject) {
+    return null;
+  }
+
+  return {
+    harvestedAt,
+    flowId: String(flowId || "").trim(),
+    programmerId: String(context.programmerId || "").trim(),
+    requestorId: String(context.requestorId || "").trim(),
+    serviceProviderId: String(context.serviceProviderId || "").trim(),
+    appGuid: String(context.appInfo?.guid || "").trim(),
+    profileUrl: String(profileCheckResult.url || "").trim(),
+    profileKey: String(profileKey || "").trim(),
+    mvpd: String(mvpd || "").trim(),
+    subject: String(subject || "").trim(),
+    upstreamUserId: String(upstreamUserId || "").trim(),
+    userId: String(userId || "").trim(),
+    sessionId: String(sessionId || "").trim(),
+    notBeforeMs: Number.isFinite(notBeforeMs) && notBeforeMs > 0 ? notBeforeMs : 0,
+    notAfterMs: Number.isFinite(notAfterMs) && notAfterMs > 0 ? notAfterMs : 0,
+    profile:
+      profile && typeof profile === "object"
+        ? {
+            ...profile,
+          }
+        : {},
+  };
+}
+
+function storeRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
+  const harvest = buildRestV2ProfileHarvest(context, profileCheckResult, flowId);
+  if (!harvest) {
+    return null;
+  }
+
+  const selectionKey = buildRestV2ProfileHarvestSelectionKey(context);
+  if (selectionKey && selectionKey !== "||") {
+    state.restV2ProfileHarvestBySelectionKey.set(selectionKey, harvest);
+  }
+  if (harvest.programmerId) {
+    state.restV2ProfileHarvestByProgrammerId.set(harvest.programmerId, harvest);
+  }
+  state.restV2ProfileHarvestLast = harvest;
+  return harvest;
+}
+
+function clearRestV2ProfileHarvestForContext(context = null) {
+  if (!context || typeof context !== "object") {
+    return;
+  }
+  const selectionKey = buildRestV2ProfileHarvestSelectionKey(context);
+  if (selectionKey && state.restV2ProfileHarvestBySelectionKey.has(selectionKey)) {
+    state.restV2ProfileHarvestBySelectionKey.delete(selectionKey);
+  }
+  const programmerId = String(context.programmerId || "").trim();
+  const existingProgrammerHarvest = programmerId ? state.restV2ProfileHarvestByProgrammerId.get(programmerId) || null : null;
+  if (existingProgrammerHarvest) {
+    const matchesRequestor = String(existingProgrammerHarvest.requestorId || "").trim() === String(context.requestorId || "").trim();
+    const matchesMvpd = String(existingProgrammerHarvest.mvpd || "").trim() === String(context.mvpd || "").trim();
+    if (matchesRequestor && matchesMvpd) {
+      state.restV2ProfileHarvestByProgrammerId.delete(programmerId);
+      if (
+        state.restV2ProfileHarvestLast &&
+        String(state.restV2ProfileHarvestLast.programmerId || "").trim() === programmerId &&
+        String(state.restV2ProfileHarvestLast.requestorId || "").trim() === String(context.requestorId || "").trim() &&
+        String(state.restV2ProfileHarvestLast.mvpd || "").trim() === String(context.mvpd || "").trim()
+      ) {
+        state.restV2ProfileHarvestLast = null;
+      }
+    }
+  }
+}
+
+function getRestV2ProfileHarvestForContext(context = null) {
+  if (context && typeof context === "object") {
+    const selectionKey = buildRestV2ProfileHarvestSelectionKey(context);
+    if (selectionKey && state.restV2ProfileHarvestBySelectionKey.has(selectionKey)) {
+      return state.restV2ProfileHarvestBySelectionKey.get(selectionKey) || null;
+    }
+    const programmerId = String(context.programmerId || "").trim();
+    if (programmerId && state.restV2ProfileHarvestByProgrammerId.has(programmerId)) {
+      return state.restV2ProfileHarvestByProgrammerId.get(programmerId) || null;
+    }
+  }
+  return state.restV2ProfileHarvestLast && typeof state.restV2ProfileHarvestLast === "object"
+    ? state.restV2ProfileHarvestLast
+    : null;
+}
+
+async function fetchRestV2ProfileCheckResult(context, flowId, scope = "profiles-check") {
+  const emptyResult = {
+    checked: false,
+    ok: false,
+    status: 0,
+    statusText: "",
+    profileCount: 0,
+    responsePreview: "",
+    url: "",
+    error: "",
+    responsePayload: null,
+    harvestedProfile: null,
+  };
+
   if (!context?.programmerId || !context?.appInfo?.guid || !context?.serviceProviderId || !context?.mvpd) {
-    return false;
+    return {
+      ...emptyResult,
+      error: "Missing REST V2 profile-check context.",
+    };
   }
 
   const profilesUrl = `${REST_V2_BASE}/${encodeURIComponent(context.serviceProviderId)}/profiles/${encodeURIComponent(
@@ -1971,7 +2294,7 @@ async function hasActiveRestV2Profile(context, flowId) {
         flowId,
         requestorId: context.requestorId,
         mvpd: context.mvpd,
-        scope: "profiles-check",
+        scope,
       }
     );
 
@@ -1979,6 +2302,11 @@ async function hasActiveRestV2Profile(context, flowId) {
     const parsed = parseJsonText(responseText, {});
     const profiles = parsed?.profiles && typeof parsed.profiles === "object" ? parsed.profiles : {};
     const profileCount = Object.keys(profiles).length;
+    const harvestedProfile = buildRestV2ProfileHarvest(context, {
+      checked: true,
+      responsePayload: parsed,
+      url: profilesUrl,
+    }, flowId);
 
     emitRestV2DebugEvent(flowId, {
       source: "extension",
@@ -1989,15 +2317,70 @@ async function hasActiveRestV2Profile(context, flowId) {
       responsePreview: truncateDebugText(responseText, 1200),
     });
 
-    return response.ok && profileCount > 0;
+    return {
+      checked: true,
+      ok: Boolean(response.ok),
+      status: Number(response.status || 0),
+      statusText: String(response.statusText || ""),
+      profileCount,
+      responsePreview: truncateDebugText(responseText, 1200),
+      url: profilesUrl,
+      error: "",
+      responsePayload: parsed,
+      harvestedProfile,
+    };
   } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
     emitRestV2DebugEvent(flowId, {
       source: "extension",
       phase: "profiles-check-error",
-      error: error instanceof Error ? error.message : String(error),
+      error: reason,
     });
-    return false;
+    return {
+      ...emptyResult,
+      checked: true,
+      url: profilesUrl,
+      error: reason,
+    };
   }
+}
+
+function buildRestV2ProfileVerdict(profileCheckResult, context = null) {
+  if (!profileCheckResult || profileCheckResult.checked !== true) {
+    return null;
+  }
+
+  const requestorId = String(context?.requestorId || "");
+  const mvpd = String(context?.mvpd || "");
+  const targetLabel = requestorId && mvpd ? `${requestorId} x ${mvpd}` : "selected Requestor x MVPD";
+
+  if (profileCheckResult.error || !profileCheckResult.ok) {
+    const reason =
+      profileCheckResult.error ||
+      `HTTP ${Number(profileCheckResult.status || 0)} ${String(profileCheckResult.statusText || "").trim()}`.trim();
+    return {
+      panelType: "error",
+      mainType: "error",
+      panelSuffix: `Profile check: ERROR (${reason || "unknown"}).`,
+      mainMessage: `REST V2 Profile Check ERROR for ${targetLabel}: ${reason || "unknown"}.`,
+    };
+  }
+
+  if (Number(profileCheckResult.profileCount || 0) > 0) {
+    return {
+      panelType: "success",
+      mainType: "success",
+      panelSuffix: `Profile check: SUCCESS (populated profiles response).`,
+      mainMessage: `REST V2 Profile Check SUCCESS for ${targetLabel} (profiles=${Number(profileCheckResult.profileCount || 0)}).`,
+    };
+  }
+
+  return {
+    panelType: "error",
+    mainType: "error",
+    panelSuffix: "Profile check: FAIL AUTHNF (empty profiles response).",
+    mainMessage: `REST V2 Profile Check FAIL AUTHNF for ${targetLabel} (empty profiles response).`,
+  };
 }
 
 async function executeRestV2LogoutFlow(context, flowId) {
@@ -2405,6 +2788,7 @@ function buildExtensionHarEntries(flowEvents = []) {
   const entries = [];
   const pendingApiByKey = new Map();
   const pendingTokenByKey = new Map();
+  const pendingCmByKey = new Map();
 
   const getApiKey = (event) => {
     return [
@@ -2425,9 +2809,118 @@ function buildExtensionHarEntries(flowEvents = []) {
       String(event?.requestScope || ""),
     ].join("|");
   };
+  const normalizeCmPhase = (event) => String(event?.phase || "").trim().toLowerCase();
+  const isCmRequestStartPhase = (event) => {
+    const phase = normalizeCmPhase(event);
+    return phase === "cm-request-attempt" || phase === "cm-v2-request";
+  };
+  const isCmResponsePhase = (event) => {
+    const phase = normalizeCmPhase(event);
+    return (
+      phase === "cm-response" ||
+      phase === "cm-request-failed" ||
+      phase === "cm-request-error" ||
+      phase === "cm-v2-response" ||
+      phase === "cm-v2-request-failed" ||
+      phase === "cm-v2-request-error"
+    );
+  };
+  const getCmKey = (event) => {
+    return [
+      String(event?.method || "GET").toUpperCase(),
+      String(event?.url || event?.endpointUrl || ""),
+      String(event?.requestorId || ""),
+      String(event?.mvpd || ""),
+      String(event?.programmerId || ""),
+      String(event?.cardId || ""),
+      String(event?.operationKey || ""),
+      String(event?.attempt || ""),
+      String(event?.contextLabel || ""),
+    ].join("|");
+  };
 
   for (const event of flowEvents) {
     if (!event || event.source !== "extension") {
+      continue;
+    }
+
+    if (isCmRequestStartPhase(event)) {
+      const key = getCmKey(event);
+      const queue = pendingCmByKey.get(key) || [];
+      queue.push(event);
+      pendingCmByKey.set(key, queue);
+      continue;
+    }
+
+    if (isCmResponsePhase(event)) {
+      const key = getCmKey(event);
+      const queue = pendingCmByKey.get(key) || [];
+      const requestEvent = queue.length > 0 ? queue.shift() : null;
+      if (queue.length === 0) {
+        pendingCmByKey.delete(key);
+      } else {
+        pendingCmByKey.set(key, queue);
+      }
+
+      const startedMs = pickFlowEventTimestampMs(requestEvent || event, Date.now());
+      const endedMs = pickFlowEventTimestampMs(event, startedMs);
+      const durationMs = Math.max(0, endedMs - startedMs);
+      const requestUrl = String(event?.url || event?.endpointUrl || requestEvent?.url || requestEvent?.endpointUrl || "");
+      const requestMethod = String(event?.method || requestEvent?.method || "GET").toUpperCase();
+      const status = Number(event?.status || 0);
+      const statusText =
+        String(event?.statusText || "") ||
+        String(event?.error || "") ||
+        (status > 0 ? "" : "CM_REQUEST_FAILED");
+      const responseBodyText = firstNonEmptyString([String(event?.responsePreview || ""), String(event?.error || "")]);
+      const phase = normalizeCmPhase(event);
+
+      entries.push({
+        startedDateTime: new Date(startedMs).toISOString(),
+        time: durationMs,
+        request: {
+          method: requestMethod,
+          url: requestUrl,
+          httpVersion: "HTTP/1.1",
+          headers: [],
+          queryString: toHarQueryStringArray(requestUrl),
+          cookies: [],
+          headersSize: -1,
+          bodySize: 0,
+        },
+        response: {
+          status,
+          statusText,
+          httpVersion: "HTTP/1.1",
+          headers: [],
+          cookies: [],
+          redirectURL: "",
+          headersSize: -1,
+          bodySize: responseBodyText ? responseBodyText.length : -1,
+          content: {
+            size: responseBodyText.length,
+            mimeType: "application/json",
+            text: responseBodyText ? truncateDebugText(responseBodyText, 10000) : undefined,
+          },
+        },
+        cache: {},
+        timings: {
+          send: 0,
+          wait: durationMs,
+          receive: 0,
+        },
+        _underpar: {
+          source: "extension-cm",
+          phase,
+          authMode: String(requestEvent?.authMode || event?.authMode || ""),
+          contextLabel: String(requestEvent?.contextLabel || event?.contextLabel || ""),
+          requestorId: String(event?.requestorId || requestEvent?.requestorId || ""),
+          mvpd: String(event?.mvpd || requestEvent?.mvpd || ""),
+          programmerId: String(event?.programmerId || requestEvent?.programmerId || ""),
+          operationKey: String(event?.operationKey || requestEvent?.operationKey || ""),
+          cardId: String(event?.cardId || requestEvent?.cardId || ""),
+        },
+      });
       continue;
     }
 
@@ -2689,6 +3182,59 @@ function buildExtensionHarEntries(flowEvents = []) {
     }
   }
 
+  for (const queue of pendingCmByKey.values()) {
+    for (const requestEvent of queue) {
+      const startedMs = pickFlowEventTimestampMs(requestEvent, Date.now());
+      const requestUrl = String(requestEvent?.url || requestEvent?.endpointUrl || "");
+      const requestMethod = String(requestEvent?.method || "GET").toUpperCase();
+      entries.push({
+        startedDateTime: new Date(startedMs).toISOString(),
+        time: 0,
+        request: {
+          method: requestMethod,
+          url: requestUrl,
+          httpVersion: "HTTP/1.1",
+          headers: [],
+          queryString: toHarQueryStringArray(requestUrl),
+          cookies: [],
+          headersSize: -1,
+          bodySize: 0,
+        },
+        response: {
+          status: 0,
+          statusText: "NO_RESPONSE",
+          httpVersion: "HTTP/1.1",
+          headers: [],
+          cookies: [],
+          redirectURL: "",
+          headersSize: -1,
+          bodySize: -1,
+          content: {
+            size: 0,
+            mimeType: "application/json",
+          },
+        },
+        cache: {},
+        timings: {
+          send: 0,
+          wait: 0,
+          receive: 0,
+        },
+        _underpar: {
+          source: "extension-cm",
+          phase: normalizeCmPhase(requestEvent),
+          authMode: String(requestEvent?.authMode || ""),
+          contextLabel: String(requestEvent?.contextLabel || ""),
+          requestorId: String(requestEvent?.requestorId || ""),
+          mvpd: String(requestEvent?.mvpd || ""),
+          programmerId: String(requestEvent?.programmerId || ""),
+          operationKey: String(requestEvent?.operationKey || ""),
+          cardId: String(requestEvent?.cardId || ""),
+        },
+      });
+    }
+  }
+
   return entries;
 }
 
@@ -2808,113 +3354,154 @@ async function stopRestV2MvpdRecording(section, programmer, appInfo) {
   state.restV2Stopping = true;
 
   try {
-  const closeButton = section?.querySelector(".rest-v2-close-login-btn");
-  if (closeButton) {
-    closeButton.disabled = true;
-  }
+    const closeButton = section?.querySelector(".rest-v2-close-login-btn");
+    if (closeButton) {
+      closeButton.disabled = true;
+    }
 
-  const activeFlowId = String(state.restV2DebugFlowId || "").trim();
-  if (!activeFlowId) {
+    const activeFlowId = String(state.restV2DebugFlowId || "").trim();
+    if (!activeFlowId) {
+      state.restV2RecordingActive = false;
+      state.restV2RecordingStartedAt = 0;
+      state.restV2RecordingContext = null;
+      syncRestV2LoginPanel(section, programmer, appInfo);
+      setRestV2LoginPanelStatus(section, "No active recording session was found.");
+      return;
+    }
+
+    const fallbackContextCandidate = buildCurrentRestV2SelectionContext(programmer, appInfo);
+    const recordingContext =
+      (state.restV2RecordingContext && typeof state.restV2RecordingContext === "object"
+        ? state.restV2RecordingContext
+        : null) || (fallbackContextCandidate.ok ? toRestV2RecordingContext(fallbackContextCandidate) : null);
+
+    emitRestV2DebugEvent(activeFlowId, {
+      source: "extension",
+      phase: "recording-stop-request",
+      requestorId: String(recordingContext?.requestorId || ""),
+      mvpd: String(recordingContext?.mvpd || ""),
+    });
+
+    let profileCheckResult = {
+      checked: false,
+      ok: false,
+      status: 0,
+      statusText: "",
+      profileCount: 0,
+      responsePreview: "",
+      url: "",
+      error: "",
+    };
+    let logoutResult = {
+      attempted: false,
+      performed: false,
+      actionName: "",
+      actionType: "",
+      logoutUrl: "",
+      error: "",
+    };
+    let closeResult = { ok: true };
+
+    try {
+      if (
+        recordingContext?.programmerId &&
+        recordingContext?.appInfo?.guid &&
+        recordingContext?.serviceProviderId &&
+        recordingContext?.mvpd
+      ) {
+        profileCheckResult = await fetchRestV2ProfileCheckResult(recordingContext, activeFlowId, "profiles-check");
+        const harvestedProfile = storeRestV2ProfileHarvest(recordingContext, profileCheckResult, activeFlowId);
+        if (harvestedProfile) {
+          emitRestV2DebugEvent(activeFlowId, {
+            source: "extension",
+            phase: "profiles-harvested",
+            requestorId: recordingContext.requestorId,
+            mvpd: recordingContext.mvpd,
+            subject: harvestedProfile.subject,
+            sessionId: harvestedProfile.sessionId,
+          });
+        } else {
+          clearRestV2ProfileHarvestForContext(recordingContext);
+        }
+
+        const selectedProgrammer = resolveSelectedProgrammer();
+        if (selectedProgrammer?.programmerId && selectedProgrammer.programmerId === recordingContext.programmerId) {
+          const selectedServices = state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null;
+          cmBroadcastSelectedControllerState(selectedProgrammer, selectedServices);
+          const activeCmState = getActiveCmState();
+          if (activeCmState && String(activeCmState.programmer?.programmerId || "") === String(selectedProgrammer.programmerId)) {
+            cmBroadcastControllerState(activeCmState);
+          }
+        }
+
+        const hasProfile = Boolean(profileCheckResult.ok) && Number(profileCheckResult.profileCount || 0) > 0;
+        if (hasProfile) {
+          logoutResult = await executeRestV2LogoutFlow(recordingContext, activeFlowId);
+        } else {
+          emitRestV2DebugEvent(activeFlowId, {
+            source: "extension",
+            phase: "logout-skipped-no-active-profile",
+            requestorId: recordingContext.requestorId,
+            mvpd: recordingContext.mvpd,
+          });
+        }
+      }
+
+      closeResult = await closeRestV2LoginAndReturn(section, {
+        suppressStatus: true,
+        phasePrefix: "recording-close",
+      });
+    } catch (error) {
+      logoutResult.error = error instanceof Error ? error.message : String(error);
+    }
+
+    await waitForDelay(900);
+    const stopResult = await stopRestV2DebugFlowAndSnapshot(activeFlowId, "user-stop");
+
+    state.restV2DebugFlowId = "";
     state.restV2RecordingActive = false;
     state.restV2RecordingStartedAt = 0;
     state.restV2RecordingContext = null;
-    state.restV2Stopping = false;
     syncRestV2LoginPanel(section, programmer, appInfo);
-    setRestV2LoginPanelStatus(section, "No active recording session was found.");
-    return;
-  }
 
-  const fallbackContextCandidate = buildCurrentRestV2SelectionContext(programmer, appInfo);
-  const recordingContext =
-    (state.restV2RecordingContext && typeof state.restV2RecordingContext === "object"
-      ? state.restV2RecordingContext
-      : null) || (fallbackContextCandidate.ok ? toRestV2RecordingContext(fallbackContextCandidate) : null);
+    const profileVerdict = buildRestV2ProfileVerdict(profileCheckResult, recordingContext);
 
-  emitRestV2DebugEvent(activeFlowId, {
-    source: "extension",
-    phase: "recording-stop-request",
-    requestorId: String(recordingContext?.requestorId || ""),
-    mvpd: String(recordingContext?.mvpd || ""),
-  });
+    if (stopResult?.flow) {
+      const harPayload = buildHarLogFromFlowSnapshot(stopResult.flow, recordingContext, logoutResult);
+      const harFileName = buildRestV2HarFilename(recordingContext, logoutResult);
+      downloadHarFile(harPayload, harFileName);
 
-  let logoutResult = {
-    attempted: false,
-    performed: false,
-    actionName: "",
-    actionType: "",
-    logoutUrl: "",
-    error: "",
-  };
-  let closeResult = { ok: true };
-
-  try {
-    if (
-      recordingContext?.programmerId &&
-      recordingContext?.appInfo?.guid &&
-      recordingContext?.serviceProviderId &&
-      recordingContext?.mvpd
-    ) {
-      const hasProfile = await hasActiveRestV2Profile(recordingContext, activeFlowId);
-      if (hasProfile) {
-        logoutResult = await executeRestV2LogoutFlow(recordingContext, activeFlowId);
+      let panelMessage = "";
+      let panelType = "success";
+      if (closeResult?.ok === false) {
+        panelMessage = `Recording stopped. HAR downloaded as ${harFileName}. Login window close note: ${closeResult.error || "unknown"}.`;
+        panelType = "error";
+      } else if (logoutResult.performed) {
+        panelMessage = `Recording stopped. Downloaded full login/logout HAR: ${harFileName}`;
       } else {
-        emitRestV2DebugEvent(activeFlowId, {
-          source: "extension",
-          phase: "logout-skipped-no-active-profile",
-          requestorId: recordingContext.requestorId,
-          mvpd: recordingContext.mvpd,
-        });
+        const logoutNote = logoutResult.error ? ` Logout note: ${logoutResult.error}` : "";
+        panelMessage = `Recording stopped. Downloaded failed login attempt HAR: ${harFileName}.${logoutNote}`;
+      }
+
+      if (profileVerdict) {
+        panelMessage = `${panelMessage} ${profileVerdict.panelSuffix}`;
+        if (panelType !== "error") {
+          panelType = profileVerdict.panelType;
+        }
+        setStatus(profileVerdict.mainMessage, profileVerdict.mainType);
+      }
+
+      setRestV2LoginPanelStatus(section, panelMessage, panelType);
+    } else {
+      const failureReason = stopResult?.error || "Flow snapshot unavailable.";
+      const fallbackMessage = `Recording stopped, but HAR export failed: ${failureReason}`;
+      if (profileVerdict) {
+        setStatus(profileVerdict.mainMessage, profileVerdict.mainType);
+        setRestV2LoginPanelStatus(section, `${fallbackMessage} ${profileVerdict.panelSuffix}`, "error");
+      } else {
+        setRestV2LoginPanelStatus(section, fallbackMessage, "error");
       }
     }
-
-    closeResult = await closeRestV2LoginAndReturn(section, {
-      suppressStatus: true,
-      phasePrefix: "recording-close",
-    });
-  } catch (error) {
-    logoutResult.error = error instanceof Error ? error.message : String(error);
-  }
-
-  await waitForDelay(900);
-  const stopResult = await stopRestV2DebugFlowAndSnapshot(activeFlowId, "user-stop");
-
-  state.restV2DebugFlowId = "";
-  state.restV2RecordingActive = false;
-  state.restV2RecordingStartedAt = 0;
-  state.restV2RecordingContext = null;
-
-  state.restV2Stopping = false;
-  syncRestV2LoginPanel(section, programmer, appInfo);
-
-  if (stopResult?.flow) {
-    const harPayload = buildHarLogFromFlowSnapshot(stopResult.flow, recordingContext, logoutResult);
-    const harFileName = buildRestV2HarFilename(recordingContext, logoutResult);
-    downloadHarFile(harPayload, harFileName);
-
-    if (closeResult?.ok === false) {
-      setRestV2LoginPanelStatus(
-        section,
-        `Recording stopped. HAR downloaded as ${harFileName}. Login window close note: ${closeResult.error || "unknown"}.`,
-        "error"
-      );
-    } else if (logoutResult.performed) {
-      setRestV2LoginPanelStatus(
-        section,
-        `Recording stopped. Downloaded full login/logout HAR: ${harFileName}`,
-        "success"
-      );
-    } else {
-      const logoutNote = logoutResult.error ? ` Logout note: ${logoutResult.error}` : "";
-      setRestV2LoginPanelStatus(
-        section,
-        `Recording stopped. Downloaded failed login attempt HAR: ${harFileName}.${logoutNote}`,
-        "success"
-      );
-    }
-  } else {
-    const failureReason = stopResult?.error || "Flow snapshot unavailable.";
-    setRestV2LoginPanelStatus(section, `Recording stopped, but HAR export failed: ${failureReason}`, "error");
-  }
   } finally {
     state.restV2Stopping = false;
   }
@@ -4577,10 +5164,12 @@ async function startDecompEsmRecording(decompState, requestToken) {
         appGuid: recordingContext.appInfo.guid,
       });
     } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
       emitDecompDebugEvent(flowId, {
         phase: "access-token-prime-failed",
-        error: error instanceof Error ? error.message : String(error),
+        error: reason,
       });
+      throw new Error(`Unable to fetch a fresh ESM access token: ${reason}`);
     }
 
     state.decompStopping = false;
@@ -5051,7 +5640,21 @@ function decompBuildShellHtml() {
         <input type="text" class="decomp-search" placeholder="Search segments / columns..." />
         <button type="button" class="decomp-find-btn">FIND IT</button>
         <button type="button" class="decomp-reset-btn">RESET</button>
-        <button type="button" class="decomp-make-clickesm-btn">MAKE clickESM</button>
+        <button
+          type="button"
+          class="decomp-make-clickesm-btn decomp-toolbar-icon-btn decomp-toolbar-icon-btn--tearsheet"
+          title="Generate ESM tearsheet (clickESM)"
+          aria-label="Generate ESM tearsheet (clickESM)"
+        >
+          <span class="decomp-toolbar-icon decomp-toolbar-icon--tearsheet" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
+              <path d="M14.25 3.75V8.5H19" />
+              <path d="M9.5 12.75 10 14.25 11.5 14.75 10 15.25 9.5 16.75 9 15.25 7.5 14.75 9 14.25 9.5 12.75Z" />
+              <path d="M14 12.25 14.3 13.1 15.2 13.4 14.3 13.7 14 14.55 13.7 13.7 12.8 13.4 13.7 13.1 14 12.25Z" />
+            </svg>
+          </span>
+        </button>
         <span class="decomp-net-indicator" title="Loading" aria-label="Loading" hidden></span>
       </div>
       <div class="decomp-tree-panel">
@@ -6300,6 +6903,7 @@ function cmGetBoundWorkspaceTabId(windowId) {
 function cmGetControllerStatePayload(cmState) {
   const requestorIds = state.selectedRequestorId ? [String(state.selectedRequestorId)] : [];
   const mvpdIds = state.selectedMvpdId ? [String(state.selectedMvpdId)] : [];
+  const profileHarvest = getCmProfileHarvestForProgrammer(cmState?.programmer || null);
   return {
     controllerOnline: Boolean(cmState?.section?.isConnected),
     cmAvailable: true,
@@ -6307,6 +6911,12 @@ function cmGetControllerStatePayload(cmState) {
     programmerName: String(cmState?.programmer?.programmerName || ""),
     requestorIds,
     mvpdIds,
+    profileHarvest:
+      profileHarvest && typeof profileHarvest === "object"
+        ? {
+            ...profileHarvest,
+          }
+        : null,
     updatedAt: Date.now(),
   };
 }
@@ -6325,6 +6935,7 @@ function cmGetSelectedControllerStatePayload(programmer = null, services = null)
   }
   const requestorIds = state.selectedRequestorId ? [String(state.selectedRequestorId)] : [];
   const mvpdIds = state.selectedMvpdId ? [String(state.selectedMvpdId)] : [];
+  const profileHarvest = getCmProfileHarvestForProgrammer(resolvedProgrammer);
   return {
     controllerOnline: false,
     cmAvailable,
@@ -6332,6 +6943,12 @@ function cmGetSelectedControllerStatePayload(programmer = null, services = null)
     programmerName: String(resolvedProgrammer?.programmerName || ""),
     requestorIds,
     mvpdIds,
+    profileHarvest:
+      profileHarvest && typeof profileHarvest === "object"
+        ? {
+            ...profileHarvest,
+          }
+        : null,
     updatedAt: Date.now(),
   };
 }
@@ -6428,6 +7045,285 @@ function cmBuildRecordId(kind, tenantId, entityId, index = 0) {
     .join(":");
 }
 
+function getCmProfileHarvestForProgrammer(programmer = null) {
+  const programmerId = String(programmer?.programmerId || "").trim();
+  if (!programmerId) {
+    return null;
+  }
+  const context = {
+    programmerId,
+    requestorId: String(state.selectedRequestorId || "").trim(),
+    mvpd: String(state.selectedMvpdId || "").trim(),
+  };
+  return getRestV2ProfileHarvestForContext(context);
+}
+
+function normalizeCmCredentialValue(value) {
+  if (value == null) {
+    return "";
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value).trim();
+  }
+  if (typeof value === "object") {
+    if (typeof value.value === "string" || typeof value.value === "number" || typeof value.value === "boolean") {
+      return String(value.value).trim();
+    }
+    if (typeof value.raw === "string" || typeof value.raw === "number" || typeof value.raw === "boolean") {
+      return String(value.raw).trim();
+    }
+  }
+  return "";
+}
+
+function findCmValueByCandidateKeys(source, keyCandidates = [], maxDepth = 4) {
+  const targetKeys = new Set((Array.isArray(keyCandidates) ? keyCandidates : []).map((key) => String(key || "").trim().toLowerCase()).filter(Boolean));
+  if (targetKeys.size === 0 || !source || typeof source !== "object") {
+    return "";
+  }
+
+  const stack = [{ node: source, depth: 0 }];
+  const seen = new Set();
+  while (stack.length > 0) {
+    const current = stack.pop();
+    const node = current?.node;
+    const depth = Number(current?.depth || 0);
+    if (!node || typeof node !== "object" || depth > maxDepth || seen.has(node)) {
+      continue;
+    }
+    seen.add(node);
+
+    if (Array.isArray(node)) {
+      node.forEach((item) => {
+        if (item && typeof item === "object") {
+          stack.push({ node: item, depth: depth + 1 });
+        }
+      });
+      continue;
+    }
+
+    for (const [rawKey, rawValue] of Object.entries(node)) {
+      const normalizedKey = String(rawKey || "").trim().toLowerCase();
+      if (targetKeys.has(normalizedKey)) {
+        const value = normalizeCmCredentialValue(rawValue);
+        if (value) {
+          return value;
+        }
+      }
+      if (rawValue && typeof rawValue === "object") {
+        stack.push({ node: rawValue, depth: depth + 1 });
+      }
+    }
+  }
+
+  return "";
+}
+
+function cmExtractCredentialHintsFromBundles(bundles = []) {
+  const hints = [];
+  const seen = new Set();
+
+  (Array.isArray(bundles) ? bundles : []).forEach((bundle) => {
+    const tenantId = String(bundle?.tenant?.tenantId || "").trim();
+    const tenantName = String(bundle?.tenant?.tenantName || tenantId).trim();
+    const rows = Array.isArray(bundle?.applications?.rows) ? bundle.applications.rows : [];
+    rows.forEach((row) => {
+      if (!row || typeof row !== "object") {
+        return;
+      }
+      const raw = row.raw && typeof row.raw === "object" ? row.raw : row;
+      const applicationId = firstNonEmptyString([
+        row.entityId,
+        row.consoleId,
+        raw.id,
+        raw.applicationId,
+        raw.application_id,
+        raw.appId,
+        raw.app_id,
+      ]);
+      const applicationName = firstNonEmptyString([
+        row.name,
+        raw.name,
+        raw.displayName,
+        raw.display_name,
+        applicationId,
+      ]);
+      const username = firstNonEmptyString([
+        findCmValueByCandidateKeys(raw, ["basicauthusername", "username", "clientid", "client_id", "authuser", "auth_user"]),
+        applicationId,
+      ]);
+      const password = firstNonEmptyString([
+        findCmValueByCandidateKeys(raw, [
+          "basicauthpassword",
+          "password",
+          "clientsecret",
+          "client_secret",
+          "secret",
+          "authpass",
+          "auth_pass",
+        ]),
+      ]);
+      if (!username) {
+        return;
+      }
+
+      const dedupeKey = `${tenantId}|${username}`.toLowerCase();
+      if (seen.has(dedupeKey)) {
+        return;
+      }
+      seen.add(dedupeKey);
+
+      hints.push({
+        tenantId,
+        tenantName,
+        applicationId: String(applicationId || ""),
+        applicationName: String(applicationName || username),
+        username: String(username || ""),
+        password: String(password || ""),
+      });
+    });
+  });
+
+  return hints;
+}
+
+function cmBuildCredentialHintRecords(hints = [], programmer = null) {
+  return (Array.isArray(hints) ? hints : [])
+    .map((hint, index) => {
+      const username = String(hint?.username || "").trim();
+      if (!username) {
+        return null;
+      }
+      const tenantId = String(hint?.tenantId || programmer?.programmerId || "cm").trim();
+      const applicationId = String(hint?.applicationId || username).trim();
+      const applicationName = String(hint?.applicationName || applicationId || username).trim();
+      const hasPassword = Boolean(String(hint?.password || "").trim());
+      const payload = {
+        mediaCompany: String(programmer?.programmerName || programmer?.programmerId || "").trim(),
+        tenantId: String(hint?.tenantId || "").trim(),
+        tenantName: String(hint?.tenantName || "").trim(),
+        applicationId,
+        applicationName,
+        basicAuthUsername: username,
+        basicAuthPassword: hasPassword ? String(hint?.password || "").trim() : "(not exposed by current CM APIs)",
+        passwordAvailableFromApi: hasPassword ? "Yes" : "No",
+      };
+      return {
+        cardId: cmBuildRecordId("credential", tenantId || "cm", applicationId || username, index),
+        kind: "credential",
+        title: applicationName,
+        subtitle: `${String(hint?.tenantName || hint?.tenantId || "tenant")} | Basic user: ${username}`,
+        endpointUrl: "",
+        requestUrl: "",
+        payload,
+        columns: cmColumnsFromPayload(payload),
+        tenantId: tenantId || "cm",
+        tenantName: String(hint?.tenantName || hint?.tenantId || "CM"),
+      };
+    })
+    .filter(Boolean);
+}
+
+function cmCollectCmV2ContextDefaults(programmer = null, credentialHints = []) {
+  const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
+  const hints = Array.isArray(credentialHints) ? credentialHints : [];
+  const primaryCredentialHint =
+    hints.find((hint) => String(hint?.password || "").trim()) || hints.find((hint) => String(hint?.username || "").trim()) || null;
+  const contextDefaults = {
+    baseUrl: CM_V2_API_BASE_DEFAULT,
+    idp: String(profileHarvest?.mvpd || state.selectedMvpdId || "").trim(),
+    subject: String(profileHarvest?.subject || state.selectedRequestorId || "").trim(),
+    session: String(profileHarvest?.sessionId || "").trim(),
+    xTerminate: "",
+    authUser: String(primaryCredentialHint?.username || "").trim(),
+    authPass: String(primaryCredentialHint?.password || "").trim(),
+    mediaCompany: String(programmer?.programmerName || programmer?.mediaCompanyName || "").trim(),
+    programmerId: String(programmer?.programmerId || "").trim(),
+    profileHarvest: profileHarvest && typeof profileHarvest === "object" ? { ...profileHarvest } : null,
+  };
+  return contextDefaults;
+}
+
+function cmBuildCmV2OperationRecords(programmer = null, credentialHints = []) {
+  const contextDefaults = cmCollectCmV2ContextDefaults(programmer, credentialHints);
+  return CM_V2_OPERATION_DEFINITIONS.map((definition, index) => {
+    const method = String(definition?.method || "GET").toUpperCase();
+    const pathTemplate = String(definition?.pathTemplate || "").trim();
+    const opKey = String(definition?.key || `operation-${index + 1}`).trim() || `operation-${index + 1}`;
+    return {
+      cardId: cmBuildRecordId("cmv2", contextDefaults.programmerId || "cmv2", opKey, index),
+      kind: "cmv2-op",
+      title: String(definition?.label || `${method} ${pathTemplate}`),
+      subtitle: `${method} ${pathTemplate}`,
+      endpointUrl: normalizeCmUrl(`${contextDefaults.baseUrl}${pathTemplate}`) || `${contextDefaults.baseUrl}${pathTemplate}`,
+      requestUrl: normalizeCmUrl(`${contextDefaults.baseUrl}${pathTemplate}`) || `${contextDefaults.baseUrl}${pathTemplate}`,
+      payload: {
+        operation: {
+          key: opKey,
+          label: String(definition?.label || `${method} ${pathTemplate}`),
+          method,
+          pathTemplate,
+          parameters: Array.isArray(definition?.parameters) ? definition.parameters.map((item) => ({ ...item })) : [],
+          security: "basicAuth",
+        },
+        formDefaults: { ...contextDefaults },
+        profileHarvest:
+          contextDefaults.profileHarvest && typeof contextDefaults.profileHarvest === "object"
+            ? { ...contextDefaults.profileHarvest }
+            : null,
+      },
+      columns: [],
+      tenantId: contextDefaults.programmerId || "cmv2",
+      tenantName: contextDefaults.mediaCompany || contextDefaults.programmerId || "CM V2",
+    };
+  });
+}
+
+function cmBuildRestV2CorrelationRecords(programmer = null) {
+  const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
+  if (!profileHarvest || typeof profileHarvest !== "object") {
+    return [];
+  }
+
+  const capturedAtLabel = profileHarvest.harvestedAt
+    ? new Date(Number(profileHarvest.harvestedAt || 0)).toLocaleString()
+    : "Unknown";
+  const payload = {
+    mediaCompany: String(programmer?.programmerName || programmer?.mediaCompanyName || programmer?.programmerId || "").trim(),
+    requestorId: String(profileHarvest.requestorId || "").trim(),
+    serviceProviderId: String(profileHarvest.serviceProviderId || "").trim(),
+    mvpd: String(profileHarvest.mvpd || "").trim(),
+    subject: String(profileHarvest.subject || "").trim(),
+    upstreamUserId: String(profileHarvest.upstreamUserId || "").trim(),
+    userId: String(profileHarvest.userId || "").trim(),
+    sessionId: String(profileHarvest.sessionId || "").trim(),
+    profileKey: String(profileHarvest.profileKey || "").trim(),
+    profileUrl: String(profileHarvest.profileUrl || "").trim(),
+    harvestedAt: capturedAtLabel,
+  };
+
+  return [
+    {
+      cardId: cmBuildRecordId(
+        "correlation",
+        String(profileHarvest.programmerId || programmer?.programmerId || "cm"),
+        `${String(profileHarvest.requestorId || "requestor")}_${String(profileHarvest.mvpd || "mvpd")}`,
+        0
+      ),
+      kind: "correlation",
+      title: "REST V2 Profile Harvest",
+      subtitle: `${payload.requestorId || "requestor"} x ${payload.mvpd || "mvpd"} | ${capturedAtLabel}`,
+      endpointUrl: "",
+      requestUrl: "",
+      payload,
+      columns: cmColumnsFromPayload(payload),
+      tenantId: String(profileHarvest.programmerId || programmer?.programmerId || ""),
+      tenantName: String(programmer?.programmerName || programmer?.mediaCompanyName || profileHarvest.programmerId || "CM"),
+      lastModified: "",
+    },
+  ];
+}
+
 function cmBuildWorkspaceRecordsFromBundles(bundles) {
   const output = [];
   const seen = new Set();
@@ -6482,7 +7378,8 @@ function cmBuildWorkspaceRecordsFromBundles(bundles) {
     groups.forEach((group) => {
       group.rows.forEach((row, rowIndex) => {
         const entityId = String(row?.entityId || row?.name || `${group.kind}-${rowIndex + 1}`);
-        const payload = row?.raw && typeof row.raw === "object" ? row.raw : row;
+        const isUsageRecord = group.kind === "usage";
+        const payload = isUsageRecord ? null : row?.raw && typeof row.raw === "object" ? row.raw : row;
         const primaryUrl = String(row?.links?.[0] || row?.sourceUrl || group.fallbackUrl || "");
         pushRecord({
           cardId: cmBuildRecordId(group.kind, tenantId, entityId, rowIndex),
@@ -6492,7 +7389,7 @@ function cmBuildWorkspaceRecordsFromBundles(bundles) {
           endpointUrl: primaryUrl,
           requestUrl: primaryUrl,
           payload,
-          columns: cmColumnsFromPayload(payload),
+          columns: payload != null ? cmColumnsFromPayload(payload) : [],
           lastModified: group.lastModified,
           tenantId,
           tenantName,
@@ -6567,11 +7464,386 @@ function cmFindRecordByCard(cmState, card) {
   return null;
 }
 
+function cmGetOperationForRecord(record) {
+  if (!record || typeof record !== "object") {
+    return null;
+  }
+  const payload = record.payload && typeof record.payload === "object" ? record.payload : null;
+  const operation = payload?.operation && typeof payload.operation === "object" ? payload.operation : null;
+  if (!operation) {
+    return null;
+  }
+  const parameters = Array.isArray(operation.parameters)
+    ? operation.parameters
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+          return {
+            name: String(item.name || "").trim(),
+            in: String(item.in || "path").trim().toLowerCase(),
+            required: item.required === true,
+            description: String(item.description || "").trim(),
+          };
+        })
+        .filter((item) => item?.name)
+    : [];
+  return {
+    key: String(operation.key || "").trim(),
+    label: String(operation.label || "").trim(),
+    method: String(operation.method || "GET").trim().toUpperCase(),
+    pathTemplate: String(operation.pathTemplate || "").trim(),
+    parameters,
+    security: String(operation.security || "").trim(),
+  };
+}
+
+function cmGetOperationDefaultFormValues(record) {
+  const payload = record?.payload && typeof record.payload === "object" ? record.payload : null;
+  const rawDefaults = payload?.formDefaults && typeof payload.formDefaults === "object" ? payload.formDefaults : {};
+  const payloadHarvest = payload?.profileHarvest && typeof payload.profileHarvest === "object" ? payload.profileHarvest : null;
+  const programmerId = String(rawDefaults.programmerId || record?.tenantId || "").trim();
+  const profileHarvest = getRestV2ProfileHarvestForContext({
+    programmerId,
+    requestorId: state.selectedRequestorId,
+    mvpd: state.selectedMvpdId,
+  });
+  return {
+    baseUrl: firstNonEmptyString([rawDefaults.baseUrl, CM_V2_API_BASE_DEFAULT]) || CM_V2_API_BASE_DEFAULT,
+    idp: String(rawDefaults.idp || payloadHarvest?.mvpd || profileHarvest?.mvpd || state.selectedMvpdId || "").trim(),
+    subject: String(rawDefaults.subject || payloadHarvest?.subject || profileHarvest?.subject || state.selectedRequestorId || "").trim(),
+    session: String(rawDefaults.session || payloadHarvest?.sessionId || profileHarvest?.sessionId || "").trim(),
+    xTerminate: String(rawDefaults.xTerminate || "").trim(),
+    authUser: String(rawDefaults.authUser || "").trim(),
+    authPass: String(rawDefaults.authPass || "").trim(),
+  };
+}
+
+function cmNormalizeOperationFormValues(record, formValues = {}) {
+  const defaults = cmGetOperationDefaultFormValues(record);
+  const source = formValues && typeof formValues === "object" ? formValues : {};
+  return {
+    baseUrl: firstNonEmptyString([source.baseUrl, defaults.baseUrl, CM_V2_API_BASE_DEFAULT]) || CM_V2_API_BASE_DEFAULT,
+    idp: String(source.idp || defaults.idp || "").trim(),
+    subject: String(source.subject || defaults.subject || "").trim(),
+    session: String(source.session || defaults.session || "").trim(),
+    xTerminate: String(source.xTerminate || defaults.xTerminate || "").trim(),
+    authUser: String(source.authUser || defaults.authUser || "").trim(),
+    authPass: String(source.authPass || defaults.authPass || "").trim(),
+  };
+}
+
+function cmBuildOperationRequest(record, formValues = {}) {
+  const operation = cmGetOperationForRecord(record);
+  if (!operation) {
+    throw new Error("CM V2 operation metadata is missing.");
+  }
+  if (!operation.pathTemplate) {
+    throw new Error("CM V2 operation path template is missing.");
+  }
+
+  const values = cmNormalizeOperationFormValues(record, formValues);
+  const baseUrlRaw = String(values.baseUrl || CM_V2_API_BASE_DEFAULT).trim();
+  const baseUrl = baseUrlRaw.replace(/\/+$/, "");
+  if (!baseUrl) {
+    throw new Error("CM V2 base URL is required.");
+  }
+
+  const pathParams = operation.parameters.filter((item) => item.in === "path");
+  const headerParams = operation.parameters.filter((item) => item.in === "header");
+  const queryParams = operation.parameters.filter((item) => item.in === "query");
+
+  let resolvedPath = operation.pathTemplate;
+  pathParams.forEach((param) => {
+    const fieldName = String(param.name || "").trim();
+    if (!fieldName) {
+      return;
+    }
+    const lookupKey = fieldName.toLowerCase() === "x-terminate" ? "xTerminate" : fieldName;
+    const value = String(values[lookupKey] || "").trim();
+    if (!value && param.required) {
+      throw new Error(`CM V2 parameter "${fieldName}" is required.`);
+    }
+    const placeholderPattern = new RegExp(`\\{${fieldName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\}`, "g");
+    resolvedPath = resolvedPath.replace(placeholderPattern, encodeURIComponent(value));
+  });
+
+  if (/\{[^}]+\}/.test(resolvedPath)) {
+    throw new Error(`CM V2 path contains unresolved parameters: ${resolvedPath}`);
+  }
+
+  const query = new URLSearchParams();
+  queryParams.forEach((param) => {
+    const fieldName = String(param.name || "").trim();
+    if (!fieldName) {
+      return;
+    }
+    const value = String(values[fieldName] || "").trim();
+    if (!value && param.required) {
+      throw new Error(`CM V2 query parameter "${fieldName}" is required.`);
+    }
+    if (value) {
+      query.append(fieldName, value);
+    }
+  });
+
+  const headers = {
+    Accept: "application/json, text/plain, */*",
+  };
+  headerParams.forEach((param) => {
+    const fieldName = String(param.name || "").trim();
+    if (!fieldName) {
+      return;
+    }
+    const lookupKey = fieldName.toLowerCase() === "x-terminate" ? "xTerminate" : fieldName;
+    const rawValue = String(values[lookupKey] || "").trim();
+    if (!rawValue && param.required) {
+      throw new Error(`CM V2 header "${fieldName}" is required.`);
+    }
+    if (!rawValue) {
+      return;
+    }
+    if (fieldName.toLowerCase() === "x-terminate") {
+      const normalized = rawValue
+        .split(/[\n,]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .join(",");
+      if (normalized) {
+        headers[fieldName] = normalized;
+      }
+      return;
+    }
+    headers[fieldName] = rawValue;
+  });
+
+  if (values.authUser || values.authPass) {
+    headers.Authorization = `Basic ${base64EncodeUtf8(`${values.authUser || ""}:${values.authPass || ""}`)}`;
+  }
+
+  const queryText = query.toString();
+  const url = normalizeCmUrl(`${baseUrl}${resolvedPath}${queryText ? `?${queryText}` : ""}`);
+  return {
+    url,
+    method: operation.method || "GET",
+    headers,
+    operation,
+    formValues: values,
+  };
+}
+
+async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, options = {}) {
+  if (!cmState || !record) {
+    return;
+  }
+  if (!isCmServiceRequestActive(cmState.section, requestToken, cmState.programmer?.programmerId)) {
+    return;
+  }
+
+  const operation = cmGetOperationForRecord(record);
+  if (!operation) {
+    throw new Error("CM V2 operation metadata is missing.");
+  }
+
+  const cardId = String(options.cardId || record.cardId || generateRequestId());
+  const targetWindowId =
+    Number(options.targetWindowId || 0) || Number(cmState.controllerWindowId || 0) || Number(state.cmWorkspaceWindowId || 0);
+  const formValues = cmNormalizeOperationFormValues(record, options.formValues || {});
+  if (record.payload && typeof record.payload === "object") {
+    record.payload.formDefaults = { ...formValues };
+  }
+
+  const displayPath = String(operation.pathTemplate || "").trim();
+  const fallbackUrl = normalizeCmUrl(`${String(formValues.baseUrl || CM_V2_API_BASE_DEFAULT).replace(/\/+$/, "")}${displayPath}`);
+
+  if (options.emitForm !== false) {
+    void cmSendWorkspaceMessage(
+      "report-form",
+      {
+        cardId,
+        endpointUrl: fallbackUrl || displayPath,
+        requestUrl: fallbackUrl || displayPath,
+        zoomKey: "CMV2",
+        columns: [],
+        operation,
+        formValues,
+      },
+      { targetWindowId }
+    );
+  }
+
+  if (options.execute !== true) {
+    return;
+  }
+
+  void cmSendWorkspaceMessage(
+    "report-start",
+    {
+      cardId,
+      endpointUrl: fallbackUrl || displayPath,
+      requestUrl: fallbackUrl || displayPath,
+      zoomKey: "CMV2",
+      columns: [],
+    },
+    { targetWindowId }
+  );
+
+  try {
+    const request = cmBuildOperationRequest(record, formValues);
+    emitCmDebugEvent(
+      {
+        phase: "cm-v2-request",
+        cardId,
+        operationKey: String(operation.key || ""),
+        operationLabel: String(operation.label || ""),
+        method: request.method,
+        url: request.url,
+        authMode: detectCmAuthMode(request.headers),
+      },
+      {
+        context: {
+          programmerId: String(cmState?.programmer?.programmerId || ""),
+          requestorId: String(state.selectedRequestorId || ""),
+          mvpd: String(state.selectedMvpdId || ""),
+        },
+      }
+    );
+    const response = await fetch(request.url, {
+      method: request.method,
+      mode: "cors",
+      credentials: "include",
+      referrerPolicy: "no-referrer",
+      headers: request.headers,
+    });
+
+    const text = await response.text().catch(() => "");
+    emitCmDebugEvent(
+      {
+        phase: "cm-v2-response",
+        cardId,
+        operationKey: String(operation.key || ""),
+        operationLabel: String(operation.label || ""),
+        method: request.method,
+        url: request.url,
+        status: Number(response.status || 0),
+        statusText: String(response.statusText || ""),
+        responsePreview: truncateDebugText(text, 1600),
+      },
+      {
+        context: {
+          programmerId: String(cmState?.programmer?.programmerId || ""),
+          requestorId: String(state.selectedRequestorId || ""),
+          mvpd: String(state.selectedMvpdId || ""),
+        },
+      }
+    );
+    const parsed = parseJsonText(text, null);
+    const normalizedPayload = parsed ?? text;
+    const rows = cmRowsFromPayload(normalizedPayload);
+    const summaryRows =
+      rows.length > 0
+        ? rows
+        : [
+            {
+              status: Number(response.status || 0),
+              statusText: String(response.statusText || ""),
+              method: request.method,
+              url: request.url,
+              message: text ? truncateDebugText(text, 1200) : "(no body)",
+            },
+          ];
+
+    if (!response.ok) {
+      const errorDetails = truncateDebugText(text || response.statusText || "Request failed.", 1600);
+      emitCmDebugEvent(
+        {
+          phase: "cm-v2-request-failed",
+          cardId,
+          operationKey: String(operation.key || ""),
+          method: request.method,
+          url: request.url,
+          status: Number(response.status || 0),
+          statusText: String(response.statusText || ""),
+          error: errorDetails,
+        },
+        {
+          context: {
+            programmerId: String(cmState?.programmer?.programmerId || ""),
+            requestorId: String(state.selectedRequestorId || ""),
+            mvpd: String(state.selectedMvpdId || ""),
+          },
+        }
+      );
+      throw new Error(`CM V2 ${request.method} ${request.url} failed (${response.status}): ${errorDetails}`);
+    }
+
+    record.requestUrl = request.url;
+    record.endpointUrl = request.url;
+    record.lastModified = String(response.headers?.get("Last-Modified") || "");
+    record.columns = cmColumnsFromPayload(normalizedPayload);
+
+    void cmSendWorkspaceMessage(
+      "report-result",
+      {
+        ok: true,
+        cardId,
+        endpointUrl: request.url,
+        requestUrl: request.url,
+        zoomKey: "CMV2",
+        columns: record.columns,
+        rows: summaryRows,
+        lastModified: record.lastModified,
+      },
+      { targetWindowId }
+    );
+  } catch (error) {
+    emitCmDebugEvent(
+      {
+        phase: "cm-v2-request-error",
+        cardId,
+        operationKey: String(operation.key || ""),
+        operationLabel: String(operation.label || ""),
+        endpointUrl: fallbackUrl || displayPath,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      {
+        context: {
+          programmerId: String(cmState?.programmer?.programmerId || ""),
+          requestorId: String(state.selectedRequestorId || ""),
+          mvpd: String(state.selectedMvpdId || ""),
+        },
+      }
+    );
+    void cmSendWorkspaceMessage(
+      "report-result",
+      {
+        ok: false,
+        cardId,
+        endpointUrl: fallbackUrl || displayPath,
+        requestUrl: fallbackUrl || displayPath,
+        error: error instanceof Error ? error.message : String(error),
+      },
+      { targetWindowId }
+    );
+  }
+}
+
 async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {}) {
   if (!cmState || !record) {
     return;
   }
   if (!isCmServiceRequestActive(cmState.section, requestToken, cmState.programmer?.programmerId)) {
+    return;
+  }
+
+  if (String(record?.kind || "").toLowerCase() === "cmv2-op") {
+    await cmRunOperationRecordToWorkspace(cmState, record, requestToken, {
+      emitForm: options.emitForm !== false,
+      execute: options.execute === true,
+      formValues: options.formValues && typeof options.formValues === "object" ? options.formValues : {},
+      cardId: options.cardId,
+      targetWindowId: options.targetWindowId,
+    });
     return;
   }
 
@@ -6599,7 +7871,16 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
   const shouldRefetch = options.forceRefetch === true || payload == null;
   if (requestUrl && shouldRefetch) {
     try {
-      const response = await fetchCmJsonWithAuthVariants([requestUrl], `CM ${record.kind || "item"} report`);
+      const response = await fetchCmJsonWithAuthVariants([requestUrl], `CM ${record.kind || "item"} report`, {
+        debugMeta: {
+          scope: String(record.kind || "report"),
+          cardId,
+          endpointUrl: requestUrl,
+          programmerId: String(cmState?.programmer?.programmerId || ""),
+          requestorId: String(state.selectedRequestorId || ""),
+          mvpd: String(state.selectedMvpdId || ""),
+        },
+      });
       payload = response.parsed;
       lastModified = response.lastModified || lastModified;
       record.payload = payload;
@@ -6735,6 +8016,38 @@ async function handleCmWorkspaceAction(message, sender = null) {
     return { ok: true };
   }
 
+  if (action === "run-api-operation") {
+    const card = message?.card && typeof message.card === "object" ? message.card : {};
+    const formValues = message?.formValues && typeof message.formValues === "object" ? message.formValues : {};
+    let matchedRecord = cmFindRecordByCard(cmState, card);
+    if ((!matchedRecord || String(matchedRecord?.kind || "").toLowerCase() !== "cmv2-op") && card?.operation) {
+      matchedRecord = {
+        cardId: String(card?.cardId || generateRequestId()),
+        kind: "cmv2-op",
+        title: String(card?.operation?.label || "CM V2 Operation"),
+        subtitle: `${String(card?.operation?.method || "GET").toUpperCase()} ${String(card?.operation?.pathTemplate || "").trim()}`,
+        endpointUrl: String(card?.endpointUrl || ""),
+        requestUrl: String(card?.requestUrl || card?.endpointUrl || ""),
+        payload: {
+          operation: card.operation,
+          formDefaults: { ...formValues },
+        },
+        columns: Array.isArray(card?.columns) ? card.columns.map((value) => String(value || "")).filter(Boolean) : [],
+      };
+    }
+    if (!matchedRecord || String(matchedRecord?.kind || "").toLowerCase() !== "cmv2-op") {
+      return { ok: false, error: "CM V2 API operation record could not be resolved." };
+    }
+    await cmRunRecordToWorkspace(cmState, matchedRecord, requestToken, {
+      emitForm: false,
+      execute: true,
+      formValues,
+      cardId: String(card?.cardId || matchedRecord.cardId || generateRequestId()),
+      targetWindowId: senderWindowId || Number(cmState.controllerWindowId || 0),
+    });
+    return { ok: true };
+  }
+
   if (action === "rerun-all") {
     const cards = Array.isArray(message?.cards) ? message.cards : [];
     const targetWindowId = senderWindowId || Number(cmState.controllerWindowId || 0);
@@ -6749,6 +8062,16 @@ async function handleCmWorkspaceAction(message, sender = null) {
     for (const card of cards) {
       const record = cmFindRecordByCard(cmState, card);
       if (!record) {
+        continue;
+      }
+      if (String(record?.kind || "").toLowerCase() === "cmv2-op") {
+        await cmRunRecordToWorkspace(cmState, record, requestToken, {
+          emitForm: false,
+          execute: true,
+          formValues: card?.formValues && typeof card.formValues === "object" ? card.formValues : {},
+          cardId: String(card?.cardId || record.cardId || generateRequestId()),
+          targetWindowId,
+        });
         continue;
       }
       await cmRunRecordToWorkspace(cmState, record, requestToken, {
@@ -6844,17 +8167,26 @@ async function loadCmService(programmer, cmService, section, contentElement, ref
 
   try {
     const controllerWindowId = await decompGetCurrentWindowId();
-    const bundles = await Promise.all(matchedTenants.map((tenant) => loadCmTenantBundle(tenant)));
+    const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
+    const bundles = await Promise.all(matchedTenants.map((tenant) => loadCmTenantBundle(tenant, { profileHarvest })));
     if (!isCmServiceRequestActive(section, requestToken, programmer.programmerId)) {
       return;
     }
 
-    const records = cmBuildWorkspaceRecordsFromBundles(bundles);
+    const bundleRecords = cmBuildWorkspaceRecordsFromBundles(bundles);
+    const correlationRecords = cmBuildRestV2CorrelationRecords(programmer);
+    const credentialHints = cmExtractCredentialHintsFromBundles(bundles);
+    const credentialRecords = cmBuildCredentialHintRecords(credentialHints, programmer);
+    const apiOperationRecords = cmBuildCmV2OperationRecords(programmer, credentialHints);
+    const records = [...correlationRecords, ...bundleRecords, ...credentialRecords, ...apiOperationRecords];
     const recordsById = new Map(records.map((record) => [record.cardId, record]));
+    const correlationCardRecords = records.filter((record) => record.kind === "correlation");
     const tenantRecords = records.filter((record) => record.kind === "tenant");
     const applicationRecords = records.filter((record) => record.kind === "applications");
+    const credentialHintRecords = records.filter((record) => record.kind === "credential");
     const policyRecords = records.filter((record) => record.kind === "policies");
     const usageRecords = records.filter((record) => record.kind === "usage");
+    const operationRecords = records.filter((record) => record.kind === "cmv2-op");
     const sourceLabel = String(cmService?.sourceUrl || "").trim() || "CM API discovery";
 
     contentElement.innerHTML = `
@@ -6866,10 +8198,13 @@ async function loadCmService(programmer, cmService, section, contentElement, ref
           <button type="button" class="cm-open-workspace-btn">Open CM Workspace</button>
         </div>
         <div class="cm-sidepanel">
+          ${cmBuildGroupListHtml("REST V2 Correlation", correlationCardRecords)}
           ${cmBuildGroupListHtml("CM Tenants", tenantRecords)}
           ${cmBuildGroupListHtml("CM Applications", applicationRecords)}
+          ${cmBuildGroupListHtml("CM Credential Hints", credentialHintRecords)}
           ${cmBuildGroupListHtml("CM Policies", policyRecords)}
           ${cmBuildGroupListHtml("CM Usage (CMU)", usageRecords)}
+          ${cmBuildGroupListHtml("CM V2 Control API", operationRecords)}
         </div>
       </div>
     `;
@@ -6951,10 +8286,15 @@ function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
     const tenantLabel = matchedTenants.length === 1 ? "tenant" : "tenants";
     const sampleNames = matchedTenants.slice(0, 4).map((item) => item?.tenantName || item?.tenantId).filter(Boolean);
     const sourceUrl = String(appInfo?.sourceUrl || "").trim();
+    const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
+    const correlationLabel = profileHarvest?.subject
+      ? `${String(profileHarvest.requestorId || "").trim() || "requestor"} x ${String(profileHarvest.mvpd || "").trim() || "mvpd"}`
+      : "No REST V2 profile harvest yet";
     const summaryItems = [
       buildMetadataItemHtml("CM Tenant Matches", `${matchedTenants.length} ${tenantLabel}`),
       buildMetadataItemHtml("Matched Tenant Names", sampleNames.length > 0 ? sampleNames.join(", ") : "N/A"),
       buildMetadataItemHtml("CM Tenant Source", sourceUrl || "Not detected"),
+      buildMetadataItemHtml("REST V2 Correlation", correlationLabel),
     ];
     return summaryItems.join("");
   }
@@ -7261,6 +8601,8 @@ function resetWorkflowForLoggedOut() {
   state.cmServiceLoadPromiseByProgrammerId.clear();
   state.cmTenantsCatalog = null;
   state.cmTenantsCatalogPromise = null;
+  state.cmAuthBootstrapPromise = null;
+  state.cmAuthBootstrapLastAttemptAt = 0;
   state.cmTenantBundleByTenantKey.clear();
   state.cmTenantBundlePromiseByTenantKey.clear();
   state.cmWorkspaceTabId = 0;
@@ -9605,6 +10947,12 @@ function getAvatarRenderUrl(loginData) {
     return provisional;
   }
 
+  const persistedCandidate = readPersistedAvatarCandidate(loginData);
+  const persisted = normalizeAvatarCandidate(persistedCandidate) || normalizeInlineAvatarData(persistedCandidate);
+  if (persisted) {
+    return persisted;
+  }
+
   return FALLBACK_AVATAR;
 }
 
@@ -9872,7 +11220,8 @@ function getAvatarCacheIdentity(loginData) {
   ]);
 }
 
-function getAvatarPersistIdentityCandidates(loginData) {
+function getAvatarPersistIdentityCandidates(loginData, options = {}) {
+  const includeTokenFingerprint = options.includeTokenFingerprint !== false;
   const profile = resolveLoginProfile(loginData) || {};
   const tokenFingerprint = loginData?.accessToken ? String(loginData.accessToken).slice(-24) : "";
   const candidates = [
@@ -9884,14 +11233,31 @@ function getAvatarPersistIdentityCandidates(loginData) {
     profile?.user_email,
     profile?.additional_info?.email,
     loginData?.adobePassOrg?.userId,
-    tokenFingerprint ? `token:${tokenFingerprint}` : "",
   ];
+  if (includeTokenFingerprint && tokenFingerprint) {
+    candidates.push(`token:${tokenFingerprint}`);
+  }
 
   return [...new Set(candidates.map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 12);
 }
 
-function getAvatarPersistStorageKeys(loginData) {
-  const identities = getAvatarPersistIdentityCandidates(loginData);
+function hasAvatarPersistProfileIdentity(loginData) {
+  const profile = resolveLoginProfile(loginData) || {};
+  const identity = firstNonEmptyString([
+    profile?.userId,
+    profile?.user_id,
+    profile?.sub,
+    profile?.id,
+    profile?.email,
+    profile?.user_email,
+    profile?.additional_info?.email,
+    loginData?.adobePassOrg?.userId,
+  ]);
+  return Boolean(identity);
+}
+
+function getAvatarPersistStorageKeys(loginData, options = {}) {
+  const identities = getAvatarPersistIdentityCandidates(loginData, options);
   const keys = [];
   for (const identity of identities) {
     const encodedIdentity = encodeURIComponent(identity);
@@ -9901,14 +11267,42 @@ function getAvatarPersistStorageKeys(loginData) {
   return [...new Set(keys)];
 }
 
+function getAvatarPersistKeyScopeWeight(key, identityKeySet) {
+  if (identityKeySet.has(key)) {
+    if (key.startsWith(AVATAR_PERSIST_STORAGE_PREFIX)) {
+      return 2400;
+    }
+    if (key.startsWith(LEGACY_AVATAR_PERSIST_STORAGE_PREFIX)) {
+      return 2200;
+    }
+    return 2000;
+  }
+
+  if (key === AVATAR_PERSIST_GLOBAL_KEY) {
+    return 1200;
+  }
+  if (key === LEGACY_AVATAR_PERSIST_GLOBAL_KEY) {
+    return 1000;
+  }
+  return 0;
+}
+
 function readPersistedAvatarCandidate(loginData) {
-  const keys = [...getAvatarPersistStorageKeys(loginData), AVATAR_PERSIST_GLOBAL_KEY, LEGACY_AVATAR_PERSIST_GLOBAL_KEY];
+  const hasProfileIdentity = hasAvatarPersistProfileIdentity(loginData);
+  const identityKeys = getAvatarPersistStorageKeys(loginData, {
+    includeTokenFingerprint: !hasProfileIdentity,
+  });
+  const identityKeySet = new Set(identityKeys);
+  const keys = hasProfileIdentity
+    ? [...identityKeys]
+    : [...identityKeys, AVATAR_PERSIST_GLOBAL_KEY, LEGACY_AVATAR_PERSIST_GLOBAL_KEY];
   if (keys.length === 0) {
     return "";
   }
 
   let bestCandidate = "";
   let bestScore = Number.NEGATIVE_INFINITY;
+  let bestUpdatedAt = 0;
 
   for (const key of keys) {
     try {
@@ -9935,9 +11329,15 @@ function readPersistedAvatarCandidate(loginData) {
         continue;
       }
 
-      const score = scoreAvatarCandidatePriority(candidate);
-      if (score > bestScore) {
-        bestScore = score;
+      const avatarScore = scoreAvatarCandidatePriority(candidate);
+      const scopeScore = getAvatarPersistKeyScopeWeight(key, identityKeySet);
+      const totalScore = avatarScore + scopeScore;
+      const updatedAt = Number(parsed.updatedAt || 0);
+      const normalizedUpdatedAt = Number.isFinite(updatedAt) ? Math.max(0, updatedAt) : 0;
+
+      if (totalScore > bestScore || (totalScore === bestScore && normalizedUpdatedAt > bestUpdatedAt)) {
+        bestScore = totalScore;
+        bestUpdatedAt = normalizedUpdatedAt;
         bestCandidate = candidate;
       }
     } catch {
@@ -9994,6 +11394,18 @@ function writePersistedAvatarCandidate(loginData, payload) {
   } catch {
     // Ignore localStorage quota failures.
   }
+}
+
+function resetAvatarStateForInteractiveLogin() {
+  purgeAvatarCaches();
+  clearResolvedAvatar();
+}
+
+function resolveAuthAvatarSeed(authData, profile = null) {
+  const profileSeed = profile ? resolveLoginImageUrl({ profile }) : "";
+  return normalizeAvatarCandidate(
+    firstNonEmptyString([authData?.capturedAvatarUrl, authData?.imageUrl, profileSeed])
+  ) || "";
 }
 
 function getAvatarCacheKey(loginData, url, size = 0) {
@@ -10972,12 +12384,17 @@ async function attemptAutoSwitchToAdobePass(organizations, options = {}) {
         interactive,
         allowFallback,
       });
+      if (interactive) {
+        resetAvatarStateForInteractiveLogin();
+      }
 
       const profile = await resolveProfileAfterLogin(authData);
+      const imageUrl = resolveAuthAvatarSeed(authData, profile);
       return {
         accessToken: authData.accessToken,
         expiresAt: authData.expiresAt,
         profile,
+        imageUrl,
       };
     } catch (error) {
       log("Auto-switch strategy failed", {
@@ -10994,10 +12411,14 @@ async function attemptAutoSwitchToAdobePass(organizations, options = {}) {
 
 async function enforceAdobePassAccess(loginData) {
   const normalizedProfile = resolveLoginProfile(loginData);
-  const normalizedImageUrl = resolveLoginImageUrl({
+  const profileSeedData = {
     ...loginData,
     profile: normalizedProfile,
-  });
+  };
+  const normalizedImageUrl =
+    normalizeAvatarCandidate(resolveLoginImageUrl(profileSeedData)) ||
+    normalizeAvatarCandidate(readPersistedAvatarCandidate(profileSeedData)) ||
+    "";
   let organizations = [];
   let orgFetchFailed = false;
 
@@ -11518,10 +12939,14 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   }
 
   const resolvedProfile = sessionProfile;
-  const resolvedImageUrl = resolveLoginImageUrl({
+  const resolvedImageData = {
     ...enforced.loginData,
     profile: resolvedProfile,
-  });
+  };
+  const resolvedImageUrl =
+    normalizeAvatarCandidate(resolveLoginImageUrl(resolvedImageData)) ||
+    normalizeAvatarCandidate(readPersistedAvatarCandidate(resolvedImageData)) ||
+    "";
 
   const resolvedLoginData = {
     ...enforced.loginData,
@@ -11754,7 +13179,12 @@ async function refreshProgrammerPanels(options = {}) {
 
   const cachedServices = state.premiumAppsByProgrammerId.get(programmer.programmerId) || null;
   const cachedIncludesCm = Boolean(cachedServices && Object.prototype.hasOwnProperty.call(cachedServices, "cm"));
-  if (cachedServices && cachedIncludesCm && !forcePremiumRefresh) {
+  const shouldReuseCachedServices =
+    cachedServices &&
+    cachedIncludesCm &&
+    !forcePremiumRefresh &&
+    !shouldRetryCachedCmService(cachedServices?.cm);
+  if (shouldReuseCachedServices) {
     renderPremiumServices(cachedServices, programmer);
     void prewarmRestV2ForProgrammer(programmer, cachedServices);
     return;
@@ -13229,6 +14659,7 @@ function collectCmNameCandidates(item, extra = []) {
   };
 
   if (item && typeof item === "object") {
+    const payload = item.payload && typeof item.payload === "object" ? item.payload : null;
     pushValue(item.name);
     pushValue(item.displayName);
     pushValue(item.display_name);
@@ -13246,8 +14677,31 @@ function collectCmNameCandidates(item, extra = []) {
     pushValue(item.tenantId);
     pushValue(item.tenant_id);
     pushValue(item.uuid);
+    pushValue(item.consoleId);
+    pushValue(item.consoleOwnerId);
     pushValue(item.requestorId);
     pushValue(item.requestor_id);
+    if (payload) {
+      pushValue(payload.name);
+      pushValue(payload.displayName);
+      pushValue(payload.display_name);
+      pushValue(payload.title);
+      pushValue(payload.label);
+      pushValue(payload.id);
+      pushValue(payload.ownerId);
+      pushValue(payload.tenantId);
+      pushValue(payload.tenant_id);
+      pushValue(payload.orgId);
+      pushValue(payload.org_id);
+      pushValue(payload.policyId);
+      pushValue(payload.policy_id);
+      pushValue(payload.applicationId);
+      pushValue(payload.application_id);
+      pushValue(payload.consoleId);
+      pushValue(payload.consoleOwnerId);
+      pushValue(payload.code);
+      pushValue(payload.slug);
+    }
   }
   pushValue(extra);
   return uniqueSorted(values);
@@ -13310,13 +14764,49 @@ function normalizeCmTenantRecord(item, index = 0, sourceUrl = "") {
     };
   }
   const keys = Object.keys(item).map((key) => String(key || "").toLowerCase());
+  const payload = item.payload && typeof item.payload === "object" ? item.payload : null;
   const hasTenantSignal =
     keys.some((key) => key.includes("tenant")) ||
     item.tenantId != null ||
     item.tenant_id != null ||
     item.tenantName != null ||
-    item.tenant_name != null;
-  if (!hasTenantSignal && !/tenant/i.test(String(sourceUrl || ""))) {
+    item.tenant_name != null ||
+    item.consoleId != null ||
+    item.consoleOwnerId != null ||
+    payload?.tenantId != null ||
+    payload?.tenant_id != null ||
+    payload?.name != null ||
+    payload?.ownerId != null;
+  const hasEntityIdentity =
+    Boolean(
+      firstNonEmptyString([
+        item.id,
+        item.uuid,
+        item.slug,
+        item.code,
+        item.consoleId,
+        item.consoleOwnerId,
+        payload?.id,
+        payload?.ownerId,
+      ])
+    ) &&
+    Boolean(
+      firstNonEmptyString([
+        item.name,
+        item.displayName,
+        item.display_name,
+        item.title,
+        item.label,
+        payload?.name,
+        payload?.displayName,
+        payload?.display_name,
+        payload?.title,
+      ])
+    );
+  const sourceLooksLikeCmCatalog = /(?:cm-console|adobeprimetime\.com|\/cm\/|\/tenant|\/tenants|\/applications|\/policies|\/usage|\/cmu)/i.test(
+    String(sourceUrl || "")
+  );
+  if (!hasTenantSignal && !(hasEntityIdentity && sourceLooksLikeCmCatalog)) {
     return null;
   }
   const links = uniqueSorted(collectCmUrlsFromValue(item).concat(sourceUrl ? [sourceUrl] : []));
@@ -13324,13 +14814,21 @@ function normalizeCmTenantRecord(item, index = 0, sourceUrl = "") {
   const tenantId = firstNonEmptyString([
     item.tenantId,
     item.tenant_id,
+    item.consoleId,
+    item.consoleOwnerId,
     item.id,
     item.uuid,
     item.slug,
     item.code,
     item.tenant,
+    payload?.tenantId,
+    payload?.tenant_id,
+    payload?.ownerId,
+    payload?.orgId,
+    payload?.id,
     tenantIdFromLink,
     item.name,
+    payload?.name,
   ]);
   const tenantName = firstNonEmptyString([
     item.tenantName,
@@ -13340,6 +14838,11 @@ function normalizeCmTenantRecord(item, index = 0, sourceUrl = "") {
     item.tenant,
     item.name,
     item.title,
+    payload?.name,
+    payload?.displayName,
+    payload?.display_name,
+    payload?.title,
+    payload?.ownerId,
     tenantIdFromLink,
     tenantId,
   ]);
@@ -13361,7 +14864,10 @@ function normalizeCmEntityRecord(kind, item, index = 0, tenant = null, fallbackU
   if (!item || typeof item !== "object") {
     return null;
   }
+  const kindValue = String(kind || "").trim().toLowerCase();
+  const payload = item.payload && typeof item.payload === "object" ? item.payload : null;
   const entityId = firstNonEmptyString([
+    item.consoleId,
     item.id,
     item.applicationId,
     item.application_id,
@@ -13375,7 +14881,17 @@ function normalizeCmEntityRecord(kind, item, index = 0, tenant = null, fallbackU
     item.usage_id,
     item.uuid,
     item.slug,
+    payload?.id,
+    payload?.applicationId,
+    payload?.application_id,
+    payload?.policyId,
+    payload?.policy_id,
+    payload?.ruleId,
+    payload?.rule_id,
+    payload?.usageId,
+    payload?.usage_id,
     item.name,
+    payload?.name,
   ]);
   const name = firstNonEmptyString([
     item.name,
@@ -13389,21 +14905,43 @@ function normalizeCmEntityRecord(kind, item, index = 0, tenant = null, fallbackU
     item.rule_name,
     item.title,
     item.label,
+    payload?.name,
+    payload?.displayName,
+    payload?.display_name,
+    payload?.applicationName,
+    payload?.application_name,
+    payload?.policyName,
+    payload?.policy_name,
+    payload?.ruleName,
+    payload?.rule_name,
+    payload?.title,
+    payload?.label,
     entityId,
   ]);
   if (!entityId && !name) {
     return null;
   }
-  const links = uniqueSorted(collectCmUrlsFromValue(item).concat(fallbackUrl ? [fallbackUrl] : []));
+  const linkCandidates = collectCmUrlsFromValue(item)
+    .concat(payload ? collectCmUrlsFromValue(payload) : [])
+    .concat(fallbackUrl ? [fallbackUrl] : []);
+  const tenantId = String(tenant?.tenantId || "").trim();
+  if (kindValue === "policies" && tenantId && entityId) {
+    linkCandidates.push(
+      `${CM_CONFIG_BASE_URL}/maitai/policy/${encodeURIComponent(String(entityId || "").trim())}?orgId=${encodeURIComponent(
+        tenantId
+      )}`
+    );
+  }
+  const links = uniqueSorted(linkCandidates.map((value) => normalizeCmUrl(value)).filter(Boolean));
   return {
-    kind: String(kind || "").trim().toLowerCase(),
+    kind: kindValue,
     entityId: String(entityId || name || `${kind}-${index + 1}`),
     name: String(name || entityId || `${kind}-${index + 1}`),
     tenantId: String(tenant?.tenantId || ""),
     tenantName: String(tenant?.tenantName || ""),
     aliases: collectCmNameCandidates(item, [entityId, name]),
     links,
-    raw: item,
+    raw: payload || item,
     sourceUrl: String(fallbackUrl || ""),
   };
 }
@@ -13484,7 +15022,6 @@ function scoreCmTenantMatch(programmer, tenant) {
     programmer?.mediaCompanyName,
     programmer?.programmerName,
     programmer?.programmerId,
-    ...(Array.isArray(programmer?.requestorIds) ? programmer.requestorIds.slice(0, 8) : []),
   ]);
   const tenantCandidates = uniqueSorted([tenant?.tenantName, tenant?.tenantId, ...(tenant?.aliases || [])]);
 
@@ -13524,6 +15061,17 @@ function scoreCmTenantMatch(programmer, tenant) {
   return score;
 }
 
+function isCmDirectTenantMatch(programmer, tenant) {
+  const programmerCandidates = uniqueSorted([programmer?.mediaCompanyName, programmer?.programmerName, programmer?.programmerId]);
+  const tenantCandidates = uniqueSorted([tenant?.tenantName, tenant?.tenantId, ...(tenant?.aliases || [])]);
+  const programmerVariants = collectCmMatchVariants(programmerCandidates).filter((value) => String(value || "").length >= 2);
+  const tenantVariants = new Set(collectCmMatchVariants(tenantCandidates).filter((value) => String(value || "").length >= 2));
+  if (programmerVariants.length === 0 || tenantVariants.size === 0) {
+    return false;
+  }
+  return programmerVariants.some((value) => tenantVariants.has(value));
+}
+
 function findCmTenantMatchesForProgrammer(programmer, tenants) {
   const scored = (Array.isArray(tenants) ? tenants : [])
     .map((tenant) => ({
@@ -13535,8 +15083,20 @@ function findCmTenantMatchesForProgrammer(programmer, tenants) {
   if (scored.length === 0) {
     return [];
   }
+  const directMatches = scored.filter((entry) => isCmDirectTenantMatch(programmer, entry.tenant)).map((entry) => entry.tenant);
+  if (directMatches.length > 0) {
+    const seen = new Set();
+    return directMatches.filter((tenant) => {
+      const key = `${tenant?.tenantId || ""}|${tenant?.tenantName || ""}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  }
   const bestScore = scored[0].score;
-  const floor = Math.max(26, bestScore - 18);
+  const floor = Math.max(26, bestScore >= 90 ? bestScore - 34 : bestScore - 22);
   return scored.filter((entry) => entry.score >= floor).map((entry) => entry.tenant);
 }
 
@@ -13548,32 +15108,118 @@ function cmGetTenantCacheKey(tenant) {
 }
 
 function buildCmTenantEndpointCandidates() {
-  const orgHandleCandidates = uniqueSorted(
+  const orgHints = uniqueSorted(
     [
+      CM_DEFAULT_TENANT_ORG_HINT,
+      ADOBEPASS_ORG_KEYWORD,
       state.loginData?.adobePassOrg?.name,
       state.loginData?.adobePassOrg?.orgId,
       state.loginData?.profile?.currentOrg?.name,
       state.loginData?.profile?.currentOrg?.id,
     ]
-      .map((value) => String(value || "").trim())
+      .map((value) => String(value || "").trim().replace(/^@+/, "").replace(/^\/+|\/+$/g, ""))
+      .map((value) => value.toLowerCase())
       .filter(Boolean)
   );
-  const dynamicUrls = [];
-  orgHandleCandidates.forEach((orgHandle) => {
-    const trimmed = orgHandle.replace(/^\/+|\/+$/g, "");
-    if (!trimmed) {
-      return;
+  const dynamicUrls = orgHints.map((orgId) => `${CM_CONFIG_BASE_URL}/core/tenants?orgId=${encodeURIComponent(orgId)}`);
+  return uniqueSorted([...CM_TENANT_ENDPOINT_CANDIDATES, ...dynamicUrls].map((url) => normalizeCmUrl(url)).filter(Boolean));
+}
+
+async function ensureCmApiAccessToken() {
+  const existingToken = String(state.loginData?.accessToken || "").trim();
+  if (existingToken) {
+    return existingToken;
+  }
+
+  if (state.cmAuthBootstrapPromise) {
+    return state.cmAuthBootstrapPromise;
+  }
+
+  const now = Date.now();
+  const lastAttempt = Number(state.cmAuthBootstrapLastAttemptAt || 0);
+  if (lastAttempt > 0 && now - lastAttempt < CM_AUTH_BOOTSTRAP_RETRY_MS) {
+    return "";
+  }
+  state.cmAuthBootstrapLastAttemptAt = now;
+
+  const promise = (async () => {
+    try {
+      const silent = await attemptSilentBootstrapLogin();
+      const accessToken = String(silent?.accessToken || "").trim();
+      if (!accessToken) {
+        return "";
+      }
+
+      const current = state.loginData || createCookieSessionLoginData();
+      const mergedProfile = mergeProfilePayloads(resolveLoginProfile(current), resolveLoginProfile(silent));
+      const nextLoginData = {
+        ...current,
+        accessToken,
+        expiresAt: Number(silent?.expiresAt || 0),
+        profile: mergedProfile,
+        imageUrl: resolveLoginImageUrl({
+          ...current,
+          accessToken,
+          profile: mergedProfile,
+        }),
+      };
+      state.loginData = nextLoginData;
+
+      try {
+        await saveLoginData(nextLoginData);
+      } catch (error) {
+        log("CM token bootstrap persisted in-memory only", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+
+      scheduleNoTouchRefresh();
+      return accessToken;
+    } catch (error) {
+      log("CM token bootstrap skipped", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return "";
     }
-    const withAt = trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
-    const encoded = encodeURIComponent(withAt);
-    dynamicUrls.push(`https://experience.adobe.com/${withAt}/cm-console/api/v1/tenants`);
-    dynamicUrls.push(`https://experience.adobe.com/${withAt}/cm-console/api/tenants`);
-    dynamicUrls.push(`https://experience.adobe.com/${encoded}/cm-console/api/v1/tenants`);
-    dynamicUrls.push(`https://experience.adobe.com/${encoded}/cm-console/api/tenants`);
-  });
-  return uniqueSorted(
-    [...CM_TENANT_ENDPOINT_CANDIDATES, ...dynamicUrls].map((url) => normalizeCmUrl(url)).filter(Boolean)
-  );
+  })();
+
+  state.cmAuthBootstrapPromise = promise;
+  try {
+    return await promise;
+  } finally {
+    if (state.cmAuthBootstrapPromise === promise) {
+      state.cmAuthBootstrapPromise = null;
+    }
+  }
+}
+
+function getCmAuthFingerprint() {
+  const token = String(state.loginData?.accessToken || "").trim();
+  return token ? token.slice(-24) : "no-token";
+}
+
+function shouldRetryCachedCmService(cmService) {
+  const currentFingerprint = getCmAuthFingerprint();
+  if (!cmService || typeof cmService !== "object") {
+    return currentFingerprint !== "no-token";
+  }
+
+  const matchedTenants = Array.isArray(cmService.matchedTenants) ? cmService.matchedTenants : [];
+  if (matchedTenants.length > 0) {
+    return false;
+  }
+
+  const cachedFingerprint = String(cmService.tokenFingerprint || "").trim();
+  if (!cachedFingerprint) {
+    return currentFingerprint !== "no-token";
+  }
+  if (currentFingerprint === "no-token" && cachedFingerprint === "no-token") {
+    const fetchedAt = Number(cmService.fetchedAt || 0);
+    if (fetchedAt > 0 && Date.now() - fetchedAt >= CM_AUTH_BOOTSTRAP_RETRY_MS) {
+      return true;
+    }
+  }
+  return cachedFingerprint !== currentFingerprint;
 }
 
 function prefetchCmTenantsCatalogInBackground(reason = "background") {
@@ -13616,6 +15262,126 @@ function buildCmTemplateUrls(tenantId, templates) {
   return uniqueSorted(urls.map((url) => normalizeCmUrl(url)).filter(Boolean));
 }
 
+function formatCmUsageLabelFromPath(path) {
+  const text = String(path || "").trim();
+  if (!text) {
+    return "CMU";
+  }
+  const parts = text
+    .replace(/^\/+/, "")
+    .replace(/\?.*$/, "")
+    .split("/")
+    .map((part) => String(part || "").trim())
+    .filter(Boolean)
+    .filter((part) => part.toLowerCase() !== "v2")
+    .filter((part) => part.toLowerCase() !== "cmu")
+    .filter((part) => part.toLowerCase() !== "year")
+    .filter((part) => part.toLowerCase() !== "month");
+  if (parts.length === 0) {
+    return "CMU Summary (Year/Month)";
+  }
+  return `CMU ${parts.map((part) => part.replace(/-/g, " ")).join(" > ")}`.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatCmUsageDateValue(date) {
+  const value = date instanceof Date ? date : new Date(date);
+  const yyyy = value.getUTCFullYear();
+  const mm = String(value.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(value.getUTCDate()).padStart(2, "0");
+  const hh = String(value.getUTCHours()).padStart(2, "0");
+  const mi = String(value.getUTCMinutes()).padStart(2, "0");
+  const ss = String(value.getUTCSeconds()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
+}
+
+function buildCmUsageDateWindow(profileHarvest = null) {
+  const nowMs = Date.now();
+  let startMs = nowMs - 9 * 24 * 60 * 60 * 1000;
+  let endMs = nowMs;
+  const harvested = profileHarvest && typeof profileHarvest === "object" ? profileHarvest : null;
+  if (harvested) {
+    const notBeforeMs = Number(harvested.notBeforeMs || 0);
+    const notAfterMs = Number(harvested.notAfterMs || 0);
+    if (Number.isFinite(notBeforeMs) && notBeforeMs > 0) {
+      startMs = Math.max(notBeforeMs - 60 * 60 * 1000, nowMs - 31 * 24 * 60 * 60 * 1000);
+    }
+    if (Number.isFinite(notAfterMs) && notAfterMs > 0) {
+      endMs = Math.min(nowMs, notAfterMs + 60 * 60 * 1000);
+    }
+  }
+  if (endMs <= startMs) {
+    endMs = Math.min(nowMs, startMs + 24 * 60 * 60 * 1000);
+  }
+  return {
+    start: new Date(startMs),
+    end: new Date(endMs),
+  };
+}
+
+function buildCmUsageQueryString(path, profileHarvest = null) {
+  const now = new Date();
+  const range = buildCmUsageDateWindow(profileHarvest);
+  const start = range.start || new Date(now.getTime() - 9 * 24 * 60 * 60 * 1000);
+  const end = range.end || now;
+  const params = new URLSearchParams();
+  params.set("start", formatCmUsageDateValue(start));
+  params.set("end", formatCmUsageDateValue(end));
+  params.set("limit", "1000");
+  if (/\/tenant(?:\/|$)/i.test(String(path || "")) || /\/hour(?:\/|$)/i.test(String(path || ""))) {
+    params.set("metrics", "users");
+  }
+  params.set("format", "json");
+  return params.toString();
+}
+
+function buildCmUsageSeedRows(tenant, profileHarvest = null) {
+  const tenantId = String(tenant?.tenantId || "").trim();
+  const tenantName = String(tenant?.tenantName || tenantId).trim();
+  const correlation = profileHarvest && typeof profileHarvest === "object" ? profileHarvest : null;
+  const rows = [];
+  const seen = new Set();
+  CM_USAGE_PATH_TEMPLATES.forEach((template, index) => {
+    const path = String(template || "").trim();
+    if (!path) {
+      return;
+    }
+    const normalizedPath = `/${path.replace(/^\/+/, "").replace(/\?.*$/, "")}`;
+    const queryString = buildCmUsageQueryString(normalizedPath, correlation);
+    const absoluteUrl = normalizeCmUrl(`${CM_REPORTS_BASE_URL}${normalizedPath}?${queryString}`);
+    if (!absoluteUrl || seen.has(absoluteUrl)) {
+      return;
+    }
+    seen.add(absoluteUrl);
+    const endpointLabelBase = formatCmUsageLabelFromPath(normalizedPath);
+    const endpointLabel = correlation?.subject ? `${endpointLabelBase} (Correlated Window)` : endpointLabelBase;
+    const endpointKey = String(normalizedPath || "")
+      .replace(/^\/+/, "")
+      .replace(/[^\w/-]+/g, "-")
+      .replace(/\/+/g, "-");
+    rows.push({
+      kind: "usage",
+      entityId: endpointKey || `cmu-${index + 1}`,
+      name: endpointLabel,
+      tenantId,
+      tenantName,
+      aliases: [normalizedPath, endpointKey],
+      links: [absoluteUrl],
+      sourceUrl: absoluteUrl,
+      raw: {
+        endpointPath: normalizedPath,
+        endpointUrl: absoluteUrl,
+        endpointLabel,
+        tenantId,
+        tenantName,
+        correlationSubject: String(correlation?.subject || "").trim(),
+        correlationSessionId: String(correlation?.sessionId || "").trim(),
+        correlationMvpd: String(correlation?.mvpd || "").trim(),
+      },
+    });
+  });
+  return rows;
+}
+
 async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options = {}) {
   const urls = uniqueSorted((Array.isArray(urlCandidates) ? urlCandidates : []).map((url) => normalizeCmUrl(url)).filter(Boolean));
   if (urls.length === 0) {
@@ -13623,6 +15389,7 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
   }
 
   const method = String(options.method || "GET").toUpperCase();
+  const debugMeta = options.debugMeta && typeof options.debugMeta === "object" ? options.debugMeta : {};
   const accessToken = String(state.loginData?.accessToken || "");
   const baseHeaders = {
     Accept: "application/json, text/plain, */*",
@@ -13637,8 +15404,25 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
   }
 
   let lastError = null;
+  let attemptCounter = 0;
   for (const url of urls) {
     for (const headers of headerVariants) {
+      attemptCounter += 1;
+      emitCmDebugEvent(
+        {
+          phase: "cm-request-attempt",
+          contextLabel: String(contextLabel || ""),
+          method,
+          url,
+          attempt: attemptCounter,
+          authMode: detectCmAuthMode(headers),
+          hasBody: options.body != null,
+        },
+        {
+          flowId: String(debugMeta.flowId || "").trim(),
+          context: debugMeta,
+        }
+      );
       try {
         const response = await fetch(url, {
           method,
@@ -13651,6 +15435,22 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
 
         const text = await response.text().catch(() => "");
         const parsed = parseJsonText(text, null);
+        emitCmDebugEvent(
+          {
+            phase: "cm-response",
+            contextLabel: String(contextLabel || ""),
+            method,
+            url,
+            attempt: attemptCounter,
+            status: Number(response.status || 0),
+            statusText: String(response.statusText || ""),
+            responsePreview: truncateDebugText(text, 1600),
+          },
+          {
+            flowId: String(debugMeta.flowId || "").trim(),
+            context: debugMeta,
+          }
+        );
         if (response.ok) {
           return {
             url,
@@ -13671,8 +15471,38 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
             response.statusText,
           ]) || response.statusText;
         lastError = new Error(`${contextLabel} failed (${response.status}): ${message}`);
+        emitCmDebugEvent(
+          {
+            phase: "cm-request-failed",
+            contextLabel: String(contextLabel || ""),
+            method,
+            url,
+            attempt: attemptCounter,
+            status: Number(response.status || 0),
+            statusText: String(response.statusText || ""),
+            error: message,
+          },
+          {
+            flowId: String(debugMeta.flowId || "").trim(),
+            context: debugMeta,
+          }
+        );
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+        emitCmDebugEvent(
+          {
+            phase: "cm-request-error",
+            contextLabel: String(contextLabel || ""),
+            method,
+            url,
+            attempt: attemptCounter,
+            error: lastError.message,
+          },
+          {
+            flowId: String(debugMeta.flowId || "").trim(),
+            context: debugMeta,
+          }
+        );
       }
     }
   }
@@ -13697,6 +15527,8 @@ async function ensureCmTenantsCatalog(options = {}) {
   }
 
   const loadPromise = (async () => {
+    await ensureCmApiAccessToken();
+
     const queue = buildCmTenantEndpointCandidates();
     const attempted = new Set();
     let lastError = null;
@@ -13709,7 +15541,14 @@ async function ensureCmTenantsCatalog(options = {}) {
       attempted.add(candidate);
 
       try {
-        const response = await fetchCmJsonWithAuthVariants([candidate], "CM tenants load");
+        const response = await fetchCmJsonWithAuthVariants([candidate], "CM tenants load", {
+          debugMeta: {
+            scope: "tenant-catalog",
+            endpointUrl: candidate,
+            requestorId: String(state.selectedRequestorId || ""),
+            mvpd: String(state.selectedMvpdId || ""),
+          },
+        });
         const tenants = normalizeCmTenantsFromPayload(response.parsed, response.url);
         if (tenants.length > 0) {
           const catalog = {
@@ -13772,7 +15611,29 @@ async function ensureCmServiceForProgrammer(programmer, options = {}) {
   }
 
   if (!forceRefresh && state.cmServiceByProgrammerId.has(programmer.programmerId)) {
-    return state.cmServiceByProgrammerId.get(programmer.programmerId);
+    const cachedService = state.cmServiceByProgrammerId.get(programmer.programmerId);
+    const cachedMatches = Array.isArray(cachedService?.matchedTenants) ? cachedService.matchedTenants : [];
+    if (cachedMatches.length === 0) {
+      const catalog = state.cmTenantsCatalog && Array.isArray(state.cmTenantsCatalog.tenants) ? state.cmTenantsCatalog : null;
+      if (catalog && catalog.tenants.length > 0) {
+        const rematchedTenants = findCmTenantMatchesForProgrammer(programmer, catalog.tenants);
+        if (rematchedTenants.length > 0) {
+          const refreshedService = {
+            ...(cachedService && typeof cachedService === "object" ? cachedService : {}),
+            matchedTenants: rematchedTenants,
+            sourceUrl: String(catalog.sourceUrl || cachedService?.sourceUrl || ""),
+            fetchedAt: Number(catalog.fetchedAt || cachedService?.fetchedAt || Date.now()),
+            tenantCount: Number(catalog.tenants.length || cachedService?.tenantCount || rematchedTenants.length),
+            tokenFingerprint: getCmAuthFingerprint(),
+          };
+          state.cmServiceByProgrammerId.set(programmer.programmerId, refreshedService);
+          return refreshedService;
+        }
+      }
+    }
+    if (!shouldRetryCachedCmService(cachedService)) {
+      return cachedService;
+    }
   }
 
   if (!forceRefresh && state.cmServiceLoadPromiseByProgrammerId.has(programmer.programmerId)) {
@@ -13793,6 +15654,7 @@ async function ensureCmServiceForProgrammer(programmer, options = {}) {
     }
 
     const matchedTenants = findCmTenantMatchesForProgrammer(programmer, catalog?.tenants || []);
+    const tokenFingerprint = getCmAuthFingerprint();
     if (matchedTenants.length === 0) {
       const topCandidates = (Array.isArray(catalog?.tenants) ? catalog.tenants : [])
         .map((tenant) => ({
@@ -13807,8 +15669,15 @@ async function ensureCmServiceForProgrammer(programmer, options = {}) {
         programmerName: programmer.programmerName,
         topCandidates,
       });
-      state.cmServiceByProgrammerId.delete(programmer.programmerId);
-      return null;
+      const service = {
+        matchedTenants: [],
+        sourceUrl: String(catalog?.sourceUrl || ""),
+        fetchedAt: Number(catalog?.fetchedAt || Date.now()),
+        tenantCount: Number(catalog?.tenants?.length || 0),
+        tokenFingerprint,
+      };
+      state.cmServiceByProgrammerId.set(programmer.programmerId, service);
+      return service;
     }
 
     const service = {
@@ -13816,6 +15685,7 @@ async function ensureCmServiceForProgrammer(programmer, options = {}) {
       sourceUrl: String(catalog?.sourceUrl || ""),
       fetchedAt: Number(catalog?.fetchedAt || Date.now()),
       tenantCount: Number(catalog?.tenants?.length || 0),
+      tokenFingerprint,
     };
     log("CM tenants matched for programmer", {
       programmerId: programmer.programmerId,
@@ -13836,11 +15706,32 @@ async function ensureCmServiceForProgrammer(programmer, options = {}) {
   }
 }
 
-function buildCmResourceUrlCandidates(kind, tenant) {
+function buildCmResourceUrlCandidates(kind, tenant, profileHarvest = null) {
   const tenantId = String(tenant?.tenantId || "").trim();
   const tenantLinks = Array.isArray(tenant?.links) ? tenant.links : [];
   const rawLinks = collectCmUrlsFromValue(tenant?.raw, { maxDepth: 5 });
   const kindValue = String(kind || "").trim().toLowerCase();
+
+  if (kindValue === "applications" && tenantId) {
+    return uniqueSorted([`${CM_CONFIG_BASE_URL}/maitai/applications?orgId=${encodeURIComponent(tenantId)}`]);
+  }
+  if (kindValue === "policies" && tenantId) {
+    return uniqueSorted([`${CM_CONFIG_BASE_URL}/maitai/policy?orgId=${encodeURIComponent(tenantId)}`]);
+  }
+  if (kindValue === "tenant") {
+    return uniqueSorted(
+      [...tenantLinks, ...rawLinks, `${CM_CONFIG_BASE_URL}/core/tenants?orgId=${encodeURIComponent(CM_DEFAULT_TENANT_ORG_HINT)}`]
+        .map((url) => normalizeCmUrl(url))
+        .filter(Boolean)
+    );
+  }
+  if (kindValue === "usage") {
+    return uniqueSorted(
+      buildCmUsageSeedRows(tenant, profileHarvest)
+        .map((row) => String(row?.sourceUrl || "").trim())
+        .filter(Boolean)
+    );
+  }
 
   const keywordByKind = {
     tenant: ["tenant"],
@@ -13868,9 +15759,9 @@ function buildCmResourceUrlCandidates(kind, tenant) {
   return uniqueSorted([...filteredLinks, ...templateUrls].filter(Boolean));
 }
 
-async function fetchCmTenantResource(kind, tenant) {
+async function fetchCmTenantResource(kind, tenant, profileHarvest = null) {
   const kindValue = String(kind || "").trim().toLowerCase();
-  const candidates = buildCmResourceUrlCandidates(kindValue, tenant);
+  const candidates = buildCmResourceUrlCandidates(kindValue, tenant, profileHarvest);
   if (candidates.length === 0) {
     return {
       kind: kindValue,
@@ -13885,7 +15776,16 @@ async function fetchCmTenantResource(kind, tenant) {
   let lastError = null;
   for (const candidate of candidates) {
     try {
-      const response = await fetchCmJsonWithAuthVariants([candidate], `CM ${kindValue} load`);
+      const response = await fetchCmJsonWithAuthVariants([candidate], `CM ${kindValue} load`, {
+        debugMeta: {
+          scope: kindValue,
+          endpointUrl: candidate,
+          tenantId: String(tenant?.tenantId || ""),
+          tenantName: String(tenant?.tenantName || ""),
+          requestorId: String(state.selectedRequestorId || ""),
+          mvpd: String(state.selectedMvpdId || ""),
+        },
+      });
       const payload = response.parsed;
       const rows =
         kindValue === "tenant"
@@ -13918,14 +15818,22 @@ async function fetchCmTenantResource(kind, tenant) {
 
 async function loadCmTenantBundle(tenant, options = {}) {
   const forceRefresh = options.forceRefresh === true;
+  const profileHarvest = options?.profileHarvest && typeof options.profileHarvest === "object" ? options.profileHarvest : null;
   const tenantCacheKey = cmGetTenantCacheKey(tenant);
 
   if (!forceRefresh && tenantCacheKey) {
     const cachedEntry = state.cmTenantBundleByTenantKey.get(tenantCacheKey);
     if (cachedEntry?.bundle) {
+      const mergedTenant =
+        tenant && typeof tenant === "object" ? { ...(cachedEntry.bundle.tenant || {}), ...tenant } : cachedEntry.bundle.tenant;
+      const usageRows = buildCmUsageSeedRows(mergedTenant, profileHarvest);
       return {
         ...cachedEntry.bundle,
-        tenant: tenant && typeof tenant === "object" ? { ...(cachedEntry.bundle.tenant || {}), ...tenant } : cachedEntry.bundle.tenant,
+        tenant: mergedTenant,
+        usage: {
+          ...(cachedEntry.bundle.usage || {}),
+          rows: usageRows,
+        },
       };
     }
     if (state.cmTenantBundlePromiseByTenantKey.has(tenantCacheKey)) {
@@ -13934,12 +15842,26 @@ async function loadCmTenantBundle(tenant, options = {}) {
   }
 
   const loadPromise = (async () => {
-    const [tenantDetail, applications, policies, usage] = await Promise.all([
-      fetchCmTenantResource("tenant", tenant),
-      fetchCmTenantResource("applications", tenant),
-      fetchCmTenantResource("policies", tenant),
-      fetchCmTenantResource("usage", tenant),
+    const [applications, policies] = await Promise.all([
+      fetchCmTenantResource("applications", tenant, profileHarvest),
+      fetchCmTenantResource("policies", tenant, profileHarvest),
     ]);
+    const tenantDetail = {
+      kind: "tenant",
+      url: String(tenant?.sourceUrl || ""),
+      payload: tenant?.raw && typeof tenant.raw === "object" ? tenant.raw : tenant || null,
+      lastModified: "",
+      rows: tenant?.raw && typeof tenant.raw === "object" ? [tenant.raw] : [],
+      error: "",
+    };
+    const usage = {
+      kind: "usage",
+      url: "",
+      payload: null,
+      lastModified: "",
+      rows: buildCmUsageSeedRows(tenant, profileHarvest),
+      error: "",
+    };
     const bundle = {
       tenant,
       tenantDetail,
@@ -14028,6 +15950,10 @@ function cmRowsFromPayload(payload) {
       payload.data,
       payload.results,
       payload.records,
+      payload.report,
+      payload.runningStreams,
+      payload.associatedAdvice,
+      payload.obligations,
       payload.applications,
       payload.policies,
       payload.usage,
@@ -14684,10 +16610,15 @@ function applyProgrammerEntities(entities) {
   state.applicationsByProgrammerId.clear();
   state.premiumAppsByProgrammerId.clear();
   state.premiumAppsLoadPromiseByProgrammerId.clear();
+  state.restV2ProfileHarvestBySelectionKey.clear();
+  state.restV2ProfileHarvestByProgrammerId.clear();
+  state.restV2ProfileHarvestLast = null;
   state.cmServiceByProgrammerId.clear();
   state.cmServiceLoadPromiseByProgrammerId.clear();
   state.cmTenantsCatalog = null;
   state.cmTenantsCatalogPromise = null;
+  state.cmAuthBootstrapPromise = null;
+  state.cmAuthBootstrapLastAttemptAt = 0;
   state.cmTenantBundleByTenantKey.clear();
   state.cmTenantBundlePromiseByTenantKey.clear();
   state.premiumSectionCollapsedByKey.clear();
@@ -14969,12 +16900,15 @@ async function signInInteractive() {
 
   try {
     const authData = await startLogin({ interactive: true, allowFallback: true });
+    resetAvatarStateForInteractiveLogin();
     const profile = await resolveProfileAfterLogin(authData);
+    const imageUrl = resolveAuthAvatarSeed(authData, profile);
     const activated = await activateSession(
       {
         accessToken: authData.accessToken,
         expiresAt: authData.expiresAt,
         profile,
+        imageUrl,
       },
       "interactive"
     );
@@ -15006,18 +16940,26 @@ async function refreshSessionManual() {
 
   try {
     let authData;
+    let usedInteractiveLogin = false;
     try {
       authData = await startLogin({ interactive: false, allowFallback: false });
     } catch {
       authData = await startLogin({ interactive: true, allowFallback: true });
+      usedInteractiveLogin = true;
+    }
+
+    if (usedInteractiveLogin) {
+      resetAvatarStateForInteractiveLogin();
     }
 
     const profile = await resolveProfileAfterLogin(authData);
+    const imageUrl = resolveAuthAvatarSeed(authData, profile);
     const activated = await activateSession(
       {
         accessToken: authData.accessToken,
         expiresAt: authData.expiresAt,
         profile,
+        imageUrl,
       },
       "manual-refresh"
     );
@@ -15079,12 +17021,15 @@ async function onRestrictedOrgSwitch() {
           interactive: true,
           allowFallback: true,
         });
+        resetAvatarStateForInteractiveLogin();
         const profile = await resolveProfileAfterLogin(authData);
+        const imageUrl = resolveAuthAvatarSeed(authData, profile);
         const activated = await activateSession(
           {
             accessToken: authData.accessToken,
             expiresAt: authData.expiresAt,
             profile,
+            imageUrl,
           },
           "restricted-org-switch",
           { allowDeniedRecovery: false }

@@ -32,4 +32,3 @@
 
 - UnderPAR enforces automatic patch version bump during commit via `.githooks/pre-commit`.
 - One-time hook setup command: `scripts/install_git_hooks.sh`
-- Optional CI/pre-push guard: `scripts/check_manifest_version_bump.sh --base-ref <base> --head-ref <head>`

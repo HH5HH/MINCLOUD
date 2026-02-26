@@ -11,6 +11,7 @@ const state = {
   programmerName: "",
   requestorIds: [],
   mvpdIds: [],
+  profileHarvest: null,
   cardsById: new Map(),
   batchRunning: false,
   workspaceLocked: false,
@@ -109,7 +110,20 @@ function updateControllerBanner() {
   els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
   const requestorLabel = state.requestorIds.length > 0 ? state.requestorIds.join(", ") : "All requestors";
   const mvpdLabel = state.mvpdIds.length > 0 ? state.mvpdIds.join(", ") : "All MVPDs";
-  els.filterState.textContent = `RequestorId(s): ${requestorLabel} | MVPD(s): ${mvpdLabel}`;
+  const harvest = state.profileHarvest && typeof state.profileHarvest === "object" ? state.profileHarvest : null;
+  const harvestSubject = String(harvest?.subject || "").trim();
+  const harvestMvpd = String(harvest?.mvpd || "").trim();
+  const harvestSession = String(harvest?.sessionId || "").trim();
+  const compact = (value, limit) => {
+    const text = String(value || "");
+    return text.length > limit ? `${text.slice(0, limit)}…` : text;
+  };
+  const harvestSummary = harvestSubject
+    ? ` | Correlation Subject: ${compact(harvestSubject, 42)}${harvestMvpd ? ` | Correlation MVPD: ${compact(harvestMvpd, 18)}` : ""}${
+        harvestSession ? ` | Session: ${compact(harvestSession, 24)}` : ""
+      }`
+    : "";
+  els.filterState.textContent = `RequestorId(s): ${requestorLabel} | MVPD(s): ${mvpdLabel}${harvestSummary}`;
 }
 
 function normalizeRowValue(value) {
@@ -236,6 +250,8 @@ function getCardPayload(cardState) {
     requestUrl: cardState.requestUrl,
     zoomKey: cardState.zoomKey,
     columns: cardState.columns,
+    operation: cardState.operation && typeof cardState.operation === "object" ? { ...cardState.operation } : null,
+    formValues: cardState.formValues && typeof cardState.formValues === "object" ? { ...cardState.formValues } : {},
   };
 }
 
@@ -287,6 +303,154 @@ function renderCardMessage(cardState, message, options = {}) {
   wireCardRerunUrl(cardState);
 }
 
+function normalizeOperationDescriptor(operation) {
+  if (!operation || typeof operation !== "object") {
+    return null;
+  }
+  const parameters = Array.isArray(operation.parameters)
+    ? operation.parameters
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+          const name = String(item.name || "").trim();
+          if (!name) {
+            return null;
+          }
+          return {
+            name,
+            in: String(item.in || "path").trim().toLowerCase(),
+            required: item.required === true,
+            description: String(item.description || "").trim(),
+          };
+        })
+        .filter(Boolean)
+    : [];
+  return {
+    key: String(operation.key || "").trim(),
+    label: String(operation.label || "").trim(),
+    method: String(operation.method || "GET").trim().toUpperCase(),
+    pathTemplate: String(operation.pathTemplate || "").trim(),
+    parameters,
+    security: String(operation.security || "").trim(),
+  };
+}
+
+function normalizeOperationFormValues(operation, values = {}) {
+  const source = values && typeof values === "object" ? values : {};
+  const profileHarvest = state.profileHarvest && typeof state.profileHarvest === "object" ? state.profileHarvest : null;
+  const normalized = {
+    baseUrl: String(source.baseUrl || "https://streams-stage.adobeprimetime.com").trim() || "https://streams-stage.adobeprimetime.com",
+    idp: String(source.idp || profileHarvest?.mvpd || state.mvpdIds?.[0] || "").trim(),
+    subject: String(source.subject || profileHarvest?.subject || state.requestorIds?.[0] || "").trim(),
+    session: String(source.session || profileHarvest?.sessionId || "").trim(),
+    xTerminate: String(source.xTerminate || "").trim(),
+    authUser: String(source.authUser || "").trim(),
+    authPass: String(source.authPass || "").trim(),
+  };
+  const parameters = Array.isArray(operation?.parameters) ? operation.parameters : [];
+  parameters.forEach((param) => {
+    const name = String(param?.name || "").trim();
+    if (!name) {
+      return;
+    }
+    const key = name.toLowerCase() === "x-terminate" ? "xTerminate" : name;
+    if (!Object.prototype.hasOwnProperty.call(normalized, key)) {
+      normalized[key] = String(source[key] || source[name] || "").trim();
+    }
+  });
+  return normalized;
+}
+
+function buildOperationFormField(label, name, value, options = {}) {
+  const required = options.required === true;
+  const type = String(options.type || "text").trim();
+  const placeholder = String(options.placeholder || "").trim();
+  const help = String(options.help || "").trim();
+  return `
+    <label class="cm-api-field">
+      <span class="cm-api-label">${escapeHtml(label)}${required ? ' <em aria-hidden="true">*</em>' : ""}</span>
+      <input class="cm-api-input" type="${escapeHtml(type)}" name="${escapeHtml(name)}" value="${escapeHtml(value || "")}" ${
+        required ? "required" : ""
+      } ${placeholder ? `placeholder="${escapeHtml(placeholder)}"` : ""} />
+      ${help ? `<span class="cm-api-help">${escapeHtml(help)}</span>` : ""}
+    </label>
+  `;
+}
+
+function renderOperationFormCard(cardState, options = {}) {
+  const operation = normalizeOperationDescriptor(cardState?.operation);
+  if (!operation) {
+    renderCardMessage(cardState, "CM V2 operation details are unavailable.", { error: true });
+    return;
+  }
+
+  const values = normalizeOperationFormValues(operation, options.formValues || cardState.formValues || {});
+  cardState.formValues = { ...values };
+  const parameterFields = operation.parameters
+    .map((param) => {
+      const paramName = String(param.name || "").trim();
+      const key = paramName.toLowerCase() === "x-terminate" ? "xTerminate" : paramName;
+      const labelPrefix = String(param.in || "path").toUpperCase();
+      const label = `${labelPrefix} ${paramName}`;
+      const placeholder = param.in === "path" ? `{${paramName}}` : "";
+      return buildOperationFormField(label, key, values[key] || "", {
+        required: param.required === true,
+        placeholder,
+        help: param.description || "",
+      });
+    })
+    .join("");
+
+  const securityHint = operation.security ? `Auth: ${operation.security}` : "Auth: IMS/Cookie or Basic";
+  const body = `
+    <form class="cm-api-form" data-card-id="${escapeHtml(cardState.cardId)}">
+      <div class="cm-api-intro">
+        <p class="cm-api-intro-main">${escapeHtml(operation.method)} ${escapeHtml(operation.pathTemplate)}</p>
+        <p class="cm-api-intro-sub">${escapeHtml(securityHint)}</p>
+      </div>
+      <div class="cm-api-grid">
+        ${buildOperationFormField("Base URL", "baseUrl", values.baseUrl, { required: true, type: "url" })}
+        ${buildOperationFormField("Basic Auth User", "authUser", values.authUser)}
+        ${buildOperationFormField("Basic Auth Password", "authPass", values.authPass, { type: "password" })}
+        ${parameterFields}
+      </div>
+      <div class="cm-api-actions-row">
+        <button type="submit" class="cm-api-run">Run API</button>
+      </div>
+    </form>
+    ${buildCardColumnsMarkup(cardState)}
+  `;
+  cardState.bodyElement.innerHTML = body;
+  wireCardRerunUrl(cardState);
+
+  const formElement = cardState.bodyElement.querySelector(".cm-api-form");
+  if (!formElement) {
+    return;
+  }
+  formElement.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!ensureWorkspaceUnlocked()) {
+      return;
+    }
+    const formData = new FormData(formElement);
+    const submittedValues = {};
+    formData.forEach((value, key) => {
+      submittedValues[String(key || "")] = String(value || "").trim();
+    });
+    cardState.formValues = normalizeOperationFormValues(operation, submittedValues);
+    setStatus(`Running ${operation.method} ${operation.pathTemplate}...`);
+    const result = await sendWorkspaceAction("run-api-operation", {
+      card: getCardPayload(cardState),
+      formValues: cardState.formValues,
+    });
+    if (!result?.ok) {
+      renderCardMessage(cardState, result?.error || "Unable to run CM V2 operation.", { error: true });
+      setStatus(result?.error || "Unable to run CM V2 operation.", "error");
+    }
+  });
+}
+
 function createCardElements(cardState) {
   const article = document.createElement("article");
   article.className = "report-card";
@@ -298,7 +462,12 @@ function createCardElements(cardState) {
         <p class="card-subtitle"></p>
       </div>
       <div class="card-actions">
-        <button type="button" class="card-close" aria-label="Close report card" title="Close report card">x</button>
+        <button type="button" class="card-close" aria-label="Close report card" title="Close report card">
+          <svg class="card-close-icon" viewBox="0 0 12 12" focusable="false" aria-hidden="true">
+            <path d="M2 2 10 10" />
+            <path d="M10 2 2 10" />
+          </svg>
+        </button>
       </div>
     </div>
     <div class="card-body"></div>
@@ -312,6 +481,16 @@ function createCardElements(cardState) {
 }
 
 function updateCardHeader(cardState) {
+  const operation = normalizeOperationDescriptor(cardState?.operation);
+  if (operation) {
+    const title = operation.label ? `${operation.label}` : `${operation.method} ${operation.pathTemplate}`;
+    const subtitle = `${operation.method} ${operation.pathTemplate}`;
+    cardState.titleElement.textContent = title;
+    cardState.titleElement.title = title;
+    const rows = Array.isArray(cardState.rows) ? cardState.rows.length : 0;
+    cardState.subtitleElement.textContent = `${subtitle} | Rows: ${rows}`;
+    return;
+  }
   const requestUrl = String(cardState.requestUrl || cardState.endpointUrl || "").trim();
   cardState.titleElement.textContent = requestUrl || "No CM URL";
   cardState.titleElement.title = requestUrl || "No CM URL";
@@ -330,6 +509,17 @@ function ensureWorkspaceUnlocked() {
 
 async function rerunCard(cardState) {
   if (!ensureWorkspaceUnlocked()) {
+    return;
+  }
+  if (normalizeOperationDescriptor(cardState?.operation)) {
+    const result = await sendWorkspaceAction("run-api-operation", {
+      card: getCardPayload(cardState),
+      formValues: cardState.formValues && typeof cardState.formValues === "object" ? cardState.formValues : {},
+    });
+    if (!result?.ok) {
+      renderCardMessage(cardState, result?.error || "Unable to run CM V2 operation.", { error: true });
+      setStatus(result?.error || "Unable to run CM V2 operation.", "error");
+    }
     return;
   }
   const result = await sendWorkspaceAction("run-card", {
@@ -372,6 +562,12 @@ function ensureCard(cardMeta) {
     if (Array.isArray(cardMeta?.columns)) {
       existing.columns = cardMeta.columns.map((column) => String(column || "")).filter(Boolean);
     }
+    if (cardMeta?.operation && typeof cardMeta.operation === "object") {
+      existing.operation = normalizeOperationDescriptor(cardMeta.operation);
+    }
+    if (cardMeta?.formValues && typeof cardMeta.formValues === "object") {
+      existing.formValues = normalizeOperationFormValues(existing.operation, cardMeta.formValues);
+    }
     updateCardHeader(existing);
     return existing;
   }
@@ -385,6 +581,11 @@ function ensureCard(cardMeta) {
     rows: [],
     sortStack: [],
     lastModified: "",
+    operation: cardMeta?.operation && typeof cardMeta.operation === "object" ? normalizeOperationDescriptor(cardMeta.operation) : null,
+    formValues:
+      cardMeta?.formValues && typeof cardMeta.formValues === "object"
+        ? normalizeOperationFormValues(normalizeOperationDescriptor(cardMeta.operation), cardMeta.formValues)
+        : {},
     running: false,
     element: null,
     titleElement: null,
@@ -569,6 +770,26 @@ function applyReportStart(payload) {
   }
 }
 
+function applyReportForm(payload) {
+  const cardState = ensureCard(payload);
+  if (!cardState) {
+    return;
+  }
+  if (payload?.operation && typeof payload.operation === "object") {
+    cardState.operation = normalizeOperationDescriptor(payload.operation);
+  }
+  cardState.formValues = normalizeOperationFormValues(cardState.operation, payload?.formValues || cardState.formValues || {});
+  cardState.rows = [];
+  cardState.sortStack = [];
+  updateCardHeader(cardState);
+  renderOperationFormCard(cardState, {
+    formValues: cardState.formValues,
+  });
+  if (cardState.element && !document.hidden) {
+    cardState.element.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
 function applyReportResult(payload) {
   const cardState = ensureCard(payload);
   if (!cardState) {
@@ -614,6 +835,31 @@ function applyControllerState(payload) {
   state.mvpdIds = Array.isArray(payload?.mvpdIds)
     ? payload.mvpdIds.map((value) => String(value || "").trim()).filter(Boolean)
     : [];
+  state.profileHarvest =
+    payload?.profileHarvest && typeof payload.profileHarvest === "object"
+      ? {
+          ...payload.profileHarvest,
+        }
+      : null;
+
+  state.cardsById.forEach((cardState) => {
+    if (!normalizeOperationDescriptor(cardState?.operation)) {
+      return;
+    }
+    const existingValues = cardState.formValues && typeof cardState.formValues === "object" ? cardState.formValues : {};
+    cardState.formValues = normalizeOperationFormValues(cardState.operation, {
+      baseUrl: String(existingValues.baseUrl || "").trim(),
+      authUser: String(existingValues.authUser || "").trim(),
+      authPass: String(existingValues.authPass || "").trim(),
+      xTerminate: String(existingValues.xTerminate || "").trim(),
+    });
+    if (cardState.bodyElement?.querySelector(".cm-api-form")) {
+      renderOperationFormCard(cardState, {
+        formValues: cardState.formValues,
+      });
+    }
+  });
+
   updateWorkspaceLockState();
   updateControllerBanner();
 }
@@ -630,6 +876,10 @@ function handleWorkspaceEvent(eventName, payload) {
   }
   if (event === "report-start") {
     applyReportStart(payload);
+    return;
+  }
+  if (event === "report-form") {
+    applyReportForm(payload);
     return;
   }
   if (event === "report-result") {
