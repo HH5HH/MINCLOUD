@@ -10,25 +10,39 @@
     <main class="workspace-app">
       <header class="workspace-header">
         <div class="workspace-title-wrap">
-          <h1>UP decomp Workspace</h1>
           <p id="workspace-controller-state" class="workspace-controller-state">
             Waiting for UnderPAR side panel controller...
           </p>
           <p id="workspace-filter-state" class="workspace-filter-state"></p>
         </div>
         <div class="workspace-actions">
-          <button id="workspace-rerun-all" type="button">Re-run all</button>
-          <button id="workspace-clear-all" type="button">Clear</button>
+          <button
+            id="workspace-rerun-all"
+            class="workspace-icon-btn workspace-icon-btn--accent"
+            type="button"
+            title="Re-run all"
+            aria-label="Re-run all"
+          >
+            <span aria-hidden="true">↻</span>
+          </button>
+          <button
+            id="workspace-clear-all"
+            class="workspace-icon-btn"
+            type="button"
+            title="Clear"
+            aria-label="Clear"
+          >
+            <span aria-hidden="true">✕</span>
+          </button>
         </div>
       </header>
 
       <p id="workspace-status" class="workspace-status" aria-live="polite"></p>
-
-      <section id="workspace-cards" class="workspace-cards">
-        <p id="workspace-empty" class="workspace-empty">
-          Use decomp in the UnderPAR side panel to open reports here.
-        </p>
+      <section id="workspace-lock-banner" class="workspace-lock-banner" hidden>
+        <p id="workspace-lock-message" class="workspace-lock-message"></p>
       </section>
+
+      <section id="workspace-cards" class="workspace-cards"></section>
     </main>
 
     <script src="decomp-workspace.js"></script>

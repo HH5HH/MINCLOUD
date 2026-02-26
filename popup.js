@@ -24,8 +24,7 @@ const PROGRAMMER_ENDPOINTS = [
 ];
 const DCR_CACHE_PREFIX = "underpar_dcr_cache_v1";
 const LEGACY_DCR_CACHE_PREFIX = "mincloudlogin_dcr_cache_v1";
-const PREMIUM_SERVICE_ORDER = ["restV2", "esm", "degradation"];
-const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "clickEsm", "decompTree", "degradation"];
+const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "decompTree", "degradation"];
 const PREMIUM_SERVICE_SCOPE_BY_KEY = {
   degradation: "decisions:owner",
   esm: "analytics:client",
@@ -34,8 +33,6 @@ const PREMIUM_SERVICE_SCOPE_BY_KEY = {
 const REST_V2_SCOPE = PREMIUM_SERVICE_SCOPE_BY_KEY.restV2;
 const PREMIUM_SERVICE_TITLE_BY_KEY = {
   degradation: "Degradation",
-  esm: "ESM",
-  clickEsm: "clickESM",
   decompTree: "decomp",
   restV2: "REST V2",
 };
@@ -69,13 +66,11 @@ const REST_V2_LOGIN_WINDOW_WIDTH = 980;
 const REST_V2_LOGIN_WINDOW_HEIGHT = 860;
 const REST_V2_LOGOUT_NAVIGATION_TIMEOUT_MS = 35000;
 const REST_V2_LOGOUT_POST_NAV_DELAY_MS = 1200;
-const ESM_INLINE_RESULT_LIMIT = 50;
 const ESM_AUTO_REFRESH_INTERVAL_MS = 60 * 1000;
-const CLICK_ESM_INLINE_RESULT_LIMIT = 50;
-const CLICK_ESM_CSV_RESULT_LIMIT = 10000;
 const CLICK_ESM_ENDPOINTS_PATH = "click-esm-endpoints.json";
-const DECOMP_INLINE_RESULT_LIMIT = 50;
+const DECOMP_INLINE_RESULT_LIMIT = 100;
 const DECOMP_CSV_RESULT_LIMIT = 10000;
+const ESM_DEPRECATED_COLUMN_KEYS = new Set(["clientless-failures", "clientless-tokens"]);
 const DECOMP_WORKSPACE_PATH = "decomp-workspace.html";
 const DECOMP_MESSAGE_TYPE = "underpar:decomp";
 const LEGACY_DECOMP_MESSAGE_TYPE = "mincloud:decomp";
@@ -2843,37 +2838,6 @@ async function stopRestV2MvpdRecording(section, programmer, appInfo) {
   }
 }
 
-const ESM_METRIC_COLUMNS = new Set([
-  "authn-attempts",
-  "authn-successful",
-  "authn-pending",
-  "authn-failed",
-  "clientless-tokens",
-  "clientless-failures",
-  "authz-attempts",
-  "authz-successful",
-  "authz-failed",
-  "authz-rejected",
-  "authz-latency",
-  "media-tokens",
-  "unique-accounts",
-  "unique-sessions",
-  "count",
-]);
-const ESM_DATE_PARTS = ["year", "month", "day", "hour", "minute"];
-
-function isoTimestamp(date) {
-  return new Date(date).toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-function getSelectedRequestorId() {
-  return String(state.selectedRequestorId || els.requestorSelect?.value || "").trim();
-}
-
-function getSelectedMvpdId() {
-  return String(state.selectedMvpdId || els.mvpdSelect?.value || "").trim();
-}
-
 function esmPartsToUtcMs(row) {
   const year = Number(row?.year ?? 1970);
   const month = Number(row?.month ?? 1);
@@ -2891,19 +2855,6 @@ function esmPartsToUtcMs(row) {
     ) -
     ESM_SOURCE_UTC_OFFSET_MINUTES * 60 * 1000
   );
-}
-
-function buildEsmDateLabel(row) {
-  const date = new Date(esmPartsToUtcMs(row));
-  return date.toLocaleString("en-US", {
-    timeZone: CLIENT_TIMEZONE,
-    month: "2-digit",
-    day: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZoneName: "short",
-  });
 }
 
 function getLastModifiedSourceTimezone(rawHttpDate) {
@@ -2963,37 +2914,6 @@ function esmSafeRate(numerator, denominator) {
   }
   const rate = n / d;
   return Number.isFinite(rate) ? rate : null;
-}
-
-function esmFormatPercent(rate) {
-  if (rate == null) {
-    return "—";
-  }
-  return `${(rate * 100).toFixed(2)}%`;
-}
-
-function createEsmCell(value) {
-  const cell = document.createElement("td");
-  const text = value == null ? "" : String(value);
-  cell.textContent = text;
-  cell.title = text;
-  return cell;
-}
-
-function buildEsmCsvFileName(programmerId) {
-  const requestorId = getSelectedRequestorId();
-  const mvpdId = getSelectedMvpdId();
-  const now = new Date();
-  const timestamp = [
-    now.getFullYear().toString(),
-    String(now.getMonth() + 1).padStart(2, "0"),
-    String(now.getDate()).padStart(2, "0"),
-    String(now.getHours()).padStart(2, "0"),
-    String(now.getMinutes()).padStart(2, "0"),
-    String(now.getSeconds()).padStart(2, "0"),
-  ].join("");
-
-  return `esm_${sanitizeHarFileSegment(programmerId, "programmer")}_${sanitizeHarFileSegment(requestorId, "all-requestors")}_${sanitizeHarFileSegment(mvpdId, "all-mvpds")}_${timestamp}.csv`;
 }
 
 function getDefaultEsmSortStack() {
@@ -3058,43 +2978,6 @@ function sortEsmRows(rows, sortStack, context) {
   });
 }
 
-function renderEsmTableBody(stateSnapshot) {
-  const { tbody, data, hasAuthN, hasAuthZ, hasCount, displayColumns } = stateSnapshot;
-  tbody.innerHTML = "";
-
-  data.forEach((row) => {
-    const tableRow = document.createElement("tr");
-    tableRow.appendChild(createEsmCell(buildEsmDateLabel(row)));
-
-    if (hasAuthN) {
-      tableRow.appendChild(createEsmCell(esmFormatPercent(esmSafeRate(row["authn-successful"], row["authn-attempts"]))));
-    }
-    if (hasAuthZ) {
-      tableRow.appendChild(createEsmCell(esmFormatPercent(esmSafeRate(row["authz-successful"], row["authz-attempts"]))));
-    }
-    if (!hasAuthN && !hasAuthZ && hasCount) {
-      tableRow.appendChild(createEsmCell(row.count));
-    }
-
-    displayColumns.forEach((column) => {
-      tableRow.appendChild(createEsmCell(row[column] ?? ""));
-    });
-
-    tbody.appendChild(tableRow);
-  });
-}
-
-function refreshEsmHeaderStates(stateSnapshot) {
-  if (!stateSnapshot || !stateSnapshot.thead) {
-    return;
-  }
-  stateSnapshot.thead.querySelectorAll("th").forEach((headerCell) => {
-    if (typeof headerCell._updateState === "function") {
-      headerCell._updateState();
-    }
-  });
-}
-
 function downloadEsmCsv(rows, sortRule, context, fileName) {
   if (!Array.isArray(rows) || rows.length === 0) {
     return;
@@ -3120,144 +3003,6 @@ function downloadEsmCsv(rows, sortRule, context, fileName) {
   URL.revokeObjectURL(blobUrl);
 }
 
-function renderEsmReportTable(contentElement, reportRows, lastModified, programmerId) {
-  if (!Array.isArray(reportRows) || reportRows.length === 0) {
-    contentElement.innerHTML =
-      '<div class="metadata-item"><p class="metadata-key">ESM</p><p class="metadata-value"><span class="null-value">No rows returned.</span></p></div>';
-    return;
-  }
-
-  contentElement.innerHTML = `
-    <div class="esm-table-wrapper">
-      <table class="esm-table">
-        <thead><tr></tr></thead>
-        <tbody></tbody>
-        <tfoot>
-          <tr>
-            <td class="esm-footer-cell">
-              <div class="esm-footer">
-                <a href="#" class="esm-csv-link">CSV</a>
-                <span class="esm-last-modified"></span>
-              </div>
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  `;
-
-  const table = contentElement.querySelector(".esm-table");
-  const thead = table.querySelector("thead");
-  const tbody = table.querySelector("tbody");
-
-  const firstRow = reportRows[0];
-  const hasAuthN = firstRow["authn-attempts"] != null && firstRow["authn-successful"] != null;
-  const hasAuthZ = firstRow["authz-attempts"] != null && firstRow["authz-successful"] != null;
-  const hasCount = firstRow.count != null;
-  const displayColumns = Object.keys(firstRow).filter(
-    (column) => !ESM_METRIC_COLUMNS.has(column) && !ESM_DATE_PARTS.includes(column) && column !== "media-company"
-  );
-
-  const headers = ["DATE"];
-  if (hasAuthN) {
-    headers.push("AuthN Success");
-  }
-  if (hasAuthZ) {
-    headers.push("AuthZ Success");
-  }
-  if (!hasAuthN && !hasAuthZ && hasCount) {
-    headers.push("COUNT");
-  }
-  headers.push(...displayColumns);
-
-  const context = { hasAuthN, hasAuthZ };
-  const tableState = {
-    thead,
-    tbody,
-    data: reportRows,
-    sortStack: getDefaultEsmSortStack(),
-    hasAuthN,
-    hasAuthZ,
-    hasCount,
-    displayColumns,
-    context,
-  };
-
-  const headerRow = thead.querySelector("tr");
-  headers.forEach((header) => {
-    const th = document.createElement("th");
-    th.style.cursor = "pointer";
-    th.textContent = header;
-
-    const icon = document.createElement("span");
-    icon.className = "sort-icon";
-    icon.style.marginLeft = "6px";
-    th.appendChild(icon);
-
-    th._updateState = () => {
-      const isActive = tableState.sortStack[0]?.col === header;
-      th.classList.toggle("active-sort", isActive);
-      icon.textContent = isActive ? (tableState.sortStack[0].dir === "ASC" ? "▲" : "▼") : "";
-    };
-
-    th.addEventListener("click", (event) => {
-      const existingRule = tableState.sortStack.find((rule) => rule.col === header);
-
-      if (event.shiftKey && existingRule) {
-        existingRule.dir = existingRule.dir === "DESC" ? "ASC" : "DESC";
-      } else if (event.shiftKey) {
-        tableState.sortStack.push({ col: header, dir: "DESC" });
-      } else {
-        tableState.sortStack = [
-          {
-            col: header,
-            dir: existingRule ? (existingRule.dir === "DESC" ? "ASC" : "DESC") : "DESC",
-          },
-        ];
-      }
-
-      tableState.data = sortEsmRows(tableState.data, tableState.sortStack, context);
-      renderEsmTableBody(tableState);
-      refreshEsmHeaderStates(tableState);
-    });
-
-    headerRow.appendChild(th);
-  });
-
-  const footerCell = contentElement.querySelector(".esm-footer-cell");
-  if (footerCell) {
-    footerCell.colSpan = Math.max(1, headers.length);
-  }
-
-  tableState.data = sortEsmRows(tableState.data, tableState.sortStack, context);
-  renderEsmTableBody(tableState);
-  refreshEsmHeaderStates(tableState);
-
-  const csvLink = contentElement.querySelector(".esm-csv-link");
-  if (csvLink) {
-    csvLink.addEventListener("click", (event) => {
-      event.preventDefault();
-      const csvFileName = buildEsmCsvFileName(programmerId);
-      downloadEsmCsv(reportRows, tableState.sortStack[0], context, csvFileName);
-    });
-  }
-
-  const lastModifiedLabel = contentElement.querySelector(".esm-last-modified");
-  if (!lastModifiedLabel) {
-    return;
-  }
-
-  if (lastModified) {
-    const sourceTz = getLastModifiedSourceTimezone(lastModified);
-    lastModifiedLabel.textContent = `Last-Modified: ${formatLastModifiedForDisplay(lastModified)}`;
-    lastModifiedLabel.title = sourceTz
-      ? `Server time: ${sourceTz} (converted to your timezone)`
-      : "Converted to your timezone";
-  } else {
-    lastModifiedLabel.textContent = "Last-Modified: (real-time)";
-  }
-}
-
 function isEsmServiceRequestActive(section, requestToken, programmerId) {
   if (!section || !section.isConnected) {
     return false;
@@ -3269,109 +3014,6 @@ function isEsmServiceRequestActive(section, requestToken, programmerId) {
   return Boolean(selected && selected.programmerId === programmerId);
 }
 
-function buildEsmUrl() {
-  const now = new Date();
-  const start = new Date(now.getTime() - 60 * 60 * 1000);
-
-  const params = new URLSearchParams();
-  params.set("start", isoTimestamp(start));
-  params.set("end", isoTimestamp(now));
-  params.set("format", "json");
-  params.set("limit", String(ESM_INLINE_RESULT_LIMIT));
-
-  const selectedRequestor = getSelectedRequestorId();
-  if (selectedRequestor) {
-    params.append("requestor-id", selectedRequestor);
-  }
-
-  const selectedMvpd = getSelectedMvpdId();
-  if (selectedMvpd) {
-    params.append("mvpd", selectedMvpd);
-  }
-
-  return `${ADOBE_MGMT_BASE}/esm/v3/media-company/year/month/day/hour/minute?${params.toString()}`;
-}
-
-async function loadEsmService(programmer, appInfo, section, contentElement, refreshButton, requestToken) {
-  if (!contentElement) {
-    return;
-  }
-  if (!programmer?.programmerId || !appInfo?.guid) {
-    contentElement.innerHTML = '<div class="service-error">Missing media company or ESM application details.</div>';
-    return;
-  }
-
-  if (refreshButton) {
-    refreshButton.disabled = true;
-  }
-  contentElement.innerHTML = '<div class="loading">Loading ESM data...</div>';
-
-  try {
-    const url = buildEsmUrl();
-    const response = await fetchWithPremiumAuth(
-      programmer.programmerId,
-      appInfo,
-      url,
-      { method: "GET" },
-      "refresh",
-      {
-        scope: "esm",
-        requestorId: getSelectedRequestorId(),
-        mvpd: getSelectedMvpdId(),
-      }
-    );
-    const lastModified = response.headers.get("Last-Modified");
-    const bodyText = await response.text();
-
-    if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
-      return;
-    }
-
-    if (!response.ok) {
-      contentElement.innerHTML = `<div class="service-error">HTTP ${response.status} ${escapeHtml(response.statusText)}
-${escapeHtml(bodyText || "")}</div>`;
-      return;
-    }
-
-    let jsonData = null;
-    try {
-      jsonData = bodyText ? JSON.parse(bodyText) : null;
-    } catch {
-      jsonData = null;
-    }
-
-    const reportRows = Array.isArray(jsonData?.report) ? jsonData.report : [];
-    renderEsmReportTable(contentElement, reportRows, lastModified, programmer.programmerId);
-  } catch (error) {
-    if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
-      return;
-    }
-    contentElement.innerHTML = `<div class="service-error">${escapeHtml(error instanceof Error ? error.message : String(error))}</div>`;
-  } finally {
-    if (refreshButton && isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
-      refreshButton.disabled = false;
-    }
-  }
-}
-
-function refreshEsmPanels() {
-  const sections = document.querySelectorAll(
-    ".premium-service-section.service-esm, .premium-service-section.service-esm-click"
-  );
-  if (!sections || sections.length === 0) {
-    return;
-  }
-
-  sections.forEach((section) => {
-    if (typeof section.__underparRefreshEsm === "function") {
-      void section.__underparRefreshEsm();
-    }
-    if (typeof section.__underparRefreshClickEsm === "function") {
-      void section.__underparRefreshClickEsm();
-    }
-  });
-}
-
 const CLICK_ESM_ZOOM_OPTIONS = ["", "YR", "MO", "DAY", "HR", "MIN"];
 const CLICK_ESM_ZOOM_TOKEN_BY_KEY = {
   YR: "/year",
@@ -3380,7 +3022,6 @@ const CLICK_ESM_ZOOM_TOKEN_BY_KEY = {
   HR: "/hour",
   MIN: "/minute",
 };
-const CLICK_ESM_METRIC_COLUMNS = new Set([...ESM_METRIC_COLUMNS, "authn-failed", "decision-media-tokens"]);
 
 function clickEsmEscapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -3475,17 +3116,6 @@ function clickEsmGetSelectedValues(selectElement) {
   return [...selectElement.selectedOptions].map((option) => String(option.value || "").trim()).filter(Boolean);
 }
 
-function clickEsmBuildRequestMetadata(clickState) {
-  const requestorSelect = clickState.contentElement?.querySelector(".click-esm-requestor-select");
-  const mvpdSelect = clickState.contentElement?.querySelector(".click-esm-mvpd-select");
-  const requestorIds = clickEsmGetSelectedValues(requestorSelect);
-  const mvpds = clickEsmGetSelectedValues(mvpdSelect);
-  return {
-    requestorId: requestorIds[0] || "",
-    mvpd: mvpds[0] || "",
-  };
-}
-
 function clickEsmEnsureLimit(url, limit) {
   try {
     const parsed = new URL(url);
@@ -3498,6 +3128,45 @@ function clickEsmEnsureLimit(url, limit) {
   } catch {
     return String(url || "");
   }
+}
+
+function normalizeEsmColumns(columns, options = {}) {
+  const includeFallbackLabel = options.includeFallbackLabel === true;
+  const output = [];
+  const seen = new Set();
+
+  (Array.isArray(columns) ? columns : []).forEach((value) => {
+    const normalized = String(value || "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!normalized) {
+      return;
+    }
+
+    if (/^no\s+report\s+columns$/i.test(normalized)) {
+      const key = "no report columns";
+      if (!seen.has(key)) {
+        output.push("No report columns");
+        seen.add(key);
+      }
+      return;
+    }
+
+    const lower = normalized.toLowerCase();
+    if (ESM_DEPRECATED_COLUMN_KEYS.has(lower)) {
+      return;
+    }
+    if (!seen.has(lower)) {
+      output.push(normalized);
+      seen.add(lower);
+    }
+  });
+
+  if (output.length === 0 && includeFallbackLabel) {
+    return ["No report columns"];
+  }
+  return output;
 }
 
 function clickEsmBuildEndpointUrl(clickState, endpoint) {
@@ -3524,62 +3193,6 @@ function clickEsmBuildEndpointUrl(clickState, endpoint) {
   return parsed.toString();
 }
 
-function clickEsmSetNetworkBusy(clickState, isBusy) {
-  if (!clickState?.contentElement) {
-    return;
-  }
-  const shell = clickState.contentElement.querySelector(".click-esm-shell");
-  const indicator = clickState.contentElement.querySelector(".click-esm-net-indicator");
-  if (shell) {
-    shell.classList.toggle("net-busy", Boolean(isBusy));
-  }
-  if (indicator) {
-    indicator.hidden = !isBusy;
-  }
-}
-
-function clickEsmStartNetwork(clickState) {
-  if (!clickState) {
-    return;
-  }
-  clickState.netInFlight = Number(clickState.netInFlight || 0) + 1;
-  if (clickState.netInFlight === 1) {
-    clickEsmSetNetworkBusy(clickState, true);
-  }
-}
-
-function clickEsmEndNetwork(clickState) {
-  if (!clickState) {
-    return;
-  }
-  clickState.netInFlight = Math.max(0, Number(clickState.netInFlight || 0) - 1);
-  if (clickState.netInFlight === 0) {
-    clickEsmSetNetworkBusy(clickState, false);
-  }
-}
-
-async function clickEsmFetchWithPremiumAuth(clickState, url, options = {}, limit = CLICK_ESM_CSV_RESULT_LIMIT) {
-  const finalUrl = clickEsmEnsureLimit(url, limit);
-  const requestMeta = clickEsmBuildRequestMetadata(clickState);
-  clickEsmStartNetwork(clickState);
-  try {
-    return await fetchWithPremiumAuth(
-      clickState.programmer?.programmerId,
-      clickState.appInfo,
-      finalUrl,
-      options,
-      "refresh",
-      {
-        scope: "esm-click",
-        requestorId: requestMeta.requestorId,
-        mvpd: requestMeta.mvpd,
-      }
-    );
-  } finally {
-    clickEsmEndNetwork(clickState);
-  }
-}
-
 async function loadClickEsmEndpoints() {
   if (Array.isArray(clickEsmEndpoints) && clickEsmEndpoints.length > 0) {
     return clickEsmEndpoints;
@@ -3596,7 +3209,7 @@ async function loadClickEsmEndpoints() {
       cache: "no-cache",
     });
     if (!response.ok) {
-      throw new Error(`Unable to load clickESM endpoint catalog (${response.status}).`);
+      throw new Error(`Unable to load ESM endpoint catalog (${response.status}).`);
     }
 
     const payload = await response.json().catch(() => null);
@@ -3611,11 +3224,13 @@ async function loadClickEsmEndpoints() {
           return null;
         }
         const zoomKey = clickEsmGetZoomKey(endpoint);
+        const normalizedColumns = normalizeEsmColumns(endpoint.columns, { includeFallbackLabel: true });
+
         return {
           url,
           zoomClass: String(endpoint.zoomClass || "").trim(),
           zoomKey,
-          columns: Array.isArray(endpoint.columns) ? endpoint.columns.map((value) => String(value || "").trim()).filter(Boolean) : [],
+          columns: normalizedColumns,
         };
       })
       .filter(Boolean);
@@ -3628,163 +3243,6 @@ async function loadClickEsmEndpoints() {
   } finally {
     clickEsmEndpointsPromise = null;
   }
-}
-
-function clickEsmBuildShellHtml(endpoints) {
-  const endpointRows = endpoints
-    .map((endpoint, index) => {
-      const zoomKey = clickEsmGetZoomKey(endpoint);
-      return `
-        <dl class="click-esm-item" data-endpoint-index="${index}" data-zoom-key="${escapeHtml(zoomKey)}">
-          <dt>
-            <button type="button" class="click-esm-link" data-endpoint-index="${index}" title="${escapeHtml(endpoint.url)}">
-              ${escapeHtml(endpoint.url)}
-            </button>
-          </dt>
-          <dd class="click-esm-col-list"></dd>
-          <dd class="click-esm-table-host" data-endpoint-index="${index}"></dd>
-        </dl>
-      `;
-    })
-    .join("");
-
-  const zoomOptions = CLICK_ESM_ZOOM_OPTIONS.map((key) => {
-    const value = escapeHtml(key);
-    const label = key ? escapeHtml(key) : "";
-    return `<option value="${value}">${label}</option>`;
-  }).join("");
-
-  return `
-    <div class="click-esm-shell">
-      <div class="click-esm-toolbar">
-        <select class="click-esm-zoom-filter" title="Zoom Level">${zoomOptions}</select>
-        <input type="text" class="click-esm-search" placeholder="ESM Column search..." />
-        <button type="button" class="click-esm-find-btn">FIND IT</button>
-        <button type="button" class="click-esm-reset-btn">RESET</button>
-        <span class="click-esm-net-indicator" title="Loading" aria-label="Loading" hidden></span>
-      </div>
-      <div class="click-esm-scroll-container">
-        ${endpointRows}
-      </div>
-      <div class="click-esm-footer">
-        <select
-          class="click-esm-requestor-select"
-          multiple
-          size="1"
-          title="Filter by selected requestor-id(s)"
-        ></select>
-        <select
-          class="click-esm-mvpd-select"
-          multiple
-          size="1"
-          title="Filter by selected MVPD(s)"
-          disabled
-          hidden
-        ></select>
-      </div>
-    </div>
-  `;
-}
-
-function clickEsmSetEndpointButtonUrl(clickState, endpointIndex, fullUrl) {
-  if (!clickState?.contentElement) {
-    return;
-  }
-  const button = clickState.contentElement.querySelector(`.click-esm-link[data-endpoint-index="${endpointIndex}"]`);
-  if (!button) {
-    return;
-  }
-
-  const normalized = String(fullUrl || "").trim();
-  if (!normalized) {
-    return;
-  }
-
-  button.textContent = normalized;
-  button.title = normalized;
-}
-
-function clickEsmRefreshEndpointUrls(clickState) {
-  if (!clickState?.contentElement || !Array.isArray(clickState.endpoints)) {
-    return;
-  }
-  clickState.endpoints.forEach((endpoint, endpointIndex) => {
-    const url = clickEsmBuildEndpointUrl(clickState, endpoint);
-    clickEsmSetEndpointButtonUrl(clickState, endpointIndex, url);
-  });
-}
-
-function clickEsmSetColumnListMarkup(columnElement, columns = [], highlightedTerm = "") {
-  if (!columnElement) {
-    return;
-  }
-
-  const normalizedColumns = Array.isArray(columns) ? columns.map((value) => String(value || "").trim()).filter(Boolean) : [];
-  if (normalizedColumns.length === 0) {
-    columnElement.innerHTML = '<span class="click-esm-col-chip">No report columns</span>';
-    return;
-  }
-
-  const markMatches = (value, term) => {
-    if (!term) {
-      return escapeHtml(value);
-    }
-    const safeTerm = clickEsmEscapeRegExp(term);
-    const pattern = new RegExp(safeTerm, "gi");
-    let output = "";
-    let cursor = 0;
-    let match = pattern.exec(value);
-    while (match) {
-      output += escapeHtml(value.slice(cursor, match.index));
-      output += `<span class="click-esm-highlight">${escapeHtml(match[0])}</span>`;
-      cursor = match.index + match[0].length;
-      if (match[0].length === 0) {
-        break;
-      }
-      match = pattern.exec(value);
-    }
-    output += escapeHtml(value.slice(cursor));
-    return output;
-  };
-
-  const chipsHtml = normalizedColumns
-    .map((columnValue) => {
-      const hasMatch = highlightedTerm && columnValue.toLowerCase().includes(highlightedTerm);
-      const chipClass = hasMatch ? "click-esm-col-chip click-esm-col-chip-match" : "click-esm-col-chip";
-      return `<span class="${chipClass}">${markMatches(columnValue, highlightedTerm)}</span>`;
-    })
-    .join("");
-  columnElement.innerHTML = chipsHtml;
-}
-
-function clickEsmApplyEndpointFilters(clickState, options = {}) {
-  const zoomFilter = String(clickState.zoomFilterSelect?.value || "").trim().toUpperCase();
-  const rawSearch = String(clickState.searchInput?.value || "");
-  const normalizedTerm = clickEsmNormalizeSearchTerm(rawSearch);
-  const shouldHighlight = Boolean(options.highlight && normalizedTerm);
-
-  clickState.contentElement?.querySelectorAll(".click-esm-item").forEach((itemElement) => {
-    const endpointIndex = Number(itemElement.getAttribute("data-endpoint-index"));
-    const endpoint = clickState.endpoints[endpointIndex];
-    const endpointZoom = clickEsmGetZoomKey(endpoint);
-    const columnElement = itemElement.querySelector(".click-esm-col-list");
-    const columnValues = Array.isArray(endpoint?.columns) ? endpoint.columns : [];
-    const columnsRawText = columnValues.join(" ");
-
-    if (columnElement) {
-      clickEsmSetColumnListMarkup(columnElement, columnValues, shouldHighlight ? normalizedTerm : "");
-    }
-    itemElement.classList.remove("click-esm-parent-highlight");
-
-    const zoomPass = !zoomFilter || endpointZoom === zoomFilter;
-    const searchPass = !normalizedTerm || String(columnsRawText || "").toLowerCase().includes(normalizedTerm);
-    const shouldShow = zoomPass && searchPass;
-    itemElement.hidden = !shouldShow;
-
-    if (shouldShow && shouldHighlight) {
-      itemElement.classList.add("click-esm-parent-highlight");
-    }
-  });
 }
 
 function clickEsmHideMvpdSelector(clickState) {
@@ -4011,7 +3469,7 @@ async function clickEsmApplyRequestorSelection(clickState, requestorIds, request
   if (!clickState.mvpdSelect) {
     return;
   }
-  const serviceLabel = clickState?.serviceType === "decompTree" ? "decomp" : "clickESM";
+  const serviceLabel = "decomp";
 
   if (!requestorIds.length) {
     clickEsmHideMvpdSelector(clickState);
@@ -4213,424 +3671,6 @@ function syncClickEsmRequestorMenus(requestorIds, selectedRequestorId = "", opti
   });
 }
 
-function clickEsmBuildCsvFileName(clickState, endpointUrl) {
-  let endpointPath = "endpoint";
-  try {
-    const parsed = new URL(endpointUrl);
-    endpointPath = parsed.pathname.replace(/^\/+/, "").replace(/\//g, "-");
-  } catch {
-    endpointPath = "endpoint";
-  }
-  const selectedRequestorIds = clickEsmGetSelectedValues(clickState?.requestorSelect);
-  const selectedMvpds = clickState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(clickState?.mvpdSelect);
-  const requestorId = sanitizeHarFileSegment(selectedRequestorIds.join("-") || "all-requestors", "all-requestors");
-  const mvpdId = sanitizeHarFileSegment(selectedMvpds.join("-") || "all-mvpds", "all-mvpds");
-  const endpointSegment = sanitizeHarFileSegment(endpointPath, "endpoint");
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return `clickesm_${sanitizeHarFileSegment(clickState?.programmer?.programmerId, "programmer")}_${requestorId}_${mvpdId}_${endpointSegment}_${stamp}.csv`;
-}
-
-async function clickEsmDownloadCsv(clickState, endpoint, sortRule, requestToken) {
-  const dataUrl = clickEsmBuildEndpointUrl(clickState, endpoint);
-  const response = await clickEsmFetchWithPremiumAuth(
-    clickState,
-    dataUrl,
-    { method: "GET" },
-    CLICK_ESM_CSV_RESULT_LIMIT
-  );
-  if (!isEsmServiceRequestActive(clickState.section, requestToken, clickState.programmer?.programmerId)) {
-    return;
-  }
-  if (!response.ok) {
-    throw new Error(`CSV request failed (${response.status})`);
-  }
-
-  const payload = await response.json().catch(() => null);
-  const rows = Array.isArray(payload?.report) ? payload.report : [];
-  if (rows.length === 0) {
-    return;
-  }
-
-  const firstRow = rows[0];
-  const sortContext = {
-    hasAuthN: firstRow["authn-attempts"] != null && firstRow["authn-successful"] != null,
-    hasAuthZ: firstRow["authz-attempts"] != null && firstRow["authz-successful"] != null,
-  };
-  const fileName = clickEsmBuildCsvFileName(clickState, endpoint.url);
-  downloadEsmCsv(rows, sortRule, sortContext, fileName);
-}
-
-function clickEsmRenderTableMessage(hostElement, message) {
-  hostElement.innerHTML = `
-    <div class="metadata-item">
-      <p class="metadata-key">clickESM</p>
-      <p class="metadata-value"><span class="null-value">${escapeHtml(message)}</span></p>
-    </div>
-  `;
-}
-
-function clickEsmRenderTable(clickState, endpoint, hostElement, reportRows, lastModified, requestToken) {
-  if (!Array.isArray(reportRows) || reportRows.length === 0) {
-    clickEsmRenderTableMessage(hostElement, "No data");
-    return;
-  }
-
-  hostElement.innerHTML = `
-    <div class="esm-table-wrapper">
-      <table class="esm-table">
-        <thead><tr></tr></thead>
-        <tbody></tbody>
-        <tfoot>
-          <tr>
-            <td class="esm-footer-cell">
-              <div class="esm-footer click-esm-table-footer">
-                <a href="#" class="esm-csv-link">CSV</a>
-                <span class="esm-last-modified"></span>
-                <button type="button" class="click-esm-close" title="Close table">x</button>
-              </div>
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    </div>
-  `;
-
-  const table = hostElement.querySelector(".esm-table");
-  const thead = table?.querySelector("thead");
-  const tbody = table?.querySelector("tbody");
-  if (!table || !thead || !tbody) {
-    return;
-  }
-
-  const firstRow = reportRows[0];
-  const hasAuthN = firstRow["authn-attempts"] != null && firstRow["authn-successful"] != null;
-  const hasAuthZ = firstRow["authz-attempts"] != null && firstRow["authz-successful"] != null;
-  const hasCount = firstRow.count != null;
-  const displayColumns = Object.keys(firstRow).filter(
-    (column) => !CLICK_ESM_METRIC_COLUMNS.has(column) && !ESM_DATE_PARTS.includes(column) && column !== "media-company"
-  );
-
-  const headers = ["DATE"];
-  if (hasAuthN) {
-    headers.push("AuthN Success");
-  }
-  if (hasAuthZ) {
-    headers.push("AuthZ Success");
-  }
-  if (!hasAuthN && !hasAuthZ && hasCount) {
-    headers.push("COUNT");
-  }
-  headers.push(...displayColumns);
-
-  const tableState = {
-    thead,
-    tbody,
-    data: reportRows,
-    sortStack: getDefaultEsmSortStack(),
-    hasAuthN,
-    hasAuthZ,
-    hasCount,
-    displayColumns,
-    context: {
-      hasAuthN,
-      hasAuthZ,
-    },
-  };
-
-  const headerRow = thead.querySelector("tr");
-  headers.forEach((header) => {
-    const th = document.createElement("th");
-    th.style.cursor = "pointer";
-    th.textContent = header;
-    th.title = header === "DATE" ? `DATE (${CLIENT_TIMEZONE}, converted from PST)` : header;
-    const icon = document.createElement("span");
-    icon.className = "sort-icon";
-    icon.style.marginLeft = "6px";
-    th.appendChild(icon);
-
-    th._updateState = () => {
-      const isActive = tableState.sortStack[0]?.col === header;
-      th.classList.toggle("active-sort", isActive);
-      icon.textContent = isActive ? (tableState.sortStack[0].dir === "ASC" ? "▲" : "▼") : "";
-    };
-
-    th.addEventListener("click", (event) => {
-      const existingRule = tableState.sortStack.find((rule) => rule.col === header);
-      if (event.shiftKey && existingRule) {
-        existingRule.dir = existingRule.dir === "DESC" ? "ASC" : "DESC";
-      } else if (event.shiftKey) {
-        tableState.sortStack.push({ col: header, dir: "DESC" });
-      } else {
-        tableState.sortStack = [
-          {
-            col: header,
-            dir: existingRule ? (existingRule.dir === "DESC" ? "ASC" : "DESC") : "DESC",
-          },
-        ];
-      }
-
-      tableState.data = sortEsmRows(tableState.data, tableState.sortStack, tableState.context);
-      renderEsmTableBody(tableState);
-      refreshEsmHeaderStates(tableState);
-    });
-
-    headerRow.appendChild(th);
-  });
-
-  const footerCell = hostElement.querySelector(".esm-footer-cell");
-  if (footerCell) {
-    footerCell.colSpan = Math.max(1, headers.length);
-  }
-
-  tableState.data = sortEsmRows(tableState.data, tableState.sortStack, tableState.context);
-  renderEsmTableBody(tableState);
-  refreshEsmHeaderStates(tableState);
-
-  const csvLink = hostElement.querySelector(".esm-csv-link");
-  if (csvLink) {
-    csvLink.addEventListener("click", async (event) => {
-      event.preventDefault();
-      try {
-        await clickEsmDownloadCsv(clickState, endpoint, tableState.sortStack[0], requestToken);
-      } catch (error) {
-        setStatus(`clickESM CSV download failed: ${error instanceof Error ? error.message : String(error)}`, "error");
-      }
-    });
-  }
-
-  const closeButton = hostElement.querySelector(".click-esm-close");
-  if (closeButton) {
-    closeButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      hostElement.innerHTML = "";
-    });
-  }
-
-  const lastModifiedLabel = hostElement.querySelector(".esm-last-modified");
-  if (lastModifiedLabel) {
-    if (lastModified) {
-      const sourceTz = getLastModifiedSourceTimezone(lastModified);
-      lastModifiedLabel.textContent = `Last-Modified: ${formatLastModifiedForDisplay(lastModified)}`;
-      lastModifiedLabel.title = sourceTz
-        ? `Server time: ${sourceTz} (converted to your timezone)`
-        : "Converted to your timezone";
-    } else {
-      lastModifiedLabel.textContent = "Last-Modified: (real-time)";
-    }
-  }
-}
-
-async function clickEsmRunEndpoint(clickState, endpointIndex, requestToken) {
-  const endpoint = clickState.endpoints[endpointIndex];
-  const hostElement = clickState.contentElement?.querySelector(`.click-esm-table-host[data-endpoint-index="${endpointIndex}"]`);
-  if (!endpoint || !hostElement) {
-    return;
-  }
-
-  hostElement.innerHTML = '<div class="loading">Loading ESM data...</div>';
-
-  let response;
-  try {
-    const url = clickEsmBuildEndpointUrl(clickState, endpoint);
-    clickEsmSetEndpointButtonUrl(clickState, endpointIndex, url);
-    response = await clickEsmFetchWithPremiumAuth(
-      clickState,
-      url,
-      {
-        method: "GET",
-      },
-      CLICK_ESM_INLINE_RESULT_LIMIT
-    );
-  } catch (error) {
-    if (isEsmServiceRequestActive(clickState.section, requestToken, clickState.programmer?.programmerId)) {
-      clickEsmRenderTableMessage(hostElement, error instanceof Error ? error.message : String(error));
-    }
-    return;
-  }
-
-  if (!isEsmServiceRequestActive(clickState.section, requestToken, clickState.programmer?.programmerId)) {
-    return;
-  }
-
-  if (!response.ok) {
-    const bodyText = await response.text().catch(() => "");
-    clickEsmRenderTableMessage(
-      hostElement,
-      `HTTP ${response.status} ${normalizeHttpErrorMessage(bodyText) || response.statusText || "Request failed"}`
-    );
-    return;
-  }
-
-  const bodyText = await response.text().catch(() => "");
-  let jsonPayload = null;
-  if (bodyText) {
-    try {
-      jsonPayload = JSON.parse(bodyText);
-    } catch {
-      jsonPayload = null;
-    }
-  }
-  if (!jsonPayload && bodyText.trim()) {
-    clickEsmRenderTableMessage(hostElement, bodyText.trim());
-    return;
-  }
-  const reportRows = Array.isArray(jsonPayload?.report) ? jsonPayload.report : [];
-  clickEsmRenderTable(clickState, endpoint, hostElement, reportRows, response.headers.get("Last-Modified"), requestToken);
-}
-
-function wireClickEsmInteractions(clickState, requestToken) {
-  const { contentElement } = clickState;
-  if (!contentElement) {
-    return;
-  }
-
-  contentElement.querySelectorAll(".click-esm-link").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      event.preventDefault();
-      const endpointIndex = Number(button.getAttribute("data-endpoint-index"));
-      void clickEsmRunEndpoint(clickState, endpointIndex, requestToken);
-    });
-  });
-
-  if (clickState.findButton) {
-    clickState.findButton.addEventListener("click", () => {
-      clickState.searchInput.value = clickEsmNormalizeSearchTerm(clickState.searchInput.value);
-      clickEsmApplyEndpointFilters(clickState, { highlight: true });
-    });
-  }
-
-  if (clickState.resetButton) {
-    clickState.resetButton.addEventListener("click", () => {
-      if (clickState.searchInput) {
-        clickState.searchInput.value = "";
-      }
-      if (clickState.zoomFilterSelect) {
-        clickState.zoomFilterSelect.value = "";
-      }
-      clickEsmApplyEndpointFilters(clickState, { highlight: false });
-    });
-  }
-
-  if (clickState.zoomFilterSelect) {
-    clickState.zoomFilterSelect.addEventListener("change", () => {
-      const term = clickEsmNormalizeSearchTerm(clickState.searchInput?.value || "");
-      clickEsmApplyEndpointFilters(clickState, { highlight: Boolean(term) });
-    });
-  }
-
-  if (clickState.searchInput) {
-    clickState.searchInput.addEventListener("input", () => {
-      const term = clickEsmNormalizeSearchTerm(clickState.searchInput.value);
-      clickEsmApplyEndpointFilters(clickState, { highlight: Boolean(term) });
-    });
-
-    clickState.searchInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        clickState.searchInput.value = clickEsmNormalizeSearchTerm(clickState.searchInput.value);
-        clickEsmApplyEndpointFilters(clickState, { highlight: true });
-      }
-    });
-  }
-
-  if (clickState.requestorSelect) {
-    clickState.requestorSelect.addEventListener("change", () => {
-      clickEsmHandleRequestorChange(clickState, requestToken);
-      clickEsmRefreshEndpointUrls(clickState);
-    });
-  }
-
-  if (clickState.mvpdSelect) {
-    clickEsmEnableMvpdHoverHint(clickState);
-    clickState.mvpdSelect.addEventListener("change", () => {
-      clickEsmRememberMvpdSelection(clickState);
-      clickEsmRefreshEndpointUrls(clickState);
-    });
-  }
-}
-
-async function loadClickEsmService(programmer, appInfo, section, contentElement, refreshButton, requestToken) {
-  if (!contentElement) {
-    return;
-  }
-  if (!programmer?.programmerId || !appInfo?.guid) {
-    contentElement.innerHTML = '<div class="service-error">Missing media company or ESM application details.</div>';
-    return;
-  }
-
-  const existingClickState = section?.__underparClickEsmState;
-  if (existingClickState?.requestorApplyTimer) {
-    clearTimeout(existingClickState.requestorApplyTimer);
-  }
-  section.__underparClickEsmState = null;
-
-  if (refreshButton) {
-    refreshButton.disabled = true;
-  }
-  contentElement.innerHTML = '<div class="loading">Loading clickESM...</div>';
-
-  try {
-    const endpoints = await loadClickEsmEndpoints();
-    if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
-      return;
-    }
-    if (!Array.isArray(endpoints) || endpoints.length === 0) {
-      contentElement.innerHTML = '<div class="service-error">No clickESM endpoints were found.</div>';
-      return;
-    }
-
-    contentElement.innerHTML = clickEsmBuildShellHtml(endpoints);
-    const clickState = {
-      serviceType: "clickEsm",
-      section,
-      contentElement,
-      programmer,
-      appInfo,
-      endpoints,
-      netInFlight: 0,
-      requestorApplyTimer: 0,
-      pendingRequestorIds: [],
-      lastKnownSelectedMvpdIds: new Set(),
-      zoomFilterSelect: contentElement.querySelector(".click-esm-zoom-filter"),
-      searchInput: contentElement.querySelector(".click-esm-search"),
-      findButton: contentElement.querySelector(".click-esm-find-btn"),
-      resetButton: contentElement.querySelector(".click-esm-reset-btn"),
-      requestorSelect: contentElement.querySelector(".click-esm-requestor-select"),
-      mvpdSelect: contentElement.querySelector(".click-esm-mvpd-select"),
-    };
-
-    section.__underparClickEsmState = clickState;
-    wireClickEsmInteractions(clickState, requestToken);
-    clickEsmApplyEndpointFilters(clickState, { highlight: false });
-    clickEsmApplySharedRequestorOptions(clickState, requestToken, {
-      selectedRequestorId: state.selectedRequestorId,
-      emptyLabel: "-- Select a Media Company first --",
-    });
-    clickEsmRefreshEndpointUrls(clickState);
-
-    if (clickState.mvpdSelect && state.selectedMvpdId) {
-      [...clickState.mvpdSelect.options].forEach((option) => {
-        if (option.value === state.selectedMvpdId) {
-          option.selected = true;
-        }
-      });
-      clickEsmRememberMvpdSelection(clickState);
-      clickEsmRefreshEndpointUrls(clickState);
-    }
-  } catch (error) {
-    if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
-      return;
-    }
-    contentElement.innerHTML = `<div class="service-error">${escapeHtml(
-      error instanceof Error ? error.message : String(error)
-    )}</div>`;
-  } finally {
-    if (refreshButton && isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
-      refreshButton.disabled = false;
-    }
-  }
-}
-
 const DECOMP_SEGMENT_COLORS = {
   "media-company": "#222222",
   year: "#2D8CFF",
@@ -4748,9 +3788,7 @@ function decompBuildCatalog(endpoints) {
         return null;
       }
       const segs = decompExtractSegments(url);
-      const columns = Array.isArray(endpoint.columns)
-        ? endpoint.columns.map((value) => String(value || "").trim()).filter(Boolean)
-        : [];
+      const columns = normalizeEsmColumns(endpoint.columns);
       const zoomKey = clickEsmGetZoomKey(endpoint);
       return {
         url,
@@ -4877,12 +3915,46 @@ function decompGetControllerStatePayload(decompState) {
   const mvpdIds = decompState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(decompState?.mvpdSelect);
   return {
     controllerOnline: Boolean(decompState?.section?.isConnected),
+    esmAvailable: true,
     programmerId: String(decompState?.programmer?.programmerId || ""),
     programmerName: String(decompState?.programmer?.programmerName || ""),
     requestorIds,
     mvpdIds,
     updatedAt: Date.now(),
   };
+}
+
+function decompGetSelectedControllerStatePayload(programmer = null, services = null) {
+  const resolvedProgrammer =
+    programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  let resolvedServices = services;
+  if (!resolvedServices && resolvedProgrammer?.programmerId) {
+    resolvedServices = state.premiumAppsByProgrammerId.get(resolvedProgrammer.programmerId) || null;
+  }
+
+  const requestorIds = state.selectedRequestorId ? [String(state.selectedRequestorId)] : [];
+  const mvpdIds = state.selectedMvpdId ? [String(state.selectedMvpdId)] : [];
+  let esmAvailable = null;
+  if (resolvedServices && typeof resolvedServices === "object") {
+    esmAvailable = Boolean(resolvedServices.esm);
+  }
+
+  return {
+    controllerOnline: false,
+    esmAvailable,
+    programmerId: String(resolvedProgrammer?.programmerId || ""),
+    programmerName: String(resolvedProgrammer?.programmerName || ""),
+    requestorIds,
+    mvpdIds,
+    updatedAt: Date.now(),
+  };
+}
+
+function decompBroadcastSelectedControllerState(programmer = null, services = null, targetWindowId = 0) {
+  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.decompWorkspaceWindowId || 0);
+  void decompSendWorkspaceMessage("controller-state", decompGetSelectedControllerStatePayload(programmer, services), {
+    targetWindowId: resolvedWindowId,
+  });
 }
 
 async function decompSendWorkspaceMessage(event, payload = {}, options = {}) {
@@ -5447,9 +4519,7 @@ function decompFindEndpointByUrl(decompState, endpointUrl, fallback = {}) {
   return {
     url: normalizedUrl,
     zoomKey: String(fallback.zoomKey || clickEsmGetZoomKey({ url: normalizedUrl }) || ""),
-    columns: Array.isArray(fallback.columns)
-      ? fallback.columns.map((value) => String(value || "").trim()).filter(Boolean)
-      : [],
+    columns: normalizeEsmColumns(fallback.columns),
   };
 }
 
@@ -5547,9 +4617,7 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
     endpointUrl: endpoint.url,
     requestUrl,
     zoomKey: clickEsmGetZoomKey(endpoint),
-    columns: Array.isArray(endpoint.columns)
-      ? endpoint.columns.map((value) => String(value || "").trim()).filter(Boolean)
-      : [],
+    columns: normalizeEsmColumns(endpoint.columns),
   };
   const targetWindowId = Number(decompState?.controllerWindowId || state.decompWorkspaceWindowId || 0);
 
@@ -5700,12 +4768,28 @@ function decompBuildShellHtml() {
         <button type="button" class="decomp-reset-btn">RESET</button>
         <span class="decomp-net-indicator" title="Loading" aria-label="Loading" hidden></span>
       </div>
-      <div class="decomp-tree-head">
-        <div class="decomp-tree-title">decomp</div>
-        <div class="decomp-tree-actions">
-          <button type="button" class="decomp-expand-btn">Expand</button>
-          <button type="button" class="decomp-collapse-btn">Collapse</button>
-          <span class="decomp-tree-stats"></span>
+      <div class="decomp-tree-panel">
+        <div class="decomp-tree-head">
+          <div class="decomp-tree-title">decomp Tree</div>
+          <div class="decomp-tree-actions">
+            <button type="button" class="decomp-tree-toggle-btn" aria-expanded="false" title="Expand all nodes">Expand</button>
+            <span class="decomp-tree-stats"></span>
+          </div>
+        </div>
+        <div class="decomp-tree-scroll">
+          <div class="decomp-tree-root"></div>
+        </div>
+      </div>
+      <div class="decomp-treemap-panel">
+        <div class="decomp-treemap-head">
+          <div class="decomp-treemap-title">decomp Treemap</div>
+          <div class="decomp-tree-actions">
+            <button type="button" class="decomp-treemap-toggle-btn" aria-expanded="true" title="Hide treemap">Hide</button>
+            <span class="decomp-treemap-stats"></span>
+          </div>
+        </div>
+        <div class="decomp-treemap-scroll">
+          <div class="decomp-treemap-root"></div>
         </div>
       </div>
       <div class="decomp-recording-tool">
@@ -5714,9 +4798,6 @@ function decompBuildShellHtml() {
           <button type="button" class="decomp-start-record-btn">START RECORDING</button>
           <button type="button" class="decomp-stop-record-btn" disabled hidden>STOP</button>
         </div>
-      </div>
-      <div class="decomp-tree-scroll">
-        <div class="decomp-tree-root"></div>
       </div>
       <div class="decomp-footer">
         <select
@@ -5738,7 +4819,71 @@ function decompBuildShellHtml() {
   `;
 }
 
-function decompRenderTreeNode(decompState, node, parentUl, requestToken) {
+function decompParsePathParts(rawValue) {
+  if (typeof rawValue !== "string" || rawValue.trim() === "") {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.map((value) => String(value || "").trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function decompRenderLabelChips(labelElement, pathParts, term = "", highlightPattern = null) {
+  if (!labelElement) {
+    return;
+  }
+  const normalizedParts = Array.isArray(pathParts)
+    ? pathParts.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  const normalizedTerm = String(term || "").trim();
+  labelElement.innerHTML = "";
+  normalizedParts.forEach((segment, index) => {
+    const chip = document.createElement("span");
+    chip.className = "decomp-chip";
+    chip.dataset.raw = segment;
+    const segHay = segment.toLowerCase().replace(/\s+/g, "");
+    const showHighlight = Boolean(normalizedTerm && highlightPattern && segHay.includes(normalizedTerm));
+    if (showHighlight) {
+      chip.innerHTML = segment.replace(highlightPattern, (match) => `<mark>${escapeHtml(match)}</mark>`);
+    } else {
+      chip.textContent = segment;
+    }
+    decompApplyChipColor(chip, segment);
+    labelElement.appendChild(chip);
+
+    if (index < normalizedParts.length - 1) {
+      const separator = document.createElement("span");
+      separator.className = "decomp-badge";
+      separator.textContent = "/";
+      separator.title = "Compressed path";
+      labelElement.appendChild(separator);
+    }
+  });
+}
+
+async function decompRunEndpointFromUi(decompState, endpoint, requestToken, requestSource = "tree") {
+  if (!decompState || !endpoint?.url) {
+    return;
+  }
+  try {
+    await decompEnsureWorkspaceTab({ activate: true, windowId: decompState.controllerWindowId });
+    decompBroadcastControllerState(decompState);
+    await decompRunEndpointToWorkspace(decompState, endpoint, generateRequestId(), requestToken, {
+      emitStart: true,
+      requestSource,
+    });
+  } catch (error) {
+    setStatus(`Unable to open decomp workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
+}
+
+function decompRenderTreeNode(decompState, node, parentUl, requestToken, parentPathParts = []) {
   const item = document.createElement("li");
   const nodeRow = document.createElement("div");
   nodeRow.className = "decomp-node";
@@ -5753,28 +4898,16 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken) {
 
   const label = document.createElement("span");
   label.className = "decomp-label";
-  const parts = Array.isArray(node.parts) ? node.parts : [];
-  parts.forEach((segment, index) => {
-    const chip = document.createElement("span");
-    chip.className = "decomp-chip";
-    chip.dataset.raw = String(segment || "");
-    chip.textContent = String(segment || "");
-    decompApplyChipColor(chip, segment);
-    label.appendChild(chip);
-
-    if (index < parts.length - 1) {
-      const separator = document.createElement("span");
-      separator.className = "decomp-badge";
-      separator.textContent = "/";
-      separator.title = "Compressed path";
-      label.appendChild(separator);
-    }
-  });
+  const parts = Array.isArray(node.parts) ? node.parts.map((value) => String(value || "").trim()).filter(Boolean) : [];
+  const fullPathParts = [...(Array.isArray(parentPathParts) ? parentPathParts : []), ...parts];
+  item.dataset.nodeParts = JSON.stringify(parts);
+  item.dataset.pathParts = JSON.stringify(fullPathParts);
+  item.dataset.pathHay = fullPathParts.join(" ").toLowerCase().replace(/\s+/g, "");
+  decompRenderLabelChips(label, parts);
 
   const meta = document.createElement("span");
   meta.className = "decomp-meta";
-  const endpointCount = Number(node.count || 0);
-  meta.textContent = endpointCount ? String(endpointCount) : "";
+  meta.textContent = "";
 
   nodeRow.appendChild(twisty);
   nodeRow.appendChild(label);
@@ -5787,7 +4920,7 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken) {
     item.dataset.hay = String(endpoint?.hay || "");
     item.dataset.href = String(endpoint?.url || "");
     if (endpoint?.zoomKey) {
-      meta.textContent = `${endpointCount} • [${endpoint.zoomKey}]`;
+      meta.textContent = `[${endpoint.zoomKey}]`;
     }
 
     const runButton = document.createElement("button");
@@ -5798,17 +4931,7 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken) {
     runButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      void decompEnsureWorkspaceTab({ activate: true, windowId: decompState.controllerWindowId })
-        .then(() => {
-          decompBroadcastControllerState(decompState);
-          return decompRunEndpointToWorkspace(decompState, endpoint, generateRequestId(), requestToken, {
-            emitStart: true,
-            requestSource: "tree",
-          });
-        })
-        .catch((error) => {
-          setStatus(`Unable to open decomp workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
-        });
+      void decompRunEndpointFromUi(decompState, endpoint, requestToken, "tree");
     });
     nodeRow.appendChild(runButton);
   }
@@ -5821,6 +4944,7 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken) {
     const collapsed = childList.style.display === "none";
     childList.style.display = collapsed ? "" : "none";
     twisty.textContent = collapsed ? "−" : "+";
+    decompSyncTreeToggleButton(decompState);
   };
 
   twisty.addEventListener("click", (event) => {
@@ -5835,17 +4959,7 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken) {
     const isLeaf = !hasChildren;
     if (isLeaf && node.endpointIndex != null) {
       const endpoint = decompState.catalog[node.endpointIndex];
-      void decompEnsureWorkspaceTab({ activate: true, windowId: decompState.controllerWindowId })
-        .then(() => {
-          decompBroadcastControllerState(decompState);
-          return decompRunEndpointToWorkspace(decompState, endpoint, generateRequestId(), requestToken, {
-            emitStart: true,
-            requestSource: "tree",
-          });
-        })
-        .catch((error) => {
-          setStatus(`Unable to open decomp workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
-        });
+      void decompRunEndpointFromUi(decompState, endpoint, requestToken, "tree");
       return;
     }
     if (hasChildren) {
@@ -5858,11 +4972,73 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken) {
     const childUl = document.createElement("ul");
     childUl.style.display = "none";
     node.children.forEach((child) => {
-      decompRenderTreeNode(decompState, child, childUl, requestToken);
+      decompRenderTreeNode(decompState, child, childUl, requestToken, fullPathParts);
     });
     item.appendChild(childUl);
   }
   parentUl.appendChild(item);
+}
+
+function decompIsTreeFullyExpanded(decompState) {
+  const root = decompState?.treeRootElement;
+  if (!root) {
+    return false;
+  }
+
+  const nestedLists = [...root.querySelectorAll("li > ul")].filter((nested) => {
+    const parentItem = nested.parentElement;
+    if (!(parentItem instanceof HTMLElement)) {
+      return false;
+    }
+    return parentItem.style.display !== "none";
+  });
+
+  if (nestedLists.length === 0) {
+    return false;
+  }
+
+  return nestedLists.every((nested) => nested.style.display !== "none");
+}
+
+function decompSyncTreeToggleButton(decompState) {
+  const button = decompState?.treeToggleButton;
+  if (!button) {
+    return;
+  }
+
+  const root = decompState?.treeRootElement;
+  if (!root) {
+    button.textContent = "Expand";
+    button.title = "Expand all nodes";
+    button.setAttribute("aria-label", "Expand all nodes");
+    button.setAttribute("aria-expanded", "false");
+    button.dataset.nextState = "expand";
+    button.disabled = true;
+    return;
+  }
+
+  const hasExpandableNodes = root.querySelector("li > ul") != null;
+  if (!hasExpandableNodes) {
+    button.textContent = "Expand";
+    button.title = "No expandable nodes";
+    button.setAttribute("aria-label", "No expandable nodes");
+    button.setAttribute("aria-expanded", "false");
+    button.dataset.nextState = "expand";
+    button.disabled = true;
+    return;
+  }
+
+  const expanded = decompIsTreeFullyExpanded(decompState);
+  const nextState = expanded ? "collapse" : "expand";
+  const label = expanded ? "Collapse" : "Expand";
+  const title = expanded ? "Collapse all nodes" : "Expand all nodes";
+
+  button.textContent = label;
+  button.title = title;
+  button.setAttribute("aria-label", title);
+  button.setAttribute("aria-expanded", expanded ? "true" : "false");
+  button.dataset.nextState = nextState;
+  button.disabled = false;
 }
 
 function decompExpandCollapseAll(decompState, shouldExpand) {
@@ -5878,6 +5054,7 @@ function decompExpandCollapseAll(decompState, shouldExpand) {
       twisty.textContent = shouldExpand ? "−" : "+";
     }
   });
+  decompSyncTreeToggleButton(decompState);
 }
 
 function decompExpandTrunk(decompState) {
@@ -5905,6 +5082,251 @@ function decompExpandTrunk(decompState) {
   }
 }
 
+function decompBuildTreemapModel(catalog, endpointIndexes) {
+  const root = {
+    key: "",
+    pathParts: [],
+    endpointIndex: null,
+    children: new Map(),
+    count: 0,
+  };
+
+  const normalizedIndexes = [...new Set(
+    (Array.isArray(endpointIndexes) ? endpointIndexes : [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 0 && value < catalog.length)
+  )];
+
+  normalizedIndexes.forEach((endpointIndex) => {
+    const endpoint = catalog[endpointIndex];
+    if (!endpoint) {
+      return;
+    }
+    let cursor = root;
+    endpoint.segs.forEach((rawSegment) => {
+      const segment = String(rawSegment || "").trim();
+      if (!segment) {
+        return;
+      }
+      if (!cursor.children.has(segment)) {
+        cursor.children.set(segment, {
+          key: segment,
+          pathParts: [...cursor.pathParts, segment],
+          endpointIndex: null,
+          children: new Map(),
+          count: 0,
+        });
+      }
+      cursor = cursor.children.get(segment);
+    });
+    cursor.endpointIndex = endpointIndex;
+  });
+
+  const finalize = (node) => {
+    const childNodes = [...node.children.values()].sort((left, right) => decompCompareSegments(left.key, right.key));
+    node.children = childNodes.map((child) => finalize(child));
+    let endpointCount = node.endpointIndex != null ? 1 : 0;
+    node.children.forEach((child) => {
+      endpointCount += Number(child.count || 0);
+    });
+    node.count = endpointCount;
+    return node;
+  };
+
+  return finalize(root);
+}
+
+function decompFlattenTreemapNodes(model) {
+  const output = [];
+  const walk = (node) => {
+    if (!node || !Array.isArray(node.children)) {
+      return;
+    }
+    node.children.forEach((child) => {
+      const pathParts = Array.isArray(child.pathParts)
+        ? child.pathParts.slice().map((value) => String(value || "").trim()).filter(Boolean)
+        : [String(child.key || "").trim()].filter(Boolean);
+      output.push({
+        key: String(child.key || "").trim(),
+        pathParts,
+        depth: pathParts.length,
+        endpointIndex: child.endpointIndex != null ? Number(child.endpointIndex) : null,
+        count: Number(child.count || 0),
+      });
+      walk(child);
+    });
+  };
+
+  walk(model);
+  output.sort((left, right) => {
+    const depthDelta = Number(left.depth || 0) - Number(right.depth || 0);
+    if (depthDelta !== 0) {
+      return depthDelta;
+    }
+    return left.pathParts
+      .join("/")
+      .localeCompare(right.pathParts.join("/"), undefined, { sensitivity: "base" });
+  });
+  return output;
+}
+
+function decompCreateTreemapTile(decompState, nodeEntry, requestToken) {
+  const tile = document.createElement("article");
+  tile.className = "decomp-map-tile";
+  tile.dataset.depth = String(Math.max(1, Number(nodeEntry?.depth || 1)));
+
+  const hexColor = decompGetSegmentColor(nodeEntry?.key);
+  const rgb = decompHexToRgb(hexColor);
+  if (rgb) {
+    tile.style.setProperty("--tile-rgb", `${rgb.red}, ${rgb.green}, ${rgb.blue}`);
+  } else {
+    tile.style.setProperty("--tile-rgb", "106, 106, 106");
+  }
+
+  const endpoint =
+    nodeEntry?.endpointIndex != null && Number.isInteger(nodeEntry.endpointIndex)
+      ? decompState.catalog[nodeEntry.endpointIndex]
+      : null;
+  if (endpoint) {
+    tile.classList.add("decomp-map-leaf");
+  }
+
+  const content = document.createElement("div");
+  content.className = "decomp-map-content";
+
+  const name = document.createElement("div");
+  name.className = "decomp-map-name";
+  name.textContent = nodeEntry?.key || "node";
+  name.title = Array.isArray(nodeEntry?.pathParts) ? nodeEntry.pathParts.join("/") : "";
+  content.appendChild(name);
+
+  const parent = document.createElement("div");
+  parent.className = "decomp-map-parent";
+  const parentParts = Array.isArray(nodeEntry?.pathParts) ? nodeEntry.pathParts.slice(0, -1) : [];
+  parent.textContent = parentParts.length > 0 ? parentParts.join(" / ") : "media-company";
+  parent.title = parentParts.join("/");
+  content.appendChild(parent);
+
+  const meta = document.createElement("div");
+  meta.className = "decomp-map-meta";
+  if (endpoint?.zoomKey) {
+    meta.textContent = `[${endpoint.zoomKey}]`;
+  } else {
+    const endpointCount = Number(nodeEntry?.count || 0);
+    meta.textContent = `${endpointCount} endpoint${endpointCount === 1 ? "" : "s"}`;
+  }
+  content.appendChild(meta);
+  tile.appendChild(content);
+
+  if (endpoint) {
+    const runLink = document.createElement("a");
+    runLink.href = "#";
+    runLink.className = "decomp-map-run-link";
+    runLink.textContent = "run endpoint";
+    runLink.title = "Run this endpoint in Workspace";
+    runLink.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void decompRunEndpointFromUi(decompState, endpoint, requestToken, "treemap");
+    });
+    tile.appendChild(runLink);
+  }
+
+  if (endpoint) {
+    tile.addEventListener("click", (event) => {
+      if (event.target instanceof Element && event.target.closest(".decomp-map-run-link")) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      void decompRunEndpointFromUi(decompState, endpoint, requestToken, "treemap");
+    });
+  }
+
+  return tile;
+}
+
+function decompRenderTreemap(decompState, endpointIndexes, options = {}) {
+  const treemapRoot = decompState?.treemapRootElement;
+  if (!treemapRoot) {
+    return;
+  }
+  const requestToken = Number(options.requestToken || decompState?.requestToken || state.premiumPanelRequestToken || 0);
+  const endpointList = [...new Set(
+    (Array.isArray(endpointIndexes) ? endpointIndexes : [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 0)
+  )];
+  const model = decompBuildTreemapModel(decompState.catalog, endpointList);
+  const nodeEntries = decompFlattenTreemapNodes(model);
+  treemapRoot.innerHTML = "";
+
+  if (!model || nodeEntries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "decomp-treemap-empty";
+    empty.textContent = "No endpoints match current zoom/search filters.";
+    treemapRoot.appendChild(empty);
+  } else {
+    const groupedByDepth = new Map();
+    nodeEntries.forEach((nodeEntry) => {
+      const depth = Math.max(1, Number(nodeEntry.depth || 1));
+      if (!groupedByDepth.has(depth)) {
+        groupedByDepth.set(depth, []);
+      }
+      groupedByDepth.get(depth).push(nodeEntry);
+    });
+
+    [...groupedByDepth.keys()].sort((left, right) => left - right).forEach((depth) => {
+      const depthNodes = groupedByDepth.get(depth) || [];
+      const band = document.createElement("section");
+      band.className = "decomp-map-depth-band";
+      band.dataset.depth = String(depth);
+
+      const bandHead = document.createElement("div");
+      bandHead.className = "decomp-map-depth-head";
+      const depthLabel = document.createElement("span");
+      depthLabel.className = "decomp-map-depth-label";
+      depthLabel.textContent = `Level ${depth}`;
+      const depthCount = document.createElement("span");
+      depthCount.className = "decomp-map-depth-count";
+      depthCount.textContent = `${depthNodes.length} node${depthNodes.length === 1 ? "" : "s"}`;
+      bandHead.appendChild(depthLabel);
+      bandHead.appendChild(depthCount);
+      band.appendChild(bandHead);
+
+      const bandGrid = document.createElement("div");
+      bandGrid.className = "decomp-map-grid";
+      depthNodes.forEach((nodeEntry) => {
+        const tile = decompCreateTreemapTile(decompState, nodeEntry, requestToken);
+        bandGrid.appendChild(tile);
+      });
+      band.appendChild(bandGrid);
+
+      treemapRoot.appendChild(band);
+    });
+  }
+
+  if (decompState.treemapStatsElement) {
+    const zoomFilter = String(options.zoomFilter || "").trim().toUpperCase();
+    const zoomLabel = zoomFilter ? ` • ${zoomFilter}` : "";
+    decompState.treemapStatsElement.textContent = `${endpointList.length} endpoints • ${nodeEntries.length} nodes${zoomLabel}`;
+  }
+}
+
+function decompSetTreemapCollapsed(decompState, shouldCollapse) {
+  const toggleButton = decompState?.treemapToggleButton;
+  const scrollElement = decompState?.treemapScrollElement;
+  if (!toggleButton || !scrollElement) {
+    return;
+  }
+  const collapsed = Boolean(shouldCollapse);
+  scrollElement.hidden = collapsed;
+  toggleButton.textContent = collapsed ? "Show" : "Hide";
+  toggleButton.title = collapsed ? "Show treemap" : "Hide treemap";
+  toggleButton.setAttribute("aria-label", collapsed ? "Show treemap" : "Hide treemap");
+  toggleButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+}
+
 function decompApplyTreeFilters(decompState, options = {}) {
   const root = decompState?.treeRootElement;
   if (!root) {
@@ -5915,9 +5337,12 @@ function decompApplyTreeFilters(decompState, options = {}) {
     .trim()
     .toUpperCase();
   const term = clickEsmNormalizeSearchTerm(options.term ?? decompState.searchInput?.value ?? "");
+  const searchMode = Boolean(term);
   const doHighlight = Boolean(options.highlight && term);
   const highlightPattern = doHighlight ? new RegExp(clickEsmEscapeRegExp(term), "gi") : null;
   let visibleEndpoints = 0;
+  const visibleEndpointIndexes = [];
+  root.classList.toggle("decomp-search-mode", searchMode);
 
   const walk = (item) => {
     let anyVisibleChild = false;
@@ -5930,22 +5355,10 @@ function decompApplyTreeFilters(decompState, options = {}) {
       });
     }
 
-    const endpointIndex = item.getAttribute("data-endpoint-index");
-    const isEndpoint = endpointIndex != null;
+    const isEndpoint = item.hasAttribute("data-endpoint-index");
     let selfVisible = false;
 
     const label = item.querySelector(":scope > .decomp-node > .decomp-label");
-    if (label) {
-      label.querySelectorAll(".decomp-chip").forEach((chip) => {
-        const rawValue = String(chip.dataset.raw || chip.textContent || "");
-        if (highlightPattern && rawValue.toLowerCase().replace(/\s+/g, "").includes(term)) {
-          chip.innerHTML = rawValue.replace(highlightPattern, (match) => `<mark>${escapeHtml(match)}</mark>`);
-        } else {
-          chip.textContent = rawValue;
-        }
-        decompApplyChipColor(chip, rawValue);
-      });
-    }
 
     if (isEndpoint) {
       const endpointZoom = String(item.dataset.zoomKey || "").trim().toUpperCase();
@@ -5955,6 +5368,17 @@ function decompApplyTreeFilters(decompState, options = {}) {
       selfVisible = zoomPass && termPass;
       if (selfVisible) {
         visibleEndpoints += 1;
+        const endpointIndex = Number(item.dataset.endpointIndex || -1);
+        if (Number.isInteger(endpointIndex) && endpointIndex >= 0) {
+          visibleEndpointIndexes.push(endpointIndex);
+        }
+      }
+
+      if (label) {
+        const partsForRender = searchMode
+          ? decompParsePathParts(item.dataset.pathParts)
+          : decompParsePathParts(item.dataset.nodeParts);
+        decompRenderLabelChips(label, partsForRender, doHighlight ? term : "", highlightPattern);
       }
 
       const runButton = item.querySelector(":scope > .decomp-node > .decomp-run");
@@ -5963,22 +5387,29 @@ function decompApplyTreeFilters(decompState, options = {}) {
       }
 
       if (label) {
-        const labelNormalized = label.textContent.toLowerCase().replace(/\s+/g, "");
-        const segMatch = Boolean(term && labelNormalized.includes(term));
+        const pathHay = String(item.dataset.pathHay || "");
+        const segMatch = Boolean(term && pathHay.includes(term));
         const colOnlyMatch = Boolean(term && termPass && !segMatch);
         label.classList.toggle("decomp-col-match", colOnlyMatch);
       }
+    } else if (label && !searchMode) {
+      decompRenderLabelChips(label, decompParsePathParts(item.dataset.nodeParts));
+      label.classList.remove("decomp-col-match");
     }
 
+    // Endpoint nodes can also be branch parents; keep the branch visible when descendants match.
     const shouldShow = selfVisible || anyVisibleChild;
     item.style.display = shouldShow ? "" : "none";
+    item.classList.toggle("decomp-search-parent", searchMode && !selfVisible && anyVisibleChild);
 
-    if (doHighlight && term && shouldShow && anyVisibleChild && childList) {
+    if (searchMode && shouldShow && anyVisibleChild && childList) {
       childList.style.display = "";
       const twisty = item.querySelector(":scope > .decomp-node > .decomp-twisty");
       if (twisty && !twisty.classList.contains("hidden")) {
         twisty.textContent = "−";
       }
+    } else if (!searchMode) {
+      item.classList.remove("decomp-search-parent");
     }
 
     return shouldShow;
@@ -5995,6 +5426,12 @@ function decompApplyTreeFilters(decompState, options = {}) {
     const zoomLabel = zoomFilter ? ` • ${zoomFilter}` : "";
     decompState.treeStatsElement.textContent = `${visibleEndpoints} endpoints${zoomLabel}`;
   }
+
+  decompRenderTreemap(decompState, visibleEndpointIndexes, {
+    zoomFilter,
+    requestToken: options.requestToken || decompState?.requestToken || state.premiumPanelRequestToken || 0,
+  });
+  decompSyncTreeToggleButton(decompState);
 }
 
 function decompBuildTree(decompState, requestToken) {
@@ -6014,10 +5451,10 @@ function decompBuildTree(decompState, requestToken) {
   const hasSyntheticRootParts = Array.isArray(model.parts) && model.parts.length > 0;
 
   if (hasSyntheticRootParts || model.endpointIndex != null) {
-    decompRenderTreeNode(decompState, model, rootList, requestToken);
+    decompRenderTreeNode(decompState, model, rootList, requestToken, []);
   } else {
     model.children.forEach((childNode) => {
-      decompRenderTreeNode(decompState, childNode, rootList, requestToken);
+      decompRenderTreeNode(decompState, childNode, rootList, requestToken, []);
     });
   }
 
@@ -6078,12 +5515,15 @@ function wireDecompInteractions(decompState, requestToken) {
     }
   });
 
-  decompState.expandAllButton?.addEventListener("click", () => {
-    decompExpandCollapseAll(decompState, true);
+  decompState.treeToggleButton?.addEventListener("click", () => {
+    const nextState = String(decompState.treeToggleButton?.dataset.nextState || "expand").trim().toLowerCase();
+    const shouldExpand = nextState !== "collapse";
+    decompExpandCollapseAll(decompState, shouldExpand);
   });
 
-  decompState.collapseAllButton?.addEventListener("click", () => {
-    decompExpandCollapseAll(decompState, false);
+  decompState.treemapToggleButton?.addEventListener("click", () => {
+    const expanded = String(decompState.treemapToggleButton?.getAttribute("aria-expanded") || "true") !== "false";
+    decompSetTreemapCollapsed(decompState, expanded);
   });
 
   decompState.requestorSelect?.addEventListener("change", () => {
@@ -6114,12 +5554,6 @@ function getActiveDecompState() {
 
 function getInteractiveEsmStates() {
   const states = [];
-  document.querySelectorAll(".premium-service-section.service-esm-click").forEach((section) => {
-    const clickState = section?.__underparClickEsmState || null;
-    if (clickState?.section?.isConnected) {
-      states.push(clickState);
-    }
-  });
   document.querySelectorAll(".premium-service-section.service-esm-decomp").forEach((section) => {
     const decompState = section?.__underparDecompState || null;
     if (decompState?.section?.isConnected) {
@@ -6166,16 +5600,11 @@ async function handleDecompWorkspaceAction(message, sender = null) {
       }
       decompBroadcastControllerState(decompState, senderWindowId);
     } else {
-      void decompSendWorkspaceMessage("controller-state", {
-        controllerOnline: false,
-        programmerId: "",
-        programmerName: "",
-        requestorIds: [],
-        mvpdIds: [],
-        updatedAt: Date.now(),
-      }, {
-        targetWindowId: senderWindowId,
-      });
+      const selectedProgrammer = resolveSelectedProgrammer();
+      const selectedServices = selectedProgrammer?.programmerId
+        ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+        : null;
+      decompBroadcastSelectedControllerState(selectedProgrammer, selectedServices, senderWindowId);
     }
     return { ok: true, controllerOnline: Boolean(decompState) };
   }
@@ -6412,14 +5841,18 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
       requestorApplyTimer: 0,
       pendingRequestorIds: [],
       lastKnownSelectedMvpdIds: new Set(),
+      requestToken,
       zoomFilterSelect: contentElement.querySelector(".decomp-zoom-filter"),
       searchInput: contentElement.querySelector(".decomp-search"),
       findButton: contentElement.querySelector(".decomp-find-btn"),
       resetButton: contentElement.querySelector(".decomp-reset-btn"),
-      expandAllButton: contentElement.querySelector(".decomp-expand-btn"),
-      collapseAllButton: contentElement.querySelector(".decomp-collapse-btn"),
+      treeToggleButton: contentElement.querySelector(".decomp-tree-toggle-btn"),
       treeStatsElement: contentElement.querySelector(".decomp-tree-stats"),
       treeRootElement: contentElement.querySelector(".decomp-tree-root"),
+      treemapToggleButton: contentElement.querySelector(".decomp-treemap-toggle-btn"),
+      treemapStatsElement: contentElement.querySelector(".decomp-treemap-stats"),
+      treemapRootElement: contentElement.querySelector(".decomp-treemap-root"),
+      treemapScrollElement: contentElement.querySelector(".decomp-treemap-scroll"),
       requestorSelect: contentElement.querySelector(".decomp-requestor-select"),
       mvpdSelect: contentElement.querySelector(".decomp-mvpd-select"),
       recordingStatusElement: contentElement.querySelector(".decomp-recording-status"),
@@ -6429,6 +5862,7 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
 
     section.__underparDecompState = decompState;
     wireDecompInteractions(decompState, requestToken);
+    decompSetTreemapCollapsed(decompState, false);
     syncDecompRecordingControls(decompState);
     decompBuildTree(decompState, requestToken);
     clickEsmApplySharedRequestorOptions(decompState, requestToken, {
@@ -6544,8 +5978,6 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const title = PREMIUM_SERVICE_TITLE_BY_KEY[serviceKey] || serviceKey;
   const serviceClassByKey = {
     degradation: "service-degradation",
-    esm: "service-esm",
-    clickEsm: "service-esm-click",
     decompTree: "service-esm-decomp",
     restV2: "service-rest-v2",
   };
@@ -6565,14 +5997,10 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
         `
       : "";
   const serviceBodyHtml =
-    serviceKey === "esm"
-      ? '<div class="loading">Loading ESM data...</div>'
-      : serviceKey === "clickEsm"
-        ? '<div class="loading">Loading clickESM...</div>'
-      : serviceKey === "decompTree"
-        ? '<div class="loading">Loading decomp...</div>'
+    serviceKey === "decompTree"
+      ? '<div class="loading">Loading decomp...</div>'
       : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
-  const showManualRefresh = serviceKey !== "esm" && serviceKey !== "clickEsm" && serviceKey !== "decompTree";
+  const showManualRefresh = serviceKey !== "decompTree";
   const serviceActionsHtml = showManualRefresh
     ? `
       <div class="service-actions">
@@ -6581,10 +6009,8 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     `
     : "";
   const sectionLabel =
-    serviceKey === "clickEsm"
-      ? `clickESM w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`
-      : serviceKey === "decompTree"
-        ? `decomp w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`
+    serviceKey === "decompTree"
+      ? `decomp w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`
       : `${title} w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`;
   section.innerHTML = `
     <button type="button" class="metadata-header service-box-header">
@@ -6607,31 +6033,12 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const initialCollapsed = getPremiumSectionCollapsed(programmer?.programmerId, serviceKey);
   wireCollapsibleSection(toggleButton, container, initialCollapsed, (collapsed) => {
     setPremiumSectionCollapsed(programmer?.programmerId, serviceKey, collapsed);
-    if (!collapsed) {
-      if (serviceKey === "esm" && typeof section.__underparRefreshEsm === "function") {
-        void section.__underparRefreshEsm();
-      } else if (serviceKey === "clickEsm" && typeof section.__underparRefreshClickEsm === "function") {
-        void section.__underparRefreshClickEsm();
-      } else if (serviceKey === "decompTree" && typeof section.__underparRefreshDecomp === "function") {
-        void section.__underparRefreshDecomp();
-      }
+    if (!collapsed && serviceKey === "decompTree" && typeof section.__underparRefreshDecomp === "function") {
+      void section.__underparRefreshDecomp();
     }
   });
 
-  if (serviceKey === "esm") {
-    section.__underparRefreshEsm = () => {
-      const requestToken = state.premiumPanelRequestToken;
-      return loadEsmService(programmer, appInfo, section, contentElement, refreshButton, requestToken);
-    };
-    void section.__underparRefreshEsm();
-    startPremiumServiceAutoRefresh(section, container, section.__underparRefreshEsm, ESM_AUTO_REFRESH_INTERVAL_MS);
-  } else if (serviceKey === "clickEsm") {
-    section.__underparRefreshClickEsm = () => {
-      const requestToken = state.premiumPanelRequestToken;
-      return loadClickEsmService(programmer, appInfo, section, contentElement, refreshButton, requestToken);
-    };
-    void section.__underparRefreshClickEsm();
-  } else if (serviceKey === "decompTree") {
+  if (serviceKey === "decompTree") {
     section.__underparRefreshDecomp = () => {
       const requestToken = state.premiumPanelRequestToken;
       return loadDecompService(programmer, appInfo, section, contentElement, refreshButton, requestToken);
@@ -6687,6 +6094,7 @@ function renderPremiumServicesLoading(programmer) {
     return;
   }
   clearPremiumServiceAutoRefreshTimers();
+  decompBroadcastSelectedControllerState(programmer, null);
 
   const label = programmer?.programmerName
     ? `Loading premium services for ${programmer.programmerName}...`
@@ -6699,6 +6107,7 @@ function renderPremiumServicesError(error) {
     return;
   }
   clearPremiumServiceAutoRefreshTimers();
+  decompBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
   const reason = error instanceof Error ? error.message : String(error);
   els.premiumServicesContainer.innerHTML = `<p class="metadata-empty service-error">${escapeHtml(reason)}</p>`;
 }
@@ -6710,15 +6119,14 @@ function renderPremiumServices(services, programmer = null) {
   clearPremiumServiceAutoRefreshTimers();
 
   if (!services) {
+    decompBroadcastSelectedControllerState(programmer, null);
     els.premiumServicesContainer.innerHTML =
       '<p class="metadata-empty">No premium scoped applications loaded yet.</p>';
     return;
   }
+  decompBroadcastSelectedControllerState(programmer, services);
 
   const availableKeys = PREMIUM_SERVICE_DISPLAY_ORDER.filter((serviceKey) => {
-    if (serviceKey === "clickEsm") {
-      return Boolean(services?.esm);
-    }
     if (serviceKey === "decompTree") {
       return Boolean(services?.esm);
     }
@@ -6732,7 +6140,7 @@ function renderPremiumServices(services, programmer = null) {
 
   els.premiumServicesContainer.innerHTML = "";
   for (const serviceKey of availableKeys) {
-    const appInfo = serviceKey === "clickEsm" || serviceKey === "decompTree" ? services.esm : services[serviceKey];
+    const appInfo = serviceKey === "decompTree" ? services.esm : services[serviceKey];
     const section = createPremiumServiceSection(programmer, serviceKey, appInfo);
     els.premiumServicesContainer.appendChild(section);
   }
@@ -6764,6 +6172,7 @@ function resetWorkflowForLoggedOut() {
 
   void decompSendWorkspaceMessage("controller-state", {
     controllerOnline: false,
+    esmAvailable: null,
     programmerId: "",
     programmerName: "",
     requestorIds: [],
@@ -11214,8 +10623,10 @@ async function refreshProgrammerPanels(options = {}) {
 
   if (!programmer) {
     renderPremiumServices(null);
+    decompBroadcastSelectedControllerState(null, null);
     return;
   }
+  decompBroadcastSelectedControllerState(programmer, null);
 
   const cachedPremiumApps = state.premiumAppsByProgrammerId.get(programmer.programmerId) || null;
   if (cachedPremiumApps && !forcePremiumRefresh) {
@@ -13744,7 +13155,6 @@ function registerEventHandlers() {
   els.mvpdSelect.addEventListener("change", (event) => {
     state.selectedMvpdId = String(event.target.value || "");
     refreshRestV2LoginPanels();
-    refreshEsmPanels();
     const decompState = getActiveDecompState();
     if (decompState) {
       decompBroadcastControllerState(decompState);

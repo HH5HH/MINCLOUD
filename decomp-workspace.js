@@ -23,28 +23,34 @@ const ESM_METRIC_COLUMNS = new Set([
   "decision-media-tokens",
 ]);
 const ESM_DATE_PARTS = ["year", "month", "day", "hour", "minute"];
+const ESM_DEPRECATED_COLUMN_KEYS = new Set(["clientless-failures", "clientless-tokens"]);
 const ESM_NODE_BASE_URL = "https://mgmt.auth.adobe.com/esm/v3/media-company/";
 const WORKSPACE_TABLE_VISIBLE_ROW_CAP = 10;
+const WORKSPACE_LOCK_MESSAGE_SUFFIX =
+  "does not have access to ESM. Please confirm if the console is out of sync and this Media Company should have access to ESM.";
 
 const state = {
   windowId: 0,
   controllerOnline: false,
+  esmAvailable: null,
   programmerId: "",
   programmerName: "",
   requestorIds: [],
   mvpdIds: [],
   cardsById: new Map(),
   batchRunning: false,
+  workspaceLocked: false,
 };
 
 const els = {
   controllerState: document.getElementById("workspace-controller-state"),
   filterState: document.getElementById("workspace-filter-state"),
   status: document.getElementById("workspace-status"),
+  lockBanner: document.getElementById("workspace-lock-banner"),
+  lockMessage: document.getElementById("workspace-lock-message"),
   rerunAllButton: document.getElementById("workspace-rerun-all"),
   clearButton: document.getElementById("workspace-clear-all"),
   cardsHost: document.getElementById("workspace-cards"),
-  emptyState: document.getElementById("workspace-empty"),
 };
 
 function escapeHtml(value) {
@@ -54,6 +60,37 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function normalizeEsmColumns(columns) {
+  const output = [];
+  const seen = new Set();
+  (Array.isArray(columns) ? columns : []).forEach((value) => {
+    const normalized = String(value || "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!normalized) {
+      return;
+    }
+    if (/^no\s+report\s+columns$/i.test(normalized)) {
+      const key = "no report columns";
+      if (!seen.has(key)) {
+        output.push("No report columns");
+        seen.add(key);
+      }
+      return;
+    }
+    const lower = normalized.toLowerCase();
+    if (ESM_DEPRECATED_COLUMN_KEYS.has(lower)) {
+      return;
+    }
+    if (!seen.has(lower)) {
+      output.push(normalized);
+      seen.add(lower);
+    }
+  });
+  return output;
 }
 
 function setStatus(message = "", type = "info") {
@@ -70,6 +107,40 @@ function setActionButtonsDisabled(disabled) {
   if (els.rerunAllButton) {
     els.rerunAllButton.disabled = isDisabled;
   }
+  if (els.clearButton) {
+    els.clearButton.disabled = isDisabled;
+  }
+}
+
+function syncActionButtonsDisabled() {
+  setActionButtonsDisabled(state.batchRunning || state.workspaceLocked);
+}
+
+function getProgrammerLabel() {
+  const name = String(state.programmerName || "").trim();
+  const id = String(state.programmerId || "").trim();
+  if (name && id && name !== id) {
+    return `${name} (${id})`;
+  }
+  return name || id || "Selected Media Company";
+}
+
+function getWorkspaceLockMessage() {
+  return `${getProgrammerLabel()} ${WORKSPACE_LOCK_MESSAGE_SUFFIX}`;
+}
+
+function updateWorkspaceLockState() {
+  const hasProgrammerContext = Boolean(String(state.programmerId || "").trim() || String(state.programmerName || "").trim());
+  const shouldLock = !state.controllerOnline && state.esmAvailable === false && hasProgrammerContext;
+  state.workspaceLocked = shouldLock;
+  document.body.classList.toggle("workspace-locked", shouldLock);
+  if (els.lockBanner) {
+    els.lockBanner.hidden = !shouldLock;
+  }
+  if (els.lockMessage) {
+    els.lockMessage.textContent = shouldLock ? getWorkspaceLockMessage() : "";
+  }
+  syncActionButtonsDisabled();
 }
 
 function updateControllerBanner() {
@@ -77,28 +148,27 @@ function updateControllerBanner() {
     return;
   }
 
+  const hasProgrammerContext = Boolean(String(state.programmerId || "").trim() || String(state.programmerName || "").trim());
   if (!state.controllerOnline) {
-    els.controllerState.textContent = "Waiting for UnderPAR side panel controller...";
-    els.filterState.textContent = "";
+    if (state.workspaceLocked) {
+      els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
+      els.filterState.textContent = "decomp workspace is locked for this media company.";
+    } else if (hasProgrammerContext) {
+      els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
+      els.filterState.textContent = "Waiting for decomp controller sync from UnderPAR side panel...";
+    } else {
+      els.controllerState.textContent = "Waiting for UnderPAR side panel controller...";
+      els.filterState.textContent = "";
+    }
     return;
   }
 
-  const programmerLabel = state.programmerName
-    ? `${state.programmerName} (${state.programmerId || "unknown"})`
-    : state.programmerId || "Selected media company";
+  const programmerLabel = getProgrammerLabel();
   els.controllerState.textContent = `Selected Media Company: ${programmerLabel}`;
 
   const requestorLabel = state.requestorIds.length > 0 ? state.requestorIds.join(", ") : "All requestors";
   const mvpdLabel = state.mvpdIds.length > 0 ? state.mvpdIds.join(", ") : "All MVPDs";
   els.filterState.textContent = `RequestorId(s): ${requestorLabel} | MVPD(s): ${mvpdLabel}`;
-}
-
-function setEmptyStateVisibility() {
-  if (!els.emptyState || !els.cardsHost) {
-    return;
-  }
-  const hasCards = state.cardsById.size > 0;
-  els.emptyState.hidden = hasCards;
 }
 
 function getDefaultSortStack() {
@@ -368,7 +438,7 @@ function getEsmNodeLabel(urlValue) {
 }
 
 function buildCardColumnsMarkup(cardState) {
-  const columns = Array.isArray(cardState?.columns) ? cardState.columns : [];
+  const columns = normalizeEsmColumns(cardState?.columns);
   const requestUrl = String(cardState?.requestUrl || cardState?.endpointUrl || "").trim();
   const nodeLabel = getEsmNodeLabel(requestUrl);
   const endpointMarkup = requestUrl
@@ -438,7 +508,18 @@ function updateCardHeader(cardState) {
   cardState.subtitleElement.textContent = `${zoom} | Rows: ${rows}`;
 }
 
+function ensureWorkspaceUnlocked() {
+  if (!state.workspaceLocked) {
+    return true;
+  }
+  setStatus(getWorkspaceLockMessage(), "error");
+  return false;
+}
+
 async function rerunCard(cardState) {
+  if (!ensureWorkspaceUnlocked()) {
+    return;
+  }
   const result = await sendWorkspaceAction("run-card", {
     card: getCardPayload(cardState),
   });
@@ -477,7 +558,7 @@ function ensureCard(cardMeta) {
       existing.zoomKey = String(cardMeta.zoomKey);
     }
     if (Array.isArray(cardMeta?.columns)) {
-      existing.columns = cardMeta.columns.map((value) => String(value || "").trim()).filter(Boolean);
+      existing.columns = normalizeEsmColumns(cardMeta.columns);
     }
     updateCardHeader(existing);
     return existing;
@@ -488,7 +569,7 @@ function ensureCard(cardMeta) {
     endpointUrl: String(cardMeta?.endpointUrl || ""),
     requestUrl: String(cardMeta?.requestUrl || cardMeta?.endpointUrl || ""),
     zoomKey: String(cardMeta?.zoomKey || ""),
-    columns: Array.isArray(cardMeta?.columns) ? cardMeta.columns.map((value) => String(value || "").trim()).filter(Boolean) : [],
+    columns: normalizeEsmColumns(cardMeta?.columns),
     rows: [],
     sortStack: getDefaultSortStack(),
     lastModified: "",
@@ -507,12 +588,10 @@ function ensureCard(cardMeta) {
   cardState.closeButton.addEventListener("click", () => {
     cardState.element.remove();
     state.cardsById.delete(cardState.cardId);
-    setEmptyStateVisibility();
   });
 
   state.cardsById.set(cardId, cardState);
   els.cardsHost.prepend(cardState.element);
-  setEmptyStateVisibility();
   return cardState;
 }
 
@@ -642,6 +721,9 @@ function renderCardTable(cardState, rows, lastModified) {
   if (csvLink) {
     csvLink.addEventListener("click", async (event) => {
       event.preventDefault();
+      if (!ensureWorkspaceUnlocked()) {
+        return;
+      }
       const result = await sendWorkspaceAction("download-csv", {
         card: getCardPayload(cardState),
         sortRule: cardState.sortStack?.[0] || getDefaultSortStack()[0],
@@ -718,6 +800,13 @@ function applyReportResult(payload) {
 
 function applyControllerState(payload) {
   state.controllerOnline = payload?.controllerOnline === true;
+  if (payload?.esmAvailable === true) {
+    state.esmAvailable = true;
+  } else if (payload?.esmAvailable === false) {
+    state.esmAvailable = false;
+  } else {
+    state.esmAvailable = null;
+  }
   state.programmerId = String(payload?.programmerId || "");
   state.programmerName = String(payload?.programmerName || "");
   state.requestorIds = Array.isArray(payload?.requestorIds)
@@ -726,6 +815,7 @@ function applyControllerState(payload) {
   state.mvpdIds = Array.isArray(payload?.mvpdIds)
     ? payload.mvpdIds.map((value) => String(value || "").trim()).filter(Boolean)
     : [];
+  updateWorkspaceLockState();
   updateControllerBanner();
 }
 
@@ -752,7 +842,7 @@ function handleWorkspaceEvent(eventName, payload) {
 
   if (event === "batch-start") {
     state.batchRunning = true;
-    setActionButtonsDisabled(true);
+    syncActionButtonsDisabled();
     const total = Number(payload?.total || 0);
     setStatus(total > 0 ? `Re-running ${total} report(s)...` : "Re-running reports...");
     return;
@@ -760,7 +850,7 @@ function handleWorkspaceEvent(eventName, payload) {
 
   if (event === "batch-end") {
     state.batchRunning = false;
-    setActionButtonsDisabled(false);
+    syncActionButtonsDisabled();
     const total = Number(payload?.total || 0);
     setStatus(total > 0 ? `Re-run completed for ${total} report(s).` : "Re-run completed.");
     return;
@@ -772,6 +862,9 @@ function handleWorkspaceEvent(eventName, payload) {
 }
 
 async function sendWorkspaceAction(action, payload = {}) {
+  if (String(action || "").trim().toLowerCase() !== "workspace-ready" && !ensureWorkspaceUnlocked()) {
+    return { ok: false, error: getWorkspaceLockMessage() };
+  }
   try {
     return await chrome.runtime.sendMessage({
       type: DECOMP_MESSAGE_TYPE,
@@ -788,29 +881,35 @@ async function sendWorkspaceAction(action, payload = {}) {
 }
 
 async function rerunAllCards() {
+  if (!ensureWorkspaceUnlocked()) {
+    return;
+  }
   if (state.cardsById.size === 0) {
     setStatus("No reports are open.");
     return;
   }
 
   const cards = [...state.cardsById.values()].map((cardState) => getCardPayload(cardState));
-  setActionButtonsDisabled(true);
+  state.batchRunning = true;
+  syncActionButtonsDisabled();
   setStatus(`Re-running ${cards.length} report(s)...`);
   const result = await sendWorkspaceAction("rerun-all", { cards });
   if (!result?.ok) {
-    setActionButtonsDisabled(false);
+    state.batchRunning = false;
+    syncActionButtonsDisabled();
     setStatus(result?.error || "Unable to re-run reports.", "error");
     return;
   }
 }
 
 function clearWorkspace() {
+  if (!ensureWorkspaceUnlocked()) {
+    return;
+  }
   state.cardsById.forEach((cardState) => {
     cardState.element?.remove();
   });
   state.cardsById.clear();
-  setEmptyStateVisibility();
-  setStatus("Workspace cleared.");
 }
 
 function registerEventHandlers() {
@@ -847,7 +946,7 @@ async function init() {
     state.windowId = 0;
   }
   registerEventHandlers();
-  setEmptyStateVisibility();
+  updateWorkspaceLockState();
   updateControllerBanner();
   const result = await sendWorkspaceAction("workspace-ready");
   if (!result?.ok) {
