@@ -24,7 +24,7 @@ const PROGRAMMER_ENDPOINTS = [
 ];
 const DCR_CACHE_PREFIX = "underpar_dcr_cache_v1";
 const LEGACY_DCR_CACHE_PREFIX = "mincloudlogin_dcr_cache_v1";
-const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "decompTree", "degradation"];
+const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "decompTree", "degradation", "cm"];
 const PREMIUM_SERVICE_SCOPE_BY_KEY = {
   degradation: "decisions:owner",
   esm: "analytics:client",
@@ -32,6 +32,7 @@ const PREMIUM_SERVICE_SCOPE_BY_KEY = {
 };
 const REST_V2_SCOPE = PREMIUM_SERVICE_SCOPE_BY_KEY.restV2;
 const PREMIUM_SERVICE_TITLE_BY_KEY = {
+  cm: "Concurrency Monitoring",
   degradation: "Degradation",
   decompTree: "decomp",
   restV2: "REST V2",
@@ -68,14 +69,74 @@ const REST_V2_LOGOUT_NAVIGATION_TIMEOUT_MS = 35000;
 const REST_V2_LOGOUT_POST_NAV_DELAY_MS = 1200;
 const ESM_AUTO_REFRESH_INTERVAL_MS = 60 * 1000;
 const CLICK_ESM_ENDPOINTS_PATH = "click-esm-endpoints.json";
+const CLICK_ESM_TEMPLATE_PATH = "clickESM-template.html";
+const CLICK_ESM_TEMPLATE_PLACEHOLDER_TITLE = "__UP_CLICK_ESM_TITLE__";
+const CLICK_ESM_TEMPLATE_PLACEHOLDER_CID = "__UP_CID__";
+const CLICK_ESM_TEMPLATE_PLACEHOLDER_CSC = "__UP_CSC__";
+const CLICK_ESM_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN = "__UP_ACCESS_TOKEN__";
 const DECOMP_INLINE_RESULT_LIMIT = 100;
 const DECOMP_CSV_RESULT_LIMIT = 10000;
 const ESM_DEPRECATED_COLUMN_KEYS = new Set(["clientless-failures", "clientless-tokens"]);
 const DECOMP_WORKSPACE_PATH = "decomp-workspace.html";
 const DECOMP_MESSAGE_TYPE = "underpar:decomp";
 const LEGACY_DECOMP_MESSAGE_TYPE = "mincloud:decomp";
+const CM_WORKSPACE_PATH = "cm-workspace.html";
+const CM_MESSAGE_TYPE = "underpar:cm";
+const LEGACY_CM_MESSAGE_TYPE = "mincloud:cm";
 const ESM_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
 const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const CM_TENANT_ENDPOINT_CANDIDATES = [
+  "https://cm-reports.adobeprimetime.com/api/v1/tenants",
+  "https://cm-reports.adobeprimetime.com/api/tenants",
+  "https://cm-reports.adobeprimetime.com/v1/tenants",
+  "https://cm-reports.adobeprimetime.com/tenants",
+  "https://cm-reports.adobeprimetime.com/cm/v1/tenants",
+  "https://cm-reports.adobeprimetime.com/cm/tenants",
+  "https://config.adobeprimetime.com/h1/cm/tenants",
+  "https://config.adobeprimetime.com/cm/tenants",
+  "https://config.adobeprimetime.com/api/cm/tenants",
+  "https://config.adobeprimetime.com/api/v1/cm/tenants",
+  "https://experience.adobe.com/cm-console/api/v1/tenants",
+  "https://experience.adobe.com/cm-console/api/tenants",
+  "https://experience.adobe.com/api/cm-console/tenants",
+  "https://experience.adobe.com/cm-console/tenants",
+];
+const CM_TENANT_DETAIL_PATH_TEMPLATES = [
+  "/api/v1/tenants/{tenantId}",
+  "/api/tenants/{tenantId}",
+  "/v1/tenants/{tenantId}",
+  "/tenants/{tenantId}",
+  "/cm/v1/tenants/{tenantId}",
+];
+const CM_APPLICATIONS_PATH_TEMPLATES = [
+  "/api/v1/tenants/{tenantId}/applications",
+  "/api/tenants/{tenantId}/applications",
+  "/v1/tenants/{tenantId}/applications",
+  "/tenants/{tenantId}/applications",
+  "/cm/v1/tenants/{tenantId}/applications",
+];
+const CM_POLICIES_PATH_TEMPLATES = [
+  "/api/v1/tenants/{tenantId}/policies",
+  "/api/tenants/{tenantId}/policies",
+  "/v1/tenants/{tenantId}/policies",
+  "/tenants/{tenantId}/policies",
+  "/cm/v1/tenants/{tenantId}/policies",
+];
+const CM_USAGE_PATH_TEMPLATES = [
+  "/api/v1/tenants/{tenantId}/usage",
+  "/api/tenants/{tenantId}/usage",
+  "/v1/tenants/{tenantId}/usage",
+  "/tenants/{tenantId}/usage",
+  "/cm/v1/tenants/{tenantId}/usage",
+  "/api/v1/tenants/{tenantId}/cmu",
+  "/api/tenants/{tenantId}/cmu",
+];
+const CM_BASE_URL_CANDIDATES = [
+  "https://cm-reports.adobeprimetime.com",
+  "https://config.adobeprimetime.com",
+  "https://experience.adobe.com",
+];
+const CM_MESSAGE_TYPES = new Set([CM_MESSAGE_TYPE, LEGACY_CM_MESSAGE_TYPE]);
 // Redirect-host filtering mode for HAR trimming.
 // - "exact_path": ignore only the exact redirect URL path
 // - "path_tree": ignore redirect URL path and subtree
@@ -162,6 +223,12 @@ const state = {
   applicationsByProgrammerId: new Map(),
   premiumAppsByProgrammerId: new Map(),
   premiumAppsLoadPromiseByProgrammerId: new Map(),
+  cmServiceByProgrammerId: new Map(),
+  cmServiceLoadPromiseByProgrammerId: new Map(),
+  cmTenantsCatalog: null,
+  cmTenantsCatalogPromise: null,
+  cmTenantBundleByTenantKey: new Map(),
+  cmTenantBundlePromiseByTenantKey: new Map(),
   premiumSectionCollapsedByKey: new Map(),
   premiumPanelRequestToken: 0,
   dcrEnsureTokenPromiseByKey: new Map(),
@@ -180,6 +247,11 @@ const state = {
   decompStopping: false,
   decompTraceViewerWindowId: 0,
   decompTraceViewerTabId: 0,
+  cmWorkspaceTabId: 0,
+  cmWorkspaceWindowId: 0,
+  cmWorkspaceTabIdByWindowId: new Map(),
+  cmRuntimeListenerBound: false,
+  cmWorkspaceTabWatcherBound: false,
 };
 
 const els = {
@@ -211,6 +283,8 @@ const els = {
 
 let clickEsmEndpoints = [];
 let clickEsmEndpointsPromise = null;
+let clickEsmTemplateHtml = "";
+let clickEsmTemplatePromise = null;
 
 function log(message, details = null) {
   if (details === null) {
@@ -2695,6 +2769,14 @@ function sanitizeHarFileSegment(value, fallback = "capture") {
   return normalized || fallback;
 }
 
+function sanitizeDownloadFileSegment(value, fallback = "download") {
+  const normalized = String(value || "")
+    .trim()
+    .replace(/[^\w.-]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  return normalized || fallback;
+}
+
 function buildRestV2HarFilename(context = null, logoutResult = null) {
   const requestor = sanitizeHarFileSegment(context?.requestorId || "requestor", "requestor");
   const mvpd = sanitizeHarFileSegment(context?.mvpd || "mvpd", "mvpd");
@@ -3243,6 +3325,209 @@ async function loadClickEsmEndpoints() {
   } finally {
     clickEsmEndpointsPromise = null;
   }
+}
+
+async function loadClickEsmTemplateHtml() {
+  if (typeof clickEsmTemplateHtml === "string" && clickEsmTemplateHtml.trim().length > 0) {
+    return clickEsmTemplateHtml;
+  }
+  if (clickEsmTemplatePromise) {
+    return clickEsmTemplatePromise;
+  }
+
+  clickEsmTemplatePromise = (async () => {
+    const resourceUrl = chrome.runtime.getURL(CLICK_ESM_TEMPLATE_PATH);
+    const response = await fetch(resourceUrl, {
+      method: "GET",
+      credentials: "omit",
+      cache: "no-cache",
+    });
+    if (!response.ok) {
+      throw new Error(`Unable to load clickESM template (${response.status}).`);
+    }
+    const templateHtml = await response.text();
+    if (typeof templateHtml !== "string" || templateHtml.trim().length === 0) {
+      throw new Error("clickESM template is empty.");
+    }
+    clickEsmTemplateHtml = templateHtml;
+    return clickEsmTemplateHtml;
+  })();
+
+  try {
+    return await clickEsmTemplatePromise;
+  } finally {
+    clickEsmTemplatePromise = null;
+  }
+}
+
+function clickEsmReplaceTitleHotspot(templateHtml, titleText) {
+  const safeTitle = escapeHtml(String(titleText || "").trim());
+  if (!safeTitle) {
+    throw new Error("clickESM title is required.");
+  }
+  let output = String(templateHtml || "");
+  if (output.includes(CLICK_ESM_TEMPLATE_PLACEHOLDER_TITLE)) {
+    output = output.replaceAll(CLICK_ESM_TEMPLATE_PLACEHOLDER_TITLE, safeTitle);
+    return output;
+  }
+  if (/<title[\s\S]*?<\/title>/i.test(output)) {
+    return output.replace(/<title[\s\S]*?<\/title>/i, `<title>${safeTitle}</title>`);
+  }
+  throw new Error("clickESM template is missing the <title> hotspot.");
+}
+
+function clickEsmReplaceHiddenInputHotspot(templateHtml, inputName, value, placeholderToken) {
+  const safeName = String(inputName || "").trim();
+  if (!safeName) {
+    throw new Error("clickESM hidden input name is required.");
+  }
+  const safeValue = escapeHtml(String(value || "").trim());
+  if (!safeValue) {
+    throw new Error(`clickESM hidden input "${safeName}" is required.`);
+  }
+
+  let output = String(templateHtml || "");
+  const placeholder = String(placeholderToken || "").trim();
+  if (placeholder && output.includes(placeholder)) {
+    return output.replaceAll(placeholder, safeValue);
+  }
+
+  const escapedName = clickEsmEscapeRegExp(safeName);
+  const inputPattern = new RegExp(
+    `(<input\\b[^>]*\\bname=(["'])${escapedName}\\2[^>]*\\bvalue=(["']))([^"']*)(\\3[^>]*>)`,
+    "i"
+  );
+  if (inputPattern.test(output)) {
+    output = output.replace(inputPattern, `$1${safeValue}$5`);
+    return output;
+  }
+
+  throw new Error(`clickESM template is missing hidden input "${safeName}".`);
+}
+
+function buildClickEsmHtmlFromTemplate(templateHtml, context = {}) {
+  const programmerLabel = String(context.programmerLabel || "").trim();
+  const titleText = `${programmerLabel || "Media Company"} CLICK ESM`;
+  let output = clickEsmReplaceTitleHotspot(templateHtml, titleText);
+  output = clickEsmReplaceHiddenInputHotspot(output, "cid", context.clientId, CLICK_ESM_TEMPLATE_PLACEHOLDER_CID);
+  output = clickEsmReplaceHiddenInputHotspot(output, "csc", context.clientSecret, CLICK_ESM_TEMPLATE_PLACEHOLDER_CSC);
+  output = clickEsmReplaceHiddenInputHotspot(
+    output,
+    "access_token",
+    context.accessToken,
+    CLICK_ESM_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN
+  );
+  return output;
+}
+
+function downloadClickEsmHtmlFile(htmlText, fileName) {
+  const blob = new Blob([String(htmlText || "")], { type: "text/html;charset=utf-8" });
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = String(fileName || "clickESM.html");
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 1500);
+}
+
+function buildClickEsmDownloadFileName(programmer) {
+  const label = firstNonEmptyString([
+    programmer?.programmerName,
+    programmer?.mediaCompanyName,
+    programmer?.programmerId,
+  ]);
+  const base = sanitizeDownloadFileSegment(label, "MediaCompany");
+  return `${base}_clickESM.html`;
+}
+
+function resolveClickEsmDownloadContext(decompState = null) {
+  if (decompState?.programmer?.programmerId && decompState?.appInfo?.guid) {
+    return {
+      programmer: decompState.programmer,
+      appInfo: decompState.appInfo,
+      requestorIds: clickEsmGetSelectedValues(decompState.requestorSelect),
+      mvpdIds: decompState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(decompState.mvpdSelect),
+      section: decompState.section || null,
+    };
+  }
+
+  const selectedProgrammer = resolveSelectedProgrammer();
+  if (!selectedProgrammer?.programmerId) {
+    return null;
+  }
+  const selectedServices = state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null;
+  const esmApp = selectedServices?.esm || null;
+  if (!esmApp?.guid) {
+    return null;
+  }
+  return {
+    programmer: selectedProgrammer,
+    appInfo: esmApp,
+    requestorIds: state.selectedRequestorId ? [String(state.selectedRequestorId)] : [],
+    mvpdIds: state.selectedMvpdId ? [String(state.selectedMvpdId)] : [],
+    section: null,
+  };
+}
+
+async function makeClickEsmDownload(context, requestToken, options = {}) {
+  const programmer = context?.programmer || null;
+  const appInfo = context?.appInfo || null;
+  if (!programmer?.programmerId) {
+    throw new Error("Media company is required to generate clickESM.");
+  }
+  if (!appInfo?.guid) {
+    throw new Error("ESM application details are required to generate clickESM.");
+  }
+  if (
+    context?.section &&
+    !isEsmServiceRequestActive(context.section, requestToken, programmer.programmerId)
+  ) {
+    throw new Error("decomp controller is no longer active for the selected media company.");
+  }
+
+  const accessToken = await ensureDcrAccessToken(programmer.programmerId, appInfo, false, {
+    service: "esm-clickesm",
+    scope: PREMIUM_SERVICE_SCOPE_BY_KEY.esm,
+    requestorIds: Array.isArray(context?.requestorIds) ? context.requestorIds.slice(0, 24) : [],
+    mvpdIds: Array.isArray(context?.mvpdIds) ? context.mvpdIds.slice(0, 24) : [],
+    requestorId: String(context?.requestorIds?.[0] || ""),
+    mvpd: String(context?.mvpdIds?.[0] || ""),
+    appGuid: String(appInfo?.guid || ""),
+    appName: String(appInfo?.appName || appInfo?.guid || ""),
+    source: String(options.source || "sidepanel"),
+  });
+
+  const dcrCache = loadDcrCache(programmer.programmerId, appInfo.guid) || {};
+  const clientId = String(dcrCache.clientId || "");
+  const clientSecret = String(dcrCache.clientSecret || "");
+  const resolvedAccessToken = String(accessToken || dcrCache.accessToken || "");
+  if (!clientId || !clientSecret || !resolvedAccessToken) {
+    throw new Error("Unable to resolve ESM credentials/token for clickESM generation.");
+  }
+
+  const templateHtml = await loadClickEsmTemplateHtml();
+  const programmerLabel = firstNonEmptyString([
+    programmer?.programmerName,
+    programmer?.mediaCompanyName,
+    programmer?.programmerId,
+  ]) || "Media Company";
+  const fileName = buildClickEsmDownloadFileName(programmer);
+  const downloadHtml = buildClickEsmHtmlFromTemplate(templateHtml, {
+    programmerLabel,
+    clientId,
+    clientSecret,
+    accessToken: resolvedAccessToken,
+  });
+  downloadClickEsmHtmlFile(downloadHtml, fileName);
+  return {
+    fileName,
+    programmerLabel,
+  };
 }
 
 function clickEsmHideMvpdSelector(clickState) {
@@ -4766,6 +5051,7 @@ function decompBuildShellHtml() {
         <input type="text" class="decomp-search" placeholder="Search segments / columns..." />
         <button type="button" class="decomp-find-btn">FIND IT</button>
         <button type="button" class="decomp-reset-btn">RESET</button>
+        <button type="button" class="decomp-make-clickesm-btn">MAKE clickESM</button>
         <span class="decomp-net-indicator" title="Loading" aria-label="Loading" hidden></span>
       </div>
       <div class="decomp-tree-panel">
@@ -4880,6 +5166,30 @@ async function decompRunEndpointFromUi(decompState, endpoint, requestToken, requ
     });
   } catch (error) {
     setStatus(`Unable to open decomp workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
+}
+
+async function decompMakeClickEsmFromUi(decompState, requestToken, source = "sidepanel") {
+  if (!decompState) {
+    return;
+  }
+  const triggerButton = decompState.makeClickEsmButton;
+  if (triggerButton) {
+    triggerButton.disabled = true;
+  }
+  try {
+    const context = resolveClickEsmDownloadContext(decompState);
+    if (!context) {
+      throw new Error("Select a media company with ESM access to generate clickESM.");
+    }
+    const result = await makeClickEsmDownload(context, requestToken, { source });
+    setStatus(`Downloaded ${result.fileName} for ${result.programmerLabel}.`, "success");
+  } catch (error) {
+    setStatus(`Unable to generate clickESM: ${error instanceof Error ? error.message : String(error)}`, "error");
+  } finally {
+    if (triggerButton && isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
+      triggerButton.disabled = false;
+    }
   }
 }
 
@@ -5505,6 +5815,12 @@ function wireDecompInteractions(decompState, requestToken) {
     decompApplyTreeFilters(decompState, { highlight: false });
   });
 
+  decompState.makeClickEsmButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void decompMakeClickEsmFromUi(decompState, requestToken, "sidepanel");
+  });
+
   decompState.zoomFilterSelect?.addEventListener("change", () => {
     const term = clickEsmNormalizeSearchTerm(decompState.searchInput?.value || "");
     decompApplyTreeFilters(decompState, { highlight: Boolean(term) });
@@ -5615,6 +5931,20 @@ async function handleDecompWorkspaceAction(message, sender = null) {
       decompBroadcastSelectedControllerState(selectedProgrammer, selectedServices, senderWindowId);
     }
     return { ok: true, controllerOnline: Boolean(decompState) };
+  }
+
+  if (action === "make-clickesm") {
+    const context = resolveClickEsmDownloadContext(decompState);
+    if (!context) {
+      return { ok: false, error: "Select a media company with ESM access to generate clickESM." };
+    }
+    const requestToken = Number(state.premiumPanelRequestToken || 0);
+    const result = await makeClickEsmDownload(context, requestToken, { source: "workspace" });
+    return {
+      ok: true,
+      fileName: result.fileName,
+      programmerLabel: result.programmerLabel,
+    };
   }
 
   if (!decompState) {
@@ -5854,6 +6184,7 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
       searchInput: contentElement.querySelector(".decomp-search"),
       findButton: contentElement.querySelector(".decomp-find-btn"),
       resetButton: contentElement.querySelector(".decomp-reset-btn"),
+      makeClickEsmButton: contentElement.querySelector(".decomp-make-clickesm-btn"),
       treeToggleButton: contentElement.querySelector(".decomp-tree-toggle-btn"),
       treeStatsElement: contentElement.querySelector(".decomp-tree-stats"),
       treeRootElement: contentElement.querySelector(".decomp-tree-root"),
@@ -5906,7 +6237,728 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
   }
 }
 
+function isCmServiceRequestActive(section, requestToken, programmerId) {
+  if (!section || !section.isConnected) {
+    return false;
+  }
+  if (requestToken !== state.premiumPanelRequestToken) {
+    return false;
+  }
+  const selected = resolveSelectedProgrammer();
+  return Boolean(selected && selected.programmerId === programmerId);
+}
+
+function cmGetWorkspaceUrl() {
+  return chrome.runtime.getURL(CM_WORKSPACE_PATH);
+}
+
+function cmIsWorkspaceTab(tabLike) {
+  return String(tabLike?.url || "").startsWith(cmGetWorkspaceUrl());
+}
+
+function cmBindWorkspaceTab(windowId, tabId) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId > 0 && normalizedTabId > 0) {
+    state.cmWorkspaceTabIdByWindowId.set(normalizedWindowId, normalizedTabId);
+  }
+  if (normalizedWindowId > 0) {
+    state.cmWorkspaceWindowId = normalizedWindowId;
+  }
+  if (normalizedTabId > 0) {
+    state.cmWorkspaceTabId = normalizedTabId;
+  }
+}
+
+function cmUnbindWorkspaceTab(tabId) {
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedTabId > 0) {
+    for (const [windowId, mappedTabId] of state.cmWorkspaceTabIdByWindowId.entries()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        state.cmWorkspaceTabIdByWindowId.delete(windowId);
+      }
+    }
+  }
+
+  if (!normalizedTabId || Number(state.cmWorkspaceTabId || 0) === normalizedTabId) {
+    state.cmWorkspaceTabId = 0;
+    state.cmWorkspaceWindowId = 0;
+  }
+}
+
+function cmGetBoundWorkspaceTabId(windowId) {
+  const normalizedWindowId = Number(windowId || 0);
+  if (normalizedWindowId > 0) {
+    const mapped = Number(state.cmWorkspaceTabIdByWindowId.get(normalizedWindowId) || 0);
+    if (mapped > 0) {
+      return mapped;
+    }
+  }
+  return Number(state.cmWorkspaceTabId || 0);
+}
+
+function cmGetControllerStatePayload(cmState) {
+  const requestorIds = state.selectedRequestorId ? [String(state.selectedRequestorId)] : [];
+  const mvpdIds = state.selectedMvpdId ? [String(state.selectedMvpdId)] : [];
+  return {
+    controllerOnline: Boolean(cmState?.section?.isConnected),
+    cmAvailable: true,
+    programmerId: String(cmState?.programmer?.programmerId || ""),
+    programmerName: String(cmState?.programmer?.programmerName || ""),
+    requestorIds,
+    mvpdIds,
+    updatedAt: Date.now(),
+  };
+}
+
+function cmGetSelectedControllerStatePayload(programmer = null, services = null) {
+  const resolvedProgrammer =
+    programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  let resolvedServices = services;
+  if (!resolvedServices && resolvedProgrammer?.programmerId) {
+    resolvedServices = state.premiumAppsByProgrammerId.get(resolvedProgrammer.programmerId) || null;
+  }
+
+  let cmAvailable = null;
+  if (resolvedServices && typeof resolvedServices === "object") {
+    cmAvailable = Boolean(Array.isArray(resolvedServices?.cm?.matchedTenants) && resolvedServices.cm.matchedTenants.length > 0);
+  }
+  const requestorIds = state.selectedRequestorId ? [String(state.selectedRequestorId)] : [];
+  const mvpdIds = state.selectedMvpdId ? [String(state.selectedMvpdId)] : [];
+  return {
+    controllerOnline: false,
+    cmAvailable,
+    programmerId: String(resolvedProgrammer?.programmerId || ""),
+    programmerName: String(resolvedProgrammer?.programmerName || ""),
+    requestorIds,
+    mvpdIds,
+    updatedAt: Date.now(),
+  };
+}
+
+async function cmSendWorkspaceMessage(event, payload = {}, options = {}) {
+  const targetWindowId = Number(options.targetWindowId || 0);
+  try {
+    const message = {
+      type: CM_MESSAGE_TYPE,
+      channel: "workspace-event",
+      event: String(event || ""),
+      payload,
+    };
+    if (targetWindowId > 0) {
+      message.targetWindowId = targetWindowId;
+    }
+    await chrome.runtime.sendMessage(message);
+  } catch {
+    // Ignore when no CM workspace listener is active.
+  }
+}
+
+function cmBroadcastSelectedControllerState(programmer = null, services = null, targetWindowId = 0) {
+  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.cmWorkspaceWindowId || 0);
+  void cmSendWorkspaceMessage("controller-state", cmGetSelectedControllerStatePayload(programmer, services), {
+    targetWindowId: resolvedWindowId,
+  });
+}
+
+function cmBroadcastControllerState(cmState, targetWindowId = 0) {
+  if (!cmState) {
+    return;
+  }
+  const resolvedWindowId =
+    Number(targetWindowId || 0) || Number(cmState.controllerWindowId || 0) || Number(state.cmWorkspaceWindowId || 0);
+  void cmSendWorkspaceMessage("controller-state", cmGetControllerStatePayload(cmState), {
+    targetWindowId: resolvedWindowId,
+  });
+}
+
+async function cmEnsureWorkspaceTab(options = {}) {
+  const shouldActivate = options.activate !== false;
+  const requestedWindowId = Number(options.windowId || 0);
+  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await decompGetCurrentWindowId();
+  const useWindowFilter = targetWindowId > 0;
+  let workspaceTab = null;
+
+  const boundTabId = cmGetBoundWorkspaceTabId(targetWindowId);
+  if (boundTabId > 0) {
+    try {
+      const existing = await chrome.tabs.get(boundTabId);
+      if (cmIsWorkspaceTab(existing) && (!useWindowFilter || Number(existing.windowId || 0) === targetWindowId)) {
+        workspaceTab = existing;
+      }
+    } catch {
+      cmUnbindWorkspaceTab(boundTabId);
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    try {
+      const allTabs = await chrome.tabs.query(useWindowFilter ? { windowId: targetWindowId } : { currentWindow: true });
+      workspaceTab = allTabs.find((tab) => cmIsWorkspaceTab(tab)) || null;
+    } catch {
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    workspaceTab = await chrome.tabs.create({
+      url: cmGetWorkspaceUrl(),
+      active: shouldActivate,
+      ...(useWindowFilter ? { windowId: targetWindowId } : {}),
+    });
+  } else if (shouldActivate && workspaceTab.id) {
+    try {
+      workspaceTab = await chrome.tabs.update(workspaceTab.id, { active: true });
+      if (Number(workspaceTab?.windowId || 0) > 0) {
+        await chrome.windows.update(Number(workspaceTab.windowId), { focused: true });
+      }
+    } catch {
+      // Ignore activation failures.
+    }
+  }
+
+  cmBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+  return workspaceTab;
+}
+
+function cmBuildRecordId(kind, tenantId, entityId, index = 0) {
+  return [String(kind || "cm"), String(tenantId || "tenant"), String(entityId || `item-${index + 1}`)]
+    .map((value) => value.replace(/[^\w\-.:]+/g, "_"))
+    .join(":");
+}
+
+function cmBuildWorkspaceRecordsFromBundles(bundles) {
+  const output = [];
+  const seen = new Set();
+  const pushRecord = (record) => {
+    if (!record?.cardId || seen.has(record.cardId)) {
+      return;
+    }
+    seen.add(record.cardId);
+    output.push(record);
+  };
+
+  (Array.isArray(bundles) ? bundles : []).forEach((bundle, bundleIndex) => {
+    const tenant = bundle?.tenant || {};
+    const tenantId = String(tenant?.tenantId || `tenant-${bundleIndex + 1}`);
+    const tenantName = String(tenant?.tenantName || tenantId);
+    const tenantPayload = bundle?.tenantDetail?.payload || tenant?.raw || {};
+    pushRecord({
+      cardId: cmBuildRecordId("tenant", tenantId, tenantId, bundleIndex),
+      kind: "tenant",
+      title: tenantName,
+      subtitle: tenantId,
+      endpointUrl: String(bundle?.tenantDetail?.url || tenant?.sourceUrl || tenant?.links?.[0] || ""),
+      requestUrl: String(bundle?.tenantDetail?.url || tenant?.sourceUrl || tenant?.links?.[0] || ""),
+      payload: tenantPayload,
+      columns: cmColumnsFromPayload(tenantPayload),
+      lastModified: String(bundle?.tenantDetail?.lastModified || ""),
+      tenantId,
+      tenantName,
+    });
+
+    const groups = [
+      {
+        kind: "applications",
+        rows: Array.isArray(bundle?.applications?.rows) ? bundle.applications.rows : [],
+        fallbackUrl: String(bundle?.applications?.url || ""),
+        lastModified: String(bundle?.applications?.lastModified || ""),
+      },
+      {
+        kind: "policies",
+        rows: Array.isArray(bundle?.policies?.rows) ? bundle.policies.rows : [],
+        fallbackUrl: String(bundle?.policies?.url || ""),
+        lastModified: String(bundle?.policies?.lastModified || ""),
+      },
+      {
+        kind: "usage",
+        rows: Array.isArray(bundle?.usage?.rows) ? bundle.usage.rows : [],
+        fallbackUrl: String(bundle?.usage?.url || ""),
+        lastModified: String(bundle?.usage?.lastModified || ""),
+      },
+    ];
+
+    groups.forEach((group) => {
+      group.rows.forEach((row, rowIndex) => {
+        const entityId = String(row?.entityId || row?.name || `${group.kind}-${rowIndex + 1}`);
+        const payload = row?.raw && typeof row.raw === "object" ? row.raw : row;
+        const primaryUrl = String(row?.links?.[0] || row?.sourceUrl || group.fallbackUrl || "");
+        pushRecord({
+          cardId: cmBuildRecordId(group.kind, tenantId, entityId, rowIndex),
+          kind: group.kind,
+          title: String(row?.name || entityId),
+          subtitle: `${tenantName} (${tenantId})`,
+          endpointUrl: primaryUrl,
+          requestUrl: primaryUrl,
+          payload,
+          columns: cmColumnsFromPayload(payload),
+          lastModified: group.lastModified,
+          tenantId,
+          tenantName,
+        });
+      });
+    });
+  });
+
+  return output;
+}
+
+function cmBuildGroupListHtml(groupLabel, records) {
+  const rows = Array.isArray(records) ? records : [];
+  if (rows.length === 0) {
+    return `
+      <section class="cm-group">
+        <h4 class="cm-group-title">${escapeHtml(groupLabel)}</h4>
+        <p class="cm-group-empty">No ${escapeHtml(groupLabel.toLowerCase())} detected for this tenant set.</p>
+      </section>
+    `;
+  }
+
+  const items = rows
+    .map(
+      (record) => `
+      <li class="cm-group-item">
+        <button type="button" class="cm-record-link" data-record-id="${escapeHtml(record.cardId)}">
+          <span class="cm-record-name">${escapeHtml(record.title)}</span>
+          <span class="cm-record-meta">${escapeHtml(record.subtitle || "")}</span>
+        </button>
+      </li>
+    `
+    )
+    .join("");
+
+  return `
+    <section class="cm-group">
+      <h4 class="cm-group-title">${escapeHtml(groupLabel)}</h4>
+      <ul class="cm-group-list">${items}</ul>
+    </section>
+  `;
+}
+
+function getActiveCmState() {
+  const sections = document.querySelectorAll(".premium-service-section.service-cm");
+  for (const section of sections) {
+    const cmState = section?.__underparCmState || null;
+    if (cmState?.section?.isConnected) {
+      return cmState;
+    }
+  }
+  return null;
+}
+
+function cmFindRecordByCard(cmState, card) {
+  if (!cmState?.recordsById) {
+    return null;
+  }
+  const cardId = String(card?.cardId || "").trim();
+  if (cardId && cmState.recordsById.has(cardId)) {
+    return cmState.recordsById.get(cardId);
+  }
+  const endpointUrl = String(card?.requestUrl || card?.endpointUrl || "").trim();
+  if (!endpointUrl) {
+    return null;
+  }
+  for (const record of cmState.recordsById.values()) {
+    if (String(record?.requestUrl || record?.endpointUrl || "").trim() === endpointUrl) {
+      return record;
+    }
+  }
+  return null;
+}
+
+async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {}) {
+  if (!cmState || !record) {
+    return;
+  }
+  if (!isCmServiceRequestActive(cmState.section, requestToken, cmState.programmer?.programmerId)) {
+    return;
+  }
+
+  const cardId = String(options.cardId || record.cardId || generateRequestId());
+  const endpointUrl = String(record.endpointUrl || record.requestUrl || "").trim();
+  const requestUrl = String(record.requestUrl || endpointUrl).trim();
+  const targetWindowId =
+    Number(options.targetWindowId || 0) || Number(cmState.controllerWindowId || 0) || Number(state.cmWorkspaceWindowId || 0);
+  if (options.emitStart !== false) {
+    void cmSendWorkspaceMessage(
+      "report-start",
+      {
+        cardId,
+        endpointUrl,
+        requestUrl,
+        zoomKey: String(record.kind || "").toUpperCase(),
+        columns: Array.isArray(record.columns) ? record.columns : [],
+      },
+      { targetWindowId }
+    );
+  }
+
+  let payload = record.payload;
+  let lastModified = String(record.lastModified || "");
+  const shouldRefetch = options.forceRefetch === true || payload == null;
+  if (requestUrl && shouldRefetch) {
+    try {
+      const response = await fetchCmJsonWithAuthVariants([requestUrl], `CM ${record.kind || "item"} report`);
+      payload = response.parsed;
+      lastModified = response.lastModified || lastModified;
+      record.payload = payload;
+      record.lastModified = lastModified;
+    } catch (error) {
+      if (payload == null) {
+        void cmSendWorkspaceMessage(
+          "report-result",
+          {
+            ok: false,
+            cardId,
+            endpointUrl,
+            requestUrl,
+            error: error instanceof Error ? error.message : String(error),
+          },
+          { targetWindowId }
+        );
+        return;
+      }
+    }
+  }
+
+  const rows = cmRowsFromPayload(payload);
+  const columns = cmColumnsFromPayload(payload);
+  record.columns = columns;
+  void cmSendWorkspaceMessage(
+    "report-result",
+    {
+      ok: true,
+      cardId,
+      endpointUrl,
+      requestUrl,
+      zoomKey: String(record.kind || "").toUpperCase(),
+      columns,
+      rows,
+      lastModified,
+    },
+    { targetWindowId }
+  );
+}
+
+async function handleCmWorkspaceAction(message, sender = null) {
+  const action = String(message?.action || "").trim().toLowerCase();
+  const cmState = getActiveCmState();
+  const senderWindowId = Number(sender?.tab?.windowId || 0);
+  const senderTabId = Number(sender?.tab?.id || 0);
+  const controllerWindowId = cmState ? Number(cmState.controllerWindowId || state.cmWorkspaceWindowId || 0) : 0;
+  const mappedSenderTabId = senderWindowId > 0 ? Number(state.cmWorkspaceTabIdByWindowId.get(senderWindowId) || 0) : 0;
+
+  if (senderWindowId > 0 && controllerWindowId > 0 && senderWindowId !== controllerWindowId) {
+    return { ok: false, error: "CM controller is attached to a different window." };
+  }
+  if (senderWindowId > 0 && senderTabId > 0 && mappedSenderTabId > 0 && senderTabId !== mappedSenderTabId) {
+    return { ok: false, error: "This is not the bound CM workspace tab for the window." };
+  }
+  if (senderWindowId > 0 && senderTabId > 0 && (!mappedSenderTabId || mappedSenderTabId <= 0)) {
+    cmBindWorkspaceTab(senderWindowId, senderTabId);
+  }
+  if (cmState && senderWindowId > 0 && Number(cmState.controllerWindowId || 0) <= 0) {
+    cmState.controllerWindowId = senderWindowId;
+  }
+
+  if (action === "workspace-ready") {
+    if (cmState) {
+      if (senderWindowId > 0) {
+        cmBindWorkspaceTab(senderWindowId, senderTabId);
+      }
+      cmBroadcastControllerState(cmState, senderWindowId);
+    } else {
+      const selectedProgrammer = resolveSelectedProgrammer();
+      const selectedServices = selectedProgrammer?.programmerId
+        ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+        : null;
+      cmBroadcastSelectedControllerState(selectedProgrammer, selectedServices, senderWindowId);
+    }
+    return { ok: true, controllerOnline: Boolean(cmState) };
+  }
+
+  if (!cmState) {
+    return { ok: false, error: "Open Concurrency Monitoring in the UnderPAR side panel to run reports." };
+  }
+
+  const requestToken = Number(state.premiumPanelRequestToken || 0);
+  if (!isCmServiceRequestActive(cmState.section, requestToken, cmState.programmer?.programmerId)) {
+    return { ok: false, error: "CM controller is no longer active for the selected media company." };
+  }
+
+  if (action === "open-workspace") {
+    const targetWindowId = senderWindowId || Number(cmState.controllerWindowId || 0);
+    await cmEnsureWorkspaceTab({ activate: true, windowId: targetWindowId });
+    cmBroadcastControllerState(cmState, targetWindowId);
+    return { ok: true };
+  }
+
+  if (action === "run-card") {
+    const card = message?.card && typeof message.card === "object" ? message.card : {};
+    const matchedRecord = cmFindRecordByCard(cmState, card);
+    if (!matchedRecord) {
+      const fallbackUrl = String(card?.requestUrl || card?.endpointUrl || "").trim();
+      if (!fallbackUrl) {
+        return { ok: false, error: "CM card request URL is missing." };
+      }
+      await cmRunRecordToWorkspace(
+        cmState,
+        {
+          cardId: String(card.cardId || generateRequestId()),
+          kind: "cm",
+          title: "CM item",
+          subtitle: "",
+          endpointUrl: fallbackUrl,
+          requestUrl: fallbackUrl,
+          payload: null,
+          columns: Array.isArray(card?.columns) ? card.columns : [],
+          lastModified: "",
+        },
+        requestToken,
+        {
+          emitStart: true,
+          forceRefetch: true,
+          cardId: String(card.cardId || generateRequestId()),
+          targetWindowId: senderWindowId || Number(cmState.controllerWindowId || 0),
+        }
+      );
+      return { ok: true };
+    }
+
+    await cmRunRecordToWorkspace(cmState, matchedRecord, requestToken, {
+      emitStart: true,
+      forceRefetch: true,
+      cardId: String(card?.cardId || matchedRecord.cardId || generateRequestId()),
+      targetWindowId: senderWindowId || Number(cmState.controllerWindowId || 0),
+    });
+    return { ok: true };
+  }
+
+  if (action === "rerun-all") {
+    const cards = Array.isArray(message?.cards) ? message.cards : [];
+    const targetWindowId = senderWindowId || Number(cmState.controllerWindowId || 0);
+    void cmSendWorkspaceMessage(
+      "batch-start",
+      {
+        total: cards.length,
+        startedAt: Date.now(),
+      },
+      { targetWindowId }
+    );
+    for (const card of cards) {
+      const record = cmFindRecordByCard(cmState, card);
+      if (!record) {
+        continue;
+      }
+      await cmRunRecordToWorkspace(cmState, record, requestToken, {
+        emitStart: true,
+        forceRefetch: true,
+        cardId: String(card?.cardId || record.cardId || generateRequestId()),
+        targetWindowId,
+      });
+    }
+    void cmSendWorkspaceMessage(
+      "batch-end",
+      {
+        total: cards.length,
+        completedAt: Date.now(),
+      },
+      { targetWindowId }
+    );
+    return { ok: true };
+  }
+
+  return { ok: false, error: `Unsupported CM workspace action: ${action}` };
+}
+
+function ensureCmRuntimeListener() {
+  if (state.cmRuntimeListenerBound) {
+    return;
+  }
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!CM_MESSAGE_TYPES.has(String(message?.type || "")) || message?.channel !== "workspace-action") {
+      return false;
+    }
+    void handleCmWorkspaceAction(message, sender)
+      .then((result) => {
+        sendResponse(result && typeof result === "object" ? result : { ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+    return true;
+  });
+  state.cmRuntimeListenerBound = true;
+}
+
+function ensureCmWorkspaceTabWatcher() {
+  if (state.cmWorkspaceTabWatcherBound) {
+    return;
+  }
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    cmUnbindWorkspaceTab(tabId);
+  });
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const normalizedTabId = Number(tabId || 0);
+    if (!normalizedTabId || !changeInfo?.url) {
+      return;
+    }
+    if (cmIsWorkspaceTab(tab)) {
+      cmBindWorkspaceTab(tab?.windowId, normalizedTabId);
+      return;
+    }
+    const boundTabId = Number(state.cmWorkspaceTabId || 0);
+    let isMappedTab = false;
+    for (const mappedTabId of state.cmWorkspaceTabIdByWindowId.values()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        isMappedTab = true;
+        break;
+      }
+    }
+    if (isMappedTab || normalizedTabId === boundTabId) {
+      cmUnbindWorkspaceTab(normalizedTabId);
+    }
+  });
+  state.cmWorkspaceTabWatcherBound = true;
+}
+
+async function loadCmService(programmer, cmService, section, contentElement, refreshButton, requestToken) {
+  if (!contentElement) {
+    return;
+  }
+  if (!programmer?.programmerId) {
+    contentElement.innerHTML = '<div class="service-error">Missing media company details.</div>';
+    return;
+  }
+  const matchedTenants = Array.isArray(cmService?.matchedTenants) ? cmService.matchedTenants : [];
+  if (matchedTenants.length === 0) {
+    contentElement.innerHTML = '<div class="service-error">No CM tenant matches were detected for this media company.</div>';
+    return;
+  }
+
+  if (refreshButton) {
+    refreshButton.disabled = true;
+  }
+  contentElement.innerHTML = '<div class="loading">Loading Concurrency Monitoring...</div>';
+
+  try {
+    const controllerWindowId = await decompGetCurrentWindowId();
+    const bundles = await Promise.all(matchedTenants.map((tenant) => loadCmTenantBundle(tenant)));
+    if (!isCmServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      return;
+    }
+
+    const records = cmBuildWorkspaceRecordsFromBundles(bundles);
+    const recordsById = new Map(records.map((record) => [record.cardId, record]));
+    const tenantRecords = records.filter((record) => record.kind === "tenant");
+    const applicationRecords = records.filter((record) => record.kind === "applications");
+    const policyRecords = records.filter((record) => record.kind === "policies");
+    const usageRecords = records.filter((record) => record.kind === "usage");
+    const sourceLabel = String(cmService?.sourceUrl || "").trim() || "CM API discovery";
+
+    contentElement.innerHTML = `
+      <div class="cm-shell">
+        <div class="cm-toolbar">
+          <p class="cm-summary">
+            Matched ${matchedTenants.length} tenant${matchedTenants.length === 1 ? "" : "s"} from ${escapeHtml(sourceLabel)}.
+          </p>
+          <button type="button" class="cm-open-workspace-btn">Open CM Workspace</button>
+        </div>
+        <div class="cm-sidepanel">
+          ${cmBuildGroupListHtml("CM Tenants", tenantRecords)}
+          ${cmBuildGroupListHtml("CM Applications", applicationRecords)}
+          ${cmBuildGroupListHtml("CM Policies", policyRecords)}
+          ${cmBuildGroupListHtml("CM Usage (CMU)", usageRecords)}
+        </div>
+      </div>
+    `;
+
+    const cmState = {
+      serviceType: "cm",
+      section,
+      programmer,
+      cmService,
+      contentElement,
+      requestToken,
+      bundles,
+      recordsById,
+      controllerWindowId,
+    };
+    section.__underparCmState = cmState;
+
+    const openWorkspaceButton = contentElement.querySelector(".cm-open-workspace-btn");
+    if (openWorkspaceButton) {
+      openWorkspaceButton.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const targetWindowId = Number(cmState.controllerWindowId || 0);
+        const workspaceTab = await cmEnsureWorkspaceTab({
+          activate: true,
+          windowId: targetWindowId || undefined,
+        });
+        cmBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+        cmBroadcastControllerState(cmState, Number(workspaceTab?.windowId || targetWindowId || 0));
+      });
+    }
+
+    contentElement.querySelectorAll(".cm-record-link").forEach((button) => {
+      button.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const recordId = String(button.getAttribute("data-record-id") || "").trim();
+        if (!recordId) {
+          return;
+        }
+        const record = cmState.recordsById.get(recordId);
+        if (!record) {
+          return;
+        }
+        const workspaceTab = await cmEnsureWorkspaceTab({
+          activate: true,
+          windowId: Number(cmState.controllerWindowId || 0) || undefined,
+        });
+        cmBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+        cmBroadcastControllerState(cmState, Number(workspaceTab?.windowId || cmState.controllerWindowId || 0));
+        await cmRunRecordToWorkspace(cmState, record, requestToken, {
+          emitStart: true,
+          forceRefetch: false,
+          cardId: record.cardId,
+          targetWindowId: Number(workspaceTab?.windowId || cmState.controllerWindowId || 0),
+        });
+      });
+    });
+
+    ensureCmRuntimeListener();
+    ensureCmWorkspaceTabWatcher();
+    await cmEnsureWorkspaceTab({ activate: false, windowId: cmState.controllerWindowId });
+    cmBroadcastControllerState(cmState);
+  } catch (error) {
+    if (!isCmServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      return;
+    }
+    contentElement.innerHTML = `<div class="service-error">${escapeHtml(
+      error instanceof Error ? error.message : String(error)
+    )}</div>`;
+  } finally {
+    if (refreshButton && isCmServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      refreshButton.disabled = false;
+    }
+  }
+}
+
 function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
+  if (serviceKey === "cm") {
+    const matchedTenants = Array.isArray(appInfo?.matchedTenants) ? appInfo.matchedTenants : [];
+    const tenantLabel = matchedTenants.length === 1 ? "tenant" : "tenants";
+    const sampleNames = matchedTenants.slice(0, 4).map((item) => item?.tenantName || item?.tenantId).filter(Boolean);
+    const sourceUrl = String(appInfo?.sourceUrl || "").trim();
+    const summaryItems = [
+      buildMetadataItemHtml("CM Tenant Matches", `${matchedTenants.length} ${tenantLabel}`),
+      buildMetadataItemHtml("Matched Tenant Names", sampleNames.length > 0 ? sampleNames.join(", ") : "N/A"),
+      buildMetadataItemHtml("CM Tenant Source", sourceUrl || "Not detected"),
+    ];
+    return summaryItems.join("");
+  }
+
   const scopeList = Array.isArray(appInfo?.scopes) && appInfo.scopes.length > 0 ? appInfo.scopes.join(", ") : "No scopes";
   const softwareState = appInfo?.softwareStatement ? "Software statement ready" : "Software statement pending";
   const dcrCache = programmer?.programmerId && appInfo?.guid ? loadDcrCache(programmer.programmerId, appInfo.guid) : null;
@@ -5985,6 +7037,7 @@ function clearPremiumServiceAutoRefreshTimers() {
 function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const title = PREMIUM_SERVICE_TITLE_BY_KEY[serviceKey] || serviceKey;
   const serviceClassByKey = {
+    cm: "service-cm",
     degradation: "service-degradation",
     decompTree: "service-esm-decomp",
     restV2: "service-rest-v2",
@@ -6007,7 +7060,9 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const serviceBodyHtml =
     serviceKey === "decompTree"
       ? '<div class="loading">Loading decomp...</div>'
-      : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
+      : serviceKey === "cm"
+        ? '<div class="loading">Loading Concurrency Monitoring...</div>'
+        : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
   const showManualRefresh = serviceKey !== "decompTree";
   const serviceActionsHtml = showManualRefresh
     ? `
@@ -6019,6 +7074,8 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const sectionLabel =
     serviceKey === "decompTree"
       ? `decomp w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`
+      : serviceKey === "cm"
+        ? `Concurrency Monitoring (${Array.isArray(appInfo?.matchedTenants) ? appInfo.matchedTenants.length : 0} tenant matches)`
       : `${title} w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`;
   section.innerHTML = `
     <button type="button" class="metadata-header service-box-header">
@@ -6044,6 +7101,9 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     if (!collapsed && serviceKey === "decompTree" && typeof section.__underparRefreshDecomp === "function") {
       void section.__underparRefreshDecomp();
     }
+    if (!collapsed && serviceKey === "cm" && typeof section.__underparRefreshCm === "function") {
+      void section.__underparRefreshCm();
+    }
   });
 
   if (serviceKey === "decompTree") {
@@ -6052,6 +7112,32 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       return loadDecompService(programmer, appInfo, section, contentElement, refreshButton, requestToken);
     };
     void section.__underparRefreshDecomp();
+  } else if (serviceKey === "cm") {
+    section.__underparRefreshCm = () => {
+      const requestToken = state.premiumPanelRequestToken;
+      return loadCmService(programmer, appInfo, section, contentElement, refreshButton, requestToken);
+    };
+    if (refreshButton) {
+      refreshButton.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const selected = resolveSelectedProgrammer();
+        if (!selected || !programmer || selected.programmerId !== programmer.programmerId) {
+          return;
+        }
+        refreshButton.disabled = true;
+        setStatus(`Refreshing ${title} premium service...`, "info");
+        try {
+          await refreshProgrammerPanels({ forcePremiumRefresh: true });
+          setStatus(`${title} premium service refreshed.`, "success");
+        } catch (error) {
+          const reason = error instanceof Error ? error.message : String(error);
+          setStatus(`Unable to refresh ${title}: ${reason}`, "error");
+        } finally {
+          refreshButton.disabled = false;
+        }
+      });
+    }
+    void section.__underparRefreshCm();
   } else {
     refreshButton.addEventListener("click", async (event) => {
       event.stopPropagation();
@@ -6063,8 +7149,7 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       refreshButton.disabled = true;
       setStatus(`Refreshing ${title} premium service...`, "info");
       try {
-        await ensurePremiumAppsForProgrammer(programmer, { forceRefresh: true });
-        await refreshProgrammerPanels({ forcePremiumRefresh: false });
+        await refreshProgrammerPanels({ forcePremiumRefresh: true });
         setStatus(`${title} premium service refreshed.`, "success");
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
@@ -6103,6 +7188,7 @@ function renderPremiumServicesLoading(programmer) {
   }
   clearPremiumServiceAutoRefreshTimers();
   decompBroadcastSelectedControllerState(programmer, null);
+  cmBroadcastSelectedControllerState(programmer, null);
 
   const label = programmer?.programmerName
     ? `Loading premium services for ${programmer.programmerName}...`
@@ -6116,6 +7202,7 @@ function renderPremiumServicesError(error) {
   }
   clearPremiumServiceAutoRefreshTimers();
   decompBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
+  cmBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
   const reason = error instanceof Error ? error.message : String(error);
   els.premiumServicesContainer.innerHTML = `<p class="metadata-empty service-error">${escapeHtml(reason)}</p>`;
 }
@@ -6128,15 +7215,20 @@ function renderPremiumServices(services, programmer = null) {
 
   if (!services) {
     decompBroadcastSelectedControllerState(programmer, null);
+    cmBroadcastSelectedControllerState(programmer, null);
     els.premiumServicesContainer.innerHTML =
       '<p class="metadata-empty">No premium scoped applications loaded yet.</p>';
     return;
   }
   decompBroadcastSelectedControllerState(programmer, services);
+  cmBroadcastSelectedControllerState(programmer, services);
 
   const availableKeys = PREMIUM_SERVICE_DISPLAY_ORDER.filter((serviceKey) => {
     if (serviceKey === "decompTree") {
       return Boolean(services?.esm);
+    }
+    if (serviceKey === "cm") {
+      return Boolean(Array.isArray(services?.cm?.matchedTenants) && services.cm.matchedTenants.length > 0);
     }
     return Boolean(services?.[serviceKey]);
   });
@@ -6165,6 +7257,15 @@ function resetWorkflowForLoggedOut() {
   state.applicationsByProgrammerId.clear();
   state.premiumAppsByProgrammerId.clear();
   state.premiumAppsLoadPromiseByProgrammerId.clear();
+  state.cmServiceByProgrammerId.clear();
+  state.cmServiceLoadPromiseByProgrammerId.clear();
+  state.cmTenantsCatalog = null;
+  state.cmTenantsCatalogPromise = null;
+  state.cmTenantBundleByTenantKey.clear();
+  state.cmTenantBundlePromiseByTenantKey.clear();
+  state.cmWorkspaceTabId = 0;
+  state.cmWorkspaceWindowId = 0;
+  state.cmWorkspaceTabIdByWindowId.clear();
   state.premiumSectionCollapsedByKey.clear();
   state.premiumPanelRequestToken = 0;
   state.mvpdCacheByRequestor.clear();
@@ -6181,6 +7282,15 @@ function resetWorkflowForLoggedOut() {
   void decompSendWorkspaceMessage("controller-state", {
     controllerOnline: false,
     esmAvailable: null,
+    programmerId: "",
+    programmerName: "",
+    requestorIds: [],
+    mvpdIds: [],
+    updatedAt: Date.now(),
+  });
+  void cmSendWorkspaceMessage("controller-state", {
+    controllerOnline: false,
+    cmAvailable: null,
     programmerId: "",
     programmerName: "",
     requestorIds: [],
@@ -10628,31 +11738,48 @@ async function refreshProgrammerPanels(options = {}) {
   const programmer = resolveSelectedProgrammer();
   const forcePremiumRefresh = options.forcePremiumRefresh === true;
   const requestToken = ++state.premiumPanelRequestToken;
+  if (forcePremiumRefresh) {
+    state.cmTenantBundleByTenantKey.clear();
+    state.cmTenantBundlePromiseByTenantKey.clear();
+  }
 
   if (!programmer) {
     renderPremiumServices(null);
     decompBroadcastSelectedControllerState(null, null);
+    cmBroadcastSelectedControllerState(null, null);
     return;
   }
   decompBroadcastSelectedControllerState(programmer, null);
+  cmBroadcastSelectedControllerState(programmer, null);
 
-  const cachedPremiumApps = state.premiumAppsByProgrammerId.get(programmer.programmerId) || null;
-  if (cachedPremiumApps && !forcePremiumRefresh) {
-    renderPremiumServices(cachedPremiumApps, programmer);
-    void prewarmRestV2ForProgrammer(programmer, cachedPremiumApps);
+  const cachedServices = state.premiumAppsByProgrammerId.get(programmer.programmerId) || null;
+  const cachedIncludesCm = Boolean(cachedServices && Object.prototype.hasOwnProperty.call(cachedServices, "cm"));
+  if (cachedServices && cachedIncludesCm && !forcePremiumRefresh) {
+    renderPremiumServices(cachedServices, programmer);
+    void prewarmRestV2ForProgrammer(programmer, cachedServices);
     return;
   }
 
   renderPremiumServicesLoading(programmer);
   try {
-    const premiumApps = await ensurePremiumAppsForProgrammer(programmer, {
-      forceRefresh: forcePremiumRefresh,
-    });
+    const [premiumApps, cmService] = await Promise.all([
+      ensurePremiumAppsForProgrammer(programmer, {
+        forceRefresh: forcePremiumRefresh,
+      }),
+      ensureCmServiceForProgrammer(programmer, {
+        forceRefresh: forcePremiumRefresh,
+      }),
+    ]);
     if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
       return;
     }
-    renderPremiumServices(premiumApps, programmer);
-    void prewarmRestV2ForProgrammer(programmer, premiumApps);
+    const mergedServices = {
+      ...(premiumApps && typeof premiumApps === "object" ? premiumApps : {}),
+      cm: cmService,
+    };
+    state.premiumAppsByProgrammerId.set(programmer.programmerId, mergedServices);
+    renderPremiumServices(mergedServices, programmer);
+    void prewarmRestV2ForProgrammer(programmer, mergedServices);
   } catch (error) {
     if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
       return;
@@ -11898,7 +13025,7 @@ function getProgrammerCandidatesForRequestor(requestorId) {
 
 async function ensurePremiumAppsForProgrammer(programmer, options = {}) {
   if (!programmer || !programmer.programmerId) {
-    return { degradation: null, esm: null, restV2: null, restV2Apps: [] };
+    return { degradation: null, esm: null, restV2: null, restV2Apps: [], cm: null };
   }
 
   const forceRefresh = options.forceRefresh === true;
@@ -11925,8 +13052,13 @@ async function ensurePremiumAppsForProgrammer(programmer, options = {}) {
         error: error instanceof Error ? error.message : String(error),
       });
     });
-    state.premiumAppsByProgrammerId.set(programmer.programmerId, premiumApps);
-    return premiumApps;
+    const existingServices = state.premiumAppsByProgrammerId.get(programmer.programmerId) || null;
+    const mergedServices = {
+      ...premiumApps,
+      cm: existingServices?.cm ?? null,
+    };
+    state.premiumAppsByProgrammerId.set(programmer.programmerId, mergedServices);
+    return mergedServices;
   })();
 
   state.premiumAppsLoadPromiseByProgrammerId.set(programmer.programmerId, loadPromise);
@@ -11938,6 +13070,988 @@ async function ensurePremiumAppsForProgrammer(programmer, options = {}) {
       state.premiumAppsLoadPromiseByProgrammerId.delete(programmer.programmerId);
     }
   }
+}
+
+function normalizeCmMatchText(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function tokenizeCmMatchText(value) {
+  return normalizeCmMatchText(value)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 0);
+}
+
+function normalizeCmUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw || !/^https?:\/\//i.test(raw)) {
+    return "";
+  }
+  try {
+    const parsed = new URL(raw);
+    return parsed.toString();
+  } catch {
+    return raw;
+  }
+}
+
+function collectCmUrlsFromValue(value, options = {}) {
+  const maxDepth = Math.max(1, Number(options.maxDepth || 4));
+  const urls = new Set();
+  const visited = new Set();
+  const stack = [{ node: value, depth: 0 }];
+  while (stack.length > 0) {
+    const { node, depth } = stack.pop();
+    if (node == null || depth > maxDepth) {
+      continue;
+    }
+    if (typeof node === "string") {
+      const normalized = normalizeCmUrl(node);
+      if (normalized) {
+        urls.add(normalized);
+      }
+      continue;
+    }
+    if (typeof node !== "object") {
+      continue;
+    }
+    if (visited.has(node)) {
+      continue;
+    }
+    visited.add(node);
+    if (Array.isArray(node)) {
+      node.forEach((item) => stack.push({ node: item, depth: depth + 1 }));
+      continue;
+    }
+    Object.entries(node).forEach(([key, nested]) => {
+      if (typeof nested === "string") {
+        const normalized = normalizeCmUrl(nested);
+        if (normalized) {
+          urls.add(normalized);
+        }
+      }
+      if (typeof nested === "object") {
+        stack.push({ node: nested, depth: depth + 1 });
+      }
+      if (typeof nested === "string" && /(url|href|link|endpoint|api)/i.test(key)) {
+        const normalized = normalizeCmUrl(nested);
+        if (normalized) {
+          urls.add(normalized);
+        }
+      }
+    });
+  }
+  return [...urls];
+}
+
+function collectCmCollections(value, options = {}) {
+  const preferredKeys = Array.isArray(options.preferredKeys)
+    ? options.preferredKeys.map((key) => String(key || "").toLowerCase()).filter(Boolean)
+    : [];
+  const maxDepth = Math.max(1, Number(options.maxDepth || 4));
+  const output = [];
+  const visited = new Set();
+  const stack = [{ node: value, key: "$root", depth: 0 }];
+  while (stack.length > 0) {
+    const { node, key, depth } = stack.pop();
+    if (node == null || depth > maxDepth) {
+      continue;
+    }
+    if (typeof node !== "object") {
+      continue;
+    }
+    if (visited.has(node)) {
+      continue;
+    }
+    visited.add(node);
+
+    if (Array.isArray(node)) {
+      const objectCount = node.reduce((count, item) => count + (item && typeof item === "object" ? 1 : 0), 0);
+      const normalizedKey = String(key || "").toLowerCase();
+      const preferred = preferredKeys.some((preferredKey) => normalizedKey === preferredKey || normalizedKey.includes(preferredKey));
+      output.push({
+        key: normalizedKey || "$root",
+        depth,
+        preferred,
+        objectCount,
+        values: node,
+      });
+      node.forEach((item) => {
+        if (item && typeof item === "object") {
+          stack.push({ node: item, key: normalizedKey, depth: depth + 1 });
+        }
+      });
+      continue;
+    }
+
+    Object.entries(node).forEach(([childKey, childValue]) => {
+      stack.push({ node: childValue, key: childKey, depth: depth + 1 });
+    });
+  }
+
+  output.sort((left, right) => {
+    if (left.preferred !== right.preferred) {
+      return left.preferred ? -1 : 1;
+    }
+    if (left.objectCount !== right.objectCount) {
+      return right.objectCount - left.objectCount;
+    }
+    if (left.values.length !== right.values.length) {
+      return right.values.length - left.values.length;
+    }
+    return left.depth - right.depth;
+  });
+  return output;
+}
+
+function collectCmNameCandidates(item, extra = []) {
+  const values = [];
+  const pushValue = (value) => {
+    if (value == null) {
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((entry) => pushValue(entry));
+      return;
+    }
+    if (typeof value === "object") {
+      return;
+    }
+    const text = String(value || "").trim();
+    if (!text) {
+      return;
+    }
+    values.push(text);
+  };
+
+  if (item && typeof item === "object") {
+    pushValue(item.name);
+    pushValue(item.displayName);
+    pushValue(item.display_name);
+    pushValue(item.title);
+    pushValue(item.label);
+    pushValue(item.tenantName);
+    pushValue(item.tenant_name);
+    pushValue(item.shortName);
+    pushValue(item.short_name);
+    pushValue(item.code);
+    pushValue(item.groupName);
+    pushValue(item.group_name);
+    pushValue(item.slug);
+    pushValue(item.id);
+    pushValue(item.tenantId);
+    pushValue(item.tenant_id);
+    pushValue(item.uuid);
+    pushValue(item.requestorId);
+    pushValue(item.requestor_id);
+  }
+  pushValue(extra);
+  return uniqueSorted(values);
+}
+
+function extractCmTenantIdFromUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  const readSegments = (text) =>
+    String(text || "")
+      .split("/")
+      .map((segment) => decodeURIComponent(String(segment || "").trim()))
+      .filter(Boolean);
+  try {
+    const parsed = new URL(raw);
+    const segments = readSegments(parsed.pathname);
+    for (let index = 0; index < segments.length; index += 1) {
+      const part = String(segments[index] || "").toLowerCase();
+      if ((part === "tenant" || part === "tenants") && segments[index + 1]) {
+        return String(segments[index + 1] || "").trim();
+      }
+    }
+    const hashText = String(parsed.hash || "").replace(/^#/, "");
+    if (hashText) {
+      const hashSegments = readSegments(hashText);
+      for (let index = 0; index < hashSegments.length; index += 1) {
+        const part = String(hashSegments[index] || "").toLowerCase();
+        if ((part === "tenant" || part === "tenants") && hashSegments[index + 1]) {
+          return String(hashSegments[index + 1] || "").trim();
+        }
+      }
+      if (hashSegments.length >= 1 && hashSegments.some((part) => String(part).toLowerCase() === "cm-console")) {
+        return String(hashSegments[hashSegments.length - 1] || "").trim();
+      }
+    }
+  } catch {
+    // Ignore URL parse errors.
+  }
+  return "";
+}
+
+function normalizeCmTenantRecord(item, index = 0, sourceUrl = "") {
+  if (item == null) {
+    return null;
+  }
+  if (typeof item !== "object") {
+    const primitiveName = String(item || "").trim();
+    if (!primitiveName) {
+      return null;
+    }
+    return {
+      tenantId: primitiveName,
+      tenantName: primitiveName,
+      aliases: collectCmNameCandidates(null, [primitiveName]),
+      links: sourceUrl ? [sourceUrl] : [],
+      raw: item,
+      sourceUrl: String(sourceUrl || ""),
+    };
+  }
+  const keys = Object.keys(item).map((key) => String(key || "").toLowerCase());
+  const hasTenantSignal =
+    keys.some((key) => key.includes("tenant")) ||
+    item.tenantId != null ||
+    item.tenant_id != null ||
+    item.tenantName != null ||
+    item.tenant_name != null;
+  if (!hasTenantSignal && !/tenant/i.test(String(sourceUrl || ""))) {
+    return null;
+  }
+  const links = uniqueSorted(collectCmUrlsFromValue(item).concat(sourceUrl ? [sourceUrl] : []));
+  const tenantIdFromLink = firstNonEmptyString(links.map((url) => extractCmTenantIdFromUrl(url)));
+  const tenantId = firstNonEmptyString([
+    item.tenantId,
+    item.tenant_id,
+    item.id,
+    item.uuid,
+    item.slug,
+    item.code,
+    item.tenant,
+    tenantIdFromLink,
+    item.name,
+  ]);
+  const tenantName = firstNonEmptyString([
+    item.tenantName,
+    item.tenant_name,
+    item.displayName,
+    item.display_name,
+    item.tenant,
+    item.name,
+    item.title,
+    tenantIdFromLink,
+    tenantId,
+  ]);
+  if (!tenantId && !tenantName) {
+    return null;
+  }
+  const aliases = collectCmNameCandidates(item, [tenantId, tenantName]);
+  return {
+    tenantId: String(tenantId || tenantName || `tenant-${index + 1}`),
+    tenantName: String(tenantName || tenantId || `Tenant ${index + 1}`),
+    aliases,
+    links,
+    raw: item,
+    sourceUrl: String(sourceUrl || ""),
+  };
+}
+
+function normalizeCmEntityRecord(kind, item, index = 0, tenant = null, fallbackUrl = "") {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+  const entityId = firstNonEmptyString([
+    item.id,
+    item.applicationId,
+    item.application_id,
+    item.appId,
+    item.app_id,
+    item.policyId,
+    item.policy_id,
+    item.ruleId,
+    item.rule_id,
+    item.usageId,
+    item.usage_id,
+    item.uuid,
+    item.slug,
+    item.name,
+  ]);
+  const name = firstNonEmptyString([
+    item.name,
+    item.displayName,
+    item.display_name,
+    item.applicationName,
+    item.application_name,
+    item.policyName,
+    item.policy_name,
+    item.ruleName,
+    item.rule_name,
+    item.title,
+    item.label,
+    entityId,
+  ]);
+  if (!entityId && !name) {
+    return null;
+  }
+  const links = uniqueSorted(collectCmUrlsFromValue(item).concat(fallbackUrl ? [fallbackUrl] : []));
+  return {
+    kind: String(kind || "").trim().toLowerCase(),
+    entityId: String(entityId || name || `${kind}-${index + 1}`),
+    name: String(name || entityId || `${kind}-${index + 1}`),
+    tenantId: String(tenant?.tenantId || ""),
+    tenantName: String(tenant?.tenantName || ""),
+    aliases: collectCmNameCandidates(item, [entityId, name]),
+    links,
+    raw: item,
+    sourceUrl: String(fallbackUrl || ""),
+  };
+}
+
+function normalizeCmTenantsFromPayload(payload, sourceUrl = "") {
+  const collections = collectCmCollections(payload, {
+    preferredKeys: ["tenants", "tenant", "items", "results", "data"],
+    maxDepth: 5,
+  });
+  const tenants = [];
+  const seen = new Set();
+  collections.forEach((collection) => {
+    collection.values.forEach((item, index) => {
+      const record = normalizeCmTenantRecord(item, index, sourceUrl);
+      if (!record) {
+        return;
+      }
+      const key = normalizeCmMatchText(`${record.tenantId}|${record.tenantName}`);
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      tenants.push(record);
+    });
+  });
+  return tenants;
+}
+
+function normalizeCmResourceListFromPayload(kind, payload, tenant = null, fallbackUrl = "") {
+  const kindValue = String(kind || "").trim().toLowerCase();
+  const preferredByKind = {
+    applications: ["applications", "application", "apps", "items", "data", "results"],
+    policies: ["policies", "policy", "rules", "items", "data", "results"],
+    usage: ["usage", "cmu", "metrics", "reports", "items", "data", "results"],
+  };
+  const collections = collectCmCollections(payload, {
+    preferredKeys: preferredByKind[kindValue] || ["items", "data", "results"],
+    maxDepth: 5,
+  });
+  const rows = [];
+  const seen = new Set();
+  collections.forEach((collection) => {
+    collection.values.forEach((item, index) => {
+      const record = normalizeCmEntityRecord(kindValue, item, index, tenant, fallbackUrl);
+      if (!record) {
+        return;
+      }
+      const key = normalizeCmMatchText(`${record.kind}|${record.entityId}|${record.name}|${record.tenantId}`);
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      rows.push(record);
+    });
+  });
+  return rows;
+}
+
+function collectCmMatchVariants(values) {
+  const variants = new Set();
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const normalized = normalizeCmMatchText(value);
+    if (!normalized) {
+      return;
+    }
+    variants.add(normalized);
+    const parts = tokenizeCmMatchText(normalized);
+    if (parts.length >= 2) {
+      variants.add(parts.join(""));
+      variants.add(parts.map((part) => String(part || "").charAt(0)).join(""));
+    }
+  });
+  return [...variants];
+}
+
+function scoreCmTenantMatch(programmer, tenant) {
+  const programmerCandidates = uniqueSorted([
+    programmer?.mediaCompanyName,
+    programmer?.programmerName,
+    programmer?.programmerId,
+    ...(Array.isArray(programmer?.requestorIds) ? programmer.requestorIds.slice(0, 8) : []),
+  ]);
+  const tenantCandidates = uniqueSorted([tenant?.tenantName, tenant?.tenantId, ...(tenant?.aliases || [])]);
+
+  const programmerNormalized = collectCmMatchVariants(programmerCandidates);
+  const tenantNormalized = collectCmMatchVariants(tenantCandidates);
+  if (programmerNormalized.length === 0 || tenantNormalized.length === 0) {
+    return 0;
+  }
+
+  let score = 0;
+  programmerNormalized.forEach((pToken) => {
+    tenantNormalized.forEach((tToken) => {
+      if (pToken === tToken) {
+        score = Math.max(score, 100);
+        return;
+      }
+      if (pToken.includes(tToken) || tToken.includes(pToken)) {
+        score = Math.max(score, Math.min(88, Math.max(38, Math.floor(Math.min(pToken.length, tToken.length) * 2.2))));
+      }
+      const pParts = new Set(tokenizeCmMatchText(pToken));
+      const tParts = new Set(tokenizeCmMatchText(tToken));
+      if (pParts.size === 0 || tParts.size === 0) {
+        return;
+      }
+      let overlap = 0;
+      pParts.forEach((part) => {
+        if (tParts.has(part)) {
+          overlap += 1;
+        }
+      });
+      if (overlap > 0) {
+        const ratio = overlap / Math.max(pParts.size, tParts.size);
+        score = Math.max(score, Math.floor(22 + ratio * 48));
+      }
+    });
+  });
+  return score;
+}
+
+function findCmTenantMatchesForProgrammer(programmer, tenants) {
+  const scored = (Array.isArray(tenants) ? tenants : [])
+    .map((tenant) => ({
+      tenant,
+      score: scoreCmTenantMatch(programmer, tenant),
+    }))
+    .filter((entry) => entry.score >= 26)
+    .sort((left, right) => right.score - left.score || left.tenant.tenantName.localeCompare(right.tenant.tenantName));
+  if (scored.length === 0) {
+    return [];
+  }
+  const bestScore = scored[0].score;
+  const floor = Math.max(26, bestScore - 18);
+  return scored.filter((entry) => entry.score >= floor).map((entry) => entry.tenant);
+}
+
+function cmGetTenantCacheKey(tenant) {
+  const tenantId = normalizeCmMatchText(tenant?.tenantId);
+  const tenantName = normalizeCmMatchText(tenant?.tenantName);
+  const key = `${tenantId}|${tenantName}`.replace(/^\|+|\|+$/g, "");
+  return key || "";
+}
+
+function buildCmTenantEndpointCandidates() {
+  const orgHandleCandidates = uniqueSorted(
+    [
+      state.loginData?.adobePassOrg?.name,
+      state.loginData?.adobePassOrg?.orgId,
+      state.loginData?.profile?.currentOrg?.name,
+      state.loginData?.profile?.currentOrg?.id,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  );
+  const dynamicUrls = [];
+  orgHandleCandidates.forEach((orgHandle) => {
+    const trimmed = orgHandle.replace(/^\/+|\/+$/g, "");
+    if (!trimmed) {
+      return;
+    }
+    const withAt = trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+    const encoded = encodeURIComponent(withAt);
+    dynamicUrls.push(`https://experience.adobe.com/${withAt}/cm-console/api/v1/tenants`);
+    dynamicUrls.push(`https://experience.adobe.com/${withAt}/cm-console/api/tenants`);
+    dynamicUrls.push(`https://experience.adobe.com/${encoded}/cm-console/api/v1/tenants`);
+    dynamicUrls.push(`https://experience.adobe.com/${encoded}/cm-console/api/tenants`);
+  });
+  return uniqueSorted(
+    [...CM_TENANT_ENDPOINT_CANDIDATES, ...dynamicUrls].map((url) => normalizeCmUrl(url)).filter(Boolean)
+  );
+}
+
+function prefetchCmTenantsCatalogInBackground(reason = "background") {
+  if (state.restricted || state.programmers.length === 0) {
+    return;
+  }
+  if (state.cmTenantsCatalogPromise) {
+    return;
+  }
+  const cached = state.cmTenantsCatalog;
+  if (cached && Array.isArray(cached.tenants) && cached.tenants.length > 0) {
+    return;
+  }
+  void ensureCmTenantsCatalog()
+    .then(() => {
+      // Background prefetch intentionally silent to avoid UI noise.
+    })
+    .catch((error) => {
+      log("CM tenant prefetch failed", {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+}
+
+function buildCmTemplateUrls(tenantId, templates) {
+  const resolvedTenantId = String(tenantId || "").trim();
+  if (!resolvedTenantId) {
+    return [];
+  }
+  const encodedTenantId = encodeURIComponent(resolvedTenantId);
+  const urls = [];
+  CM_BASE_URL_CANDIDATES.forEach((base) => {
+    (Array.isArray(templates) ? templates : []).forEach((template) => {
+      const path = String(template || "").replace(/\{tenantId\}/g, encodedTenantId);
+      const normalizedBase = String(base || "").replace(/\/+$/, "");
+      urls.push(`${normalizedBase}${path}`);
+    });
+  });
+  return uniqueSorted(urls.map((url) => normalizeCmUrl(url)).filter(Boolean));
+}
+
+async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options = {}) {
+  const urls = uniqueSorted((Array.isArray(urlCandidates) ? urlCandidates : []).map((url) => normalizeCmUrl(url)).filter(Boolean));
+  if (urls.length === 0) {
+    throw new Error(`${contextLabel} failed: no URL candidates.`);
+  }
+
+  const method = String(options.method || "GET").toUpperCase();
+  const accessToken = String(state.loginData?.accessToken || "");
+  const baseHeaders = {
+    Accept: "application/json, text/plain, */*",
+    ...(options.headers && typeof options.headers === "object" ? options.headers : {}),
+  };
+  const headerVariants = [baseHeaders];
+  if (accessToken) {
+    headerVariants.push({
+      ...baseHeaders,
+      Authorization: `Bearer ${accessToken}`,
+    });
+  }
+
+  let lastError = null;
+  for (const url of urls) {
+    for (const headers of headerVariants) {
+      try {
+        const response = await fetch(url, {
+          method,
+          mode: options.mode || "cors",
+          credentials: options.credentials ?? "include",
+          referrerPolicy: options.referrerPolicy || "no-referrer",
+          headers,
+          ...(options.body != null ? { body: options.body } : {}),
+        });
+
+        const text = await response.text().catch(() => "");
+        const parsed = parseJsonText(text, null);
+        if (response.ok) {
+          return {
+            url,
+            parsed: parsed ?? text,
+            text,
+            status: Number(response.status || 0),
+            lastModified: response.headers?.get("Last-Modified") || "",
+          };
+        }
+
+        const message =
+          firstNonEmptyString([
+            parsed?.error?.code,
+            parsed?.error?.message,
+            typeof parsed?.error === "string" ? parsed.error : "",
+            parsed?.message,
+            normalizeHttpErrorMessage(text),
+            response.statusText,
+          ]) || response.statusText;
+        lastError = new Error(`${contextLabel} failed (${response.status}): ${message}`);
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+  }
+
+  throw lastError || new Error(`${contextLabel} failed.`);
+}
+
+async function ensureCmTenantsCatalog(options = {}) {
+  const forceRefresh = options.forceRefresh === true;
+  const cachedCatalog =
+    state.cmTenantsCatalog && Array.isArray(state.cmTenantsCatalog.tenants) ? state.cmTenantsCatalog : null;
+  if (forceRefresh) {
+    state.cmTenantsCatalog = null;
+  }
+
+  if (!forceRefresh && cachedCatalog) {
+    return cachedCatalog;
+  }
+
+  if (!forceRefresh && state.cmTenantsCatalogPromise) {
+    return state.cmTenantsCatalogPromise;
+  }
+
+  const loadPromise = (async () => {
+    const queue = buildCmTenantEndpointCandidates();
+    const attempted = new Set();
+    let lastError = null;
+
+    while (queue.length > 0) {
+      const candidate = normalizeCmUrl(queue.shift());
+      if (!candidate || attempted.has(candidate)) {
+        continue;
+      }
+      attempted.add(candidate);
+
+      try {
+        const response = await fetchCmJsonWithAuthVariants([candidate], "CM tenants load");
+        const tenants = normalizeCmTenantsFromPayload(response.parsed, response.url);
+        if (tenants.length > 0) {
+          const catalog = {
+            tenants,
+            sourceUrl: response.url,
+            fetchedAt: Date.now(),
+          };
+          state.cmTenantsCatalog = catalog;
+          log("CM tenants catalog loaded", {
+            sourceUrl: response.url,
+            tenantCount: tenants.length,
+          });
+          return catalog;
+        }
+
+        collectCmUrlsFromValue(response.parsed, { maxDepth: 5 })
+          .filter((url) => /tenant/i.test(String(url || "")))
+          .forEach((url) => {
+            const normalized = normalizeCmUrl(url);
+            if (normalized && !attempted.has(normalized)) {
+              queue.push(normalized);
+            }
+          });
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+      }
+    }
+
+    if (cachedCatalog && Array.isArray(cachedCatalog.tenants) && cachedCatalog.tenants.length > 0) {
+      log("Using stale CM tenant catalog cache after refresh failure", {
+        error: lastError instanceof Error ? lastError.message : String(lastError),
+      });
+      return cachedCatalog;
+    }
+
+    throw lastError || new Error("Unable to load CM tenant catalog.");
+  })();
+
+  state.cmTenantsCatalogPromise = loadPromise;
+  try {
+    return await loadPromise;
+  } finally {
+    if (state.cmTenantsCatalogPromise === loadPromise) {
+      state.cmTenantsCatalogPromise = null;
+    }
+  }
+}
+
+async function ensureCmServiceForProgrammer(programmer, options = {}) {
+  if (!programmer?.programmerId) {
+    return null;
+  }
+
+  const forceRefresh = options.forceRefresh === true;
+  if (forceRefresh) {
+    state.cmServiceByProgrammerId.delete(programmer.programmerId);
+    state.cmTenantsCatalog = null;
+    state.cmTenantBundleByTenantKey.clear();
+    state.cmTenantBundlePromiseByTenantKey.clear();
+  }
+
+  if (!forceRefresh && state.cmServiceByProgrammerId.has(programmer.programmerId)) {
+    return state.cmServiceByProgrammerId.get(programmer.programmerId);
+  }
+
+  if (!forceRefresh && state.cmServiceLoadPromiseByProgrammerId.has(programmer.programmerId)) {
+    return state.cmServiceLoadPromiseByProgrammerId.get(programmer.programmerId);
+  }
+
+  const loadPromise = (async () => {
+    let catalog = null;
+    try {
+      catalog = await ensureCmTenantsCatalog({ forceRefresh });
+    } catch (error) {
+      log("CM tenants load failed", {
+        programmerId: programmer.programmerId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      state.cmServiceByProgrammerId.delete(programmer.programmerId);
+      return null;
+    }
+
+    const matchedTenants = findCmTenantMatchesForProgrammer(programmer, catalog?.tenants || []);
+    if (matchedTenants.length === 0) {
+      const topCandidates = (Array.isArray(catalog?.tenants) ? catalog.tenants : [])
+        .map((tenant) => ({
+          tenantId: tenant?.tenantId || "",
+          tenantName: tenant?.tenantName || "",
+          score: scoreCmTenantMatch(programmer, tenant),
+        }))
+        .sort((left, right) => Number(right.score || 0) - Number(left.score || 0))
+        .slice(0, 5);
+      log("CM no tenant match for programmer", {
+        programmerId: programmer.programmerId,
+        programmerName: programmer.programmerName,
+        topCandidates,
+      });
+      state.cmServiceByProgrammerId.delete(programmer.programmerId);
+      return null;
+    }
+
+    const service = {
+      matchedTenants,
+      sourceUrl: String(catalog?.sourceUrl || ""),
+      fetchedAt: Number(catalog?.fetchedAt || Date.now()),
+      tenantCount: Number(catalog?.tenants?.length || 0),
+    };
+    log("CM tenants matched for programmer", {
+      programmerId: programmer.programmerId,
+      programmerName: programmer.programmerName,
+      matchedTenants: matchedTenants.map((tenant) => tenant?.tenantName || tenant?.tenantId).slice(0, 10),
+    });
+    state.cmServiceByProgrammerId.set(programmer.programmerId, service);
+    return service;
+  })();
+
+  state.cmServiceLoadPromiseByProgrammerId.set(programmer.programmerId, loadPromise);
+  try {
+    return await loadPromise;
+  } finally {
+    if (state.cmServiceLoadPromiseByProgrammerId.get(programmer.programmerId) === loadPromise) {
+      state.cmServiceLoadPromiseByProgrammerId.delete(programmer.programmerId);
+    }
+  }
+}
+
+function buildCmResourceUrlCandidates(kind, tenant) {
+  const tenantId = String(tenant?.tenantId || "").trim();
+  const tenantLinks = Array.isArray(tenant?.links) ? tenant.links : [];
+  const rawLinks = collectCmUrlsFromValue(tenant?.raw, { maxDepth: 5 });
+  const kindValue = String(kind || "").trim().toLowerCase();
+
+  const keywordByKind = {
+    tenant: ["tenant"],
+    applications: ["application", "apps"],
+    policies: ["policy", "policies", "rule", "rules"],
+    usage: ["usage", "cmu", "metric", "report"],
+  };
+  const keywordList = keywordByKind[kindValue] || [];
+  const filteredLinks = uniqueSorted(
+    [...tenantLinks, ...rawLinks].filter((url) => {
+      if (kindValue === "tenant") {
+        return /tenant/i.test(String(url || ""));
+      }
+      return keywordList.some((keyword) => String(url || "").toLowerCase().includes(keyword));
+    })
+  );
+
+  const templateByKind = {
+    tenant: CM_TENANT_DETAIL_PATH_TEMPLATES,
+    applications: CM_APPLICATIONS_PATH_TEMPLATES,
+    policies: CM_POLICIES_PATH_TEMPLATES,
+    usage: CM_USAGE_PATH_TEMPLATES,
+  };
+  const templateUrls = buildCmTemplateUrls(tenantId, templateByKind[kindValue] || []);
+  return uniqueSorted([...filteredLinks, ...templateUrls].filter(Boolean));
+}
+
+async function fetchCmTenantResource(kind, tenant) {
+  const kindValue = String(kind || "").trim().toLowerCase();
+  const candidates = buildCmResourceUrlCandidates(kindValue, tenant);
+  if (candidates.length === 0) {
+    return {
+      kind: kindValue,
+      url: "",
+      payload: null,
+      lastModified: "",
+      rows: [],
+      error: `No ${kindValue} endpoints were discovered for tenant "${tenant?.tenantName || tenant?.tenantId || "unknown"}".`,
+    };
+  }
+
+  let lastError = null;
+  for (const candidate of candidates) {
+    try {
+      const response = await fetchCmJsonWithAuthVariants([candidate], `CM ${kindValue} load`);
+      const payload = response.parsed;
+      const rows =
+        kindValue === "tenant"
+          ? payload && typeof payload === "object"
+            ? [payload]
+            : []
+          : normalizeCmResourceListFromPayload(kindValue, payload, tenant, response.url);
+      return {
+        kind: kindValue,
+        url: response.url,
+        payload,
+        lastModified: response.lastModified || "",
+        rows,
+        error: "",
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  return {
+    kind: kindValue,
+    url: "",
+    payload: null,
+    lastModified: "",
+    rows: [],
+    error: lastError ? lastError.message : `Unable to load CM ${kindValue}.`,
+  };
+}
+
+async function loadCmTenantBundle(tenant, options = {}) {
+  const forceRefresh = options.forceRefresh === true;
+  const tenantCacheKey = cmGetTenantCacheKey(tenant);
+
+  if (!forceRefresh && tenantCacheKey) {
+    const cachedEntry = state.cmTenantBundleByTenantKey.get(tenantCacheKey);
+    if (cachedEntry?.bundle) {
+      return {
+        ...cachedEntry.bundle,
+        tenant: tenant && typeof tenant === "object" ? { ...(cachedEntry.bundle.tenant || {}), ...tenant } : cachedEntry.bundle.tenant,
+      };
+    }
+    if (state.cmTenantBundlePromiseByTenantKey.has(tenantCacheKey)) {
+      return state.cmTenantBundlePromiseByTenantKey.get(tenantCacheKey);
+    }
+  }
+
+  const loadPromise = (async () => {
+    const [tenantDetail, applications, policies, usage] = await Promise.all([
+      fetchCmTenantResource("tenant", tenant),
+      fetchCmTenantResource("applications", tenant),
+      fetchCmTenantResource("policies", tenant),
+      fetchCmTenantResource("usage", tenant),
+    ]);
+    const bundle = {
+      tenant,
+      tenantDetail,
+      applications,
+      policies,
+      usage,
+    };
+    if (tenantCacheKey) {
+      state.cmTenantBundleByTenantKey.set(tenantCacheKey, {
+        fetchedAt: Date.now(),
+        bundle,
+      });
+    }
+    return bundle;
+  })();
+
+  if (tenantCacheKey) {
+    state.cmTenantBundlePromiseByTenantKey.set(tenantCacheKey, loadPromise);
+  }
+  try {
+    return await loadPromise;
+  } catch (error) {
+    if (!forceRefresh && tenantCacheKey) {
+      const fallbackEntry = state.cmTenantBundleByTenantKey.get(tenantCacheKey);
+      if (fallbackEntry?.bundle) {
+        log("Using stale CM tenant bundle cache after refresh failure", {
+          tenantId: tenant?.tenantId || "",
+          tenantName: tenant?.tenantName || "",
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return fallbackEntry.bundle;
+      }
+    }
+    throw error;
+  } finally {
+    if (tenantCacheKey && state.cmTenantBundlePromiseByTenantKey.get(tenantCacheKey) === loadPromise) {
+      state.cmTenantBundlePromiseByTenantKey.delete(tenantCacheKey);
+    }
+  }
+}
+
+function cmNormalizeRowValue(value) {
+  if (value == null) {
+    return "";
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    if (value.every((item) => item == null || typeof item === "string" || typeof item === "number" || typeof item === "boolean")) {
+      return value.map((item) => String(item ?? "")).join(", ");
+    }
+    return truncateDebugText(JSON.stringify(value), 1800);
+  }
+  if (typeof value === "object") {
+    return truncateDebugText(JSON.stringify(value), 1800);
+  }
+  return String(value);
+}
+
+function cmFlattenObjectToRow(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { value: cmNormalizeRowValue(value) };
+  }
+  const row = {};
+  Object.entries(value).forEach(([key, nested]) => {
+    row[String(key || "")] = cmNormalizeRowValue(nested);
+  });
+  return row;
+}
+
+function cmRowsFromPayload(payload) {
+  if (Array.isArray(payload)) {
+    if (payload.length === 0) {
+      return [];
+    }
+    if (payload.every((item) => item && typeof item === "object" && !Array.isArray(item))) {
+      return payload.map((item) => cmFlattenObjectToRow(item));
+    }
+    return payload.map((item) => ({ value: cmNormalizeRowValue(item) }));
+  }
+
+  if (payload && typeof payload === "object") {
+    const collectionCandidates = [
+      payload.items,
+      payload.data,
+      payload.results,
+      payload.records,
+      payload.applications,
+      payload.policies,
+      payload.usage,
+    ].filter((candidate) => Array.isArray(candidate));
+
+    if (collectionCandidates.length > 0) {
+      const largest = collectionCandidates.sort((left, right) => right.length - left.length)[0];
+      return cmRowsFromPayload(largest);
+    }
+    return [cmFlattenObjectToRow(payload)];
+  }
+
+  if (payload == null || payload === "") {
+    return [];
+  }
+  return [{ value: cmNormalizeRowValue(payload) }];
+}
+
+function cmColumnsFromPayload(payload) {
+  const rows = cmRowsFromPayload(payload);
+  if (rows.length === 0) {
+    return [];
+  }
+  return uniqueSorted(Object.keys(rows[0] || {}).map((key) => String(key || "").trim()).filter(Boolean));
 }
 
 function normalizeRestV2MvpdCollection(payload) {
@@ -12570,11 +14684,18 @@ function applyProgrammerEntities(entities) {
   state.applicationsByProgrammerId.clear();
   state.premiumAppsByProgrammerId.clear();
   state.premiumAppsLoadPromiseByProgrammerId.clear();
+  state.cmServiceByProgrammerId.clear();
+  state.cmServiceLoadPromiseByProgrammerId.clear();
+  state.cmTenantsCatalog = null;
+  state.cmTenantsCatalogPromise = null;
+  state.cmTenantBundleByTenantKey.clear();
+  state.cmTenantBundlePromiseByTenantKey.clear();
   state.premiumSectionCollapsedByKey.clear();
   state.premiumPanelRequestToken = 0;
   state.restV2PrewarmedAppsByProgrammerId.clear();
   clearRestV2PreparedLoginState();
   populateMediaCompanySelect();
+  prefetchCmTenantsCatalogInBackground("programmer-entities");
 }
 
 function createCookieSessionLoginData() {
@@ -13158,6 +15279,10 @@ function registerEventHandlers() {
     });
     void refreshProgrammerPanels();
     void populateMvpdSelectForRequestor(state.selectedRequestorId);
+    const cmState = getActiveCmState();
+    if (cmState) {
+      cmBroadcastControllerState(cmState);
+    }
   });
 
   els.mvpdSelect.addEventListener("change", (event) => {
@@ -13167,6 +15292,10 @@ function registerEventHandlers() {
     if (decompState) {
       decompBroadcastControllerState(decompState);
       syncDecompRecordingControls(decompState);
+    }
+    const cmState = getActiveCmState();
+    if (cmState) {
+      cmBroadcastControllerState(cmState);
     }
   });
 
@@ -13197,6 +15326,8 @@ function registerEventHandlers() {
 function init() {
   ensureDecompRuntimeListener();
   ensureDecompWorkspaceTabWatcher();
+  ensureCmRuntimeListener();
+  ensureCmWorkspaceTabWatcher();
   void renderBuildInfo();
   resetWorkflowForLoggedOut();
   registerEventHandlers();

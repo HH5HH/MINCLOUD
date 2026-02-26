@@ -100,28 +100,9 @@ body {
   transition: transform 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
 }
 
-.workspace-pill-btn {
-  width: auto;
-  min-width: 124px;
-  padding: 0 12px;
-  border-radius: 999px;
-  font-size: 11px;
-  letter-spacing: 0.01em;
-}
-
-.workspace-pill-btn--accent {
-  border-color: var(--legacy-accent);
-  background: var(--legacy-accent);
-  color: #ffffff;
-}
-
 .workspace-actions button:hover:not(:disabled) {
   background: var(--legacy-table-row);
   transform: translateY(-1px);
-}
-
-.workspace-actions .workspace-pill-btn--accent:hover:not(:disabled) {
-  background: var(--legacy-accent-hover);
 }
 
 .workspace-actions button:disabled {

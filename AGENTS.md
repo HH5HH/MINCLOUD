@@ -21,3 +21,15 @@
 - Prioritize measurable compression outcomes over visual-only changes.
 - Any UI change should include expected friction reduction impact.
 - If a request conflicts with doctrine, propose the closest compliant alternative.
+
+## Mandatory Version Bump Rule
+
+- After any edit to UnderPAR application files, bump the build version before finishing work.
+- Use: `scripts/auto_bump_manifest_version.sh`
+- Never deliver UnderPAR edits with an unchanged `manifest.json` version.
+
+## Commit-Time Automation
+
+- UnderPAR enforces automatic patch version bump during commit via `.githooks/pre-commit`.
+- One-time hook setup command: `scripts/install_git_hooks.sh`
+- Optional CI/pre-push guard: `scripts/check_manifest_version_bump.sh --base-ref <base> --head-ref <head>`

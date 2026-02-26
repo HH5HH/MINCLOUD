@@ -14,3 +14,8 @@ if [[ -n "$new_version" ]]; then
   git add manifest.json
   echo "pre-commit: auto-bumped UnderPAR manifest version to $new_version"
 fi
+
+CHECK_SCRIPT="$ROOT/scripts/check_manifest_version_bump.sh"
+if [[ -x "$CHECK_SCRIPT" ]]; then
+  "$CHECK_SCRIPT" --staged
+fi
