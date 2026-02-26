@@ -5,39 +5,150 @@
 <title>__UP_CLICK_ESM_TITLE__</title>
 <style>
 :root{
+  color-scheme: light;
   --bg:#D5D5D8;
   --panel:#FFFFFF;
+  --text-primary:#1F252C;
+  --text-muted:#616A75;
   --accent:#E26A5A;
+  --accent-strong:#CC5849;
+  --field-bg:#FFFFFF;
+  --field-border:#C2CAD2;
+  --field-border-focus:#5F8AB4;
+  --field-focus-ring:rgba(95,138,180,.30);
+  --button-bg:#F1F4F6;
+  --button-hover:#E6EBF0;
+  --button-border:#B3BEC9;
+  --button-text:#1B2530;
   --table-head:#ECEFED;
   --table-row:#F9FAF9;
   --table-alt:#F1F3F1;
+  --row-hover:#F0EEE9;
+  --border:#D2D7DD;
+  --shadow:rgba(0,0,0,.06);
+  --highlight:#FFF067;
+  --highlight-text:#1F252C;
+  --parent-highlight:#D3F0D3;
+  --footer-muted:#9299A3;
+  --spinner-track:rgba(0,0,0,.25);
+  --spinner-head:rgba(0,0,0,.65);
+  --theme-preview:#111A23;
+  --theme-ring:#E26A5A;
+  --theme-halo:rgba(226,106,90,.24);
+  --theme-shadow:rgba(17,26,35,.35);
   /* MVPD banding shades (used for <option> backgrounds) — color-blind friendly pastels */
-  --mvpd-colorA: #EAF3FF; /* cool A-family shade 1 */
-  --mvpd-colorB: #DCEBFF; /* cool A-family shade 2 */
-  --mvpd-colorC: #FFF1E6; /* warm B-family shade 1 */
-  --mvpd-colorD: #FFE3D1; /* warm B-family shade 2 */
-  --mvpd-hover: #F0EEE9; /* subtle hover highlight (matches table row hover) */
+  --mvpd-colorA:#EAF3FF; /* cool A-family shade 1 */
+  --mvpd-colorB:#DCEBFF; /* cool A-family shade 2 */
+  --mvpd-colorC:#FFF1E6; /* warm B-family shade 1 */
+  --mvpd-colorD:#FFE3D1; /* warm B-family shade 2 */
+  --mvpd-hover:#F0EEE9; /* subtle hover highlight (matches table row hover) */
 }
-body{background:var(--bg);font-family:system-ui,Arial;margin:20px}
-dl{background:var(--panel);padding:14px;border-radius:8px;margin-bottom:14px;
-   box-shadow:0 1px 3px rgba(0,0,0,.06)}
+
+body[data-theme="dark"]{
+  color-scheme: dark;
+  --bg:#12181E;
+  --panel:#1B242D;
+  --text-primary:#DEE6ED;
+  --text-muted:#A3AFBC;
+  --accent:#E8A08F;
+  --accent-strong:#F1B7AA;
+  --field-bg:#151E27;
+  --field-border:#3D4F5F;
+  --field-border-focus:#6C96BA;
+  --field-focus-ring:rgba(108,150,186,.30);
+  --button-bg:#202B35;
+  --button-hover:#273442;
+  --button-border:#445666;
+  --button-text:#E5ECF2;
+  --table-head:#26323E;
+  --table-row:#1D2730;
+  --table-alt:#18222B;
+  --row-hover:#2A3846;
+  --border:#3B4B5A;
+  --shadow:rgba(0,0,0,.42);
+  --highlight:#E6BE67;
+  --highlight-text:#111A23;
+  --parent-highlight:#244434;
+  --footer-muted:#96A3B2;
+  --spinner-track:rgba(232,237,242,.30);
+  --spinner-head:rgba(232,237,242,.82);
+  --theme-preview:#EDF2F6;
+  --theme-ring:#E8A08F;
+  --theme-halo:rgba(232,160,143,.24);
+  --theme-shadow:rgba(0,0,0,.50);
+  --mvpd-colorA:#273F5A;
+  --mvpd-colorB:#2F4C6A;
+  --mvpd-colorC:#583726;
+  --mvpd-colorD:#69402B;
+  --mvpd-hover:#374755;
+}
+
+body{
+  background:var(--bg);
+  color:var(--text-primary);
+  font-family:system-ui,Arial;
+  margin:20px;
+  transition:background-color .18s ease,color .18s ease;
+}
+dl{
+  background:var(--panel);
+  padding:14px;
+  border-radius:8px;
+  margin-bottom:14px;
+  box-shadow:0 1px 3px var(--shadow);
+}
 dt{font-weight:600}
 dd{margin-left:20px;margin-bottom:10px}
-.col-list{color:#6A6A6A;font-size:13px}
+.col-list{color:var(--text-muted);font-size:13px}
 a{color:var(--accent);text-decoration:none}
-a:hover{text-decoration:underline}
-input,select{padding:10px;font-size:15px}
-button{padding:10px 20px}
-.reset-button{background:var(--accent);color:#fff;border:none;border-radius:4px}
-.esm-table-wrapper{max-height:14.5em;overflow:auto;border:1px solid #DDD;border-radius:6px}
+a:hover{color:var(--accent-strong);text-decoration:underline}
+input,select{
+  padding:10px;
+  font-size:15px;
+  border:1px solid var(--field-border);
+  border-radius:6px;
+  background:var(--field-bg);
+  color:var(--text-primary);
+}
+input::placeholder{color:var(--text-muted)}
+input:focus,
+select:focus,
+button:focus-visible,
+.theme-toggle:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 3px var(--field-focus-ring);
+}
+button{
+  padding:10px 20px;
+  border:1px solid var(--button-border);
+  border-radius:6px;
+  background:var(--button-bg);
+  color:var(--button-text);
+  cursor:pointer;
+  transition:background-color .14s ease,transform .1s ease,box-shadow .14s ease;
+}
+button:hover{background:var(--button-hover)}
+.reset-button{
+  background:var(--accent);
+  color:#fff;
+  border:1px solid transparent;
+}
+.reset-button:hover{background:var(--accent-strong)}
+.esm-table-wrapper{max-height:14.5em;overflow:auto;border:1px solid var(--border);border-radius:6px}
 table{border-collapse:collapse;width:100%;table-layout:fixed;font-size:13px}
-th,td{padding:6px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-      border-bottom:1px solid #DDD;text-align:left}
+th,td{
+  padding:6px 10px;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  border-bottom:1px solid var(--border);
+  text-align:left;
+}
 thead th{position:sticky;top:0;background:var(--table-head)}
-tfoot td{position:sticky;bottom:0;background:#fff}
+tfoot td{position:sticky;bottom:0;background:var(--panel)}
 tbody tr:nth-child(odd){background:var(--table-row)}
 tbody tr:nth-child(even){background:var(--table-alt)}
-tbody tr:hover{background:#F0EEE9}
+tbody tr:hover{background:var(--row-hover)}
 th.active-sort {
   font-weight: 600;
   text-decoration: underline;
@@ -46,11 +157,15 @@ th .sort-icon {
   font-size: 0.75em;
   opacity: 0.8;
 }
-.highlight {  background-color: #ff0;}
-.parent-highlight { background-color: #d3f0d3;}
+.highlight{
+  background-color:var(--highlight);
+  color:var(--highlight-text);
+}
+.parent-highlight{background-color:var(--parent-highlight)}
 .search-container{
   display:flex;
   align-items:center;
+  gap:10px;
 }
 
 .search-left{
@@ -61,10 +176,28 @@ th .sort-icon {
 
 .search-right{
   margin-left:auto;   /* ← THIS is the key */
+  display:flex;
+  align-items:center;
 }
 
 .search-right select{
   min-width:220px;
+}
+.theme-toggle{
+  width:30px;
+  height:30px;
+  padding:0;
+  border-radius:999px;
+  border:2px solid var(--theme-ring);
+  background:var(--theme-preview);
+  box-shadow:0 0 0 3px var(--theme-halo),0 2px 8px var(--theme-shadow);
+}
+.theme-toggle:hover{
+  transform:translateY(-1px);
+  filter:brightness(1.05);
+}
+.theme-toggle:active{
+  transform:scale(.95);
 }
 .esm-footer {
   display: flex;
@@ -76,18 +209,18 @@ th .sort-icon {
   margin-right: 8px;
   font-size: 12px;
   font-weight: 400;
-  color: #999;
+  color: var(--footer-muted);
 }
 
 .esm-close {
   font-weight: bold;
   font-size: 16px;
-  color: #999;
+  color: var(--footer-muted);
   cursor: pointer;
 }
 
 .esm-close:hover {
-  color: #E26A5A;
+  color: var(--accent);
   text-decoration: underline;
 }
 
@@ -103,6 +236,8 @@ body { margin: 0; padding: 20px; box-sizing: border-box; overflow: hidden; }
 /* Requestor selector: subtle alternating banding (2 colors total) */
 #fltr_requestorid option.req-tone-a { background-color: var(--table-row); }
 #fltr_requestorid option.req-tone-b { background-color: var(--table-alt); }
+#fltr_requestorid option,
+#fltr_mvpdId option { color: var(--text-primary); }
 
 
 /* MVPD selector: alphabet-banded + within-letter banding (4 colors total)
@@ -136,8 +271,8 @@ body { margin: 0; padding: 20px; box-sizing: border-box; overflow: hidden; }
   height:14px;
   margin-left:10px;
   vertical-align:middle;
-  border:2px solid rgba(0,0,0,.25);
-  border-top-color: rgba(0,0,0,.65);
+  border:2px solid var(--spinner-track);
+  border-top-color: var(--spinner-head);
   border-radius:50%;
   animation: netSpin .8s linear infinite;
 }
@@ -172,6 +307,9 @@ body.net-busy input { cursor: progress; }
     <input id="searchText" placeholder="ESM Column search...">
     <button onclick="highlightText()">FIND IT</button>
     <button class="reset-button" onclick="resetList()">RESET</button><span id="netIndicator" title="Loading…" aria-label="Loading"></span>
+  </div>
+  <div class="search-right">
+    <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme"></button>
   </div>
 
 </div>
@@ -5455,6 +5593,79 @@ function td(value) {
   return cell;
 }
 
+/* ---------- THEME ---------- */
+const LEGACY_THEME_STORAGE_KEY = 'esm3-findit-theme';
+
+function getScopedThemeStorageKey() {
+  const cid = (document.querySelector('input[name=cid]')?.value ?? '').trim();
+  if (!cid) return 'clickesm_theme_default';
+  const safeCid = cid.replace(/[^a-zA-Z0-9._-]+/g, '_');
+  return 'clickesm_theme_' + safeCid;
+}
+
+function __normalizeTheme(theme) {
+  return theme === 'dark' ? 'dark' : 'light';
+}
+
+function __readStoredTheme() {
+  try {
+    const scopedThemeKey = getScopedThemeStorageKey();
+    const scopedTheme = localStorage.getItem(scopedThemeKey);
+    if (scopedTheme) return scopedTheme;
+
+    // Backward-compatible migration from legacy shared theme key.
+    const legacyTheme = localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
+    if (!legacyTheme) return null;
+    const normalizedLegacyTheme = __normalizeTheme(legacyTheme);
+    localStorage.setItem(scopedThemeKey, normalizedLegacyTheme);
+    return normalizedLegacyTheme;
+  } catch (e) {
+    return null;
+  }
+}
+
+function __saveTheme(theme) {
+  try {
+    localStorage.setItem(getScopedThemeStorageKey(), __normalizeTheme(theme));
+  } catch (e) {
+    // no-op when localStorage is blocked
+  }
+}
+
+function getActiveTheme() {
+  return __normalizeTheme(document.body?.dataset?.theme);
+}
+
+function getOppositeTheme(theme) {
+  return __normalizeTheme(theme) === 'dark' ? 'light' : 'dark';
+}
+
+function refreshThemeToggleUi() {
+  const btn = document.getElementById('themeToggle');
+  if (!btn) return;
+
+  const nextTheme = getOppositeTheme(getActiveTheme());
+  const msg = `Switch to ${nextTheme} theme`;
+  btn.setAttribute('aria-label', msg);
+  btn.setAttribute('title', msg);
+  btn.dataset.nextTheme = nextTheme;
+}
+
+function applyTheme(theme, { persist = true } = {}) {
+  const normalized = __normalizeTheme(theme);
+  document.body.dataset.theme = normalized;
+  if (persist) __saveTheme(normalized);
+  refreshThemeToggleUi();
+}
+
+function toggleTheme() {
+  applyTheme(getOppositeTheme(getActiveTheme()), { persist: true });
+}
+
+function initTheme() {
+  applyTheme(__readStoredTheme(), { persist: false });
+}
+
 
 /* ---------- Network activity indicator ---------- */
 let __netInFlight = 0;
@@ -6575,6 +6786,13 @@ function enableMvpdHoverHint() {
 
 
 /* ---------- Boot ---------- */
+const themeToggle = document.getElementById('themeToggle');
+if (themeToggle) {
+  themeToggle.addEventListener('click', toggleTheme);
+}
+
+initTheme();
+
 const searchTextInput = document.getElementById('searchText');
 if (searchTextInput) {
   searchTextInput.addEventListener('keydown', (e) => {
