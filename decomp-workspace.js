@@ -25,7 +25,10 @@ const ESM_METRIC_COLUMNS = new Set([
 const ESM_DATE_PARTS = ["year", "month", "day", "hour", "minute"];
 const ESM_DEPRECATED_COLUMN_KEYS = new Set(["clientless-failures", "clientless-tokens"]);
 const ESM_NODE_BASE_URL = "https://mgmt.auth.adobe.com/esm/v3/media-company/";
+const ESM_NODE_BASE_PATH = "esm/v3/media-company/";
 const WORKSPACE_TABLE_VISIBLE_ROW_CAP = 10;
+const PASS_CONSOLE_PROGRAMMER_APPLICATIONS_URL =
+  "https://experience.adobe.com/#/@adobepass/pass/authentication/release-production/programmers";
 const WORKSPACE_LOCK_MESSAGE_SUFFIX =
   "does not have access to ESM. Please confirm if the console is out of sync and this Media Company should have access to ESM.";
 
@@ -37,6 +40,8 @@ const state = {
   programmerName: "",
   requestorIds: [],
   mvpdIds: [],
+  profileHarvest: null,
+  profileHarvestList: [],
   cardsById: new Map(),
   batchRunning: false,
   workspaceLocked: false,
@@ -48,6 +53,7 @@ const els = {
   stylesheet: document.getElementById("workspace-style-link"),
   nonEsmScreen: document.getElementById("workspace-non-esm-screen"),
   nonEsmHeadline: document.getElementById("workspace-non-esm-headline"),
+  nonEsmNote: document.getElementById("workspace-non-esm-note"),
   controllerState: document.getElementById("workspace-controller-state"),
   filterState: document.getElementById("workspace-filter-state"),
   status: document.getElementById("workspace-status"),
@@ -146,6 +152,39 @@ function getWorkspaceLockMessage() {
   return `${getProgrammerLabel()} ${WORKSPACE_LOCK_MESSAGE_SUFFIX}`;
 }
 
+function getProgrammerConsoleApplicationsUrl() {
+  const programmerId = String(state.programmerId || "").trim();
+  if (!programmerId) {
+    return "";
+  }
+  return `${PASS_CONSOLE_PROGRAMMER_APPLICATIONS_URL}/${encodeURIComponent(programmerId)}/applications`;
+}
+
+function buildNotPremiumConsoleLinkHtml(serviceLabel = "ESM") {
+  const consoleUrl = getProgrammerConsoleApplicationsUrl();
+  if (!consoleUrl) {
+    return `* If this looks wrong, no Media Company id is available for an Adobe Pass Console deeplink for ${escapeHtml(
+      serviceLabel
+    )}.`;
+  }
+  return `* If this looks wrong, <a href="${escapeHtml(
+    consoleUrl
+  )}" target="_blank" rel="noopener noreferrer">click here to inspect this Media Company in Adobe Pass Console</a> and verify legacy applications and premium scopes for ${escapeHtml(
+    serviceLabel
+  )}.`;
+}
+
+function buildWorkspaceLockMessageHtml() {
+  const baseMessage = escapeHtml(getWorkspaceLockMessage());
+  const consoleUrl = getProgrammerConsoleApplicationsUrl();
+  if (!consoleUrl) {
+    return baseMessage;
+  }
+  return `${baseMessage} <a href="${escapeHtml(
+    consoleUrl
+  )}" target="_blank" rel="noopener noreferrer">Open Media Company in Adobe Pass Console</a>.`;
+}
+
 function hasProgrammerContext() {
   return Boolean(String(state.programmerId || "").trim() || String(state.programmerName || "").trim());
 }
@@ -166,6 +205,9 @@ function updateNonEsmMode() {
   state.nonEsmMode = shouldShow;
   if (els.nonEsmHeadline) {
     els.nonEsmHeadline.textContent = `No Soup for ${getProgrammerLabel()}. No Premium, No ESM, No Dice.`;
+  }
+  if (els.nonEsmNote) {
+    els.nonEsmNote.innerHTML = buildNotPremiumConsoleLinkHtml("ESM");
   }
 
   if (shouldShow) {
@@ -191,7 +233,7 @@ function updateWorkspaceLockState() {
     els.lockBanner.hidden = !shouldLock;
   }
   if (els.lockMessage) {
-    els.lockMessage.textContent = shouldLock ? getWorkspaceLockMessage() : "";
+    els.lockMessage.innerHTML = shouldLock ? buildWorkspaceLockMessageHtml() : "";
   }
   syncActionButtonsDisabled();
   updateNonEsmMode();
@@ -206,7 +248,7 @@ function updateControllerBanner() {
   if (!state.controllerOnline) {
     if (state.workspaceLocked) {
       els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
-      els.filterState.textContent = "decomp workspace is locked for this media company.";
+      els.filterState.textContent = "decomp workspace is locked for this media company. No Premium, No ESM, No Dice.";
     } else if (hasProgrammerContext) {
       els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
       els.filterState.textContent = "Waiting for decomp controller sync from UnderPAR side panel...";
@@ -222,7 +264,18 @@ function updateControllerBanner() {
 
   const requestorLabel = state.requestorIds.length > 0 ? state.requestorIds.join(", ") : "All requestors";
   const mvpdLabel = state.mvpdIds.length > 0 ? state.mvpdIds.join(", ") : "All MVPDs";
-  els.filterState.textContent = `RequestorId(s): ${requestorLabel} | MVPD(s): ${mvpdLabel}`;
+  const harvestList = Array.isArray(state.profileHarvestList) ? state.profileHarvestList : [];
+  const harvest = state.profileHarvest && typeof state.profileHarvest === "object" ? state.profileHarvest : harvestList[0] || null;
+  const harvestCount = harvestList.length;
+  const harvestPairLabel =
+    harvest && (String(harvest.requestorId || "").trim() || String(harvest.mvpd || "").trim())
+      ? `${String(harvest.requestorId || "").trim() || "requestor"} x ${String(harvest.mvpd || "").trim() || "mvpd"}`
+      : "";
+  const harvestSummary =
+    harvestCount > 0
+      ? ` | MVPD Login History: ${harvestCount} captured${harvestPairLabel ? ` | Latest: ${harvestPairLabel}` : ""}`
+      : "";
+  els.filterState.textContent = `RequestorId(s): ${requestorLabel} | MVPD(s): ${mvpdLabel}${harvestSummary}`;
 }
 
 function getDefaultSortStack() {
@@ -462,32 +515,261 @@ function safeDecodeUrlSegment(segment) {
   }
 }
 
-function getEsmNodeLabel(urlValue) {
+function stripEsmBaseFromPath(pathValue) {
+  const normalized = String(pathValue || "").replace(/^\/+|\/+$/g, "");
+  if (!normalized) {
+    return "";
+  }
+
+  const lower = normalized.toLowerCase();
+  const marker = ESM_NODE_BASE_PATH.toLowerCase();
+  if (lower.startsWith(marker)) {
+    return normalized.slice(marker.length).replace(/^\/+|\/+$/g, "");
+  }
+  return normalized;
+}
+
+function parseRawQueryPairs(urlValue) {
   const raw = String(urlValue || "").trim();
   if (!raw) {
-    return "node";
+    return [];
+  }
+
+  const queryIndex = raw.indexOf("?");
+  if (queryIndex < 0) {
+    return [];
+  }
+
+  const hashIndex = raw.indexOf("#", queryIndex + 1);
+  const queryText = raw.slice(queryIndex + 1, hashIndex >= 0 ? hashIndex : undefined).trim();
+  if (!queryText) {
+    return [];
+  }
+
+  return queryText
+    .split("&")
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const equalsIndex = entry.indexOf("=");
+      if (equalsIndex < 0) {
+        return {
+          key: safeDecodeUrlSegment(entry.replace(/\+/g, " ")),
+          value: "",
+          hasValue: false,
+        };
+      }
+      const key = safeDecodeUrlSegment(entry.slice(0, equalsIndex).replace(/\+/g, " "));
+      const value = entry.slice(equalsIndex + 1);
+      return {
+        key,
+        value,
+        hasValue: true,
+      };
+    });
+}
+
+function parseEsmRequestContext(urlValue) {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return {
+      fullUrl: "",
+      displayPath: "",
+      queryPairs: [],
+    };
+  }
+
+  let displayPath = "";
+  try {
+    const parsed = new URL(raw);
+    displayPath = stripEsmBaseFromPath(parsed.pathname);
+  } catch (_error) {
+    // Ignore parse failures and continue with raw fallback.
+  }
+
+  if (!displayPath) {
+    const withoutQuery = raw.split(/[?#]/, 1)[0] || raw;
+    const withoutBase = withoutQuery.startsWith(ESM_NODE_BASE_URL) ? withoutQuery.slice(ESM_NODE_BASE_URL.length) : withoutQuery;
+    displayPath = stripEsmBaseFromPath(withoutBase);
+  }
+
+  return {
+    fullUrl: raw,
+    displayPath,
+    queryPairs: parseRawQueryPairs(raw),
+  };
+}
+
+function buildPathEndpointUrl(baseEndpointUrl, pathSegments, depth) {
+  const normalizedDepth = Number(depth);
+  if (!Number.isInteger(normalizedDepth) || normalizedDepth < 1) {
+    return "";
+  }
+  const normalizedSegments = (Array.isArray(pathSegments) ? pathSegments : [])
+    .map((segment) => String(segment || "").trim())
+    .filter(Boolean)
+    .slice(0, normalizedDepth);
+  if (normalizedSegments.length === 0) {
+    return "";
+  }
+
+  const targetPath = normalizedSegments.join("/");
+  const fallback = `${ESM_NODE_BASE_URL}${targetPath}`;
+  const rawBase = String(baseEndpointUrl || "").trim();
+  if (!rawBase) {
+    return fallback;
   }
 
   try {
-    const parsed = new URL(raw);
-    let path = String(parsed.pathname || "").replace(/^\/+|\/+$/g, "");
-    if (path.startsWith("esm/v3/media-company/")) {
-      path = path.slice("esm/v3/media-company/".length);
-    }
-    const segments = path.split("/").map((segment) => segment.trim()).filter(Boolean);
-    const leaf = segments.length > 0 ? segments[segments.length - 1] : "";
-    if (leaf) {
-      return safeDecodeUrlSegment(leaf);
-    }
+    const parsed = new URL(rawBase);
+    parsed.pathname = `/${ESM_NODE_BASE_PATH}${targetPath}`;
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
   } catch (_error) {
-    // Ignore parse failures and continue with fallback path parsing.
+    return fallback;
+  }
+}
+
+function buildInheritedRequestUrl(endpointUrl, sourceRequestUrl) {
+  const endpointRaw = String(endpointUrl || "").trim();
+  if (!endpointRaw) {
+    return "";
   }
 
-  const withoutQuery = raw.split(/[?#]/, 1)[0] || raw;
-  const withoutBase = withoutQuery.startsWith(ESM_NODE_BASE_URL)
-    ? withoutQuery.slice(ESM_NODE_BASE_URL.length)
-    : withoutQuery;
-  const segments = withoutBase.split("/").map((segment) => segment.trim()).filter(Boolean);
+  try {
+    const endpointParsed = new URL(endpointRaw);
+    endpointParsed.search = "";
+    endpointParsed.hash = "";
+
+    const sourceRaw = String(sourceRequestUrl || "").trim();
+    if (!sourceRaw) {
+      return endpointParsed.toString();
+    }
+
+    const sourceParsed = new URL(sourceRaw);
+    sourceParsed.searchParams.forEach((value, key) => {
+      endpointParsed.searchParams.append(key, value);
+    });
+    return endpointParsed.toString();
+  } catch (_error) {
+    return endpointRaw;
+  }
+}
+
+function buildWorkspaceCardId(prefix = "workspace") {
+  const normalizedPrefix = String(prefix || "workspace").replace(/[^a-z0-9_-]+/gi, "-");
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `${normalizedPrefix}-${crypto.randomUUID()}`;
+  }
+  const stamp = Date.now().toString(36);
+  const random = Math.random().toString(36).slice(2, 10);
+  return `${normalizedPrefix}-${stamp}-${random}`;
+}
+
+function buildCardHeaderContextMarkup(urlValue, endpointUrl = "") {
+  const context = parseEsmRequestContext(urlValue);
+  if (!context.fullUrl) {
+    return '<span class="card-url-empty">No ESM URL</span>';
+  }
+
+  const pathSegments = String(context.displayPath || "")
+    .split("/")
+    .map((segment) => safeDecodeUrlSegment(segment.trim()))
+    .filter(Boolean);
+  const pathMarkup =
+    pathSegments.length > 0
+      ? pathSegments
+          .map(
+            (segment, index) => {
+              const segmentClass = `card-url-path-segment${index === pathSegments.length - 1 ? " card-url-path-segment-terminal" : ""}`;
+              const segmentEndpointUrl = buildPathEndpointUrl(endpointUrl || context.fullUrl, pathSegments, index + 1);
+              const segmentText = escapeHtml(segment);
+              const segmentMarkup = segmentEndpointUrl
+                ? `<a class="${segmentClass} card-url-path-link" href="${escapeHtml(segmentEndpointUrl)}" data-endpoint-url="${escapeHtml(
+                    segmentEndpointUrl
+                  )}" data-source-request-url="${escapeHtml(context.fullUrl)}">${segmentText}</a>`
+                : `<span class="${segmentClass}">${segmentText}</span>`;
+              return `${segmentMarkup}${index < pathSegments.length - 1 ? '<span class="card-url-path-divider">/</span>' : ""}`;
+            }
+          )
+          .join("")
+      : '<span class="card-url-path-segment card-url-path-segment-empty">media-company</span>';
+
+  const queryMarkup =
+    context.queryPairs.length > 0
+      ? context.queryPairs
+          .map((pair) => {
+            const keyHtml = `<span class="card-url-query-key">${escapeHtml(pair.key)}</span>`;
+            if (!pair.hasValue) {
+              return `<span class="card-url-query-chip">${keyHtml}</span>`;
+            }
+            return `<span class="card-url-query-chip">${keyHtml}<span class="card-url-query-eq">=</span><span class="card-url-query-value">${escapeHtml(
+              pair.value
+            )}</span></span>`;
+          })
+          .join("")
+      : '<span class="card-url-query-empty">no-query</span>';
+
+  return `
+    <span class="card-url-context" aria-label="ESM request context">
+      <span class="card-url-path" aria-label="ESM path">${pathMarkup}</span>
+      <span class="card-url-query-cloud" aria-label="ESM query context">${queryMarkup}</span>
+    </span>
+  `;
+}
+
+async function runCardFromPathNode(cardState, endpointUrl, sourceRequestUrl) {
+  const targetEndpointUrl = String(endpointUrl || "").trim();
+  if (!targetEndpointUrl) {
+    return;
+  }
+  const inheritedRequestUrl = buildInheritedRequestUrl(targetEndpointUrl, sourceRequestUrl || cardState?.requestUrl);
+  const nextCardPayload = {
+    cardId: buildWorkspaceCardId("path"),
+    endpointUrl: targetEndpointUrl,
+    requestUrl: inheritedRequestUrl || targetEndpointUrl,
+    zoomKey: String(cardState?.zoomKey || ""),
+    columns: normalizeEsmColumns(cardState?.columns),
+  };
+
+  const result = await sendWorkspaceAction("run-card", {
+    requestSource: "workspace-path-link",
+    card: nextCardPayload,
+  });
+  if (!result?.ok) {
+    setStatus(result?.error || "Unable to run ESM path node report.", "error");
+  }
+}
+
+function wireCardHeaderPathLinks(cardState) {
+  const titleElement = cardState?.titleElement;
+  if (!titleElement) {
+    return;
+  }
+  titleElement.querySelectorAll(".card-url-path-link[data-endpoint-url]").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void runCardFromPathNode(
+        cardState,
+        String(link.getAttribute("data-endpoint-url") || ""),
+        String(link.getAttribute("data-source-request-url") || "")
+      );
+    });
+  });
+}
+
+function getEsmNodeLabel(urlValue) {
+  const context = parseEsmRequestContext(urlValue);
+  if (!context.fullUrl) {
+    return "node";
+  }
+
+  const segments = String(context.displayPath || "")
+    .split("/")
+    .map((segment) => segment.trim())
+    .filter(Boolean);
   return segments.length > 0 ? safeDecodeUrlSegment(segments[segments.length - 1]) : "node";
 }
 
@@ -560,11 +842,12 @@ function createCardElements(cardState) {
 
 function updateCardHeader(cardState) {
   const requestUrl = String(cardState.requestUrl || cardState.endpointUrl || "").trim();
-  cardState.titleElement.textContent = requestUrl || "No ESM URL";
+  cardState.titleElement.innerHTML = buildCardHeaderContextMarkup(requestUrl, String(cardState.endpointUrl || ""));
   cardState.titleElement.title = requestUrl || "No ESM URL";
   const zoom = cardState.zoomKey ? `Zoom: ${cardState.zoomKey}` : "Zoom: --";
   const rows = Array.isArray(cardState.rows) ? cardState.rows.length : 0;
   cardState.subtitleElement.textContent = `${zoom} | Rows: ${rows}`;
+  wireCardHeaderPathLinks(cardState);
 }
 
 function ensureWorkspaceUnlocked() {
@@ -874,6 +1157,18 @@ function applyControllerState(payload) {
   state.mvpdIds = Array.isArray(payload?.mvpdIds)
     ? payload.mvpdIds.map((value) => String(value || "").trim()).filter(Boolean)
     : [];
+  state.profileHarvest =
+    payload?.profileHarvest && typeof payload.profileHarvest === "object"
+      ? {
+          ...payload.profileHarvest,
+        }
+      : null;
+  state.profileHarvestList =
+    Array.isArray(payload?.profileHarvestList) && payload.profileHarvestList.length > 0
+      ? payload.profileHarvestList.filter((item) => item && typeof item === "object").map((item) => ({ ...item }))
+      : state.profileHarvest
+        ? [{ ...state.profileHarvest }]
+        : [];
   syncMakeClickEsmVisibility();
   updateWorkspaceLockState();
   updateControllerBanner();

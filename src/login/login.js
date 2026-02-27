@@ -4,15 +4,12 @@ const IMS_CLIENT_ID = "adobeExperienceCloudDebugger";
 const IMS_SCOPE =
   "AdobeID,openid,avatar,session,read_organizations,additional_info.job_function,additional_info.projectedProductContext,additional_info.account_type,additional_info.roles,additional_info.user_image_url,analytics_services";
 const IMS_AUTHORIZE_URL = "https://ims-na1.adobelogin.com/ims/authorize/v1";
+const IMS_BASE_URL = IMS_AUTHORIZE_URL.split("/ims/")[0];
 const IMS_PROFILE_URL = "https://ims-na1.adobelogin.com/ims/profile/v1";
 const IMS_ORGS_URL = "https://ims-na1.adobelogin.com/ims/organizations/v5";
+const PPS_PROFILE_BASE_URL = "https://pps.services.adobe.com";
 const IMS_LEGACY_REDIRECT_URI = "https://login.aepdebugger.adobe.com";
 const IMS_PROFILE_CLIENT_IDS = [IMS_CLIENT_ID, "AdobePass1"];
-const IMS_LOGOUT_URLS = [
-  `https://ims-na1.adobelogin.com/ims/logout/v1?client_id=${encodeURIComponent(IMS_CLIENT_ID)}&locale=en_US`,
-  "https://ims-na1.adobelogin.com/ims/logout/v1?client_id=AdobePass1&locale=en_US",
-  "https://ims-na1.adobelogin.com/ims/logout?locale=en_US",
-];
 const HELPER_STATE_KEY = "underpar_helper_state_v1";
 const LEGACY_HELPER_STATE_KEY = "mincloudlogin_helper_state_v1";
 const HELPER_RESULT_PREFIX = "underpar_helper_result_v1:";
@@ -20,6 +17,10 @@ const LEGACY_HELPER_RESULT_PREFIX = "mincloudlogin_helper_result_v1:";
 const HELPER_RESULT_MESSAGE_TYPE = "underpar:loginHelperResult";
 const LEGACY_HELPER_RESULT_MESSAGE_TYPE = "mincloudlogin:loginHelperResult";
 const CLOSE_WINDOW_DELAY_MS = 350;
+const JWT_VALUE_REDACTION_PATTERN = /\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g;
+const BEARER_TOKEN_REDACTION_PATTERN = /\bBearer\s+[A-Za-z0-9._~-]{20,}\b/gi;
+const NAMED_TOKEN_VALUE_REDACTION_PATTERN =
+  /\b(access[_\s-]?token|id[_\s-]?token|refresh[_\s-]?token)\b\s*([:=])\s*([A-Za-z0-9._~-]{16,})/gi;
 
 const statusElement = document.getElementById("status");
 
@@ -51,6 +52,18 @@ function parseJsonText(text, fallback = null) {
   }
 }
 
+function redactSensitiveTokenValues(value) {
+  const raw = String(value || "");
+  if (!raw) {
+    return "";
+  }
+
+  return raw
+    .replace(BEARER_TOKEN_REDACTION_PATTERN, "Bearer <redacted>")
+    .replace(NAMED_TOKEN_VALUE_REDACTION_PATTERN, (_match, tokenName, operator) => `${tokenName}${operator}<redacted>`)
+    .replace(JWT_VALUE_REDACTION_PATTERN, "<redacted-jwt>");
+}
+
 function normalizeAvatarCandidate(value) {
   if (typeof value !== "string") {
     return "";
@@ -67,6 +80,31 @@ function normalizeAvatarCandidate(value) {
 
   if (trimmed.startsWith("//")) {
     return `https:${trimmed}`;
+  }
+
+  if (/^\/?api\/profile\/[^/]+\/image(\/|$)/i.test(trimmed)) {
+    const normalizedPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    return `${PPS_PROFILE_BASE_URL}${normalizedPath}`;
+  }
+
+  if (/^ims\/avatar\/download\//i.test(trimmed)) {
+    return `${IMS_BASE_URL}/${trimmed}`;
+  }
+
+  if (/^avatar\/download\//i.test(trimmed)) {
+    return `${IMS_BASE_URL}/ims/${trimmed}`;
+  }
+
+  if (/^\/ims\/avatar\/download\//i.test(trimmed)) {
+    return `${IMS_BASE_URL}${trimmed}`;
+  }
+
+  if (trimmed.startsWith("/")) {
+    return `${IMS_BASE_URL}${trimmed}`;
+  }
+
+  if (!trimmed.includes("://") && /^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(trimmed)) {
+    return `https://${trimmed}`;
   }
 
   try {
@@ -305,12 +343,160 @@ function extractAuthParams(responseUrl) {
   return params;
 }
 
+function mergeImsSessionSnapshots(baseSession, incomingSession) {
+  const base = baseSession && typeof baseSession === "object" ? baseSession : {};
+  const incoming = incomingSession && typeof incomingSession === "object" ? incomingSession : {};
+  const merged = {
+    tokenId: firstNonEmptyString([incoming.tokenId, incoming.id, base.tokenId, base.id]),
+    sessionId: firstNonEmptyString([incoming.sessionId, incoming.sid, base.sessionId, base.sid]),
+    sessionUrl: firstNonEmptyString([incoming.sessionUrl, incoming.session, base.sessionUrl, base.session]),
+    userId: firstNonEmptyString([incoming.userId, incoming.user_id, base.userId, base.user_id]),
+    authId: firstNonEmptyString([incoming.authId, incoming.aa_id, base.authId, base.aa_id]),
+    clientId: firstNonEmptyString([incoming.clientId, incoming.client_id, base.clientId, base.client_id]),
+    tokenType: firstNonEmptyString([incoming.tokenType, incoming.type, base.tokenType, base.type]),
+    scope: firstNonEmptyString([incoming.scope, base.scope]),
+    as: firstNonEmptyString([incoming.as, base.as]),
+    fg: firstNonEmptyString([incoming.fg, base.fg]),
+    moi: firstNonEmptyString([incoming.moi, base.moi]),
+    pba: firstNonEmptyString([incoming.pba, base.pba]),
+    keyAlias: firstNonEmptyString([incoming.keyAlias, incoming.key_alias, base.keyAlias, base.key_alias]),
+    stateNonce: firstNonEmptyString([incoming.stateNonce, incoming.nonce, base.stateNonce, base.nonce]),
+    stateJslibVersion: firstNonEmptyString([
+      incoming.stateJslibVersion,
+      incoming.jslibver,
+      base.stateJslibVersion,
+      base.jslibver,
+    ]),
+    createdAt: Number(incoming.createdAt || incoming.created_at || base.createdAt || base.created_at || 0),
+    issuedAt: Number(incoming.issuedAt || incoming.issued_at || base.issuedAt || base.issued_at || 0),
+    expiresAt: Number(incoming.expiresAt || incoming.expires_at || base.expiresAt || base.expires_at || 0),
+  };
+
+  const filtered = {};
+  for (const [key, value] of Object.entries(merged)) {
+    if (value === undefined || value === null || value === "" || Number.isNaN(value)) {
+      continue;
+    }
+    filtered[key] = value;
+  }
+  return Object.keys(filtered).length > 0 ? filtered : null;
+}
+
+function parseJwtPayload(accessToken = "") {
+  const token = String(accessToken || "").trim();
+  if (!token) {
+    return null;
+  }
+  const parts = token.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+  const payload = parseJsonText(decodeBase64Url(parts[1]), null);
+  return payload && typeof payload === "object" ? payload : null;
+}
+
+function parseImsStatePayload(rawState = "") {
+  const normalized = String(rawState || "").trim();
+  if (!normalized || !normalized.startsWith("{")) {
+    return null;
+  }
+  const payload = parseJsonText(normalized, null);
+  return payload && typeof payload === "object" ? payload : null;
+}
+
+function deriveImsSessionSnapshotFromToken(accessToken = "") {
+  const claims = parseJwtPayload(accessToken);
+  if (!claims) {
+    return null;
+  }
+
+  const statePayload = parseImsStatePayload(firstNonEmptyString([claims.state]));
+  const expSeconds = Number(claims.exp || 0);
+  const iatSeconds = Number(claims.iat || 0);
+  const createdAtRaw = Number(claims.created_at || 0);
+  const createdAtMs =
+    createdAtRaw > 0 && createdAtRaw < 1000000000000 ? createdAtRaw * 1000 : createdAtRaw > 0 ? createdAtRaw : 0;
+
+  return mergeImsSessionSnapshots(null, {
+    tokenId: claims.id,
+    sessionId: claims.sid,
+    sessionUrl: firstNonEmptyString([claims.session, statePayload?.session]),
+    userId: firstNonEmptyString([claims.user_id, claims.userId]),
+    authId: firstNonEmptyString([claims.aa_id, claims.authId]),
+    clientId: firstNonEmptyString([claims.client_id, claims.clientId]),
+    tokenType: firstNonEmptyString([claims.type]),
+    scope: firstNonEmptyString([claims.scope]),
+    as: claims.as,
+    fg: claims.fg,
+    moi: claims.moi,
+    pba: claims.pba,
+    keyAlias: firstNonEmptyString([claims.key_alias, claims.keyAlias]),
+    stateNonce: statePayload?.nonce,
+    stateJslibVersion: firstNonEmptyString([statePayload?.jslibver, statePayload?.jslibVersion]),
+    createdAt: createdAtMs,
+    issuedAt: Number.isFinite(iatSeconds) && iatSeconds > 0 ? iatSeconds * 1000 : 0,
+    expiresAt: Number.isFinite(expSeconds) && expSeconds > 0 ? expSeconds * 1000 : 0,
+  });
+}
+
+function coercePositiveNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+}
+
+function resolveAuthResponseExpiry(accessToken, expiresInValue) {
+  const tokenSnapshot = deriveImsSessionSnapshotFromToken(accessToken);
+  const tokenExpiresAt = coercePositiveNumber(tokenSnapshot?.expiresAt);
+  const expiresIn = coercePositiveNumber(expiresInValue);
+  const now = Date.now();
+
+  if (!expiresIn) {
+    return {
+      expiresAt: tokenExpiresAt,
+      tokenSnapshot,
+    };
+  }
+
+  const expiresAtFromSeconds = now + expiresIn * 1000;
+  const expiresAtFromMilliseconds = now + expiresIn;
+  if (tokenExpiresAt > 0) {
+    const candidates = [tokenExpiresAt, expiresAtFromSeconds];
+    if (expiresIn >= 1000) {
+      candidates.push(expiresAtFromMilliseconds);
+    }
+
+    let bestCandidate = tokenExpiresAt;
+    let bestDelta = Number.POSITIVE_INFINITY;
+    for (const candidate of candidates) {
+      if (!Number.isFinite(candidate) || candidate <= 0) {
+        continue;
+      }
+      const delta = Math.abs(candidate - tokenExpiresAt);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        bestCandidate = candidate;
+      }
+    }
+
+    return {
+      expiresAt: bestCandidate,
+      tokenSnapshot,
+    };
+  }
+
+  const appearsToBeMilliseconds = expiresIn >= 100000 && expiresIn <= 24 * 60 * 60 * 1000;
+  return {
+    expiresAt: appearsToBeMilliseconds ? expiresAtFromMilliseconds : expiresAtFromSeconds,
+    tokenSnapshot,
+  };
+}
+
 function parseAuthResponse(responseUrl, expectedState = "") {
   const authParams = extractAuthParams(responseUrl);
   const authError = authParams.get("error");
   if (authError) {
     const description = authParams.get("error_description");
-    throw new Error(description ? `${authError}: ${description}` : authError);
+    throw new Error(redactSensitiveTokenValues(description ? `${authError}: ${description}` : authError));
   }
 
   const returnedState = String(authParams.get("state") || "");
@@ -324,10 +510,47 @@ function parseAuthResponse(responseUrl, expectedState = "") {
     throw new Error("No access token returned from IMS.");
   }
 
-  const expiresInSeconds = Number(authParams.get("expires_in") || "0");
-  const expiresAt = Date.now() + Math.max(expiresInSeconds, 0) * 1000;
+  const expiry = resolveAuthResponseExpiry(accessToken, authParams.get("expires_in"));
+  const expiresAt = coercePositiveNumber(expiry.expiresAt);
+  const tokenType = String(authParams.get("token_type") || "bearer").trim();
+  const scope = String(authParams.get("scope") || "").trim();
+  const idToken = String(authParams.get("id_token") || "").trim();
+  const refreshToken = String(authParams.get("refresh_token") || "").trim();
+  const statePayload = parseImsStatePayload(String(authParams.get("state") || ""));
 
-  return { accessToken, expiresAt };
+  const callbackSession = mergeImsSessionSnapshots(null, {
+    tokenId: authParams.get("id"),
+    sessionId: authParams.get("sid"),
+    sessionUrl: firstNonEmptyString([authParams.get("session"), statePayload?.session]),
+    userId: firstNonEmptyString([authParams.get("user_id"), authParams.get("userId")]),
+    authId: firstNonEmptyString([authParams.get("aa_id"), authParams.get("authId"), authParams.get("auth_id")]),
+    clientId: authParams.get("client_id"),
+    tokenType,
+    scope,
+    as: authParams.get("as"),
+    fg: authParams.get("fg"),
+    moi: authParams.get("moi"),
+    pba: authParams.get("pba"),
+    keyAlias: authParams.get("key_alias"),
+    stateNonce: statePayload?.nonce,
+    stateJslibVersion: firstNonEmptyString([statePayload?.jslibver, statePayload?.jslibVersion]),
+    expiresAt,
+  });
+
+  const imsSession = mergeImsSessionSnapshots(expiry.tokenSnapshot, callbackSession);
+  if (imsSession && (!Number.isFinite(Number(imsSession.expiresAt)) || Number(imsSession.expiresAt) <= 0)) {
+    imsSession.expiresAt = expiresAt;
+  }
+
+  return {
+    accessToken,
+    expiresAt,
+    tokenType: tokenType || "bearer",
+    scope,
+    idToken,
+    refreshToken,
+    imsSession,
+  };
 }
 
 function buildAuthorizeUrl(requestState, extraParams = {}) {
@@ -544,7 +767,7 @@ function closeWindowSoon() {
 }
 
 async function failLogin(requestId, error) {
-  const message = error instanceof Error ? error.message : String(error || "Login failed.");
+  const message = redactSensitiveTokenValues(error instanceof Error ? error.message : String(error || "Login failed."));
   setStatus(message);
   await emitResult({
     ok: false,
@@ -573,6 +796,11 @@ async function handleImsRedirect(query) {
       requestId,
       accessToken: authData.accessToken,
       expiresAt: authData.expiresAt,
+      tokenType: authData.tokenType || "bearer",
+      scope: authData.scope || "",
+      idToken: authData.idToken || "",
+      refreshToken: authData.refreshToken || "",
+      imsSession: authData.imsSession && typeof authData.imsSession === "object" ? authData.imsSession : null,
       profile,
       organizations,
     });
@@ -603,28 +831,16 @@ function beginLogin(query) {
 
 async function beginLogout(query) {
   const requestId = String(query.get("requestId") || "").trim();
-  setStatus("Signing out...");
-
-  for (const url of IMS_LOGOUT_URLS) {
-    try {
-      await fetch(url, {
-        method: "GET",
-        credentials: "include",
-        mode: "no-cors",
-        cache: "no-store",
-      });
-    } catch {
-      // Continue best-effort logout across IMS endpoints.
-    }
-  }
+  setStatus("Signing out of UnderPAR...");
 
   clearHelperState();
   await emitResult({
     ok: true,
     mode: "logout",
     requestId,
+    underparOnly: true,
   });
-  setStatus("Sign-out completed. Closing window...");
+  setStatus("UnderPAR sign-out completed. Closing window...");
   closeWindowSoon();
 }
 

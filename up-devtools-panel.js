@@ -32,7 +32,8 @@ const keySortCollator = new Intl.Collator(undefined, { numeric: true, sensitivit
 let flow = null;
 let events = [];
 let selectedSeq = 0;
-let showExtensionEvents = querySource === "esm-decomp-recording" || querySource === "cm-recording";
+let showExtensionEvents =
+  querySource === "esm-decomp-recording" || querySource === "cm-recording" || querySource === "test-mvpd-login";
 let flowListKeyboardActive = false;
 const eventRowsBySeq = new Map();
 const EVENT_SERVICE_LABELS = Object.freeze({
@@ -68,9 +69,21 @@ function getVisibleEventBySeq(seq) {
   return getVisibleEvents().find((event) => event.seq === seq) || null;
 }
 
+function isHighValueExtensionEvent(event) {
+  if (!event || !isExtensionEvent(event)) {
+    return false;
+  }
+  const service = classifyEventService(event);
+  if (service === "cm") {
+    return true;
+  }
+  const phase = String(event?.phase || "").trim().toLowerCase();
+  return phase.startsWith("profiles-check") || phase === "profiles-harvested";
+}
+
 function flowHasCmExtensionEvents(items = []) {
   return (Array.isArray(items) ? items : []).some((event) => {
-    return Boolean(event && isExtensionEvent(event) && classifyEventService(event) === "cm");
+    return Boolean(isHighValueExtensionEvent(event));
   });
 }
 
@@ -437,6 +450,10 @@ function renderSelectedEventDetails(event) {
     "bodyPreview",
     "response",
     "payload",
+    "responsePayload",
+    "profileHarvest",
+    "profileCheck",
+    "harvestedProfile",
     "metadata",
     "sessionData",
     "error",
@@ -625,6 +642,10 @@ function appendIncomingEvent(event) {
   events.push(event);
   if (events.length > 4000) {
     events.splice(0, events.length - 4000);
+  }
+  if (!showExtensionEvents && isHighValueExtensionEvent(event)) {
+    showExtensionEvents = true;
+    updateExtensionToggleUi();
   }
 
   setFlowSummary(flow);

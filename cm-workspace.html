@@ -4,10 +4,10 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>UP CM Workspace</title>
-    <link rel="stylesheet" href="cm-workspace.css" />
+    <link id="workspace-style-link" rel="stylesheet" href="cm-workspace.css" />
   </head>
   <body>
-    <main class="workspace-app">
+    <main id="workspace-app-root" class="workspace-app">
       <header class="workspace-header">
         <div class="workspace-title-wrap">
           <p id="workspace-controller-state" class="workspace-controller-state">
@@ -54,6 +54,17 @@
       </section>
 
       <section id="workspace-cards" class="workspace-cards"></section>
+    </main>
+    <main id="workspace-non-cm-screen" hidden>
+      <h1>
+        <code><tt id="workspace-non-cm-headline">No Soup for Selected Media Company. No Premium, No CM, No Dice.</tt></code>
+      </h1>
+      <p>
+        <small id="workspace-non-cm-note"
+          >* If this looks wrong, verify this Media Company in Adobe Pass Console for legacy applications and premium scope
+          mapping.</small
+        >
+      </p>
     </main>
 
     <script src="cm-workspace.js"></script>

@@ -2,6 +2,8 @@ const BUILD_INFO_KEY = "underpar_build_info";
 const LEGACY_BUILD_INFO_KEY = "mincloudlogin_build_info";
 const AVATAR_MAX_DATAURL_BYTES = 6000000;
 const IMS_CLIENT_ID = "adobeExperienceCloudDebugger";
+const IMS_BASE_URL = "https://ims-na1.adobelogin.com";
+const PPS_PROFILE_BASE_URL = "https://pps.services.adobe.com";
 const IMS_AVATAR_CLIENT_IDS = ["AdobePass1", IMS_CLIENT_ID];
 const IMS_LOGIN_HELPER_PATH = "src/login/login.html";
 const IMS_LOGIN_REDIRECT_RULE_ID = 164001;
@@ -275,6 +277,35 @@ function normalizeAvatarCandidate(value) {
 
   if (trimmed.startsWith("data:image/") || trimmed.startsWith("blob:")) {
     return trimmed;
+  }
+
+  if (trimmed.startsWith("//")) {
+    return `https:${trimmed}`;
+  }
+
+  if (/^\/?api\/profile\/[^/]+\/image(\/|$)/i.test(trimmed)) {
+    const normalizedPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    return `${PPS_PROFILE_BASE_URL}${normalizedPath}`;
+  }
+
+  if (/^ims\/avatar\/download\//i.test(trimmed)) {
+    return `${IMS_BASE_URL}/${trimmed}`;
+  }
+
+  if (/^avatar\/download\//i.test(trimmed)) {
+    return `${IMS_BASE_URL}/ims/${trimmed}`;
+  }
+
+  if (/^\/ims\/avatar\/download\//i.test(trimmed)) {
+    return `${IMS_BASE_URL}${trimmed}`;
+  }
+
+  if (trimmed.startsWith("/")) {
+    return `${IMS_BASE_URL}${trimmed}`;
+  }
+
+  if (!trimmed.includes("://") && /^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(trimmed)) {
+    return `https://${trimmed}`;
   }
 
   try {

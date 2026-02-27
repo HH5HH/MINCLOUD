@@ -1,5 +1,7 @@
 const CM_MESSAGE_TYPE = "underpar:cm";
 const WORKSPACE_TABLE_VISIBLE_ROW_CAP = 10;
+const PASS_CONSOLE_PROGRAMMER_APPLICATIONS_URL =
+  "https://experience.adobe.com/#/@adobepass/pass/authentication/release-production/programmers";
 const WORKSPACE_LOCK_MESSAGE_SUFFIX =
   "does not have Concurrency Monitoring access. Confirm CM tenant mapping for this media company.";
 
@@ -12,12 +14,19 @@ const state = {
   requestorIds: [],
   mvpdIds: [],
   profileHarvest: null,
+  profileHarvestList: [],
   cardsById: new Map(),
   batchRunning: false,
   workspaceLocked: false,
+  nonCmMode: false,
 };
 
 const els = {
+  appRoot: document.getElementById("workspace-app-root"),
+  stylesheet: document.getElementById("workspace-style-link"),
+  nonCmScreen: document.getElementById("workspace-non-cm-screen"),
+  nonCmHeadline: document.getElementById("workspace-non-cm-headline"),
+  nonCmNote: document.getElementById("workspace-non-cm-note"),
   controllerState: document.getElementById("workspace-controller-state"),
   filterState: document.getElementById("workspace-filter-state"),
   status: document.getElementById("workspace-status"),
@@ -35,6 +44,66 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+function firstNonEmptyString(values = []) {
+  for (const value of Array.isArray(values) ? values : []) {
+    const text = String(value ?? "").trim();
+    if (text) {
+      return text;
+    }
+  }
+  return "";
+}
+
+function dedupeCandidateStrings(values = []) {
+  const output = [];
+  const seen = new Set();
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const normalized = String(value ?? "").trim();
+    if (!normalized) {
+      return;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    output.push(normalized);
+  });
+  return output;
+}
+
+function collectHarvestCandidateValues(harvestList = []) {
+  const list = Array.isArray(harvestList) ? harvestList : [];
+  const idpCandidates = dedupeCandidateStrings(
+    list.flatMap((harvest) => [
+      String(harvest?.mvpd || "").trim(),
+      ...(Array.isArray(harvest?.idpCandidates) ? harvest.idpCandidates : []),
+      ...(Array.isArray(harvest?.allIdpCandidates) ? harvest.allIdpCandidates : []),
+    ])
+  );
+  const subjectCandidates = dedupeCandidateStrings(
+    list.flatMap((harvest) => [
+      String(harvest?.subject || "").trim(),
+      String(harvest?.upstreamUserId || "").trim(),
+      String(harvest?.userId || "").trim(),
+      ...(Array.isArray(harvest?.subjectCandidates) ? harvest.subjectCandidates : []),
+      ...(Array.isArray(harvest?.allSubjectCandidates) ? harvest.allSubjectCandidates : []),
+    ])
+  );
+  const sessionCandidates = dedupeCandidateStrings(
+    list.flatMap((harvest) => [
+      String(harvest?.sessionId || "").trim(),
+      ...(Array.isArray(harvest?.sessionCandidates) ? harvest.sessionCandidates : []),
+      ...(Array.isArray(harvest?.allSessionCandidates) ? harvest.allSessionCandidates : []),
+    ])
+  );
+  return {
+    idpCandidates,
+    subjectCandidates,
+    sessionCandidates,
+  };
 }
 
 function setStatus(message = "", type = "info") {
@@ -73,18 +142,91 @@ function getWorkspaceLockMessage() {
   return `${getProgrammerLabel()} ${WORKSPACE_LOCK_MESSAGE_SUFFIX}`;
 }
 
+function getProgrammerConsoleApplicationsUrl() {
+  const programmerId = String(state.programmerId || "").trim();
+  if (!programmerId) {
+    return "";
+  }
+  return `${PASS_CONSOLE_PROGRAMMER_APPLICATIONS_URL}/${encodeURIComponent(programmerId)}/applications`;
+}
+
+function buildNotPremiumConsoleLinkHtml(serviceLabel = "CM") {
+  const consoleUrl = getProgrammerConsoleApplicationsUrl();
+  if (!consoleUrl) {
+    return `* If this looks wrong, no Media Company id is available for an Adobe Pass Console deeplink for ${escapeHtml(
+      serviceLabel
+    )}.`;
+  }
+  return `* If this looks wrong, <a href="${escapeHtml(
+    consoleUrl
+  )}" target="_blank" rel="noopener noreferrer">click here to inspect this Media Company in Adobe Pass Console</a> and verify legacy applications and premium scopes for ${escapeHtml(
+    serviceLabel
+  )}.`;
+}
+
+function buildWorkspaceLockMessageHtml() {
+  const baseMessage = escapeHtml(getWorkspaceLockMessage());
+  const consoleUrl = getProgrammerConsoleApplicationsUrl();
+  if (!consoleUrl) {
+    return baseMessage;
+  }
+  return `${baseMessage} <a href="${escapeHtml(
+    consoleUrl
+  )}" target="_blank" rel="noopener noreferrer">Open Media Company in Adobe Pass Console</a>.`;
+}
+
+function hasProgrammerContext() {
+  return Boolean(String(state.programmerId || "").trim() || String(state.programmerName || "").trim());
+}
+
+function shouldShowNonCmMode() {
+  return !state.controllerOnline && state.cmAvailable === false && hasProgrammerContext();
+}
+
+function clearWorkspaceCards() {
+  state.cardsById.forEach((cardState) => {
+    cardState.element?.remove();
+  });
+  state.cardsById.clear();
+}
+
+function updateNonCmMode() {
+  const shouldShow = shouldShowNonCmMode();
+  state.nonCmMode = shouldShow;
+  if (els.nonCmHeadline) {
+    els.nonCmHeadline.textContent = `No Soup for ${getProgrammerLabel()}. No Premium, No CM, No Dice.`;
+  }
+  if (els.nonCmNote) {
+    els.nonCmNote.innerHTML = buildNotPremiumConsoleLinkHtml("CM");
+  }
+
+  if (shouldShow) {
+    clearWorkspaceCards();
+  }
+
+  if (els.stylesheet) {
+    els.stylesheet.disabled = shouldShow;
+  }
+  if (els.appRoot) {
+    els.appRoot.hidden = shouldShow;
+  }
+  if (els.nonCmScreen) {
+    els.nonCmScreen.hidden = !shouldShow;
+  }
+}
+
 function updateWorkspaceLockState() {
-  const hasProgrammerContext = Boolean(String(state.programmerId || "").trim() || String(state.programmerName || "").trim());
-  const shouldLock = !state.controllerOnline && state.cmAvailable === false && hasProgrammerContext;
+  const shouldLock = shouldShowNonCmMode();
   state.workspaceLocked = shouldLock;
   document.body.classList.toggle("workspace-locked", shouldLock);
   if (els.lockBanner) {
     els.lockBanner.hidden = !shouldLock;
   }
   if (els.lockMessage) {
-    els.lockMessage.textContent = shouldLock ? getWorkspaceLockMessage() : "";
+    els.lockMessage.innerHTML = shouldLock ? buildWorkspaceLockMessageHtml() : "";
   }
   syncActionButtonsDisabled();
+  updateNonCmMode();
 }
 
 function updateControllerBanner() {
@@ -96,7 +238,7 @@ function updateControllerBanner() {
   if (!state.controllerOnline) {
     if (state.workspaceLocked) {
       els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
-      els.filterState.textContent = "CM workspace is locked for this media company.";
+      els.filterState.textContent = "CM workspace is locked for this media company. No Premium, No CM, No Dice.";
     } else if (hasProgrammerContext) {
       els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
       els.filterState.textContent = "Waiting for CM controller sync from UnderPAR side panel...";
@@ -110,19 +252,30 @@ function updateControllerBanner() {
   els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
   const requestorLabel = state.requestorIds.length > 0 ? state.requestorIds.join(", ") : "All requestors";
   const mvpdLabel = state.mvpdIds.length > 0 ? state.mvpdIds.join(", ") : "All MVPDs";
-  const harvest = state.profileHarvest && typeof state.profileHarvest === "object" ? state.profileHarvest : null;
+  const harvestList = Array.isArray(state.profileHarvestList) ? state.profileHarvestList : [];
+  const harvest = state.profileHarvest && typeof state.profileHarvest === "object" ? state.profileHarvest : harvestList[0] || null;
   const harvestSubject = String(harvest?.subject || "").trim();
   const harvestMvpd = String(harvest?.mvpd || "").trim();
   const harvestSession = String(harvest?.sessionId || "").trim();
+  const harvestOutcome = String(harvest?.profileCheckOutcome || "").trim();
+  const harvestProfileCount = Number(harvest?.profileCount || 0);
   const compact = (value, limit) => {
     const text = String(value || "");
     return text.length > limit ? `${text.slice(0, limit)}…` : text;
   };
-  const harvestSummary = harvestSubject
+  const harvestStatusSummary = harvestOutcome
+    ? ` | MVPD Profile: ${compact(harvestOutcome, 16)}${Number.isFinite(harvestProfileCount) ? ` (profiles=${harvestProfileCount})` : ""}`
+    : "";
+  const harvestCountSummary = harvestList.length > 0 ? ` | MVPD Login History: ${harvestList.length} captured` : "";
+  const harvestIdentitySummary = harvestSubject
     ? ` | Correlation Subject: ${compact(harvestSubject, 42)}${harvestMvpd ? ` | Correlation MVPD: ${compact(harvestMvpd, 18)}` : ""}${
         harvestSession ? ` | Session: ${compact(harvestSession, 24)}` : ""
       }`
     : "";
+  const harvestSummary =
+    harvestStatusSummary || harvestIdentitySummary || harvestCountSummary
+      ? `${harvestCountSummary}${harvestStatusSummary}${harvestIdentitySummary}`
+      : "";
   els.filterState.textContent = `RequestorId(s): ${requestorLabel} | MVPD(s): ${mvpdLabel}${harvestSummary}`;
 }
 
@@ -376,12 +529,34 @@ function normalizeOperationDescriptor(operation) {
 
 function normalizeOperationFormValues(operation, values = {}) {
   const source = values && typeof values === "object" ? values : {};
-  const profileHarvest = state.profileHarvest && typeof state.profileHarvest === "object" ? state.profileHarvest : null;
+  const profileHarvestList = Array.isArray(state.profileHarvestList) ? state.profileHarvestList : [];
+  const profileHarvest =
+    state.profileHarvest && typeof state.profileHarvest === "object" ? state.profileHarvest : profileHarvestList[0] || null;
+  const aggregatedCandidates = collectHarvestCandidateValues(profileHarvestList);
+  const idpCandidates = dedupeCandidateStrings([
+    ...(Array.isArray(profileHarvest?.idpCandidates) ? profileHarvest.idpCandidates : []),
+    ...aggregatedCandidates.idpCandidates,
+  ]);
+  const subjectCandidates = dedupeCandidateStrings([
+    ...(Array.isArray(profileHarvest?.subjectCandidates) ? profileHarvest.subjectCandidates : []),
+    ...aggregatedCandidates.subjectCandidates,
+  ]);
+  const sessionCandidates = dedupeCandidateStrings([
+    ...(Array.isArray(profileHarvest?.sessionCandidates) ? profileHarvest.sessionCandidates : []),
+    ...aggregatedCandidates.sessionCandidates,
+  ]);
   const normalized = {
     baseUrl: String(source.baseUrl || "https://streams-stage.adobeprimetime.com").trim() || "https://streams-stage.adobeprimetime.com",
-    idp: String(source.idp || profileHarvest?.mvpd || state.mvpdIds?.[0] || "").trim(),
-    subject: String(source.subject || profileHarvest?.subject || state.requestorIds?.[0] || "").trim(),
-    session: String(source.session || profileHarvest?.sessionId || "").trim(),
+    idp: firstNonEmptyString([source.idp, profileHarvest?.mvpd, ...idpCandidates, state.mvpdIds?.[0] || ""]),
+    subject: firstNonEmptyString([
+      source.subject,
+      profileHarvest?.subject,
+      profileHarvest?.upstreamUserId,
+      profileHarvest?.userId,
+      ...subjectCandidates,
+      state.requestorIds?.[0] || "",
+    ]),
+    session: firstNonEmptyString([source.session, profileHarvest?.sessionId, ...sessionCandidates]),
     xTerminate: String(source.xTerminate || "").trim(),
     authUser: String(source.authUser || "").trim(),
     authPass: String(source.authPass || "").trim(),
@@ -896,6 +1071,12 @@ function applyControllerState(payload) {
           ...payload.profileHarvest,
         }
       : null;
+  state.profileHarvestList =
+    Array.isArray(payload?.profileHarvestList) && payload.profileHarvestList.length > 0
+      ? payload.profileHarvestList.filter((item) => item && typeof item === "object").map((item) => ({ ...item }))
+      : state.profileHarvest
+        ? [{ ...state.profileHarvest }]
+        : [];
 
   state.cardsById.forEach((cardState) => {
     if (!normalizeOperationDescriptor(cardState?.operation)) {

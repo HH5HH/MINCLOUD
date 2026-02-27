@@ -2,8 +2,10 @@ const IMS_CLIENT_ID = "adobeExperienceCloudDebugger";
 const IMS_SCOPE =
   "AdobeID,openid,avatar,session,read_organizations,additional_info.job_function,additional_info.projectedProductContext,additional_info.account_type,additional_info.roles,additional_info.user_image_url,analytics_services";
 const IMS_AUTHORIZE_URL = "https://ims-na1.adobelogin.com/ims/authorize/v1";
+const IMS_BASE_URL = IMS_AUTHORIZE_URL.split("/ims/")[0];
 const IMS_PROFILE_URL = "https://ims-na1.adobelogin.com/ims/profile/v1";
 const IMS_ORGS_URL = "https://ims-na1.adobelogin.com/ims/organizations/v5";
+const PPS_PROFILE_BASE_URL = "https://pps.services.adobe.com";
 const IMS_LEGACY_REDIRECT_URI = "https://login.aepdebugger.adobe.com";
 const LOGIN_HELPER_PATH = "src/login/login.html";
 const LOGIN_HELPER_RESULT_PREFIX = "underpar_helper_result_v1:";
@@ -34,7 +36,7 @@ const REST_V2_SCOPE = PREMIUM_SERVICE_SCOPE_BY_KEY.restV2;
 const PREMIUM_SERVICE_TITLE_BY_KEY = {
   cm: "Concurrency Monitoring",
   degradation: "Degradation",
-  decompTree: "decomp",
+  decompTree: "ESM",
   restV2: "REST V2",
 };
 const REST_V2_DEVICE_ID_STORAGE_KEY = "underpar_restv2_device_id_v1";
@@ -53,6 +55,10 @@ const DEBUG_FLOW_STORAGE_PREFIX = "underpardebug_flow_v1:";
 const LEGACY_DEBUG_FLOW_STORAGE_PREFIX = "minclouddebug_flow_v1:";
 const AUTH_WINDOW_TIMEOUT_MS = 180000;
 const TOKEN_REFRESH_LEEWAY_MS = 2 * 60 * 1000;
+const JWT_VALUE_REDACTION_PATTERN = /\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g;
+const BEARER_TOKEN_REDACTION_PATTERN = /\bBearer\s+[A-Za-z0-9._~-]{20,}\b/gi;
+const NAMED_TOKEN_VALUE_REDACTION_PATTERN =
+  /\b(access[_\s-]?token|id[_\s-]?token|refresh[_\s-]?token)\b\s*([:=])\s*([A-Za-z0-9._~-]{16,})/gi;
 const AUTH_DEBUGGER_PROTOCOL_VERSION = "1.3";
 const RATE_LIMIT_MAX_RETRIES = 4;
 const RATE_LIMIT_BASE_DELAY_MS = 1200;
@@ -60,6 +66,9 @@ const RATE_LIMIT_MAX_DELAY_MS = 60000;
 const RATE_LIMIT_JITTER_MS = 400;
 const REST_V2_CONFIG_ATTEMPT_CONCURRENCY = 2;
 const REST_V2_PREPARED_LOGIN_MAX_AGE_MS = 2 * 60 * 1000;
+const REST_V2_PROFILE_HARVEST_BUCKET_MAX = 120;
+const REST_V2_PREAUTHORIZE_HISTORY_MAX = 120;
+const REST_V2_DEFAULT_RESOURCE_ID_INPUT = "NBALPP";
 const DEBUG_TEXT_PREVIEW_LIMIT = 12000;
 const DEBUG_REDACT_SENSITIVE = false;
 const UP_TRACE_VIEW_PATH = "up-devtools-panel.html";
@@ -68,6 +77,16 @@ const REST_V2_LOGIN_WINDOW_HEIGHT = 860;
 const REST_V2_LOGOUT_NAVIGATION_TIMEOUT_MS = 35000;
 const REST_V2_LOGOUT_POST_NAV_DELAY_MS = 1200;
 const ESM_AUTO_REFRESH_INTERVAL_MS = 60 * 1000;
+const IMS_SESSION_MONITOR_INTERVAL_MS = 15 * 1000;
+const IMS_SESSION_MONITOR_START_DELAY_MS = 1500;
+const IMS_SESSION_MONITOR_BOOTSTRAP_COOLDOWN_MS = 20 * 1000;
+const IMS_SESSION_MONITOR_INACTIVITY_GUARD_MS = 45 * 1000;
+const IMS_SESSION_MONITOR_INACTIVE_CONFIRM_TICKS = 2;
+const EXPERIENCE_CLOUD_SSO_TOKEN_ENDPOINT =
+  "https://auth.services.adobe.com/signin/v2/tokens?credential=sso&checkReauth=false&puser=&t2Only=false&euid=&pbaPolicy=";
+const EXPERIENCE_CLOUD_SSO_CLIENT_ID = "exc_app";
+const EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER =
+  '{"findFirst":true, "fallbackToAA":true, "preferForwardProfile":true}; hasPC("dma_tartan")';
 const CLICK_ESM_ENDPOINTS_PATH = "click-esm-endpoints.json";
 const CLICK_ESM_TEMPLATE_PATH = "clickESM-template.html";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_TITLE = "__UP_CLICK_ESM_TITLE__";
@@ -195,7 +214,8 @@ const AVATAR_MAX_RESOLVE_CANDIDATES = 20;
 const AVATAR_DIRECT_LOAD_TIMEOUT_MS = 1200;
 const AVATAR_IMS_REFRESH_COOLDOWN_MS = 2 * 60 * 1000;
 const IMS_AVATAR_CLIENT_IDS = ["AdobePass1", IMS_CLIENT_ID];
-const IMS_PROFILE_CLIENT_IDS = [IMS_CLIENT_ID, "AdobePass1"];
+const IMS_PROFILE_CLIENT_IDS = [IMS_CLIENT_ID, "AdobePass1", "exc_app"];
+const IMS_VALIDATE_CLIENT_IDS = [IMS_CLIENT_ID, "AdobePass1", "exc_app"];
 const AVATAR_CACHE_STORAGE_PREFIX = "underpar_avatar_cache_v2:";
 const LEGACY_AVATAR_CACHE_STORAGE_PREFIX = "mincloudlogin_avatar_cache_v2:";
 const AVATAR_MAX_LOCALSTORAGE_DATAURL_BYTES = 220000;
@@ -204,11 +224,6 @@ const LEGACY_AVATAR_PERSIST_STORAGE_PREFIX = "mincloudlogin_avatar_persist_v1:";
 const AVATAR_PERSIST_GLOBAL_KEY = `${AVATAR_PERSIST_STORAGE_PREFIX}last`;
 const LEGACY_AVATAR_PERSIST_GLOBAL_KEY = `${LEGACY_AVATAR_PERSIST_STORAGE_PREFIX}last`;
 const AVATAR_PERSIST_TTL_SECONDS = 30 * 24 * 60 * 60;
-const IMS_LOGOUT_URLS = [
-  `https://ims-na1.adobelogin.com/ims/logout/v1?client_id=${encodeURIComponent(IMS_CLIENT_ID)}&locale=en_US`,
-  "https://ims-na1.adobelogin.com/ims/logout/v1?client_id=AdobePass1&locale=en_US",
-  "https://ims-na1.adobelogin.com/ims/logout?locale=en_US",
-];
 const LOGIN_HELPER_RESULT_MESSAGE_TYPES = new Set([
   LOGIN_HELPER_RESULT_MESSAGE_TYPE,
   LEGACY_LOGIN_HELPER_RESULT_MESSAGE_TYPE,
@@ -233,6 +248,7 @@ const state = {
   avatarImsRefreshAt: 0,
   avatarResolving: false,
   avatarFailureLogged: false,
+  avatarDataUrlPrefetchKeys: new Set(),
   avatarMemoryCache: new Map(),
   loginData: null,
   programmers: [],
@@ -242,6 +258,7 @@ const state = {
   selectedProgrammerKey: "",
   programmersApiEndpoint: null,
   refreshTimeoutId: null,
+  silentRefreshPromise: null,
   mvpdCacheByRequestor: new Map(),
   mvpdLoadPromiseByRequestor: new Map(),
   restV2AuthContextByRequestor: new Map(),
@@ -251,7 +268,9 @@ const state = {
   restV2PrepareErrorBySelectionKey: new Map(),
   restV2ProfileHarvestBySelectionKey: new Map(),
   restV2ProfileHarvestByProgrammerId: new Map(),
+  restV2ProfileHarvestBucketByProgrammerId: new Map(),
   restV2ProfileHarvestLast: null,
+  restV2PreauthorizeHistoryByProgrammerId: new Map(),
   restV2LastLaunchTabId: 0,
   restV2LastLaunchWindowId: 0,
   restV2PreviousTabId: 0,
@@ -280,6 +299,14 @@ const state = {
   consoleContextReady: false,
   consoleContextPromise: null,
   isBootstrapping: false,
+  sessionMonitorIntervalId: 0,
+  sessionMonitorStartTimeoutId: 0,
+  sessionMonitorBusy: false,
+  sessionMonitorSuppressed: false,
+  sessionMonitorLastProbeSource: "unknown",
+  sessionMonitorInactivityGuardUntil: 0,
+  sessionMonitorConsecutiveInactiveDetections: 0,
+  sessionMonitorLastBootstrapAttemptAt: 0,
   decompWorkspaceTabId: 0,
   decompWorkspaceWindowId: 0,
   decompWorkspaceTabIdByWindowId: new Map(),
@@ -568,6 +595,18 @@ function parseJsonText(text, fallback = {}) {
   }
 }
 
+function redactSensitiveTokenValues(value) {
+  const raw = String(value || "");
+  if (!raw) {
+    return "";
+  }
+
+  return raw
+    .replace(BEARER_TOKEN_REDACTION_PATTERN, "Bearer <redacted>")
+    .replace(NAMED_TOKEN_VALUE_REDACTION_PATTERN, (_match, tokenName, operator) => `${tokenName}${operator}<redacted>`)
+    .replace(JWT_VALUE_REDACTION_PATTERN, "<redacted-jwt>");
+}
+
 function normalizeHttpErrorMessage(value) {
   const raw = String(value || "");
   if (!raw) {
@@ -581,11 +620,12 @@ function normalizeHttpErrorMessage(value) {
     .replace(/\s+/g, " ")
     .trim();
 
-  if (!collapsed) {
+  const redacted = redactSensitiveTokenValues(collapsed);
+  if (!redacted) {
     return "";
   }
 
-  return collapsed.length > 220 ? `${collapsed.slice(0, 217)}...` : collapsed;
+  return redacted.length > 220 ? `${redacted.slice(0, 217)}...` : redacted;
 }
 
 function extractApiErrorCode(value) {
@@ -730,6 +770,34 @@ function extractAuthorizationCodeUrl(payload) {
   }
 }
 
+function isConsoleAuthWindowSuccessUrl(url) {
+  const candidate = String(url || "").trim();
+  if (!candidate) {
+    return false;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    if (!/(^|\.)console\.auth\.adobe\.com$/i.test(parsed.hostname)) {
+      return false;
+    }
+
+    if (parsed.pathname.startsWith("/oauth2/callback")) {
+      return true;
+    }
+    if (parsed.pathname.startsWith("/rest/api/")) {
+      return true;
+    }
+    if (parsed.searchParams.has("authorization_code") || parsed.searchParams.has("code")) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
 async function ensureConsoleSecurityContext(authorizationCodeUrl) {
   if (!authorizationCodeUrl) {
     return false;
@@ -745,7 +813,9 @@ async function ensureConsoleSecurityContext(authorizationCodeUrl) {
 
   state.consoleContextPromise = (async () => {
     try {
-      await runAuthInPopupWindow(authorizationCodeUrl, CONSOLE_AUTH_CALLBACK_PREFIX);
+      await runAuthInPopupWindow(authorizationCodeUrl, CONSOLE_AUTH_CALLBACK_PREFIX, {
+        successUrlMatcher: isConsoleAuthWindowSuccessUrl,
+      });
       state.consoleContextReady = true;
       log("Console security context established.");
       return true;
@@ -988,6 +1058,1105 @@ function setRestV2LoginPanelStatus(section, message, type = "") {
   statusElement.textContent = String(message || "");
 }
 
+function stringifyJsonForDisplay(value) {
+  if (value == null || value === "") {
+    return "{}";
+  }
+  if (typeof value === "string") {
+    const parsed = parseJsonText(value, null);
+    if (parsed && typeof parsed === "object") {
+      try {
+        return JSON.stringify(parsed, null, 2);
+      } catch {
+        return String(value);
+      }
+    }
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatTimestampLabel(value) {
+  const raw = Number(value || 0);
+  if (!Number.isFinite(raw) || raw <= 0) {
+    return "Unknown";
+  }
+  return new Date(raw).toLocaleString();
+}
+
+function getRestV2HarvestRecordKey(harvest = null, index = 0) {
+  if (!harvest || typeof harvest !== "object") {
+    return `harvest-${index + 1}`;
+  }
+  return (
+    buildRestV2ProfileHarvestBucketKey(harvest) ||
+    [String(harvest.programmerId || ""), String(harvest.flowId || ""), String(harvest.harvestedAt || "")].join("|") ||
+    `harvest-${index + 1}`
+  );
+}
+
+function getRestV2PreauthorizeHistoryForProgrammer(programmer = null) {
+  const programmerId =
+    programmer && typeof programmer === "object" ? String(programmer.programmerId || "").trim() : String(programmer || "").trim();
+  if (!programmerId) {
+    return [];
+  }
+  const history = state.restV2PreauthorizeHistoryByProgrammerId.get(programmerId);
+  if (!Array.isArray(history) || history.length === 0) {
+    return [];
+  }
+  return history
+    .filter((item) => item && typeof item === "object")
+    .slice()
+    .sort((left, right) => Number(right?.checkedAt || 0) - Number(left?.checkedAt || 0));
+}
+
+function storeRestV2PreauthorizeHistoryEntry(programmerId, entry = null) {
+  const normalizedProgrammerId = String(programmerId || "").trim();
+  if (!normalizedProgrammerId || !entry || typeof entry !== "object") {
+    return [];
+  }
+  const existing = getRestV2PreauthorizeHistoryForProgrammer(normalizedProgrammerId);
+  const next = [entry, ...existing]
+    .filter((item) => item && typeof item === "object")
+    .sort((left, right) => Number(right?.checkedAt || 0) - Number(left?.checkedAt || 0))
+    .slice(0, REST_V2_PREAUTHORIZE_HISTORY_MAX);
+  state.restV2PreauthorizeHistoryByProgrammerId.set(normalizedProgrammerId, next);
+  return next;
+}
+
+function getRestV2SectionState(section) {
+  if (!section) {
+    return {
+      selectedHarvestKey: "",
+      expandedHarvestKey: "",
+      hasProfileExpansionChoice: false,
+      resourceInput: REST_V2_DEFAULT_RESOURCE_ID_INPUT,
+      entitlementBusy: false,
+      lastEntitlementResult: null,
+    };
+  }
+  if (!section.__underparRestV2State || typeof section.__underparRestV2State !== "object") {
+    section.__underparRestV2State = {
+      selectedHarvestKey: "",
+      expandedHarvestKey: "",
+      hasProfileExpansionChoice: false,
+      resourceInput: REST_V2_DEFAULT_RESOURCE_ID_INPUT,
+      entitlementBusy: false,
+      lastEntitlementResult: null,
+    };
+  }
+  if (typeof section.__underparRestV2State.selectedHarvestKey !== "string") {
+    section.__underparRestV2State.selectedHarvestKey = "";
+  }
+  if (typeof section.__underparRestV2State.expandedHarvestKey !== "string") {
+    section.__underparRestV2State.expandedHarvestKey = "";
+  }
+  if (typeof section.__underparRestV2State.hasProfileExpansionChoice !== "boolean") {
+    section.__underparRestV2State.hasProfileExpansionChoice = false;
+  }
+  if (typeof section.__underparRestV2State.resourceInput !== "string") {
+    section.__underparRestV2State.resourceInput = REST_V2_DEFAULT_RESOURCE_ID_INPUT;
+  }
+  if (typeof section.__underparRestV2State.entitlementBusy !== "boolean") {
+    section.__underparRestV2State.entitlementBusy = false;
+  }
+  return section.__underparRestV2State;
+}
+
+function parseRestV2ResourceIdInput(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return [];
+  }
+  return dedupeRestV2CandidateStrings(
+    raw
+      .split(/[,\n\r;]+/g)
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+  );
+}
+
+function formatRestV2CompactValue(value, maxLength = 44) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return "";
+  }
+  const limit = Math.max(12, Number(maxLength) || 44);
+  if (text.length <= limit) {
+    return text;
+  }
+  const prefix = Math.max(4, Math.floor((limit - 3) * 0.6));
+  const suffix = Math.max(4, limit - 3 - prefix);
+  return `${text.slice(0, prefix)}...${text.slice(-suffix)}`;
+}
+
+function resolveRestV2AppInfoForHarvest(harvest = null) {
+  if (!harvest || typeof harvest !== "object") {
+    return null;
+  }
+  const programmerId = String(harvest.programmerId || "").trim();
+  if (!programmerId) {
+    return null;
+  }
+
+  const services = state.premiumAppsByProgrammerId.get(programmerId) || null;
+  const restV2Candidates = collectRestV2AppCandidatesFromPremiumApps(services);
+  const appGuid = String(harvest.appGuid || "").trim();
+  if (appGuid) {
+    const guidMatch = restV2Candidates.find((item) => String(item?.guid || "").trim() === appGuid);
+    if (guidMatch?.guid) {
+      return guidMatch;
+    }
+  }
+
+  const requestorId = String(harvest.requestorId || "").trim();
+  if (requestorId) {
+    const mapped = resolveRestV2AppForServiceProvider(restV2Candidates, requestorId, programmerId);
+    if (mapped?.guid) {
+      return mapped;
+    }
+  }
+
+  if (services?.restV2?.guid) {
+    return services.restV2;
+  }
+  return restV2Candidates[0] || null;
+}
+
+function buildRestV2ContextFromHarvest(harvest = null) {
+  if (!harvest || typeof harvest !== "object") {
+    return null;
+  }
+  const programmerId = String(harvest.programmerId || "").trim();
+  const requestorId = String(harvest.requestorId || harvest.serviceProviderId || "").trim();
+  const serviceProviderId = String(harvest.serviceProviderId || harvest.requestorId || "").trim();
+  const mvpd = String(harvest.mvpd || "").trim();
+  const appInfo = resolveRestV2AppInfoForHarvest(harvest);
+  if (!programmerId || !requestorId || !serviceProviderId || !mvpd || !appInfo?.guid) {
+    return null;
+  }
+  return {
+    ok: true,
+    programmerId,
+    programmerName: String(harvest.programmerName || "").trim(),
+    requestorId,
+    serviceProviderId,
+    mvpd,
+    appInfo,
+    restV2AppCandidates: [appInfo],
+  };
+}
+
+function normalizeRestV2DecisionVerdict(authorized = null) {
+  if (authorized === true) {
+    return "Permit";
+  }
+  if (authorized === false) {
+    return "Deny";
+  }
+  return "Unknown";
+}
+
+function parseRestV2DecisionError(errorValue = null) {
+  if (!errorValue || typeof errorValue !== "object") {
+    return {
+      errorCode: "",
+      errorDetails: "",
+    };
+  }
+  const errorCode = String(
+    firstNonEmptyString([
+      errorValue.code,
+      errorValue.error,
+      errorValue.action,
+    ]) || ""
+  ).trim();
+  const messageValue = errorValue.message;
+  const messageText =
+    typeof messageValue === "string"
+      ? messageValue
+      : messageValue && typeof messageValue === "object"
+        ? stringifyJsonForDisplay(messageValue)
+        : "";
+  const errorDetails = String(
+    firstNonEmptyString([
+      errorValue.details,
+      messageText,
+    ]) || ""
+  ).trim();
+  return {
+    errorCode,
+    errorDetails,
+  };
+}
+
+function parseRestV2DecisionRowFromPayload(decisionValue = null, fallbackResourceId = "") {
+  const decision = decisionValue && typeof decisionValue === "object" ? decisionValue : {};
+  const resourceId = firstNonEmptyString([
+    decision.resource,
+    decision.resourceId,
+    fallbackResourceId,
+  ]);
+  const authorized = typeof decision.authorized === "boolean" ? decision.authorized : null;
+  const tokenValue = String(
+    firstNonEmptyString([
+      decision?.token?.serializedToken,
+      decision?.token?.token,
+      decision?.token?.mediaToken,
+    ]) || ""
+  ).trim();
+  const errorDetails = parseRestV2DecisionError(decision.error);
+  return {
+    resourceId: String(resourceId || "").trim(),
+    decision: normalizeRestV2DecisionVerdict(authorized),
+    authorized,
+    source: String(firstNonEmptyString([decision.source]) || "").trim(),
+    serviceProvider: String(firstNonEmptyString([decision.serviceProvider]) || "").trim(),
+    mvpd: String(firstNonEmptyString([decision.mvpd]) || "").trim(),
+    errorCode: String(errorDetails.errorCode || "").trim(),
+    errorDetails: String(errorDetails.errorDetails || "").trim(),
+    mediaTokenPresent: Boolean(tokenValue),
+    mediaTokenPreview: tokenValue ? formatRestV2CompactValue(tokenValue, 30) : "",
+    mediaTokenNotBeforeMs: Number(decision?.token?.notBefore || 0),
+    mediaTokenNotAfterMs: Number(decision?.token?.notAfter || 0),
+    notBeforeMs: Number(decision?.notBefore || 0),
+    notAfterMs: Number(decision?.notAfter || 0),
+    raw: cloneJsonLikeValue(decision, {}),
+  };
+}
+
+function mergeRestV2DecisionRowByResource(existing = null, incoming = null) {
+  if (!existing) {
+    return incoming;
+  }
+  if (!incoming) {
+    return existing;
+  }
+  const existingRank =
+    existing.decision === "Permit" ? 3 : existing.decision === "Deny" ? 2 : existing.decision === "Unknown" ? 1 : 0;
+  const incomingRank =
+    incoming.decision === "Permit" ? 3 : incoming.decision === "Deny" ? 2 : incoming.decision === "Unknown" ? 1 : 0;
+  if (incomingRank > existingRank) {
+    return incoming;
+  }
+  if (incomingRank === existingRank && Number(incoming.notAfterMs || 0) > Number(existing.notAfterMs || 0)) {
+    return incoming;
+  }
+  return existing;
+}
+
+function extractRestV2PreauthorizeDecisionRows(payload, requestedResourceIds = []) {
+  const requested = Array.isArray(requestedResourceIds)
+    ? requestedResourceIds.map((item) => String(item || "").trim()).filter(Boolean)
+    : [];
+  const decisions = Array.isArray(payload?.decisions) ? payload.decisions : [];
+  const rowsByResource = new Map();
+
+  decisions.forEach((decision) => {
+    const row = parseRestV2DecisionRowFromPayload(decision);
+    const key = String(row.resourceId || "").trim().toLowerCase();
+    if (!key) {
+      return;
+    }
+    const existing = rowsByResource.get(key) || null;
+    rowsByResource.set(key, mergeRestV2DecisionRowByResource(existing, row));
+  });
+
+  requested.forEach((resourceId) => {
+    const key = resourceId.toLowerCase();
+    if (rowsByResource.has(key)) {
+      return;
+    }
+    rowsByResource.set(
+      key,
+      parseRestV2DecisionRowFromPayload(
+        {
+          resource: resourceId,
+          authorized: null,
+          source: "",
+        },
+        resourceId
+      )
+    );
+  });
+
+  return [...rowsByResource.values()].sort((left, right) =>
+    String(left?.resourceId || "").localeCompare(String(right?.resourceId || ""))
+  );
+}
+
+function applyRestV2TopLevelErrorToDecisionRows(rows = [], payload = null) {
+  const list = Array.isArray(rows) ? rows : [];
+  const errorCode = String(
+    firstNonEmptyString([
+      payload?.code,
+      payload?.error?.code,
+      payload?.error,
+    ]) || ""
+  ).trim();
+  const messageValue = payload?.message;
+  const messageText =
+    typeof messageValue === "string"
+      ? messageValue
+      : messageValue && typeof messageValue === "object"
+        ? stringifyJsonForDisplay(messageValue)
+        : "";
+  const errorDetails = String(
+    firstNonEmptyString([
+      payload?.details,
+      messageText,
+    ]) || ""
+  ).trim();
+
+  if (!errorCode && !errorDetails) {
+    return list;
+  }
+  return list.map((row) => ({
+    ...row,
+    errorCode: row?.errorCode ? String(row.errorCode) : errorCode,
+    errorDetails: row?.errorDetails ? String(row.errorDetails) : errorDetails,
+  }));
+}
+
+function summarizeRestV2PreauthorizeRows(rows = [], requestedResourceIds = []) {
+  const normalizedRows = Array.isArray(rows) ? rows : [];
+  const permitCount = normalizedRows.filter((item) => String(item?.decision || "").trim().toLowerCase() === "permit").length;
+  const denyCount = normalizedRows.filter((item) => String(item?.decision || "").trim().toLowerCase() === "deny").length;
+  const unknownCount = normalizedRows.length - permitCount - denyCount;
+  const requestedCount = Array.isArray(requestedResourceIds) ? requestedResourceIds.length : 0;
+  const allRequestedPermitted = requestedCount > 0 && permitCount >= requestedCount && denyCount === 0 && unknownCount === 0;
+  return {
+    permitCount,
+    denyCount,
+    unknownCount,
+    requestedCount,
+    allRequestedPermitted,
+  };
+}
+
+async function fetchRestV2PreauthorizeDecisions(harvest, resourceIds) {
+  const serviceProviderId = String(harvest?.serviceProviderId || harvest?.requestorId || "").trim();
+  const mvpd = String(harvest?.mvpd || "").trim();
+  const programmerId = String(harvest?.programmerId || "").trim();
+  if (!serviceProviderId || !mvpd) {
+    throw new Error("Missing service provider or MVPD from the selected MVPD profile.");
+  }
+  if (!programmerId) {
+    throw new Error("Missing programmer context for preauthorization.");
+  }
+
+  const appInfo = resolveRestV2AppInfoForHarvest(harvest);
+  if (!appInfo?.guid) {
+    throw new Error("Unable to resolve REST V2 application context for preauthorization.");
+  }
+
+  const endpointUrl = `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/decisions/preauthorize/${encodeURIComponent(mvpd)}`;
+  const requestHeaders = buildRestV2Headers(serviceProviderId, {
+    Accept: "application/json",
+    "Content-Type": "application/json",
+  });
+  const requestBody = JSON.stringify({
+    resources: resourceIds,
+  });
+
+  const flowId = String(harvest?.flowId || "").trim();
+  emitRestV2DebugEvent(flowId, {
+    source: "extension",
+    phase: "preauthorize-request",
+    method: "POST",
+    url: endpointUrl,
+    scope: "decisions-preauthorize",
+    requestorId: String(harvest?.requestorId || ""),
+    mvpd,
+    programmerId,
+    appGuid: String(appInfo?.guid || ""),
+    appName: String(appInfo?.appName || appInfo?.guid || ""),
+    authMode: "dcr_client_bearer",
+    body: cloneJsonLikeValue({ resources: resourceIds }, {}),
+  });
+
+  const response = await fetchWithPremiumAuth(
+    programmerId,
+    appInfo,
+    endpointUrl,
+    {
+      method: "POST",
+      mode: "cors",
+      headers: requestHeaders,
+      body: requestBody,
+    },
+    "refresh",
+    {
+      flowId,
+      requestorId: String(harvest?.requestorId || serviceProviderId || ""),
+      mvpd,
+      scope: "decisions-preauthorize",
+      service: "rest-v2-entitlements",
+      endpointUrl,
+    }
+  );
+  const responseText = await response.text().catch(() => "");
+  const parsedPayload = parseJsonText(responseText, null);
+  const decisionRows = applyRestV2TopLevelErrorToDecisionRows(
+    extractRestV2PreauthorizeDecisionRows(parsedPayload, resourceIds),
+    parsedPayload
+  );
+  const decisionSummary = summarizeRestV2PreauthorizeRows(decisionRows, resourceIds);
+  const checkedAt = Date.now();
+  const checkedAtLabel = formatTimestampLabel(checkedAt);
+
+  const result = {
+    checkedAt,
+    checkedAtLabel,
+    ok: response.ok === true,
+    status: Number(response.status || 0),
+    statusText: String(response.statusText || "").trim(),
+    programmerId,
+    appGuid: String(appInfo?.guid || "").trim(),
+    appName: String(appInfo?.appName || appInfo?.guid || "").trim(),
+    authMode: "dcr_client_bearer",
+    endpointUrl,
+    requestBody: {
+      resources: resourceIds.slice(),
+    },
+    serviceProviderId,
+    requestorId: String(harvest?.requestorId || serviceProviderId || "").trim(),
+    mvpd,
+    harvestKey: getRestV2HarvestRecordKey(harvest),
+    harvestCapturedAt: Number(harvest?.harvestedAt || 0),
+    subject: String(harvest?.subject || "").trim(),
+    upstreamUserId: String(harvest?.upstreamUserId || "").trim(),
+    userId: String(harvest?.userId || "").trim(),
+    profileKey: String(harvest?.profileKey || "").trim(),
+    resourceIds: resourceIds.slice(),
+    decisionRows,
+    permitCount: decisionSummary.permitCount,
+    denyCount: decisionSummary.denyCount,
+    unknownCount: decisionSummary.unknownCount,
+    allRequestedPermitted: decisionSummary.allRequestedPermitted,
+    responsePreview: truncateDebugText(responseText, 3000),
+    responsePayload: parsedPayload ?? responseText,
+    error: "",
+  };
+
+  emitRestV2DebugEvent(flowId, {
+    source: "extension",
+    phase: "preauthorize-response",
+    method: "POST",
+    url: endpointUrl,
+    scope: "decisions-preauthorize",
+    status: result.status,
+    statusText: result.statusText,
+    requestorId: result.requestorId,
+    mvpd: result.mvpd,
+    programmerId,
+    appGuid: result.appGuid,
+    appName: result.appName,
+    authMode: result.authMode,
+    decisionRows: cloneJsonLikeValue(decisionRows, []),
+    permitCount: result.permitCount,
+    denyCount: result.denyCount,
+    unknownCount: result.unknownCount,
+    responsePreview: result.responsePreview,
+  });
+
+  if (!response.ok) {
+    const errorCode = String(
+      firstNonEmptyString([
+        parsedPayload?.code,
+        parsedPayload?.error?.code,
+        parsedPayload?.error,
+      ]) || ""
+    ).trim();
+    const errorMessage =
+      firstNonEmptyString([
+        errorCode,
+        parsedPayload?.error?.code,
+        parsedPayload?.error,
+        parsedPayload?.details,
+        parsedPayload?.message,
+        normalizeHttpErrorMessage(responseText),
+        result.statusText,
+      ]) || `HTTP ${result.status}`;
+    const errorHint =
+      Number(result.status || 0) === 401
+        ? "REST V2 rejected the client bearer token. UnderPAR uses DCR auth for this API, and token refresh is automatic."
+        : "";
+    result.error = errorHint ? `${errorMessage}. ${errorHint}` : errorMessage;
+    throw Object.assign(new Error(`Preauthorization failed (${result.status}): ${errorMessage}`), { underparResult: result });
+  }
+
+  return result;
+}
+
+function renderRestV2ProfileHistoryTool(section, harvestList = []) {
+  const tool = section?.querySelector(".rest-v2-profile-history-tool");
+  const countElement = section?.querySelector(".rest-v2-profile-count");
+  const listElement = section?.querySelector(".rest-v2-profile-list");
+  if (!tool || !listElement || !countElement) {
+    return null;
+  }
+
+  const sectionState = getRestV2SectionState(section);
+  const records = (Array.isArray(harvestList) ? harvestList : [])
+    .filter((item) => item && typeof item === "object")
+    .map((harvest, index) => ({
+      harvest,
+      key: getRestV2HarvestRecordKey(harvest, index),
+      capturedAtLabel: formatTimestampLabel(harvest?.harvestedAt),
+      title: `${String(harvest?.requestorId || "").trim() || "requestor"} x ${String(harvest?.mvpd || "").trim() || "mvpd"}`,
+      subtitle: firstNonEmptyString([
+        String(harvest?.subject || "").trim(),
+        String(harvest?.upstreamUserId || "").trim(),
+        String(harvest?.userId || "").trim(),
+        "No subject",
+      ]),
+      statusLabel: String(harvest?.profileCheckOutcome || "").trim() || "unknown",
+    }));
+
+  if (records.length === 0) {
+    tool.hidden = true;
+    countElement.textContent = "0";
+    listElement.innerHTML = "";
+    sectionState.selectedHarvestKey = "";
+    sectionState.expandedHarvestKey = "";
+    sectionState.hasProfileExpansionChoice = false;
+    return null;
+  }
+
+  tool.hidden = false;
+  countElement.textContent = String(records.length);
+  let selected = records.find((item) => item.key === sectionState.selectedHarvestKey) || records[0];
+  sectionState.selectedHarvestKey = selected.key;
+  let expandedHarvestKey = String(sectionState.expandedHarvestKey || "").trim();
+  if (expandedHarvestKey && !records.some((item) => item.key === expandedHarvestKey)) {
+    expandedHarvestKey = "";
+  }
+  if (!expandedHarvestKey && sectionState.hasProfileExpansionChoice !== true) {
+    expandedHarvestKey = selected.key;
+  }
+  sectionState.expandedHarvestKey = expandedHarvestKey;
+
+  listElement.innerHTML = records
+    .map(
+      (record) => {
+        const isSelected = record.key === selected.key;
+        const isExpanded = record.key === expandedHarvestKey;
+        const selectedHarvest = record.harvest;
+        const profileCount = Number(selectedHarvest?.profileCount || 0);
+        const profileKey = String(selectedHarvest?.profileKey || "").trim() || "N/A";
+        const sessionId = String(selectedHarvest?.sessionId || "").trim() || "N/A";
+        const profileCheck =
+          selectedHarvest?.profileCheck && typeof selectedHarvest.profileCheck === "object" ? selectedHarvest.profileCheck : {};
+        const profileTtlText = `${
+          Number(selectedHarvest?.notBeforeMs || 0) > 0 ? formatTimestampLabel(selectedHarvest.notBeforeMs) : "N/A"
+        } -> ${Number(selectedHarvest?.notAfterMs || 0) > 0 ? formatTimestampLabel(selectedHarvest.notAfterMs) : "N/A"}`;
+        const profileStatusText = `${String(selectedHarvest?.profileCheckOutcome || "unknown")} | HTTP ${
+          Number(profileCheck?.status || 0) || 0
+        } ${String(profileCheck?.statusText || "").trim()}`.trim();
+        const attributes =
+          selectedHarvest?.profileAttributes && typeof selectedHarvest.profileAttributes === "object"
+            ? Object.entries(selectedHarvest.profileAttributes)
+            : [];
+        const factRows = [
+          ["Requestor", String(selectedHarvest?.requestorId || "").trim() || "N/A"],
+          ["Service Provider", String(selectedHarvest?.serviceProviderId || "").trim() || "N/A"],
+          ["MVPD", String(selectedHarvest?.mvpd || "").trim() || "N/A"],
+          [
+            "Subject",
+            firstNonEmptyString([String(selectedHarvest?.subject || "").trim(), String(record.subtitle || "").trim(), "N/A"]),
+          ],
+          ["Session ID", sessionId],
+          ["Profiles Returned", String(profileCount)],
+          ["Profile TTL", profileTtlText],
+          ["Profile Check", profileStatusText || "N/A"],
+          ["Next Action", "Ready for Can I watch? and CM inputs"],
+        ];
+        const factCards = factRows
+          .map(
+            ([label, value]) => `
+          <div class="rest-v2-profile-fact">
+            <span class="rest-v2-profile-fact-label">${escapeHtml(label)}</span>
+            <span class="rest-v2-profile-fact-value">${escapeHtml(formatRestV2CompactValue(String(value || ""), 120) || "N/A")}</span>
+          </div>
+        `
+          )
+          .join("");
+        const attributeMarkup =
+          attributes.length > 0
+            ? `
+            <div class="rest-v2-profile-attributes">
+              <p class="rest-v2-profile-attributes-title">Profile Attributes</p>
+              <ul class="rest-v2-profile-attributes-list">
+                ${attributes
+                  .map(
+                    ([key, value]) => `
+                  <li class="rest-v2-profile-attributes-item">
+                    <span class="rest-v2-profile-attributes-key">${escapeHtml(String(key || "").trim())}</span>
+                    <span class="rest-v2-profile-attributes-value">${escapeHtml(
+                      formatRestV2CompactValue(String(value || "").trim(), 120) || "N/A"
+                    )}</span>
+                  </li>
+                `
+                  )
+                  .join("")}
+              </ul>
+            </div>
+          `
+            : `<p class="rest-v2-profile-attributes-empty">No profile attributes returned.</p>`;
+        return `
+      <li class="rest-v2-profile-item${isSelected ? " active" : ""}${isExpanded ? " expanded" : ""}">
+        <article class="rest-v2-profile-card">
+          <div class="rest-v2-profile-card-head">
+            <button
+              type="button"
+              class="rest-v2-profile-card-toggle${isSelected ? " active" : ""}"
+              data-harvest-key="${escapeHtml(record.key)}"
+              aria-expanded="${isExpanded ? "true" : "false"}"
+            >
+              <span class="rest-v2-profile-entry-title">
+                <span>${escapeHtml(record.title)}</span>
+                <span class="rest-v2-profile-collapse-icon" aria-hidden="true">▼</span>
+              </span>
+              <span class="rest-v2-profile-entry-meta">${escapeHtml(record.subtitle)} | ${escapeHtml(record.capturedAtLabel)}</span>
+            </button>
+            <button
+              type="button"
+              class="rest-v2-profile-delete-btn"
+              data-harvest-key="${escapeHtml(record.key)}"
+              aria-label="Delete captured MVPD profile"
+              title="Delete captured MVPD profile"
+            >×</button>
+          </div>
+          <div class="rest-v2-profile-card-body"${isExpanded ? "" : " hidden"}>
+            <p class="rest-v2-profile-details-meta">
+              subject=${escapeHtml(record.subtitle)} | profileKey=${escapeHtml(profileKey)} | session=${escapeHtml(
+          sessionId
+        )} | profiles=${escapeHtml(String(profileCount))} | status=${escapeHtml(record.statusLabel)}
+            </p>
+            <div class="rest-v2-profile-facts-grid">${factCards}</div>
+            ${attributeMarkup}
+          </div>
+        </article>
+      </li>
+    `
+      }
+    )
+    .join("");
+  return selected.harvest;
+}
+
+function renderRestV2EntitlementTool(section, programmerId, selectedHarvest = null) {
+  const tool = section?.querySelector(".rest-v2-entitlement-tool");
+  const contextElement = section?.querySelector(".rest-v2-entitlement-context");
+  const inputElement = section?.querySelector(".rest-v2-resource-input");
+  const buttonElement = section?.querySelector(".rest-v2-entitlement-go-btn");
+  const statusElement = section?.querySelector(".rest-v2-entitlement-status");
+  const summaryElement = section?.querySelector(".rest-v2-entitlement-summary");
+  if (!tool || !contextElement || !inputElement || !buttonElement || !statusElement || !summaryElement) {
+    return;
+  }
+
+  const sectionState = getRestV2SectionState(section);
+  if (!selectedHarvest || typeof selectedHarvest !== "object") {
+    tool.hidden = true;
+    return;
+  }
+
+  tool.hidden = false;
+  contextElement.textContent = `Using MVPD profile ${String(selectedHarvest.requestorId || "").trim() || "requestor"} x ${
+    String(selectedHarvest.mvpd || "").trim() || "mvpd"
+  } | subject=${formatRestV2CompactValue(firstNonEmptyString([
+    String(selectedHarvest.subject || "").trim(),
+    String(selectedHarvest.upstreamUserId || "").trim(),
+    String(selectedHarvest.userId || "").trim(),
+    "no subject",
+  ]), 42)}.`;
+
+  if (typeof sectionState.resourceInput !== "string" || !sectionState.resourceInput.trim()) {
+    sectionState.resourceInput = REST_V2_DEFAULT_RESOURCE_ID_INPUT;
+  }
+  if (document.activeElement !== inputElement) {
+    inputElement.value = sectionState.resourceInput;
+  }
+
+  const busy = sectionState.entitlementBusy === true;
+  inputElement.disabled = busy;
+  buttonElement.disabled = busy;
+  buttonElement.textContent = busy ? "GO..." : "GO";
+
+  const harvestKey = getRestV2HarvestRecordKey(selectedHarvest);
+  const history = getRestV2PreauthorizeHistoryForProgrammer(programmerId);
+  const historyResult = history.find((item) => String(item?.harvestKey || "") === harvestKey) || history[0] || null;
+  const currentResult =
+    sectionState.lastEntitlementResult && typeof sectionState.lastEntitlementResult === "object"
+      ? sectionState.lastEntitlementResult
+      : historyResult;
+
+  if (currentResult && typeof currentResult === "object" && !busy) {
+    sectionState.lastEntitlementResult = currentResult;
+    const verdict = currentResult.allRequestedPermitted ? "YES" : "NO";
+    const verdictClass = currentResult.allRequestedPermitted ? "success" : "error";
+    const statusPrefix = `Can I watch? ${verdict}`;
+    const authLabel =
+      String(currentResult.authMode || "").trim() === "dcr_client_bearer"
+        ? `Auth: DCR bearer (${String(currentResult.appName || currentResult.appGuid || "REST V2 app").trim() || "REST V2 app"})`
+        : "Auth: unknown";
+    const statusText =
+      currentResult.error && !currentResult.ok
+        ? `${statusPrefix} (${currentResult.error})`
+        : `${statusPrefix} (${currentResult.permitCount} permit, ${currentResult.denyCount} deny, ${currentResult.unknownCount} unknown)`;
+    statusElement.classList.remove("success", "error");
+    statusElement.classList.add(verdictClass);
+    statusElement.textContent = statusText;
+
+    summaryElement.hidden = false;
+    const decisionRows = Array.isArray(currentResult.decisionRows) ? currentResult.decisionRows : [];
+    const hasAuthenticatedProfileMissing =
+      String(currentResult.error || "").toLowerCase().includes("authenticated_profile_missing") ||
+      decisionRows.some((row) => String(row?.errorCode || "").trim().toLowerCase() === "authenticated_profile_missing");
+    const summaryItems = decisionRows
+      .map((row) => {
+        const decisionRaw = String(row?.decision || "").trim().toLowerCase();
+        const cssClass =
+          decisionRaw === "permit" ? "permit" : decisionRaw === "deny" ? "deny" : decisionRaw ? "unknown" : "unknown";
+        const errorCode = String(row?.errorCode || "").trim();
+        const errorDetails = String(row?.errorDetails || "").trim();
+        const sourceLabel = String(row?.source || "").trim() || "N/A";
+        const mediaTokenLabel = row?.mediaTokenPresent ? String(row?.mediaTokenPreview || "present") : "none";
+        const reasonText = errorCode
+          ? `${errorCode}${errorDetails ? `: ${formatRestV2CompactValue(errorDetails, 90)}` : ""}`
+          : sourceLabel && sourceLabel !== "N/A"
+            ? `source=${sourceLabel}`
+            : "No additional details";
+        return `
+          <li class="rest-v2-entitlement-decision ${cssClass}">
+            <span class="rest-v2-entitlement-decision-resource">${escapeHtml(String(row?.resourceId || ""))}</span>
+            <span class="rest-v2-entitlement-decision-badge ${cssClass}">${escapeHtml(String(row?.decision || "Unknown"))}</span>
+            <span class="rest-v2-entitlement-decision-reason">${escapeHtml(reasonText)}</span>
+            <span class="rest-v2-entitlement-decision-meta">${escapeHtml(`source=${sourceLabel} | mediaToken=${mediaTokenLabel}`)}</span>
+          </li>
+        `;
+      })
+      .join("");
+    const guidanceMarkup = hasAuthenticatedProfileMissing
+      ? `<p class="rest-v2-entitlement-guidance">Profile is no longer active for this MVPD session. Run START RECORDING MVPD login again, then retry Can I watch?.</p>`
+      : "";
+    summaryElement.innerHTML = `
+      <p class="rest-v2-entitlement-summary-head">
+        <strong>Request:</strong> ${escapeHtml((currentResult.resourceIds || []).join(", "))}
+        <span> | ${escapeHtml(formatTimestampLabel(currentResult.checkedAt))}</span>
+      </p>
+      ${guidanceMarkup}
+      <ul class="rest-v2-entitlement-decision-list">${summaryItems}</ul>
+      <p class="rest-v2-entitlement-summary-meta">${escapeHtml(
+        `${authLabel} | POST ${String(currentResult.endpointUrl || "").trim()} | HTTP ${Number(currentResult.status || 0)} ${
+          String(currentResult.statusText || "").trim() || ""
+        }`
+      )}</p>
+    `;
+    return;
+  }
+
+  statusElement.classList.remove("success", "error");
+  statusElement.textContent = busy
+    ? "Running entitlement check against REST V2 Decisions..."
+    : "Enter resourceIds, then press Enter or GO to check authorization.";
+  summaryElement.hidden = true;
+  summaryElement.innerHTML = "";
+}
+
+function syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo) {
+  if (!section) {
+    return;
+  }
+  const context = buildCurrentRestV2SelectionContext(programmer, appInfo);
+  const programmerId = context?.ok
+    ? String(context.programmerId || "").trim()
+    : String(programmer?.programmerId || resolveSelectedProgrammer()?.programmerId || "").trim();
+
+  if (!programmerId) {
+    const historyTool = section.querySelector(".rest-v2-profile-history-tool");
+    const entitlementTool = section.querySelector(".rest-v2-entitlement-tool");
+    if (historyTool) {
+      historyTool.hidden = true;
+    }
+    if (entitlementTool) {
+      entitlementTool.hidden = true;
+    }
+    return;
+  }
+
+  const harvestList = getRestV2ProfileHarvestBucketForProgrammer(programmerId);
+  const selectedHarvest = renderRestV2ProfileHistoryTool(section, harvestList);
+  renderRestV2EntitlementTool(section, programmerId, selectedHarvest);
+}
+
+async function runRestV2EntitlementCheck(section, programmer, appInfo) {
+  if (!section) {
+    return;
+  }
+  const sectionState = getRestV2SectionState(section);
+  if (sectionState.entitlementBusy === true) {
+    return;
+  }
+
+  const context = buildCurrentRestV2SelectionContext(programmer, appInfo);
+  const programmerId = context?.ok
+    ? String(context.programmerId || "").trim()
+    : String(programmer?.programmerId || resolveSelectedProgrammer()?.programmerId || "").trim();
+  if (!programmerId) {
+    setStatus("Select a media company before running entitlement checks.", "error");
+    return;
+  }
+
+  const harvestList = getRestV2ProfileHarvestBucketForProgrammer(programmerId);
+  if (harvestList.length === 0) {
+    setStatus("No successful MVPD profile captures are available yet.", "error");
+    return;
+  }
+
+  let selectedHarvest =
+    harvestList.find((item, index) => getRestV2HarvestRecordKey(item, index) === sectionState.selectedHarvestKey) || harvestList[0];
+  sectionState.selectedHarvestKey = getRestV2HarvestRecordKey(selectedHarvest, 0);
+
+  const inputElement = section.querySelector(".rest-v2-resource-input");
+  if (inputElement && document.activeElement === inputElement) {
+    sectionState.resourceInput = String(inputElement.value || "");
+  }
+  const resourceIds = parseRestV2ResourceIdInput(sectionState.resourceInput);
+  if (resourceIds.length === 0) {
+    sectionState.lastEntitlementResult = {
+      checkedAt: Date.now(),
+      ok: false,
+      status: 0,
+      statusText: "",
+      endpointUrl: "",
+      serviceProviderId: String(selectedHarvest?.serviceProviderId || selectedHarvest?.requestorId || "").trim(),
+      requestorId: String(selectedHarvest?.requestorId || "").trim(),
+      mvpd: String(selectedHarvest?.mvpd || "").trim(),
+      harvestKey: sectionState.selectedHarvestKey,
+      resourceIds: [],
+      decisionRows: [],
+      permitCount: 0,
+      denyCount: 0,
+      unknownCount: 0,
+      allRequestedPermitted: false,
+      responsePayload: {},
+      error: "Enter at least one resourceId (comma-delimited supported).",
+      programmerId,
+    };
+    setStatus("Enter at least one resourceId (comma-delimited supported).", "error");
+    syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
+    return;
+  }
+
+  sectionState.entitlementBusy = true;
+  sectionState.lastEntitlementResult = null;
+  syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
+
+  try {
+    const preflightContext = buildRestV2ContextFromHarvest(selectedHarvest);
+    if (!preflightContext) {
+      throw new Error("Selected MVPD profile is missing REST V2 application context.");
+    }
+    const preflightFlowId = String(selectedHarvest?.flowId || "").trim();
+    const preflight = await fetchRestV2ProfileCheckResult(
+      preflightContext,
+      preflightFlowId,
+      "profiles-preauthorize-preflight"
+    );
+    if (preflight?.harvestedProfile && isUsableRestV2ProfileHarvest(preflight.harvestedProfile)) {
+      const refreshedHarvest = storeRestV2ProfileHarvest(preflightContext, preflight, preflightFlowId);
+      if (refreshedHarvest && isUsableRestV2ProfileHarvest(refreshedHarvest)) {
+        selectedHarvest = refreshedHarvest;
+        sectionState.selectedHarvestKey = getRestV2HarvestRecordKey(selectedHarvest);
+      }
+    }
+    if (!preflight?.ok || Number(preflight?.profileCount || 0) <= 0) {
+      const preflightPayload = preflight?.responsePayload && typeof preflight.responsePayload === "object" ? preflight.responsePayload : {};
+      const preflightCode = String(
+        firstNonEmptyString([
+          preflightPayload?.code,
+          preflightPayload?.error?.code,
+          preflightPayload?.error,
+          Number(preflight?.profileCount || 0) <= 0 ? "authenticated_profile_missing" : "",
+        ]) || "authenticated_profile_missing"
+      ).trim();
+      const preflightMessage = String(
+        firstNonEmptyString([
+          preflightPayload?.details,
+          preflightPayload?.message,
+          preflight?.error,
+          "The authenticated profile associated with this request is missing or expired.",
+        ]) || "The authenticated profile associated with this request is missing or expired."
+      ).trim();
+      const guidance = "Re-run START RECORDING MVPD login to refresh the profile, then retry Can I watch?.";
+      const preflightResult = {
+        checkedAt: Date.now(),
+        ok: false,
+        status: Number(preflight?.status || 403),
+        statusText: String(preflight?.statusText || "").trim(),
+        programmerId,
+        appGuid: String(preflightContext?.appInfo?.guid || "").trim(),
+        appName: String(preflightContext?.appInfo?.appName || preflightContext?.appInfo?.guid || "").trim(),
+        authMode: "dcr_client_bearer",
+        endpointUrl: String(preflight?.url || "").trim(),
+        requestBody: {
+          resources: resourceIds.slice(),
+        },
+        serviceProviderId: String(selectedHarvest?.serviceProviderId || selectedHarvest?.requestorId || "").trim(),
+        requestorId: String(selectedHarvest?.requestorId || "").trim(),
+        mvpd: String(selectedHarvest?.mvpd || "").trim(),
+        harvestKey: sectionState.selectedHarvestKey,
+        harvestCapturedAt: Number(selectedHarvest?.harvestedAt || 0),
+        subject: String(selectedHarvest?.subject || "").trim(),
+        upstreamUserId: String(selectedHarvest?.upstreamUserId || "").trim(),
+        userId: String(selectedHarvest?.userId || "").trim(),
+        profileKey: String(selectedHarvest?.profileKey || "").trim(),
+        resourceIds: resourceIds.slice(),
+        decisionRows: resourceIds.map((resourceId) => ({
+          resourceId: String(resourceId || "").trim(),
+          decision: "Unknown",
+          authorized: null,
+          source: "",
+          serviceProvider: "",
+          mvpd: String(selectedHarvest?.mvpd || "").trim(),
+          errorCode: preflightCode,
+          errorDetails: preflightMessage,
+          mediaTokenPresent: false,
+          mediaTokenPreview: "",
+          mediaTokenNotBeforeMs: 0,
+          mediaTokenNotAfterMs: 0,
+          notBeforeMs: 0,
+          notAfterMs: 0,
+          raw: {},
+        })),
+        permitCount: 0,
+        denyCount: 0,
+        unknownCount: resourceIds.length,
+        allRequestedPermitted: false,
+        responsePreview: String(preflight?.responsePreview || "").trim(),
+        responsePayload: preflightPayload,
+        error: `${preflightCode}: ${preflightMessage}. ${guidance}`,
+      };
+      throw Object.assign(new Error(preflightResult.error), { underparResult: preflightResult });
+    }
+
+    const result = await fetchRestV2PreauthorizeDecisions(selectedHarvest, resourceIds);
+    const enrichedResult = {
+      ...result,
+      programmerId,
+    };
+    sectionState.lastEntitlementResult = enrichedResult;
+    storeRestV2PreauthorizeHistoryEntry(programmerId, enrichedResult);
+    if (result.allRequestedPermitted) {
+      setStatus(`Can I watch? YES for ${resourceIds.join(", ")} (${result.requestorId} x ${result.mvpd}).`, "success");
+    } else {
+      setStatus(
+        `Can I watch? NO for ${resourceIds.join(", ")} (${result.requestorId} x ${result.mvpd}) (${result.permitCount} permit / ${result.denyCount} deny / ${result.unknownCount} unknown).`,
+        "error"
+      );
+    }
+  } catch (error) {
+    const resultFromError = error?.underparResult && typeof error.underparResult === "object" ? error.underparResult : null;
+    if (resultFromError) {
+      const enrichedResult = {
+        ...resultFromError,
+        programmerId,
+      };
+      sectionState.lastEntitlementResult = enrichedResult;
+      storeRestV2PreauthorizeHistoryEntry(programmerId, enrichedResult);
+    }
+    const displayError = resultFromError?.error || (error instanceof Error ? error.message : String(error));
+    setStatus(displayError, "error");
+  } finally {
+    sectionState.entitlementBusy = false;
+    syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
+  }
+}
+
+function wireRestV2ProfileAndEntitlementHandlers(section, programmer, appInfo) {
+  if (!section || section.__underparRestV2HandlersBound) {
+    return;
+  }
+  section.__underparRestV2HandlersBound = true;
+
+  const listElement = section.querySelector(".rest-v2-profile-list");
+  if (listElement) {
+    listElement.addEventListener("click", (event) => {
+      const deleteButton = event.target instanceof Element ? event.target.closest(".rest-v2-profile-delete-btn") : null;
+      if (deleteButton) {
+        event.preventDefault();
+        event.stopPropagation();
+        const sectionState = getRestV2SectionState(section);
+        const harvestKey = String(deleteButton.dataset.harvestKey || "").trim();
+        const context = buildCurrentRestV2SelectionContext(programmer, appInfo);
+        const programmerId = context?.ok
+          ? String(context.programmerId || "").trim()
+          : String(programmer?.programmerId || resolveSelectedProgrammer()?.programmerId || "").trim();
+        if (!programmerId || !harvestKey) {
+          return;
+        }
+        const removed = removeRestV2ProfileHarvestByRecordKey(programmerId, harvestKey);
+        if (!removed) {
+          return;
+        }
+        if (sectionState.selectedHarvestKey === harvestKey) {
+          sectionState.selectedHarvestKey = "";
+          sectionState.lastEntitlementResult = null;
+        }
+        if (sectionState.expandedHarvestKey === harvestKey) {
+          sectionState.expandedHarvestKey = "";
+        }
+        sectionState.hasProfileExpansionChoice = false;
+        setStatus("Removed captured MVPD login profile.", "info");
+        syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
+        return;
+      }
+
+      const target = event.target instanceof Element ? event.target.closest(".rest-v2-profile-card-toggle") : null;
+      if (!target) {
+        return;
+      }
+      const sectionState = getRestV2SectionState(section);
+      const harvestKey = String(target.dataset.harvestKey || "").trim();
+      if (!harvestKey) {
+        return;
+      }
+      sectionState.selectedHarvestKey = harvestKey;
+      if (sectionState.expandedHarvestKey === harvestKey) {
+        sectionState.expandedHarvestKey = "";
+      } else {
+        sectionState.expandedHarvestKey = harvestKey;
+      }
+      sectionState.hasProfileExpansionChoice = true;
+      syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
+    });
+  }
+
+  const inputElement = section.querySelector(".rest-v2-resource-input");
+  if (inputElement) {
+    inputElement.addEventListener("input", () => {
+      const sectionState = getRestV2SectionState(section);
+      sectionState.resourceInput = String(inputElement.value || "");
+    });
+  }
+
+  const formElement = section.querySelector(".rest-v2-entitlement-form");
+  if (formElement) {
+    formElement.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      await runRestV2EntitlementCheck(section, programmer, appInfo);
+    });
+  }
+}
+
 function getRestV2SelectionKey(context) {
   if (!context?.ok) {
     return "";
@@ -1056,7 +2225,9 @@ function clearRestV2PreparedLoginState() {
   state.restV2PrepareErrorBySelectionKey.clear();
   state.restV2ProfileHarvestBySelectionKey.clear();
   state.restV2ProfileHarvestByProgrammerId.clear();
+  state.restV2ProfileHarvestBucketByProgrammerId.clear();
   state.restV2ProfileHarvestLast = null;
+  state.restV2PreauthorizeHistoryByProgrammerId.clear();
   state.restV2LastLaunchTabId = 0;
   state.restV2LastLaunchWindowId = 0;
   state.restV2PreviousTabId = 0;
@@ -1463,6 +2634,7 @@ function buildCurrentRestV2SelectionContext(programmer, appInfoOverride = null) 
 function syncRestV2LoginPanel(section, programmer, appInfo) {
   const button = section?.querySelector(".rest-v2-test-login-btn");
   syncRestV2CloseLoginButton(section);
+  syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
   if (!button) {
     return;
   }
@@ -2075,6 +3247,35 @@ function normalizeRestV2ProfileAttributeValue(value) {
   return "";
 }
 
+function dedupeRestV2CandidateStrings(values = []) {
+  const output = [];
+  const seen = new Set();
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const normalized = normalizeRestV2ProfileAttributeValue(value);
+    if (!normalized) {
+      return;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    output.push(normalized);
+  });
+  return output;
+}
+
+function cloneJsonLikeValue(value, fallback = null) {
+  if (value == null) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return fallback;
+  }
+}
+
 function getRestV2ProfileAttribute(profile, nameVariants = []) {
   const attributes = profile?.attributes && typeof profile.attributes === "object" ? profile.attributes : {};
   if (!attributes || typeof attributes !== "object") {
@@ -2104,60 +3305,205 @@ function getRestV2ProfileAttribute(profile, nameVariants = []) {
   return "";
 }
 
+function getRestV2ProfileAttributesMap(profile) {
+  const attributes = profile?.attributes && typeof profile.attributes === "object" ? profile.attributes : {};
+  if (!attributes || typeof attributes !== "object") {
+    return {};
+  }
+
+  const normalized = {};
+  Object.entries(attributes).forEach(([rawKey, rawValue]) => {
+    const key = String(rawKey || "").trim();
+    if (!key) {
+      return;
+    }
+    const value = normalizeRestV2ProfileAttributeValue(rawValue);
+    if (!value) {
+      return;
+    }
+    normalized[key] = value;
+  });
+  return normalized;
+}
+
+function getRestV2ProfileScalarFields(profile) {
+  const scalarFields = {};
+  if (!profile || typeof profile !== "object") {
+    return scalarFields;
+  }
+  Object.entries(profile).forEach(([rawKey, rawValue]) => {
+    const key = String(rawKey || "").trim();
+    if (!key || key === "attributes") {
+      return;
+    }
+    const value = normalizeRestV2ProfileAttributeValue(rawValue);
+    if (!value) {
+      return;
+    }
+    scalarFields[key] = value;
+  });
+  return scalarFields;
+}
+
+function getRestV2ProfileSummary(profile, profileKey = "", context = null) {
+  const normalizedProfile = profile && typeof profile === "object" ? profile : {};
+  const attributesMap = getRestV2ProfileAttributesMap(normalizedProfile);
+  const scalarFields = getRestV2ProfileScalarFields(normalizedProfile);
+  const readValue = (keyCandidates = []) => {
+    const normalizedCandidates = (Array.isArray(keyCandidates) ? keyCandidates : [])
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean);
+    if (normalizedCandidates.length === 0) {
+      return "";
+    }
+
+    for (const candidate of normalizedCandidates) {
+      const directValue = Object.entries(scalarFields).find(([key]) => String(key || "").trim().toLowerCase() === candidate)?.[1] || "";
+      if (directValue) {
+        return directValue;
+      }
+      const attributeValue =
+        Object.entries(attributesMap).find(([key]) => String(key || "").trim().toLowerCase() === candidate)?.[1] || "";
+      if (attributeValue) {
+        return attributeValue;
+      }
+    }
+    return "";
+  };
+
+  const upstreamUserId = firstNonEmptyString([
+    readValue(["upstreamuserid", "upstream_user_id", "upstreamuserid", "upstream_userid"]),
+    normalizeRestV2ProfileAttributeValue(normalizedProfile.upstreamUserID),
+    normalizeRestV2ProfileAttributeValue(normalizedProfile.upstreamUserId),
+  ]);
+  const userId = firstNonEmptyString([
+    readValue(["userid", "user_id", "userid", "sub"]),
+    normalizeRestV2ProfileAttributeValue(normalizedProfile.userID),
+    normalizeRestV2ProfileAttributeValue(normalizedProfile.userId),
+  ]);
+  const sessionId = firstNonEmptyString([
+    readValue(["sessionid", "session_id", "session", "sessiontoken", "session_token"]),
+    normalizeRestV2ProfileAttributeValue(normalizedProfile.sessionId),
+    normalizeRestV2ProfileAttributeValue(normalizedProfile.sessionID),
+  ]);
+  const mvpd = firstNonEmptyString([
+    readValue(["mvpd", "idp", "provider", "provider_id"]),
+    normalizeRestV2ProfileAttributeValue(normalizedProfile.mvpd),
+    normalizeRestV2ProfileAttributeValue(normalizedProfile.idp),
+    String(profileKey || "").trim(),
+    String(context?.mvpd || "").trim(),
+  ]);
+
+  const subjectCandidates = dedupeRestV2CandidateStrings([
+    upstreamUserId,
+    userId,
+    readValue(["subject", "subscriberid", "subscriber_id", "accountid", "account_id", "personaid", "persona_id", "sub"]),
+  ]);
+  const sessionCandidates = dedupeRestV2CandidateStrings([
+    sessionId,
+    readValue(["sessionid", "session_id", "session", "sessiontoken", "session_token", "tokenid", "token_id"]),
+  ]);
+  const idpCandidates = dedupeRestV2CandidateStrings([
+    mvpd,
+    readValue(["mvpd", "idp", "provider", "providerid", "provider_id"]),
+    String(context?.mvpd || "").trim(),
+  ]);
+
+  const notBeforeMs = Number(normalizedProfile.notBefore || normalizedProfile.not_before || 0);
+  const notAfterMs = Number(normalizedProfile.notAfter || normalizedProfile.not_after || 0);
+  const subject = firstNonEmptyString(subjectCandidates);
+
+  return {
+    profileKey: String(profileKey || "").trim(),
+    mvpd: String(mvpd || "").trim(),
+    subject: String(subject || "").trim(),
+    upstreamUserId: String(upstreamUserId || "").trim(),
+    userId: String(userId || "").trim(),
+    sessionId: String(sessionId || "").trim(),
+    subjectCandidates,
+    sessionCandidates,
+    idpCandidates,
+    notBeforeMs: Number.isFinite(notBeforeMs) && notBeforeMs > 0 ? notBeforeMs : 0,
+    notAfterMs: Number.isFinite(notAfterMs) && notAfterMs > 0 ? notAfterMs : 0,
+    attributes: attributesMap,
+    scalarFields,
+    rawProfile: cloneJsonLikeValue(normalizedProfile, {}),
+  };
+}
+
+function findRestV2PreferredProfileSummary(profileSummaries = [], preferredMvpd = "") {
+  const summaries = Array.isArray(profileSummaries) ? profileSummaries : [];
+  if (summaries.length === 0) {
+    return null;
+  }
+
+  const preferred = String(preferredMvpd || "").trim().toLowerCase();
+  if (preferred) {
+    const direct = summaries.find((summary) => String(summary?.profileKey || "").trim().toLowerCase() === preferred);
+    if (direct) {
+      return direct;
+    }
+    const idpMatch = summaries.find((summary) =>
+      (Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []).some(
+        (candidate) => String(candidate || "").trim().toLowerCase() === preferred
+      )
+    );
+    if (idpMatch) {
+      return idpMatch;
+    }
+  }
+  return summaries[0] || null;
+}
+
 function buildRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
   if (!context || !profileCheckResult || profileCheckResult.checked !== true) {
     return null;
   }
 
-  const payload = profileCheckResult.responsePayload;
+  const payload =
+    profileCheckResult.responsePayload && typeof profileCheckResult.responsePayload === "object"
+      ? profileCheckResult.responsePayload
+      : {};
   const profiles =
-    payload && typeof payload === "object" && payload.profiles && typeof payload.profiles === "object" ? payload.profiles : null;
-  if (!profiles || Object.keys(profiles).length === 0) {
-    return null;
-  }
+    payload && typeof payload === "object" && payload.profiles && typeof payload.profiles === "object" ? payload.profiles : {};
+  const profileEntries = Object.entries(profiles).filter(([, value]) => value && typeof value === "object");
+  const profileSummaries = profileEntries.map(([profileKey, profileValue]) => getRestV2ProfileSummary(profileValue, profileKey, context));
+  const selectedSummary = findRestV2PreferredProfileSummary(profileSummaries, context.mvpd);
 
-  const preferredKey = String(context.mvpd || "").trim();
-  const profileKey =
-    (preferredKey && Object.prototype.hasOwnProperty.call(profiles, preferredKey) ? preferredKey : "") ||
-    Object.keys(profiles).find((key) => profiles[key] && typeof profiles[key] === "object") ||
-    "";
-  if (!profileKey) {
-    return null;
-  }
+  const profileCount = profileSummaries.length;
+  const profileKeys = profileSummaries.map((summary) => String(summary?.profileKey || "").trim()).filter(Boolean);
+  const allSubjectCandidates = dedupeRestV2CandidateStrings(profileSummaries.flatMap((summary) => summary?.subjectCandidates || []));
+  const allSessionCandidates = dedupeRestV2CandidateStrings(profileSummaries.flatMap((summary) => summary?.sessionCandidates || []));
+  const allIdpCandidates = dedupeRestV2CandidateStrings(profileSummaries.flatMap((summary) => summary?.idpCandidates || []));
 
-  const profile = profiles[profileKey];
-  if (!profile || typeof profile !== "object") {
-    return null;
-  }
+  const subjectCandidates = dedupeRestV2CandidateStrings([
+    ...(selectedSummary?.subjectCandidates || []),
+    ...(selectedSummary?.upstreamUserId ? [selectedSummary.upstreamUserId] : []),
+    ...(selectedSummary?.userId ? [selectedSummary.userId] : []),
+    ...allSubjectCandidates,
+  ]);
+  const sessionCandidates = dedupeRestV2CandidateStrings([...(selectedSummary?.sessionCandidates || []), ...allSessionCandidates]);
+  const idpCandidates = dedupeRestV2CandidateStrings([...(selectedSummary?.idpCandidates || []), ...allIdpCandidates, context.mvpd]);
 
-  const upstreamUserId = firstNonEmptyString([
-    getRestV2ProfileAttribute(profile, ["upstreamuserid", "upstream_user_id"]),
-    normalizeRestV2ProfileAttributeValue(profile.upstreamUserID),
-    normalizeRestV2ProfileAttributeValue(profile.upstreamUserId),
-  ]);
-  const userId = firstNonEmptyString([
-    getRestV2ProfileAttribute(profile, ["userid", "user_id"]),
-    normalizeRestV2ProfileAttributeValue(profile.userID),
-    normalizeRestV2ProfileAttributeValue(profile.userId),
-  ]);
-  const sessionId = firstNonEmptyString([
-    normalizeRestV2ProfileAttributeValue(profile.sessionId),
-    normalizeRestV2ProfileAttributeValue(profile.sessionID),
-    getRestV2ProfileAttribute(profile, ["sessionid", "session_id"]),
-  ]);
-  const mvpd = firstNonEmptyString([
-    getRestV2ProfileAttribute(profile, ["mvpd", "idp"]),
-    normalizeRestV2ProfileAttributeValue(profile.mvpd),
-    profileKey,
-    context.mvpd,
-  ]);
-  const notBeforeMs = Number(profile.notBefore || profile.not_before || 0);
-  const notAfterMs = Number(profile.notAfter || profile.not_after || 0);
+  const upstreamUserId = firstNonEmptyString([selectedSummary?.upstreamUserId, selectedSummary?.userId, ...subjectCandidates]);
+  const userId = firstNonEmptyString([selectedSummary?.userId, selectedSummary?.upstreamUserId, ...subjectCandidates]);
+  const sessionId = firstNonEmptyString([selectedSummary?.sessionId, ...sessionCandidates]);
+  const mvpd = firstNonEmptyString([selectedSummary?.mvpd, ...idpCandidates, context.mvpd]);
+  const subject = firstNonEmptyString([selectedSummary?.subject, selectedSummary?.upstreamUserId, selectedSummary?.userId, ...subjectCandidates]);
+
+  const notBeforeMs = Number(selectedSummary?.notBeforeMs || 0);
+  const notAfterMs = Number(selectedSummary?.notAfterMs || 0);
   const harvestedAt = Date.now();
-  const subject = firstNonEmptyString([upstreamUserId, userId]);
-  if (!mvpd || !subject) {
-    return null;
-  }
+  const responseStatus = Number(profileCheckResult.status || 0);
+  const responseOk = profileCheckResult.ok === true;
+  const responseError = String(profileCheckResult.error || "").trim();
+  const profileCheckOutcome = responseError
+    ? "error"
+    : !responseOk
+      ? "http_error"
+      : profileCount > 0
+        ? "success"
+        : "empty";
 
   return {
     harvestedAt,
@@ -2167,20 +3513,40 @@ function buildRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
     serviceProviderId: String(context.serviceProviderId || "").trim(),
     appGuid: String(context.appInfo?.guid || "").trim(),
     profileUrl: String(profileCheckResult.url || "").trim(),
-    profileKey: String(profileKey || "").trim(),
+    profileCheckOutcome,
+    profileCheck: {
+      checked: profileCheckResult.checked === true,
+      ok: responseOk,
+      status: responseStatus,
+      statusText: String(profileCheckResult.statusText || "").trim(),
+      error: responseError,
+      profileCount,
+      url: String(profileCheckResult.url || "").trim(),
+      responsePreview: String(profileCheckResult.responsePreview || "").trim(),
+    },
+    profileCount,
+    profileKeys,
+    selectedProfileFound: Boolean(selectedSummary),
+    profileKey: String(selectedSummary?.profileKey || "").trim(),
     mvpd: String(mvpd || "").trim(),
     subject: String(subject || "").trim(),
     upstreamUserId: String(upstreamUserId || "").trim(),
     userId: String(userId || "").trim(),
     sessionId: String(sessionId || "").trim(),
+    idpCandidates,
+    subjectCandidates,
+    sessionCandidates,
+    allSubjectCandidates,
+    allSessionCandidates,
+    allIdpCandidates,
     notBeforeMs: Number.isFinite(notBeforeMs) && notBeforeMs > 0 ? notBeforeMs : 0,
     notAfterMs: Number.isFinite(notAfterMs) && notAfterMs > 0 ? notAfterMs : 0,
-    profile:
-      profile && typeof profile === "object"
-        ? {
-            ...profile,
-          }
-        : {},
+    profileAttributes: selectedSummary?.attributes && typeof selectedSummary.attributes === "object" ? { ...selectedSummary.attributes } : {},
+    profileScalarFields:
+      selectedSummary?.scalarFields && typeof selectedSummary.scalarFields === "object" ? { ...selectedSummary.scalarFields } : {},
+    profile: selectedSummary?.rawProfile && typeof selectedSummary.rawProfile === "object" ? { ...selectedSummary.rawProfile } : {},
+    profileSummaries: cloneJsonLikeValue(profileSummaries, []),
+    profileResponsePayload: cloneJsonLikeValue(payload, {}),
   };
 }
 
@@ -2194,11 +3560,266 @@ function storeRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
   if (selectionKey && selectionKey !== "||") {
     state.restV2ProfileHarvestBySelectionKey.set(selectionKey, harvest);
   }
-  if (harvest.programmerId) {
-    state.restV2ProfileHarvestByProgrammerId.set(harvest.programmerId, harvest);
+  if (isUsableRestV2ProfileHarvest(harvest)) {
+    upsertRestV2ProfileHarvestBucketEntry(harvest);
+    if (harvest.programmerId) {
+      state.restV2ProfileHarvestByProgrammerId.set(harvest.programmerId, harvest);
+    }
+  } else if (harvest.programmerId) {
+    const existingBucket = getRestV2ProfileHarvestBucketForProgrammer(harvest.programmerId);
+    if (existingBucket.length > 0) {
+      state.restV2ProfileHarvestByProgrammerId.set(harvest.programmerId, existingBucket[0]);
+    }
   }
   state.restV2ProfileHarvestLast = harvest;
   return harvest;
+}
+
+function isUsableRestV2ProfileHarvest(harvest = null) {
+  if (!harvest || typeof harvest !== "object") {
+    return false;
+  }
+  if (String(harvest.profileCheckOutcome || "").trim().toLowerCase() !== "success") {
+    return false;
+  }
+  return Number(harvest.profileCount || 0) > 0;
+}
+
+function buildRestV2ProfileHarvestBucketKey(harvest = null) {
+  if (!harvest || typeof harvest !== "object") {
+    return "";
+  }
+  const parts = [
+    harvest.programmerId,
+    harvest.requestorId,
+    harvest.mvpd,
+    harvest.profileKey,
+    harvest.subject,
+    harvest.sessionId,
+    harvest.upstreamUserId,
+    harvest.userId,
+  ]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+  return parts.join("|");
+}
+
+function compareRestV2HarvestRecency(left, right) {
+  return Number(right?.harvestedAt || 0) - Number(left?.harvestedAt || 0);
+}
+
+function getLatestRestV2ProfileHarvestFromBuckets() {
+  let latest = null;
+  for (const bucket of state.restV2ProfileHarvestBucketByProgrammerId.values()) {
+    for (const harvest of Array.isArray(bucket) ? bucket : []) {
+      if (!harvest || typeof harvest !== "object") {
+        continue;
+      }
+      if (!latest || Number(harvest.harvestedAt || 0) > Number(latest.harvestedAt || 0)) {
+        latest = harvest;
+      }
+    }
+  }
+  return latest;
+}
+
+function getLatestRestV2ProfileHarvestFromSelectionMap() {
+  let latest = null;
+  for (const harvest of state.restV2ProfileHarvestBySelectionKey.values()) {
+    if (!harvest || typeof harvest !== "object") {
+      continue;
+    }
+    if (!latest || Number(harvest.harvestedAt || 0) > Number(latest.harvestedAt || 0)) {
+      latest = harvest;
+    }
+  }
+  return latest;
+}
+
+function recomputeRestV2ProfileHarvestLast() {
+  const latestFromBuckets = getLatestRestV2ProfileHarvestFromBuckets();
+  if (latestFromBuckets) {
+    state.restV2ProfileHarvestLast = latestFromBuckets;
+    return latestFromBuckets;
+  }
+  const latestFromSelections = getLatestRestV2ProfileHarvestFromSelectionMap();
+  state.restV2ProfileHarvestLast = latestFromSelections || null;
+  return state.restV2ProfileHarvestLast;
+}
+
+function removeRestV2ProfileHarvestByRecordKey(programmer = null, harvestKey = "") {
+  const programmerId =
+    programmer && typeof programmer === "object" ? String(programmer.programmerId || "").trim() : String(programmer || "").trim();
+  const normalizedHarvestKey = String(harvestKey || "").trim();
+  if (!programmerId || !normalizedHarvestKey) {
+    return false;
+  }
+
+  const bucket = getRestV2ProfileHarvestBucketForProgrammer(programmerId);
+  const filteredBucket = bucket.filter((item, index) => getRestV2HarvestRecordKey(item, index) !== normalizedHarvestKey);
+  const removed = filteredBucket.length !== bucket.length;
+  if (!removed) {
+    return false;
+  }
+
+  if (filteredBucket.length > 0) {
+    filteredBucket.sort(compareRestV2HarvestRecency);
+    state.restV2ProfileHarvestBucketByProgrammerId.set(programmerId, filteredBucket);
+    state.restV2ProfileHarvestByProgrammerId.set(programmerId, filteredBucket[0]);
+  } else {
+    state.restV2ProfileHarvestBucketByProgrammerId.delete(programmerId);
+    state.restV2ProfileHarvestByProgrammerId.delete(programmerId);
+  }
+
+  for (const [selectionKey, harvest] of state.restV2ProfileHarvestBySelectionKey.entries()) {
+    if (!harvest || typeof harvest !== "object") {
+      continue;
+    }
+    if (getRestV2HarvestRecordKey(harvest) === normalizedHarvestKey) {
+      state.restV2ProfileHarvestBySelectionKey.delete(selectionKey);
+    }
+  }
+
+  if (state.restV2PreauthorizeHistoryByProgrammerId.has(programmerId)) {
+    const history = getRestV2PreauthorizeHistoryForProgrammer(programmerId);
+    const filteredHistory = history.filter((entry) => String(entry?.harvestKey || "").trim() !== normalizedHarvestKey);
+    if (filteredHistory.length > 0) {
+      state.restV2PreauthorizeHistoryByProgrammerId.set(programmerId, filteredHistory);
+    } else {
+      state.restV2PreauthorizeHistoryByProgrammerId.delete(programmerId);
+    }
+  }
+
+  recomputeRestV2ProfileHarvestLast();
+  return true;
+}
+
+function upsertRestV2ProfileHarvestBucketEntry(harvest = null) {
+  if (!isUsableRestV2ProfileHarvest(harvest)) {
+    return;
+  }
+  const programmerId = String(harvest.programmerId || "").trim();
+  if (!programmerId) {
+    return;
+  }
+
+  const existingBucket = Array.isArray(state.restV2ProfileHarvestBucketByProgrammerId.get(programmerId))
+    ? state.restV2ProfileHarvestBucketByProgrammerId.get(programmerId)
+    : [];
+  const harvestKey = buildRestV2ProfileHarvestBucketKey(harvest);
+  const nextBucket = existingBucket.slice();
+  const existingIndex = harvestKey
+    ? nextBucket.findIndex((item) => buildRestV2ProfileHarvestBucketKey(item) === harvestKey)
+    : -1;
+  if (existingIndex >= 0) {
+    nextBucket[existingIndex] = harvest;
+  } else {
+    nextBucket.push(harvest);
+  }
+  nextBucket.sort(compareRestV2HarvestRecency);
+  state.restV2ProfileHarvestBucketByProgrammerId.set(programmerId, nextBucket.slice(0, REST_V2_PROFILE_HARVEST_BUCKET_MAX));
+}
+
+function getRestV2ProfileHarvestBucketForProgrammer(programmer = null) {
+  const programmerId =
+    programmer && typeof programmer === "object" ? String(programmer.programmerId || "").trim() : String(programmer || "").trim();
+  if (!programmerId) {
+    return [];
+  }
+  const bucket = state.restV2ProfileHarvestBucketByProgrammerId.get(programmerId);
+  if (!Array.isArray(bucket) || bucket.length === 0) {
+    return [];
+  }
+  return bucket
+    .filter((item) => item && typeof item === "object")
+    .slice()
+    .sort(compareRestV2HarvestRecency);
+}
+
+function getRestV2ProfileHarvestListForContext(context = null) {
+  if (context && typeof context === "object") {
+    const programmerId = String(context.programmerId || "").trim();
+    if (programmerId) {
+      const bucket = getRestV2ProfileHarvestBucketForProgrammer(programmerId);
+      if (bucket.length > 0) {
+        return bucket;
+      }
+      const selectionKey = buildRestV2ProfileHarvestSelectionKey(context);
+      const selectionHarvest =
+        selectionKey && state.restV2ProfileHarvestBySelectionKey.has(selectionKey)
+          ? state.restV2ProfileHarvestBySelectionKey.get(selectionKey) || null
+          : null;
+      return selectionHarvest && typeof selectionHarvest === "object" ? [selectionHarvest] : [];
+    }
+  }
+
+  const latest = getLatestRestV2ProfileHarvestFromBuckets();
+  if (latest) {
+    return [latest];
+  }
+
+  return state.restV2ProfileHarvestLast && typeof state.restV2ProfileHarvestLast === "object"
+    ? [state.restV2ProfileHarvestLast]
+    : [];
+}
+
+function mergeRestV2ProfileHarvestLists(...lists) {
+  const merged = [];
+  const keyToIndex = new Map();
+  lists.forEach((list) => {
+    (Array.isArray(list) ? list : []).forEach((item) => {
+      if (!item || typeof item !== "object") {
+        return;
+      }
+      const bucketKey =
+        buildRestV2ProfileHarvestBucketKey(item) ||
+        [String(item.programmerId || ""), String(item.flowId || ""), String(item.harvestedAt || "")].join("|");
+      const existingIndex = keyToIndex.has(bucketKey) ? Number(keyToIndex.get(bucketKey)) : -1;
+      if (existingIndex >= 0) {
+        const existing = merged[existingIndex];
+        if (Number(item.harvestedAt || 0) >= Number(existing?.harvestedAt || 0)) {
+          merged[existingIndex] = item;
+        }
+      } else {
+        keyToIndex.set(bucketKey, merged.length);
+        merged.push(item);
+      }
+    });
+  });
+  merged.sort(compareRestV2HarvestRecency);
+  return merged;
+}
+
+function collectRestV2HarvestCandidateValues(harvestList = []) {
+  const list = Array.isArray(harvestList) ? harvestList : [];
+  const idpCandidates = dedupeRestV2CandidateStrings(
+    list.flatMap((harvest) => [
+      String(harvest?.mvpd || "").trim(),
+      ...(Array.isArray(harvest?.idpCandidates) ? harvest.idpCandidates : []),
+      ...(Array.isArray(harvest?.allIdpCandidates) ? harvest.allIdpCandidates : []),
+    ])
+  );
+  const subjectCandidates = dedupeRestV2CandidateStrings(
+    list.flatMap((harvest) => [
+      String(harvest?.subject || "").trim(),
+      String(harvest?.upstreamUserId || "").trim(),
+      String(harvest?.userId || "").trim(),
+      ...(Array.isArray(harvest?.subjectCandidates) ? harvest.subjectCandidates : []),
+      ...(Array.isArray(harvest?.allSubjectCandidates) ? harvest.allSubjectCandidates : []),
+    ])
+  );
+  const sessionCandidates = dedupeRestV2CandidateStrings(
+    list.flatMap((harvest) => [
+      String(harvest?.sessionId || "").trim(),
+      ...(Array.isArray(harvest?.sessionCandidates) ? harvest.sessionCandidates : []),
+      ...(Array.isArray(harvest?.allSessionCandidates) ? harvest.allSessionCandidates : []),
+    ])
+  );
+  return {
+    idpCandidates,
+    subjectCandidates,
+    sessionCandidates,
+  };
 }
 
 function clearRestV2ProfileHarvestForContext(context = null) {
@@ -2210,38 +3831,108 @@ function clearRestV2ProfileHarvestForContext(context = null) {
     state.restV2ProfileHarvestBySelectionKey.delete(selectionKey);
   }
   const programmerId = String(context.programmerId || "").trim();
-  const existingProgrammerHarvest = programmerId ? state.restV2ProfileHarvestByProgrammerId.get(programmerId) || null : null;
-  if (existingProgrammerHarvest) {
-    const matchesRequestor = String(existingProgrammerHarvest.requestorId || "").trim() === String(context.requestorId || "").trim();
-    const matchesMvpd = String(existingProgrammerHarvest.mvpd || "").trim() === String(context.mvpd || "").trim();
-    if (matchesRequestor && matchesMvpd) {
-      state.restV2ProfileHarvestByProgrammerId.delete(programmerId);
-      if (
-        state.restV2ProfileHarvestLast &&
-        String(state.restV2ProfileHarvestLast.programmerId || "").trim() === programmerId &&
-        String(state.restV2ProfileHarvestLast.requestorId || "").trim() === String(context.requestorId || "").trim() &&
-        String(state.restV2ProfileHarvestLast.mvpd || "").trim() === String(context.mvpd || "").trim()
-      ) {
-        state.restV2ProfileHarvestLast = null;
-      }
-    }
+  if (!programmerId) {
+    return;
   }
+
+  const normalizedRequestorId = String(context.requestorId || "").trim().toLowerCase();
+  const normalizedMvpd = String(context.mvpd || "").trim().toLowerCase();
+  const existingBucket = getRestV2ProfileHarvestBucketForProgrammer(programmerId);
+  if (existingBucket.length > 0) {
+    const filteredBucket = existingBucket.filter((harvest) => {
+      const harvestRequestorId = String(harvest?.requestorId || "").trim().toLowerCase();
+      const harvestMvpd = String(harvest?.mvpd || "").trim().toLowerCase();
+      const matchesRequestor = normalizedRequestorId ? harvestRequestorId === normalizedRequestorId : true;
+      const matchesMvpd = normalizedMvpd ? harvestMvpd === normalizedMvpd : true;
+      return !(matchesRequestor && matchesMvpd);
+    });
+
+    if (filteredBucket.length > 0) {
+      state.restV2ProfileHarvestBucketByProgrammerId.set(programmerId, filteredBucket);
+      state.restV2ProfileHarvestByProgrammerId.set(programmerId, filteredBucket[0]);
+    } else {
+      state.restV2ProfileHarvestBucketByProgrammerId.delete(programmerId);
+      state.restV2ProfileHarvestByProgrammerId.delete(programmerId);
+    }
+  } else {
+    state.restV2ProfileHarvestByProgrammerId.delete(programmerId);
+  }
+
+  recomputeRestV2ProfileHarvestLast();
 }
 
 function getRestV2ProfileHarvestForContext(context = null) {
   if (context && typeof context === "object") {
     const selectionKey = buildRestV2ProfileHarvestSelectionKey(context);
+    const selectionHarvest =
+      selectionKey && state.restV2ProfileHarvestBySelectionKey.has(selectionKey)
+        ? state.restV2ProfileHarvestBySelectionKey.get(selectionKey) || null
+        : null;
+    if (isUsableRestV2ProfileHarvest(selectionHarvest)) {
+      return selectionHarvest;
+    }
+
+    const programmerId = String(context.programmerId || "").trim();
+    if (programmerId) {
+      const bucket = getRestV2ProfileHarvestBucketForProgrammer(programmerId);
+      if (bucket.length > 0) {
+        const normalizedRequestorId = String(context.requestorId || "").trim().toLowerCase();
+        const normalizedMvpd = String(context.mvpd || "").trim().toLowerCase();
+        const strictMatch = bucket.find((harvest) => {
+          const harvestRequestorId = String(harvest?.requestorId || "").trim().toLowerCase();
+          const harvestMvpd = String(harvest?.mvpd || "").trim().toLowerCase();
+          const requestorMatch = normalizedRequestorId ? harvestRequestorId === normalizedRequestorId : true;
+          const mvpdMatch = normalizedMvpd ? harvestMvpd === normalizedMvpd : true;
+          return requestorMatch && mvpdMatch;
+        });
+        if (strictMatch) {
+          return strictMatch;
+        }
+
+        if (normalizedMvpd) {
+          const mvpdMatch = bucket.find(
+            (harvest) => String(harvest?.mvpd || "").trim().toLowerCase() === normalizedMvpd
+          );
+          if (mvpdMatch) {
+            return mvpdMatch;
+          }
+        }
+
+        if (normalizedRequestorId) {
+          const requestorMatch = bucket.find(
+            (harvest) => String(harvest?.requestorId || "").trim().toLowerCase() === normalizedRequestorId
+          );
+          if (requestorMatch) {
+            return requestorMatch;
+          }
+        }
+
+        return bucket[0];
+      }
+    }
+
+    if (selectionHarvest && typeof selectionHarvest === "object") {
+      return selectionHarvest;
+    }
+
     if (selectionKey && state.restV2ProfileHarvestBySelectionKey.has(selectionKey)) {
       return state.restV2ProfileHarvestBySelectionKey.get(selectionKey) || null;
     }
-    const programmerId = String(context.programmerId || "").trim();
     if (programmerId && state.restV2ProfileHarvestByProgrammerId.has(programmerId)) {
       return state.restV2ProfileHarvestByProgrammerId.get(programmerId) || null;
     }
   }
-  return state.restV2ProfileHarvestLast && typeof state.restV2ProfileHarvestLast === "object"
-    ? state.restV2ProfileHarvestLast
-    : null;
+
+  if (isUsableRestV2ProfileHarvest(state.restV2ProfileHarvestLast)) {
+    return state.restV2ProfileHarvestLast;
+  }
+
+  const latestFromBuckets = getLatestRestV2ProfileHarvestFromBuckets();
+  if (latestFromBuckets) {
+    return latestFromBuckets;
+  }
+
+  return state.restV2ProfileHarvestLast && typeof state.restV2ProfileHarvestLast === "object" ? state.restV2ProfileHarvestLast : null;
 }
 
 async function fetchRestV2ProfileCheckResult(context, flowId, scope = "profiles-check") {
@@ -2302,28 +3993,40 @@ async function fetchRestV2ProfileCheckResult(context, flowId, scope = "profiles-
     const parsed = parseJsonText(responseText, {});
     const profiles = parsed?.profiles && typeof parsed.profiles === "object" ? parsed.profiles : {};
     const profileCount = Object.keys(profiles).length;
+    const status = Number(response.status || 0);
+    const statusText = String(response.statusText || "");
+    const responsePreview = truncateDebugText(responseText, 1200);
     const harvestedProfile = buildRestV2ProfileHarvest(context, {
       checked: true,
+      ok: Boolean(response.ok),
+      status,
+      statusText,
+      profileCount,
+      responsePreview,
       responsePayload: parsed,
       url: profilesUrl,
+      error: "",
     }, flowId);
 
     emitRestV2DebugEvent(flowId, {
       source: "extension",
       phase: "profiles-check-response",
-      status: Number(response.status || 0),
-      statusText: String(response.statusText || ""),
+      status,
+      statusText,
       profileCount,
-      responsePreview: truncateDebugText(responseText, 1200),
+      responsePreview,
+      profileKeys: Object.keys(profiles || {}),
+      payload: cloneJsonLikeValue(parsed, {}),
+      profileHarvest: harvestedProfile ? cloneJsonLikeValue(harvestedProfile, {}) : null,
     });
 
     return {
       checked: true,
       ok: Boolean(response.ok),
-      status: Number(response.status || 0),
-      statusText: String(response.statusText || ""),
+      status,
+      statusText,
       profileCount,
-      responsePreview: truncateDebugText(responseText, 1200),
+      responsePreview,
       url: profilesUrl,
       error: "",
       responsePayload: parsed,
@@ -2331,16 +4034,30 @@ async function fetchRestV2ProfileCheckResult(context, flowId, scope = "profiles-
     };
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
+    const errorResult = {
+      ...emptyResult,
+      checked: true,
+      ok: false,
+      url: profilesUrl,
+      error: reason,
+    };
+    const harvestedProfile = buildRestV2ProfileHarvest(
+      context,
+      {
+        ...errorResult,
+      },
+      flowId
+    );
     emitRestV2DebugEvent(flowId, {
       source: "extension",
       phase: "profiles-check-error",
-      error: reason,
-    });
-    return {
-      ...emptyResult,
-      checked: true,
       url: profilesUrl,
       error: reason,
+      profileHarvest: harvestedProfile ? cloneJsonLikeValue(harvestedProfile, {}) : null,
+    });
+    return {
+      ...errorResult,
+      harvestedProfile,
     };
   }
 }
@@ -3323,10 +5040,11 @@ function sanitizeDownloadFileSegment(value, fallback = "download") {
   return normalized || fallback;
 }
 
-function buildRestV2HarFilename(context = null, logoutResult = null) {
+function buildRestV2HarFilename(context = null, logoutResult = null, profileCheckResult = null) {
   const requestor = sanitizeHarFileSegment(context?.requestorId || "requestor", "requestor");
   const mvpd = sanitizeHarFileSegment(context?.mvpd || "mvpd", "mvpd");
-  const mode = logoutResult?.performed ? "full-login-logout" : "failed-login-attempt";
+  const hasProfile = Boolean(profileCheckResult?.ok) && Number(profileCheckResult?.profileCount || 0) > 0;
+  const mode = logoutResult?.performed ? "full-login-logout" : hasProfile ? "login-profile-retained" : "failed-login-attempt";
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   return `underpar-restv2-${requestor}-${mvpd}-${mode}-${stamp}.har`;
 }
@@ -3391,6 +5109,8 @@ async function stopRestV2MvpdRecording(section, programmer, appInfo) {
       responsePreview: "",
       url: "",
       error: "",
+      responsePayload: null,
+      harvestedProfile: null,
     };
     let logoutResult = {
       attempted: false,
@@ -3419,6 +5139,13 @@ async function stopRestV2MvpdRecording(section, programmer, appInfo) {
             mvpd: recordingContext.mvpd,
             subject: harvestedProfile.subject,
             sessionId: harvestedProfile.sessionId,
+            profileCheckOutcome: harvestedProfile.profileCheckOutcome,
+            profileCount: Number(harvestedProfile.profileCount || 0),
+            profileHarvest: cloneJsonLikeValue(harvestedProfile, {}),
+            profileCheck:
+              harvestedProfile.profileCheck && typeof harvestedProfile.profileCheck === "object"
+                ? { ...harvestedProfile.profileCheck }
+                : null,
           });
         } else {
           clearRestV2ProfileHarvestForContext(recordingContext);
@@ -3436,7 +5163,21 @@ async function stopRestV2MvpdRecording(section, programmer, appInfo) {
 
         const hasProfile = Boolean(profileCheckResult.ok) && Number(profileCheckResult.profileCount || 0) > 0;
         if (hasProfile) {
-          logoutResult = await executeRestV2LogoutFlow(recordingContext, activeFlowId);
+          logoutResult = {
+            attempted: false,
+            performed: false,
+            actionName: "profile-preserved",
+            actionType: "",
+            logoutUrl: "",
+            error: "",
+          };
+          emitRestV2DebugEvent(activeFlowId, {
+            source: "extension",
+            phase: "logout-skipped-preserve-profile-for-entitlements",
+            requestorId: recordingContext.requestorId,
+            mvpd: recordingContext.mvpd,
+            profileCount: Number(profileCheckResult.profileCount || 0),
+          });
         } else {
           emitRestV2DebugEvent(activeFlowId, {
             source: "extension",
@@ -3468,16 +5209,19 @@ async function stopRestV2MvpdRecording(section, programmer, appInfo) {
 
     if (stopResult?.flow) {
       const harPayload = buildHarLogFromFlowSnapshot(stopResult.flow, recordingContext, logoutResult);
-      const harFileName = buildRestV2HarFilename(recordingContext, logoutResult);
+      const harFileName = buildRestV2HarFilename(recordingContext, logoutResult, profileCheckResult);
       downloadHarFile(harPayload, harFileName);
 
       let panelMessage = "";
       let panelType = "success";
+      const hasProfile = Boolean(profileCheckResult.ok) && Number(profileCheckResult.profileCount || 0) > 0;
       if (closeResult?.ok === false) {
         panelMessage = `Recording stopped. HAR downloaded as ${harFileName}. Login window close note: ${closeResult.error || "unknown"}.`;
         panelType = "error";
       } else if (logoutResult.performed) {
         panelMessage = `Recording stopped. Downloaded full login/logout HAR: ${harFileName}`;
+      } else if (hasProfile) {
+        panelMessage = `Recording stopped. Downloaded login HAR with active MVPD profile retained for Can I watch?: ${harFileName}`;
       } else {
         const logoutNote = logoutResult.error ? ` Logout note: ${logoutResult.error}` : "";
         panelMessage = `Recording stopped. Downloaded failed login attempt HAR: ${harFileName}.${logoutNote}`;
@@ -4785,6 +6529,13 @@ function decompGetBoundWorkspaceTabId(windowId) {
 function decompGetControllerStatePayload(decompState) {
   const requestorIds = clickEsmGetSelectedValues(decompState?.requestorSelect);
   const mvpdIds = decompState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(decompState?.mvpdSelect);
+  const profileHarvestContext = {
+    programmerId: String(decompState?.programmer?.programmerId || ""),
+    requestorId: String(requestorIds[0] || ""),
+    mvpd: String(mvpdIds[0] || ""),
+  };
+  const profileHarvest = getRestV2ProfileHarvestForContext(profileHarvestContext);
+  const profileHarvestList = getRestV2ProfileHarvestBucketForProgrammer(profileHarvestContext.programmerId);
   return {
     controllerOnline: Boolean(decompState?.section?.isConnected),
     esmAvailable: true,
@@ -4792,6 +6543,18 @@ function decompGetControllerStatePayload(decompState) {
     programmerName: String(decompState?.programmer?.programmerName || ""),
     requestorIds,
     mvpdIds,
+    profileHarvest:
+      profileHarvest && typeof profileHarvest === "object"
+        ? {
+            ...profileHarvest,
+          }
+        : null,
+    profileHarvestList:
+      profileHarvestList.length > 0
+        ? profileHarvestList.map((item) => ({
+            ...item,
+          }))
+        : [],
     updatedAt: Date.now(),
   };
 }
@@ -4810,6 +6573,13 @@ function decompGetSelectedControllerStatePayload(programmer = null, services = n
   if (resolvedServices && typeof resolvedServices === "object") {
     esmAvailable = Boolean(resolvedServices.esm);
   }
+  const profileHarvestContext = {
+    programmerId: String(resolvedProgrammer?.programmerId || ""),
+    requestorId: String(requestorIds[0] || ""),
+    mvpd: String(mvpdIds[0] || ""),
+  };
+  const profileHarvest = getRestV2ProfileHarvestForContext(profileHarvestContext);
+  const profileHarvestList = getRestV2ProfileHarvestBucketForProgrammer(profileHarvestContext.programmerId);
 
   return {
     controllerOnline: false,
@@ -4818,6 +6588,18 @@ function decompGetSelectedControllerStatePayload(programmer = null, services = n
     programmerName: String(resolvedProgrammer?.programmerName || ""),
     requestorIds,
     mvpdIds,
+    profileHarvest:
+      profileHarvest && typeof profileHarvest === "object"
+        ? {
+            ...profileHarvest,
+          }
+        : null,
+    profileHarvestList:
+      profileHarvestList.length > 0
+        ? profileHarvestList.map((item) => ({
+            ...item,
+          }))
+        : [],
     updatedAt: Date.now(),
   };
 }
@@ -5310,6 +7092,28 @@ function decompBuildEndpointUrl(decompState, endpoint) {
   return parsed.toString();
 }
 
+function decompNormalizeRunRequestUrlOverride(endpointUrl, requestUrlOverride) {
+  const endpointRaw = String(endpointUrl || "").trim();
+  const overrideRaw = String(requestUrlOverride || "").trim();
+  if (!endpointRaw || !overrideRaw) {
+    return "";
+  }
+
+  try {
+    const endpointParsed = new URL(endpointRaw);
+    const overrideParsed = new URL(overrideRaw);
+    const endpointPath = String(endpointParsed.pathname || "").replace(/\/+$/g, "");
+    const overridePath = String(overrideParsed.pathname || "").replace(/\/+$/g, "");
+    if (endpointParsed.origin !== overrideParsed.origin || endpointPath !== overridePath) {
+      return "";
+    }
+    overrideParsed.hash = "";
+    return overrideParsed.toString();
+  } catch (_error) {
+    return "";
+  }
+}
+
 function decompBuildRequestMetadata(decompState) {
   const requestorIds = clickEsmGetSelectedValues(decompState?.requestorSelect);
   const mvpds = decompState?.mvpdSelect?.disabled ? [] : clickEsmGetSelectedValues(decompState?.mvpdSelect);
@@ -5484,7 +7288,11 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
     return;
   }
   const normalizedCardId = String(cardId || generateRequestId());
-  const requestUrl = clickEsmEnsureLimit(decompBuildEndpointUrl(decompState, endpoint), DECOMP_INLINE_RESULT_LIMIT);
+  const requestUrlOverride = decompNormalizeRunRequestUrlOverride(endpoint.url, options.requestUrlOverride);
+  const requestUrl = clickEsmEnsureLimit(
+    requestUrlOverride || decompBuildEndpointUrl(decompState, endpoint),
+    DECOMP_INLINE_RESULT_LIMIT
+  );
   const activeFlowId = getActiveDecompDebugFlowId();
   const reportMeta = {
     cardId: normalizedCardId,
@@ -5638,7 +7446,6 @@ function decompBuildShellHtml() {
       <div class="decomp-toolbar">
         <select class="decomp-zoom-filter" title="Zoom Level">${zoomOptions}</select>
         <input type="text" class="decomp-search" placeholder="Search segments / columns..." />
-        <button type="button" class="decomp-find-btn">FIND IT</button>
         <button type="button" class="decomp-reset-btn">RESET</button>
         <button
           type="button"
@@ -5661,8 +7468,7 @@ function decompBuildShellHtml() {
         <div class="decomp-tree-head">
           <div class="decomp-tree-title">decomp Tree</div>
           <div class="decomp-tree-actions">
-            <button type="button" class="decomp-tree-toggle-btn" aria-expanded="false" title="Expand all nodes">Expand</button>
-            <span class="decomp-tree-stats"></span>
+            <button type="button" class="decomp-tree-toggle-btn" aria-expanded="false" title="Expand all nodes">[ + ]</button>
           </div>
         </div>
         <div class="decomp-tree-scroll">
@@ -5674,7 +7480,6 @@ function decompBuildShellHtml() {
           <div class="decomp-treemap-title">decomp Treemap</div>
           <div class="decomp-tree-actions">
             <button type="button" class="decomp-treemap-toggle-btn" aria-expanded="true" title="Hide treemap">Hide</button>
-            <span class="decomp-treemap-stats"></span>
           </div>
         </div>
         <div class="decomp-treemap-scroll">
@@ -5921,7 +7726,7 @@ function decompSyncTreeToggleButton(decompState) {
 
   const root = decompState?.treeRootElement;
   if (!root) {
-    button.textContent = "Expand";
+    button.textContent = "[ + ]";
     button.title = "Expand all nodes";
     button.setAttribute("aria-label", "Expand all nodes");
     button.setAttribute("aria-expanded", "false");
@@ -5932,7 +7737,7 @@ function decompSyncTreeToggleButton(decompState) {
 
   const hasExpandableNodes = root.querySelector("li > ul") != null;
   if (!hasExpandableNodes) {
-    button.textContent = "Expand";
+    button.textContent = "[ + ]";
     button.title = "No expandable nodes";
     button.setAttribute("aria-label", "No expandable nodes");
     button.setAttribute("aria-expanded", "false");
@@ -5943,7 +7748,7 @@ function decompSyncTreeToggleButton(decompState) {
 
   const expanded = decompIsTreeFullyExpanded(decompState);
   const nextState = expanded ? "collapse" : "expand";
-  const label = expanded ? "Collapse" : "Expand";
+  const label = expanded ? "[ - ]" : "[ + ]";
   const title = expanded ? "Collapse all nodes" : "Expand all nodes";
 
   button.textContent = label;
@@ -6225,11 +8030,6 @@ function decompRenderTreemap(decompState, endpointIndexes, options = {}) {
     });
   }
 
-  if (decompState.treemapStatsElement) {
-    const zoomFilter = String(options.zoomFilter || "").trim().toUpperCase();
-    const zoomLabel = zoomFilter ? ` • ${zoomFilter}` : "";
-    decompState.treemapStatsElement.textContent = `${endpointList.length} endpoints • ${nodeEntries.length} nodes${zoomLabel}`;
-  }
 }
 
 function decompSetTreemapCollapsed(decompState, shouldCollapse) {
@@ -6342,11 +8142,6 @@ function decompApplyTreeFilters(decompState, options = {}) {
     });
   }
 
-  if (decompState.treeStatsElement) {
-    const zoomLabel = zoomFilter ? ` • ${zoomFilter}` : "";
-    decompState.treeStatsElement.textContent = `${visibleEndpoints} endpoints${zoomLabel}`;
-  }
-
   decompRenderTreemap(decompState, visibleEndpointIndexes, {
     zoomFilter,
     onlyRunnable: filteredMode,
@@ -6389,6 +8184,17 @@ function wireDecompInteractions(decompState, requestToken) {
     return;
   }
 
+  const applyDecompSearchFilters = ({ highlight = false, normalizeInput = false } = {}) => {
+    const normalizedTerm = clickEsmNormalizeSearchTerm(decompState.searchInput?.value || "");
+    if (decompState.searchInput && normalizeInput) {
+      decompState.searchInput.value = normalizedTerm;
+    }
+    decompApplyTreeFilters(decompState, {
+      term: normalizedTerm,
+      highlight: Boolean(highlight && normalizedTerm),
+    });
+  };
+
   decompState.startRecordingButton?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -6401,13 +8207,6 @@ function wireDecompInteractions(decompState, requestToken) {
     void stopDecompEsmRecording(decompState);
   });
 
-  decompState.findButton?.addEventListener("click", () => {
-    if (decompState.searchInput) {
-      decompState.searchInput.value = clickEsmNormalizeSearchTerm(decompState.searchInput.value);
-    }
-    decompApplyTreeFilters(decompState, { highlight: true });
-  });
-
   decompState.resetButton?.addEventListener("click", () => {
     if (decompState.searchInput) {
       decompState.searchInput.value = "";
@@ -6415,7 +8214,7 @@ function wireDecompInteractions(decompState, requestToken) {
     if (decompState.zoomFilterSelect) {
       decompState.zoomFilterSelect.value = "";
     }
-    decompApplyTreeFilters(decompState, { highlight: false });
+    applyDecompSearchFilters({ highlight: false, normalizeInput: true });
   });
 
   decompState.makeClickEsmButton?.addEventListener("click", (event) => {
@@ -6425,21 +8224,24 @@ function wireDecompInteractions(decompState, requestToken) {
   });
 
   decompState.zoomFilterSelect?.addEventListener("change", () => {
-    const term = clickEsmNormalizeSearchTerm(decompState.searchInput?.value || "");
-    decompApplyTreeFilters(decompState, { highlight: Boolean(term) });
+    applyDecompSearchFilters({ highlight: true });
   });
 
   decompState.searchInput?.addEventListener("input", () => {
-    const term = clickEsmNormalizeSearchTerm(decompState.searchInput?.value || "");
-    decompApplyTreeFilters(decompState, { highlight: Boolean(term) });
+    applyDecompSearchFilters({ highlight: true });
+  });
+
+  decompState.searchInput?.addEventListener("change", () => {
+    applyDecompSearchFilters({ highlight: true });
   });
 
   decompState.searchInput?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      decompState.searchInput.value = clickEsmNormalizeSearchTerm(decompState.searchInput.value);
-      decompApplyTreeFilters(decompState, { highlight: true });
+    if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) {
+      return;
     }
+    event.preventDefault();
+    event.stopPropagation();
+    applyDecompSearchFilters({ highlight: true, normalizeInput: true });
   });
 
   decompState.treeToggleButton?.addEventListener("click", () => {
@@ -6575,12 +8377,17 @@ async function handleDecompWorkspaceAction(message, sender = null) {
 
   if (action === "run-card") {
     const card = message?.card && typeof message.card === "object" ? message.card : {};
+    const requestSourceRaw = String(message?.requestSource || "").trim().toLowerCase();
+    const requestSource = requestSourceRaw || "workspace";
+    const allowRequestOverride = requestSource === "workspace-path-link" || requestSource === "workspace-path-node";
+    const requestUrlOverride = allowRequestOverride ? String(card?.requestUrl || "") : "";
     emitDecompDebugEvent(activeFlowId, {
       phase: "workspace-action",
       action: "run-card",
       source: "workspace",
       cardId: String(card?.cardId || ""),
       endpointUrl: String(card?.endpointUrl || ""),
+      requestSource,
     });
     const endpoint = decompFindEndpointByUrl(decompState, card.endpointUrl, card);
     if (!endpoint) {
@@ -6588,7 +8395,8 @@ async function handleDecompWorkspaceAction(message, sender = null) {
     }
     await decompRunEndpointToWorkspace(decompState, endpoint, String(card.cardId || generateRequestId()), requestToken, {
       emitStart: true,
-      requestSource: "workspace",
+      requestSource,
+      requestUrlOverride,
     });
     return { ok: true };
   }
@@ -6785,14 +8593,11 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
       requestToken,
       zoomFilterSelect: contentElement.querySelector(".decomp-zoom-filter"),
       searchInput: contentElement.querySelector(".decomp-search"),
-      findButton: contentElement.querySelector(".decomp-find-btn"),
       resetButton: contentElement.querySelector(".decomp-reset-btn"),
       makeClickEsmButton: contentElement.querySelector(".decomp-make-clickesm-btn"),
       treeToggleButton: contentElement.querySelector(".decomp-tree-toggle-btn"),
-      treeStatsElement: contentElement.querySelector(".decomp-tree-stats"),
       treeRootElement: contentElement.querySelector(".decomp-tree-root"),
       treemapToggleButton: contentElement.querySelector(".decomp-treemap-toggle-btn"),
-      treemapStatsElement: contentElement.querySelector(".decomp-treemap-stats"),
       treemapRootElement: contentElement.querySelector(".decomp-treemap-root"),
       treemapScrollElement: contentElement.querySelector(".decomp-treemap-scroll"),
       requestorSelect: contentElement.querySelector(".decomp-requestor-select"),
@@ -6903,6 +8708,7 @@ function cmGetControllerStatePayload(cmState) {
   const requestorIds = state.selectedRequestorId ? [String(state.selectedRequestorId)] : [];
   const mvpdIds = state.selectedMvpdId ? [String(state.selectedMvpdId)] : [];
   const profileHarvest = getCmProfileHarvestForProgrammer(cmState?.programmer || null);
+  const profileHarvestList = getCmProfileHarvestListForProgrammer(cmState?.programmer || null);
   return {
     controllerOnline: Boolean(cmState?.section?.isConnected),
     cmAvailable: true,
@@ -6916,6 +8722,12 @@ function cmGetControllerStatePayload(cmState) {
             ...profileHarvest,
           }
         : null,
+    profileHarvestList:
+      profileHarvestList.length > 0
+        ? profileHarvestList.map((item) => ({
+            ...item,
+          }))
+        : [],
     updatedAt: Date.now(),
   };
 }
@@ -6929,12 +8741,13 @@ function cmGetSelectedControllerStatePayload(programmer = null, services = null)
   }
 
   let cmAvailable = null;
-  if (resolvedServices && typeof resolvedServices === "object") {
-    cmAvailable = Boolean(Array.isArray(resolvedServices?.cm?.matchedTenants) && resolvedServices.cm.matchedTenants.length > 0);
+  if (resolvedServices && typeof resolvedServices === "object" && Object.prototype.hasOwnProperty.call(resolvedServices, "cm")) {
+    cmAvailable = shouldShowCmService(resolvedServices.cm);
   }
   const requestorIds = state.selectedRequestorId ? [String(state.selectedRequestorId)] : [];
   const mvpdIds = state.selectedMvpdId ? [String(state.selectedMvpdId)] : [];
   const profileHarvest = getCmProfileHarvestForProgrammer(resolvedProgrammer);
+  const profileHarvestList = getCmProfileHarvestListForProgrammer(resolvedProgrammer);
   return {
     controllerOnline: false,
     cmAvailable,
@@ -6948,6 +8761,12 @@ function cmGetSelectedControllerStatePayload(programmer = null, services = null)
             ...profileHarvest,
           }
         : null,
+    profileHarvestList:
+      profileHarvestList.length > 0
+        ? profileHarvestList.map((item) => ({
+            ...item,
+          }))
+        : [],
     updatedAt: Date.now(),
   };
 }
@@ -7045,7 +8864,7 @@ function cmBuildRecordId(kind, tenantId, entityId, index = 0) {
 }
 
 function getCmProfileHarvestForProgrammer(programmer = null) {
-  const programmerId = String(programmer?.programmerId || "").trim();
+  const programmerId = String(programmer?.programmerId || programmer || "").trim();
   if (!programmerId) {
     return null;
   }
@@ -7054,7 +8873,15 @@ function getCmProfileHarvestForProgrammer(programmer = null) {
     requestorId: String(state.selectedRequestorId || "").trim(),
     mvpd: String(state.selectedMvpdId || "").trim(),
   };
-  return getRestV2ProfileHarvestForContext(context);
+  return getRestV2ProfileHarvestForContext(context) || getRestV2ProfileHarvestBucketForProgrammer(programmerId)[0] || null;
+}
+
+function getCmProfileHarvestListForProgrammer(programmer = null) {
+  const programmerId = String(programmer?.programmerId || programmer || "").trim();
+  if (!programmerId) {
+    return [];
+  }
+  return getRestV2ProfileHarvestBucketForProgrammer(programmerId);
 }
 
 function normalizeCmCredentialValue(value) {
@@ -7224,21 +9051,42 @@ function cmBuildCredentialHintRecords(hints = [], programmer = null) {
 }
 
 function cmCollectCmV2ContextDefaults(programmer = null, credentialHints = []) {
-  const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
+  const profileHarvestList = getCmProfileHarvestListForProgrammer(programmer);
+  const profileHarvest = getCmProfileHarvestForProgrammer(programmer) || profileHarvestList[0] || null;
+  const aggregatedCandidates = collectRestV2HarvestCandidateValues(profileHarvestList);
   const hints = Array.isArray(credentialHints) ? credentialHints : [];
   const primaryCredentialHint =
     hints.find((hint) => String(hint?.password || "").trim()) || hints.find((hint) => String(hint?.username || "").trim()) || null;
+  const harvestIdpCandidates = dedupeRestV2CandidateStrings([
+    ...(Array.isArray(profileHarvest?.idpCandidates) ? profileHarvest.idpCandidates : []),
+    ...aggregatedCandidates.idpCandidates,
+  ]);
+  const harvestSubjectCandidates = dedupeRestV2CandidateStrings([
+    ...(Array.isArray(profileHarvest?.subjectCandidates) ? profileHarvest.subjectCandidates : []),
+    ...aggregatedCandidates.subjectCandidates,
+  ]);
+  const harvestSessionCandidates = dedupeRestV2CandidateStrings([
+    ...(Array.isArray(profileHarvest?.sessionCandidates) ? profileHarvest.sessionCandidates : []),
+    ...aggregatedCandidates.sessionCandidates,
+  ]);
   const contextDefaults = {
     baseUrl: CM_V2_API_BASE_DEFAULT,
-    idp: String(profileHarvest?.mvpd || state.selectedMvpdId || "").trim(),
-    subject: String(profileHarvest?.subject || state.selectedRequestorId || "").trim(),
-    session: String(profileHarvest?.sessionId || "").trim(),
+    idp: firstNonEmptyString([profileHarvest?.mvpd, ...harvestIdpCandidates, state.selectedMvpdId]),
+    subject: firstNonEmptyString([
+      profileHarvest?.subject,
+      profileHarvest?.upstreamUserId,
+      profileHarvest?.userId,
+      ...harvestSubjectCandidates,
+      state.selectedRequestorId,
+    ]),
+    session: firstNonEmptyString([profileHarvest?.sessionId, ...harvestSessionCandidates]),
     xTerminate: "",
     authUser: String(primaryCredentialHint?.username || "").trim(),
     authPass: String(primaryCredentialHint?.password || "").trim(),
     mediaCompany: String(programmer?.programmerName || programmer?.mediaCompanyName || "").trim(),
     programmerId: String(programmer?.programmerId || "").trim(),
     profileHarvest: profileHarvest && typeof profileHarvest === "object" ? { ...profileHarvest } : null,
+    profileHarvestList: profileHarvestList.map((harvest) => ({ ...harvest })),
   };
   return contextDefaults;
 }
@@ -7270,6 +9118,9 @@ function cmBuildCmV2OperationRecords(programmer = null, credentialHints = []) {
           contextDefaults.profileHarvest && typeof contextDefaults.profileHarvest === "object"
             ? { ...contextDefaults.profileHarvest }
             : null,
+        profileHarvestList: Array.isArray(contextDefaults.profileHarvestList)
+          ? contextDefaults.profileHarvestList.map((harvest) => ({ ...harvest }))
+          : [],
       },
       columns: [],
       tenantId: contextDefaults.programmerId || "cmv2",
@@ -7279,39 +9130,133 @@ function cmBuildCmV2OperationRecords(programmer = null, credentialHints = []) {
 }
 
 function cmBuildRestV2CorrelationRecords(programmer = null) {
-  const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
-  if (!profileHarvest || typeof profileHarvest !== "object") {
+  const profileHarvestList = getCmProfileHarvestListForProgrammer(programmer);
+  if (profileHarvestList.length === 0) {
     return [];
   }
 
-  const capturedAtLabel = profileHarvest.harvestedAt
-    ? new Date(Number(profileHarvest.harvestedAt || 0)).toLocaleString()
-    : "Unknown";
-  const payload = {
-    mediaCompany: String(programmer?.programmerName || programmer?.mediaCompanyName || programmer?.programmerId || "").trim(),
-    requestorId: String(profileHarvest.requestorId || "").trim(),
-    serviceProviderId: String(profileHarvest.serviceProviderId || "").trim(),
-    mvpd: String(profileHarvest.mvpd || "").trim(),
-    subject: String(profileHarvest.subject || "").trim(),
-    upstreamUserId: String(profileHarvest.upstreamUserId || "").trim(),
-    userId: String(profileHarvest.userId || "").trim(),
-    sessionId: String(profileHarvest.sessionId || "").trim(),
-    profileKey: String(profileHarvest.profileKey || "").trim(),
-    profileUrl: String(profileHarvest.profileUrl || "").trim(),
-    harvestedAt: capturedAtLabel,
+  const toJsonString = (value) => {
+    if (value == null || value === "") {
+      return "";
+    }
+    if (typeof value === "string") {
+      return value;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
   };
 
-  return [
-    {
+  return profileHarvestList.map((profileHarvest, recordIndex) => {
+    const capturedAtLabel = profileHarvest.harvestedAt
+      ? new Date(Number(profileHarvest.harvestedAt || 0)).toLocaleString()
+      : "Unknown";
+    const profileCheck =
+      profileHarvest.profileCheck && typeof profileHarvest.profileCheck === "object" ? profileHarvest.profileCheck : null;
+    const profileCheckStatus = profileCheck
+      ? profileCheck.error
+        ? `ERROR (${profileCheck.error})`
+        : profileCheck.ok
+          ? Number(profileCheck.profileCount || 0) > 0
+            ? "SUCCESS (profiles returned)"
+            : "FAIL AUTHNF (empty profiles)"
+          : `ERROR (HTTP ${Number(profileCheck.status || 0)} ${String(profileCheck.statusText || "").trim()})`
+      : "Unknown";
+    const profileSummaries = Array.isArray(profileHarvest.profileSummaries) ? profileHarvest.profileSummaries : [];
+    const summaryRows =
+      profileSummaries.length > 0
+        ? profileSummaries.map((summary, index) => ({
+            Row: index + 1,
+            RequestorId: String(profileHarvest.requestorId || "").trim(),
+            ServiceProviderId: String(profileHarvest.serviceProviderId || "").trim(),
+            ProfileCheckOutcome: String(profileHarvest.profileCheckOutcome || "").trim(),
+            ProfileCheckStatus: profileCheckStatus,
+            ProfileCheckHttpStatus: profileCheck ? Number(profileCheck.status || 0) : 0,
+            ProfileCheckHttpText: profileCheck ? String(profileCheck.statusText || "").trim() : "",
+            ProfileCheckError: profileCheck ? String(profileCheck.error || "").trim() : "",
+            ProfileCheckResponsePreview: profileCheck ? String(profileCheck.responsePreview || "").trim() : "",
+            ProfileCount: Number(profileHarvest.profileCount || profileCheck?.profileCount || 0),
+            ProfileKeys: Array.isArray(profileHarvest.profileKeys) ? profileHarvest.profileKeys.join(", ") : "",
+            HarvestedAt: capturedAtLabel,
+            ProfileUrl: String(profileHarvest.profileUrl || "").trim(),
+            ProfileKey: String(summary?.profileKey || "").trim(),
+            Mvpd: String(summary?.mvpd || profileHarvest.mvpd || "").trim(),
+            Subject: String(summary?.subject || profileHarvest.subject || "").trim(),
+            UpstreamUserId: String(summary?.upstreamUserId || profileHarvest.upstreamUserId || "").trim(),
+            UserId: String(summary?.userId || profileHarvest.userId || "").trim(),
+            SessionId: String(summary?.sessionId || profileHarvest.sessionId || "").trim(),
+            IdpCandidates: Array.isArray(summary?.idpCandidates) ? summary.idpCandidates.join(", ") : "",
+            SubjectCandidates: Array.isArray(summary?.subjectCandidates) ? summary.subjectCandidates.join(", ") : "",
+            SessionCandidates: Array.isArray(summary?.sessionCandidates) ? summary.sessionCandidates.join(", ") : "",
+            NotBeforeMs: Number(summary?.notBeforeMs || 0),
+            NotAfterMs: Number(summary?.notAfterMs || 0),
+            ProfileAttributesJson: toJsonString(summary?.attributes),
+            ProfileScalarFieldsJson: toJsonString(summary?.scalarFields),
+            ProfileRawJson: toJsonString(summary?.rawProfile),
+            ProfileResponsePayloadJson: toJsonString(profileHarvest.profileResponsePayload),
+          }))
+        : [
+            {
+              Row: 1,
+              RequestorId: String(profileHarvest.requestorId || "").trim(),
+              ServiceProviderId: String(profileHarvest.serviceProviderId || "").trim(),
+              ProfileCheckOutcome: String(profileHarvest.profileCheckOutcome || "").trim(),
+              ProfileCheckStatus: profileCheckStatus,
+              ProfileCheckHttpStatus: profileCheck ? Number(profileCheck.status || 0) : 0,
+              ProfileCheckHttpText: profileCheck ? String(profileCheck.statusText || "").trim() : "",
+              ProfileCheckError: profileCheck ? String(profileCheck.error || "").trim() : "",
+              ProfileCheckResponsePreview: profileCheck ? String(profileCheck.responsePreview || "").trim() : "",
+              ProfileCount: Number(profileHarvest.profileCount || profileCheck?.profileCount || 0),
+              ProfileKeys: Array.isArray(profileHarvest.profileKeys) ? profileHarvest.profileKeys.join(", ") : "",
+              HarvestedAt: capturedAtLabel,
+              ProfileUrl: String(profileHarvest.profileUrl || "").trim(),
+              ProfileKey: String(profileHarvest.profileKey || "").trim(),
+              Mvpd: String(profileHarvest.mvpd || "").trim(),
+              Subject: String(profileHarvest.subject || "").trim(),
+              UpstreamUserId: String(profileHarvest.upstreamUserId || "").trim(),
+              UserId: String(profileHarvest.userId || "").trim(),
+              SessionId: String(profileHarvest.sessionId || "").trim(),
+              IdpCandidates: Array.isArray(profileHarvest.idpCandidates) ? profileHarvest.idpCandidates.join(", ") : "",
+              SubjectCandidates: Array.isArray(profileHarvest.subjectCandidates) ? profileHarvest.subjectCandidates.join(", ") : "",
+              SessionCandidates: Array.isArray(profileHarvest.sessionCandidates) ? profileHarvest.sessionCandidates.join(", ") : "",
+              NotBeforeMs: Number(profileHarvest.notBeforeMs || 0),
+              NotAfterMs: Number(profileHarvest.notAfterMs || 0),
+              ProfileAttributesJson: toJsonString(profileHarvest.profileAttributes),
+              ProfileScalarFieldsJson: toJsonString(profileHarvest.profileScalarFields),
+              ProfileRawJson: toJsonString(profileHarvest.profile),
+              ProfileResponsePayloadJson: toJsonString(profileHarvest.profileResponsePayload),
+            },
+          ];
+    const payload = {
+      mediaCompany: String(programmer?.programmerName || programmer?.mediaCompanyName || programmer?.programmerId || "").trim(),
+      requestorId: String(profileHarvest.requestorId || "").trim(),
+      serviceProviderId: String(profileHarvest.serviceProviderId || "").trim(),
+      mvpd: String(profileHarvest.mvpd || "").trim(),
+      profileCheckOutcome: String(profileHarvest.profileCheckOutcome || "").trim(),
+      profileCheckStatus,
+      profileCount: Number(profileHarvest.profileCount || profileCheck?.profileCount || 0),
+      profileKeys: Array.isArray(profileHarvest.profileKeys) ? profileHarvest.profileKeys.join(", ") : "",
+      selectedProfileFound: profileHarvest.selectedProfileFound === true ? "Yes" : "No",
+      profileUrl: String(profileHarvest.profileUrl || "").trim(),
+      items: summaryRows,
+      harvestedAt: capturedAtLabel,
+    };
+
+    const correlationKey =
+      buildRestV2ProfileHarvestBucketKey(profileHarvest) ||
+      `${String(profileHarvest.requestorId || "requestor")}_${String(profileHarvest.mvpd || "mvpd")}_${recordIndex + 1}`;
+    return {
       cardId: cmBuildRecordId(
         "correlation",
         String(profileHarvest.programmerId || programmer?.programmerId || "cm"),
-        `${String(profileHarvest.requestorId || "requestor")}_${String(profileHarvest.mvpd || "mvpd")}`,
-        0
+        correlationKey,
+        recordIndex
       ),
       kind: "correlation",
-      title: "REST V2 Profile Harvest",
-      subtitle: `${payload.requestorId || "requestor"} x ${payload.mvpd || "mvpd"} | ${capturedAtLabel}`,
+      title: "MVPD Login Profile",
+      subtitle: `${payload.requestorId || "requestor"} x ${payload.mvpd || "mvpd"} | ${profileCheckStatus} | ${capturedAtLabel}`,
       endpointUrl: "",
       requestUrl: "",
       payload,
@@ -7319,8 +9264,8 @@ function cmBuildRestV2CorrelationRecords(programmer = null) {
       tenantId: String(profileHarvest.programmerId || programmer?.programmerId || ""),
       tenantName: String(programmer?.programmerName || programmer?.mediaCompanyName || profileHarvest.programmerId || "CM"),
       lastModified: "",
-    },
-  ];
+    };
+  });
 }
 
 function cmBuildWorkspaceRecordsFromBundles(bundles) {
@@ -7407,7 +9352,7 @@ function cmFormatRecordKindLabel(kind) {
     applications: "Application",
     policies: "Policy",
     usage: "Usage",
-    correlation: "Correlation",
+    correlation: "MVPD Login",
     credential: "Credential",
     "cmv2-op": "CM V2 API",
     "group-list": "List",
@@ -7567,17 +9512,63 @@ function cmGetOperationDefaultFormValues(record) {
   const payload = record?.payload && typeof record.payload === "object" ? record.payload : null;
   const rawDefaults = payload?.formDefaults && typeof payload.formDefaults === "object" ? payload.formDefaults : {};
   const payloadHarvest = payload?.profileHarvest && typeof payload.profileHarvest === "object" ? payload.profileHarvest : null;
+  const payloadHarvestList =
+    Array.isArray(payload?.profileHarvestList) && payload.profileHarvestList.length > 0
+      ? payload.profileHarvestList.filter((item) => item && typeof item === "object")
+      : [];
   const programmerId = String(rawDefaults.programmerId || record?.tenantId || "").trim();
-  const profileHarvest = getRestV2ProfileHarvestForContext({
+  const contextHarvest = getRestV2ProfileHarvestForContext({
     programmerId,
     requestorId: state.selectedRequestorId,
     mvpd: state.selectedMvpdId,
   });
+  const profileHarvest = isUsableRestV2ProfileHarvest(contextHarvest) ? contextHarvest : null;
+  const profileHarvestList = getRestV2ProfileHarvestBucketForProgrammer(programmerId);
+  const mergedHarvestList = mergeRestV2ProfileHarvestLists(
+    payloadHarvest ? [payloadHarvest] : [],
+    payloadHarvestList,
+    profileHarvest ? [profileHarvest] : [],
+    profileHarvestList
+  );
+  const aggregatedCandidates = collectRestV2HarvestCandidateValues(mergedHarvestList);
+  const payloadIdpCandidates = Array.isArray(payloadHarvest?.idpCandidates) ? payloadHarvest.idpCandidates : [];
+  const profileIdpCandidates = Array.isArray(profileHarvest?.idpCandidates) ? profileHarvest.idpCandidates : [];
+  const payloadSubjectCandidates = Array.isArray(payloadHarvest?.subjectCandidates) ? payloadHarvest.subjectCandidates : [];
+  const profileSubjectCandidates = Array.isArray(profileHarvest?.subjectCandidates) ? profileHarvest.subjectCandidates : [];
+  const payloadSessionCandidates = Array.isArray(payloadHarvest?.sessionCandidates) ? payloadHarvest.sessionCandidates : [];
+  const profileSessionCandidates = Array.isArray(profileHarvest?.sessionCandidates) ? profileHarvest.sessionCandidates : [];
   return {
     baseUrl: firstNonEmptyString([rawDefaults.baseUrl, CM_V2_API_BASE_DEFAULT]) || CM_V2_API_BASE_DEFAULT,
-    idp: String(rawDefaults.idp || payloadHarvest?.mvpd || profileHarvest?.mvpd || state.selectedMvpdId || "").trim(),
-    subject: String(rawDefaults.subject || payloadHarvest?.subject || profileHarvest?.subject || state.selectedRequestorId || "").trim(),
-    session: String(rawDefaults.session || payloadHarvest?.sessionId || profileHarvest?.sessionId || "").trim(),
+    idp: firstNonEmptyString([
+      rawDefaults.idp,
+      payloadHarvest?.mvpd,
+      ...payloadIdpCandidates,
+      profileHarvest?.mvpd,
+      ...profileIdpCandidates,
+      ...aggregatedCandidates.idpCandidates,
+      state.selectedMvpdId,
+    ]),
+    subject: firstNonEmptyString([
+      rawDefaults.subject,
+      payloadHarvest?.subject,
+      payloadHarvest?.upstreamUserId,
+      payloadHarvest?.userId,
+      ...payloadSubjectCandidates,
+      profileHarvest?.subject,
+      profileHarvest?.upstreamUserId,
+      profileHarvest?.userId,
+      ...profileSubjectCandidates,
+      ...aggregatedCandidates.subjectCandidates,
+      state.selectedRequestorId,
+    ]),
+    session: firstNonEmptyString([
+      rawDefaults.session,
+      payloadHarvest?.sessionId,
+      ...payloadSessionCandidates,
+      profileHarvest?.sessionId,
+      ...profileSessionCandidates,
+      ...aggregatedCandidates.sessionCandidates,
+    ]),
     xTerminate: String(rawDefaults.xTerminate || "").trim(),
     authUser: String(rawDefaults.authUser || "").trim(),
     authPass: String(rawDefaults.authPass || "").trim(),
@@ -8271,7 +10262,11 @@ async function loadCmService(programmer, cmService, section, contentElement, ref
   }
   const matchedTenants = Array.isArray(cmService?.matchedTenants) ? cmService.matchedTenants : [];
   if (matchedTenants.length === 0) {
-    contentElement.innerHTML = '<div class="service-error">No CM tenant matches were detected for this media company.</div>';
+    const loadError = String(cmService?.loadError || "").trim();
+    const message = loadError
+      ? `CM tenant discovery failed: ${escapeHtml(loadError)}`
+      : "No CM tenant matches were detected for this media company.";
+    contentElement.innerHTML = `<div class="service-error">${message}</div>`;
     return;
   }
 
@@ -8304,7 +10299,7 @@ async function loadCmService(programmer, cmService, section, contentElement, ref
     const groupDefinitions = [
       {
         key: "correlation",
-        label: "REST V2 Correlation",
+        label: "MVPD Login History",
         records: correlationCardRecords,
       },
       {
@@ -8459,15 +10454,25 @@ function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
     const tenantLabel = matchedTenants.length === 1 ? "tenant" : "tenants";
     const sampleNames = matchedTenants.slice(0, 4).map((item) => item?.tenantName || item?.tenantId).filter(Boolean);
     const sourceUrl = String(appInfo?.sourceUrl || "").trim();
-    const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
-    const correlationLabel = profileHarvest?.subject
-      ? `${String(profileHarvest.requestorId || "").trim() || "requestor"} x ${String(profileHarvest.mvpd || "").trim() || "mvpd"}`
-      : "No REST V2 profile harvest yet";
+    const profileHarvestList = getCmProfileHarvestListForProgrammer(programmer);
+    const profileHarvest = getCmProfileHarvestForProgrammer(programmer) || profileHarvestList[0] || null;
+    const correlationPairLabel =
+      profileHarvestList.length > 0 && (profileHarvest?.subject || profileHarvest?.mvpd)
+        ? `${profileHarvestList.length} captured | latest: ${
+            String(profileHarvest.requestorId || "").trim() || "requestor"
+          } x ${String(profileHarvest.mvpd || "").trim() || "mvpd"}`
+        : "No captured MVPD logins yet";
+    const profileCheckOutcome = String(profileHarvest?.profileCheckOutcome || "").trim();
+    const profileCount = Number(profileHarvest?.profileCount || 0);
+    const profileCheckLabel = profileCheckOutcome
+      ? `${profileCheckOutcome}${Number.isFinite(profileCount) ? ` (profiles=${profileCount})` : ""}`
+      : "Not captured";
     const summaryItems = [
       buildMetadataItemHtml("CM Tenant Matches", `${matchedTenants.length} ${tenantLabel}`),
       buildMetadataItemHtml("Matched Tenant Names", sampleNames.length > 0 ? sampleNames.join(", ") : "N/A"),
       buildMetadataItemHtml("CM Tenant Source", sourceUrl || "Not detected"),
-      buildMetadataItemHtml("REST V2 Correlation", correlationLabel),
+      buildMetadataItemHtml("MVPD Login History", correlationPairLabel),
+      buildMetadataItemHtml("Latest MVPD Profile Check", profileCheckLabel),
     ];
     return summaryItems.join("");
   }
@@ -8549,6 +10554,23 @@ function clearPremiumServiceAutoRefreshTimers() {
 
 function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const title = PREMIUM_SERVICE_TITLE_BY_KEY[serviceKey] || serviceKey;
+  const servicesForProgrammer =
+    programmer?.programmerId && state.premiumAppsByProgrammerId.has(programmer.programmerId)
+      ? state.premiumAppsByProgrammerId.get(programmer.programmerId)
+      : null;
+  const resolvedRegisteredApp =
+    String(appInfo?.appName || appInfo?.guid || "").trim() ||
+    String(
+      servicesForProgrammer?.esm?.appName ||
+        servicesForProgrammer?.esm?.guid ||
+        servicesForProgrammer?.degradation?.appName ||
+        servicesForProgrammer?.degradation?.guid ||
+        servicesForProgrammer?.restV2?.appName ||
+        servicesForProgrammer?.restV2?.guid ||
+        ""
+    ).trim() ||
+    "Registered application";
+  const serviceHoverMessage = `Premium Service ${title} using registered application '${resolvedRegisteredApp}'.`;
   const serviceClassByKey = {
     cm: "service-cm",
     degradation: "service-degradation",
@@ -8568,6 +10590,31 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
             <button type="button" class="rest-v2-close-login-btn" disabled hidden>STOP</button>
           </div>
         </section>
+        <section class="rest-v2-profile-history-tool" hidden>
+          <div class="rest-v2-tool-head">
+            <p class="rest-v2-tool-title">MVPD Login Profiles</p>
+            <span class="rest-v2-tool-count rest-v2-profile-count">0</span>
+          </div>
+          <ul class="rest-v2-profile-list"></ul>
+        </section>
+        <section class="rest-v2-entitlement-tool" hidden>
+          <div class="rest-v2-tool-head">
+            <p class="rest-v2-tool-title">Can I watch?</p>
+          </div>
+          <p class="rest-v2-entitlement-context"></p>
+          <form class="rest-v2-entitlement-form">
+            <input
+              type="text"
+              class="rest-v2-resource-input"
+              placeholder="NBALPP, RESOURCE_ID_2"
+              aria-label="Resource IDs for preauthorization"
+              value="${escapeHtml(REST_V2_DEFAULT_RESOURCE_ID_INPUT)}"
+            />
+            <button type="submit" class="rest-v2-entitlement-go-btn">GO</button>
+          </form>
+          <p class="rest-v2-entitlement-status"></p>
+          <div class="rest-v2-entitlement-summary" hidden></div>
+        </section>
         `
       : "";
   const serviceBodyHtml =
@@ -8584,14 +10631,11 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       </div>
     `
     : "";
-  const sectionLabel =
-    serviceKey === "decompTree"
-      ? `decomp w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`
-      : serviceKey === "cm"
-        ? `Concurrency Monitoring (${Array.isArray(appInfo?.matchedTenants) ? appInfo.matchedTenants.length : 0} tenant matches)`
-      : `${title} w/ '${appInfo?.appName || appInfo?.guid || "Registered application"}'`;
+  const sectionLabel = title;
   section.innerHTML = `
-    <button type="button" class="metadata-header service-box-header">
+    <button type="button" class="metadata-header service-box-header" title="${escapeHtml(serviceHoverMessage)}" aria-label="${escapeHtml(
+      serviceHoverMessage
+    )}">
       <span>${escapeHtml(sectionLabel)}</span>
       <span class="collapse-icon">▼</span>
     </button>
@@ -8609,8 +10653,10 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const refreshButton = section.querySelector(".service-refresh-btn");
   const contentElement = section.querySelector(".service-content");
   const initialCollapsed = getPremiumSectionCollapsed(programmer?.programmerId, serviceKey);
+  section.classList.toggle("service-open", !initialCollapsed);
   wireCollapsibleSection(toggleButton, container, initialCollapsed, (collapsed) => {
     setPremiumSectionCollapsed(programmer?.programmerId, serviceKey, collapsed);
+    section.classList.toggle("service-open", !collapsed);
     if (!collapsed && serviceKey === "decompTree" && typeof section.__underparRefreshDecomp === "function") {
       void section.__underparRefreshDecomp();
     }
@@ -8689,6 +10735,7 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       });
     }
 
+    wireRestV2ProfileAndEntitlementHandlers(section, programmer, appInfo);
     syncRestV2LoginPanel(section, programmer, appInfo);
   }
 
@@ -8720,6 +10767,15 @@ function renderPremiumServicesError(error) {
   els.premiumServicesContainer.innerHTML = `<p class="metadata-empty service-error">${escapeHtml(reason)}</p>`;
 }
 
+function shouldShowCmService(cmService) {
+  if (!cmService || typeof cmService !== "object") {
+    return false;
+  }
+
+  const matchedTenants = Array.isArray(cmService.matchedTenants) ? cmService.matchedTenants : [];
+  return matchedTenants.length > 0;
+}
+
 function renderPremiumServices(services, programmer = null) {
   if (!els.premiumServicesContainer) {
     return;
@@ -8741,7 +10797,7 @@ function renderPremiumServices(services, programmer = null) {
       return Boolean(services?.esm);
     }
     if (serviceKey === "cm") {
-      return Boolean(Array.isArray(services?.cm?.matchedTenants) && services.cm.matchedTenants.length > 0);
+      return shouldShowCmService(services?.cm);
     }
     return Boolean(services?.[serviceKey]);
   });
@@ -8801,6 +10857,8 @@ function resetWorkflowForLoggedOut() {
     programmerName: "",
     requestorIds: [],
     mvpdIds: [],
+    profileHarvest: null,
+    profileHarvestList: [],
     updatedAt: Date.now(),
   });
   void cmSendWorkspaceMessage("controller-state", {
@@ -8810,6 +10868,8 @@ function resetWorkflowForLoggedOut() {
     programmerName: "",
     requestorIds: [],
     mvpdIds: [],
+    profileHarvest: null,
+    profileHarvestList: [],
     updatedAt: Date.now(),
   });
 
@@ -8843,6 +10903,7 @@ function isAuthFlowUrl(url) {
   const value = String(url).toLowerCase();
   return (
     value.includes("adobelogin.com") ||
+    value.includes("auth.services.adobe.com") ||
     value.includes("experience.adobe.com") ||
     value.includes("console.auth.adobe.com") ||
     value.includes("login.aepdebugger.adobe.com") ||
@@ -9165,13 +11226,258 @@ function extractAuthParams(responseUrl) {
   return params;
 }
 
+function decodeBase64UrlText(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  let padded = normalized.replace(/-/g, "+").replace(/_/g, "/");
+  const remainder = padded.length % 4;
+  if (remainder) {
+    padded += "=".repeat(4 - remainder);
+  }
+
+  try {
+    return decodeURIComponent(escape(atob(padded)));
+  } catch {
+    try {
+      return atob(padded);
+    } catch {
+      return "";
+    }
+  }
+}
+
+function parseJwtPayload(accessToken = "") {
+  const token = String(accessToken || "").trim();
+  if (!token) {
+    return null;
+  }
+
+  const parts = token.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+
+  const decodedPayload = decodeBase64UrlText(parts[1]);
+  const parsedPayload = parseJsonText(decodedPayload, null);
+  return parsedPayload && typeof parsedPayload === "object" ? parsedPayload : null;
+}
+
+function parseImsStatePayload(rawState = "") {
+  const normalized = String(rawState || "").trim();
+  if (!normalized || !normalized.startsWith("{")) {
+    return null;
+  }
+  const parsed = parseJsonText(normalized, null);
+  return parsed && typeof parsed === "object" ? parsed : null;
+}
+
+function mergeImsSessionSnapshots(baseSession, incomingSession) {
+  const base = baseSession && typeof baseSession === "object" ? baseSession : {};
+  const incoming = incomingSession && typeof incomingSession === "object" ? incomingSession : {};
+  const merged = pruneEmptyObject({
+    tokenId: firstNonEmptyString([incoming.tokenId, incoming.id, base.tokenId, base.id]),
+    sessionId: firstNonEmptyString([incoming.sessionId, incoming.sid, base.sessionId, base.sid]),
+    sessionUrl: firstNonEmptyString([incoming.sessionUrl, incoming.session, base.sessionUrl, base.session]),
+    userId: firstNonEmptyString([incoming.userId, incoming.user_id, base.userId, base.user_id]),
+    authId: firstNonEmptyString([incoming.authId, incoming.aa_id, base.authId, base.aa_id]),
+    clientId: firstNonEmptyString([incoming.clientId, incoming.client_id, base.clientId, base.client_id]),
+    tokenType: firstNonEmptyString([incoming.tokenType, incoming.type, base.tokenType, base.type]),
+    scope: firstNonEmptyString([incoming.scope, base.scope]),
+    as: firstNonEmptyString([incoming.as, base.as]),
+    fg: firstNonEmptyString([incoming.fg, base.fg]),
+    moi: firstNonEmptyString([incoming.moi, base.moi]),
+    pba: firstNonEmptyString([incoming.pba, base.pba]),
+    keyAlias: firstNonEmptyString([incoming.keyAlias, incoming.key_alias, base.keyAlias, base.key_alias]),
+    stateNonce: firstNonEmptyString([incoming.stateNonce, incoming.nonce, base.stateNonce, base.nonce]),
+    stateJslibVersion: firstNonEmptyString([
+      incoming.stateJslibVersion,
+      incoming.jslibver,
+      base.stateJslibVersion,
+      base.jslibver,
+    ]),
+    createdAt: Number(incoming.createdAt || incoming.created_at || base.createdAt || base.created_at || 0),
+    issuedAt: Number(incoming.issuedAt || incoming.issued_at || base.issuedAt || base.issued_at || 0),
+    expiresAt: Number(incoming.expiresAt || incoming.expires_at || base.expiresAt || base.expires_at || 0),
+  });
+
+  return Object.keys(merged).length > 0 ? merged : null;
+}
+
+function deriveImsSessionSnapshotFromToken(accessToken = "") {
+  const claims = parseJwtPayload(accessToken);
+  if (!claims) {
+    return null;
+  }
+
+  const statePayload = parseImsStatePayload(firstNonEmptyString([claims.state]));
+  const expSeconds = Number(claims.exp || 0);
+  const iatSeconds = Number(claims.iat || 0);
+  const createdAtRaw = Number(claims.created_at || 0);
+  const createdAtMs =
+    createdAtRaw > 0 && createdAtRaw < 1000000000000 ? createdAtRaw * 1000 : createdAtRaw > 0 ? createdAtRaw : 0;
+
+  return mergeImsSessionSnapshots(null, {
+    tokenId: claims.id,
+    sessionId: claims.sid,
+    sessionUrl: firstNonEmptyString([claims.session, statePayload?.session]),
+    userId: firstNonEmptyString([claims.user_id, claims.userId]),
+    authId: firstNonEmptyString([claims.aa_id, claims.authId]),
+    clientId: firstNonEmptyString([claims.client_id, claims.clientId]),
+    tokenType: firstNonEmptyString([claims.type]),
+    scope: firstNonEmptyString([claims.scope]),
+    as: claims.as,
+    fg: claims.fg,
+    moi: claims.moi,
+    pba: claims.pba,
+    keyAlias: firstNonEmptyString([claims.key_alias, claims.keyAlias]),
+    stateNonce: statePayload?.nonce,
+    stateJslibVersion: firstNonEmptyString([statePayload?.jslibver, statePayload?.jslibVersion]),
+    createdAt: createdAtMs,
+    issuedAt: Number.isFinite(iatSeconds) && iatSeconds > 0 ? iatSeconds * 1000 : 0,
+    expiresAt: Number.isFinite(expSeconds) && expSeconds > 0 ? expSeconds * 1000 : 0,
+  });
+}
+
+function coercePositiveNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+}
+
+function resolveAuthResponseExpiry(accessToken, expiresInValue) {
+  const tokenSnapshot = deriveImsSessionSnapshotFromToken(accessToken);
+  const tokenExpiresAt = coercePositiveNumber(tokenSnapshot?.expiresAt);
+  const expiresIn = coercePositiveNumber(expiresInValue);
+  const now = Date.now();
+
+  if (!expiresIn) {
+    return {
+      expiresAt: tokenExpiresAt,
+      tokenSnapshot,
+    };
+  }
+
+  const expiresAtFromSeconds = now + expiresIn * 1000;
+  const expiresAtFromMilliseconds = now + expiresIn;
+  if (tokenExpiresAt > 0) {
+    const candidates = [tokenExpiresAt, expiresAtFromSeconds];
+    if (expiresIn >= 1000) {
+      candidates.push(expiresAtFromMilliseconds);
+    }
+
+    let bestCandidate = tokenExpiresAt;
+    let bestDelta = Number.POSITIVE_INFINITY;
+    for (const candidate of candidates) {
+      if (!Number.isFinite(candidate) || candidate <= 0) {
+        continue;
+      }
+      const delta = Math.abs(candidate - tokenExpiresAt);
+      if (delta < bestDelta) {
+        bestDelta = delta;
+        bestCandidate = candidate;
+      }
+    }
+
+    return {
+      expiresAt: bestCandidate,
+      tokenSnapshot,
+    };
+  }
+
+  const appearsToBeMilliseconds = expiresIn >= 100000 && expiresIn <= 24 * 60 * 60 * 1000;
+  return {
+    expiresAt: appearsToBeMilliseconds ? expiresAtFromMilliseconds : expiresAtFromSeconds,
+    tokenSnapshot,
+  };
+}
+
+async function fetchValidateTokenSessionSnapshot(accessToken = "") {
+  const token = String(accessToken || "").trim();
+  if (!token) {
+    return null;
+  }
+
+  const endpoint = `${IMS_BASE_URL}/ims/validate_token/v1?jslVersion=underpar`;
+  const clientIds = [...new Set(IMS_VALIDATE_CLIENT_IDS.map((value) => String(value || "").trim()).filter(Boolean))];
+
+  for (const clientId of clientIds) {
+    const body = new URLSearchParams({
+      type: "access_token",
+      client_id: clientId,
+      token,
+    });
+    const attempts = [
+      { credentials: "omit" },
+      { credentials: "include" },
+    ];
+
+    for (const attempt of attempts) {
+      try {
+        const response = await fetch(endpoint, {
+          method: "POST",
+          mode: "cors",
+          credentials: attempt.credentials,
+          headers: {
+            Accept: "application/json, text/plain, */*",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+          },
+          body: body.toString(),
+        });
+        if (!response.ok) {
+          continue;
+        }
+
+        const parsed = parseJsonText(await response.text().catch(() => ""), null);
+        if (!parsed || typeof parsed !== "object") {
+          continue;
+        }
+
+        const tokenPayload = parsed?.token && typeof parsed.token === "object" ? parsed.token : {};
+        const statePayload = parseImsStatePayload(firstNonEmptyString([tokenPayload?.state]));
+        const createdAtRaw = Number(tokenPayload?.created_at || 0);
+        const createdAtMs =
+          createdAtRaw > 0 && createdAtRaw < 1000000000000 ? createdAtRaw * 1000 : createdAtRaw > 0 ? createdAtRaw : 0;
+
+        const snapshot = mergeImsSessionSnapshots(null, {
+          tokenId: tokenPayload?.id,
+          sessionId: tokenPayload?.sid,
+          sessionUrl: firstNonEmptyString([statePayload?.session]),
+          userId: firstNonEmptyString([tokenPayload?.user_id]),
+          authId: firstNonEmptyString([tokenPayload?.aa_id]),
+          clientId: firstNonEmptyString([tokenPayload?.client_id, clientId]),
+          tokenType: firstNonEmptyString([tokenPayload?.type]),
+          scope: firstNonEmptyString([tokenPayload?.scope]),
+          as: tokenPayload?.as,
+          fg: tokenPayload?.fg,
+          moi: tokenPayload?.moi,
+          pba: tokenPayload?.pba,
+          keyAlias: firstNonEmptyString([tokenPayload?.key_alias]),
+          stateNonce: statePayload?.nonce,
+          stateJslibVersion: firstNonEmptyString([statePayload?.jslibver, statePayload?.jslibVersion]),
+          createdAt: createdAtMs,
+          expiresAt: Number(parsed?.expires_at || 0),
+        });
+        if (snapshot) {
+          return snapshot;
+        }
+      } catch {
+        // Continue best-effort across client/credential variants.
+      }
+    }
+  }
+
+  return null;
+}
+
 function parseAuthResponse(responseUrl, requestState) {
   const authParams = extractAuthParams(responseUrl);
 
   const authError = authParams.get("error");
   if (authError) {
     const description = authParams.get("error_description");
-    throw new Error(description ? `${authError}: ${description}` : authError);
+    throw new Error(redactSensitiveTokenValues(description ? `${authError}: ${description}` : authError));
   }
 
   const returnedState = authParams.get("state");
@@ -9184,10 +11490,47 @@ function parseAuthResponse(responseUrl, requestState) {
     throw new Error("No access token returned from IMS.");
   }
 
-  const expiresInSeconds = Number(authParams.get("expires_in") || "0");
-  const expiresAt = Date.now() + Math.max(expiresInSeconds, 0) * 1000;
+  const expiry = resolveAuthResponseExpiry(accessToken, authParams.get("expires_in"));
+  const expiresAt = coercePositiveNumber(expiry.expiresAt);
+  const tokenType = String(authParams.get("token_type") || "bearer").trim();
+  const scope = String(authParams.get("scope") || "").trim();
+  const idToken = String(authParams.get("id_token") || "").trim();
+  const refreshToken = String(authParams.get("refresh_token") || "").trim();
+  const statePayload = parseImsStatePayload(String(authParams.get("state") || ""));
 
-  return { accessToken, expiresAt };
+  const callbackSession = mergeImsSessionSnapshots(null, {
+    tokenId: authParams.get("id"),
+    sessionId: authParams.get("sid"),
+    sessionUrl: firstNonEmptyString([authParams.get("session"), statePayload?.session]),
+    userId: firstNonEmptyString([authParams.get("user_id"), authParams.get("userId")]),
+    authId: firstNonEmptyString([authParams.get("aa_id"), authParams.get("authId"), authParams.get("auth_id")]),
+    clientId: authParams.get("client_id"),
+    tokenType,
+    scope,
+    as: authParams.get("as"),
+    fg: authParams.get("fg"),
+    moi: authParams.get("moi"),
+    pba: authParams.get("pba"),
+    keyAlias: authParams.get("key_alias"),
+    stateNonce: statePayload?.nonce,
+    stateJslibVersion: firstNonEmptyString([statePayload?.jslibver, statePayload?.jslibVersion]),
+    expiresAt,
+  });
+
+  const imsSession = mergeImsSessionSnapshots(expiry.tokenSnapshot, callbackSession);
+  if (imsSession && (!Number.isFinite(Number(imsSession.expiresAt)) || Number(imsSession.expiresAt) <= 0)) {
+    imsSession.expiresAt = expiresAt;
+  }
+
+  return {
+    accessToken,
+    expiresAt,
+    tokenType: tokenType || "bearer",
+    scope,
+    idToken,
+    refreshToken,
+    imsSession,
+  };
 }
 
 function shouldUseAuthWindowFallback(error) {
@@ -9361,6 +11704,10 @@ async function runLoginHelperFlow(requestState, extraParams = {}) {
       const capturedAvatarUrl = normalizeAvatarCandidate(
         firstNonEmptyString([payload?.capturedAvatarUrl, payload?.imageUrl, capturedAvatarCandidate])
       );
+      const helperImsSession = mergeImsSessionSnapshots(
+        deriveImsSessionSnapshotFromToken(accessToken),
+        payload?.imsSession && typeof payload.imsSession === "object" ? payload.imsSession : null
+      );
       const helperProfile = payload?.profile && typeof payload.profile === "object" ? payload.profile : null;
       const mergedProfile = applyCapturedAvatarToProfile(helperProfile, capturedAvatarUrl);
       const resolvedImageUrl =
@@ -9378,6 +11725,11 @@ async function runLoginHelperFlow(requestState, extraParams = {}) {
       resolve({
         accessToken,
         expiresAt: Number.isFinite(expiresAt) && expiresAt > 0 ? expiresAt : Date.now() + 60 * 60 * 1000,
+        tokenType: compactStorageString(firstNonEmptyString([payload?.tokenType]), 60) || "bearer",
+        scope: compactStorageString(firstNonEmptyString([payload?.scope]), 2048),
+        idToken: compactStorageString(firstNonEmptyString([payload?.idToken]), 4096),
+        refreshToken: compactStorageString(firstNonEmptyString([payload?.refreshToken]), 4096),
+        imsSession: helperImsSession,
         profile: mergedProfile,
         imageUrl: resolvedImageUrl,
         capturedAvatarUrl,
@@ -9461,7 +11813,7 @@ async function runLoginHelperFlow(requestState, extraParams = {}) {
   });
 }
 
-async function runAuthInPopupWindow(authUrl, redirectUri) {
+async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
   return new Promise(async (resolve, reject) => {
     let completed = false;
     let authWindowId = null;
@@ -9469,6 +11821,7 @@ async function runAuthInPopupWindow(authUrl, redirectUri) {
     let debuggerSession = null;
     let timeoutId = null;
     let pollId = null;
+    const successUrlMatcher = typeof options.successUrlMatcher === "function" ? options.successUrlMatcher : null;
 
     const cleanup = () => {
       if (timeoutId) {
@@ -9518,10 +11871,16 @@ async function runAuthInPopupWindow(authUrl, redirectUri) {
     };
 
     const maybeResolveFromUrl = (url) => {
-      if (!url || !url.startsWith(redirectUri)) {
+      if (!url) {
         return;
       }
-      finish(url, null);
+      if (redirectUri && url.startsWith(redirectUri)) {
+        finish(url, null);
+        return;
+      }
+      if (successUrlMatcher && successUrlMatcher(url)) {
+        finish(url, null);
+      }
     };
 
     const onUpdated = (tabId, changeInfo, tab) => {
@@ -9889,15 +12248,19 @@ function mergeProfilePayloads(baseProfile, updateProfile) {
 }
 
 async function fetchImsSessionProfile(accessToken = "") {
-  const imsBase = IMS_AUTHORIZE_URL.split("/ims/")[0];
+  const imsBase = IMS_BASE_URL;
   const endpoints = [
     `${IMS_PROFILE_URL}?client_id=AdobePass1`,
+    `${IMS_PROFILE_URL}?client_id=exc_app`,
     `${IMS_PROFILE_URL}?client_id=${encodeURIComponent(IMS_CLIENT_ID)}`,
     IMS_PROFILE_URL,
     `${imsBase}/ims/userinfo/v2`,
+    `${imsBase}/ims/check/v6/status?client_id=exc_app`,
     `${imsBase}/ims/check/v6/status?client_id=AdobePass1`,
     `${imsBase}/ims/check/v6/status?client_id=${encodeURIComponent(IMS_CLIENT_ID)}`,
+    `${imsBase}/ims/check/v5/status?client_id=exc_app&locale=en_US`,
     `${imsBase}/ims/check/v5/status?client_id=AdobePass1&locale=en_US`,
+    `${imsBase}/ims/check/status?client_id=exc_app`,
     `${imsBase}/ims/check/status?client_id=AdobePass1`,
   ];
 
@@ -10439,20 +12802,25 @@ function normalizeAvatarCandidate(value) {
     return `https:${trimmed}`;
   }
 
+  if (/^\/?api\/profile\/[^/]+\/image(\/|$)/i.test(trimmed)) {
+    const normalizedPath = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+    return `${PPS_PROFILE_BASE_URL}${normalizedPath}`;
+  }
+
   if (/^ims\/avatar\/download\//i.test(trimmed)) {
-    return `${IMS_AUTHORIZE_URL.split("/ims/")[0]}/${trimmed}`;
+    return `${IMS_BASE_URL}/${trimmed}`;
   }
 
   if (/^avatar\/download\//i.test(trimmed)) {
-    return `${IMS_AUTHORIZE_URL.split("/ims/")[0]}/ims/${trimmed}`;
+    return `${IMS_BASE_URL}/ims/${trimmed}`;
   }
 
   if (/^\/ims\/avatar\/download\//i.test(trimmed)) {
-    return `${IMS_AUTHORIZE_URL.split("/ims/")[0]}${trimmed}`;
+    return `${IMS_BASE_URL}${trimmed}`;
   }
 
   if (trimmed.startsWith("/")) {
-    return `${IMS_AUTHORIZE_URL.split("/ims/")[0]}${trimmed}`;
+    return `${IMS_BASE_URL}${trimmed}`;
   }
 
   if (!trimmed.includes("://")) {
@@ -10461,7 +12829,7 @@ function normalizeAvatarCandidate(value) {
     }
 
     if (isLikelyImsAvatarId(trimmed)) {
-      return `${IMS_AUTHORIZE_URL.split("/ims/")[0]}/ims/avatar/download/${encodeURIComponent(trimmed)}`;
+      return `${IMS_BASE_URL}/ims/avatar/download/${encodeURIComponent(trimmed)}`;
     }
 
     if (!isLikelyImageAssetPath(trimmed)) {
@@ -10822,7 +13190,7 @@ function toImsAvatarDownloadUrl(identity, size = 128) {
     return normalized;
   }
 
-  const imsBase = IMS_AUTHORIZE_URL.split("/ims/")[0];
+  const imsBase = IMS_BASE_URL;
   const encoded = encodeURIComponent(raw);
   const sizePart = Number.isFinite(size) && size > 0 ? `?size=${encodeURIComponent(String(size))}` : "";
   return `${imsBase}/ims/avatar/download/${encoded}${sizePart}`;
@@ -11115,13 +13483,17 @@ function getAvatarRenderUrl(loginData) {
     return resolved;
   }
 
+  const persistedCandidate = readPersistedAvatarCandidate(loginData);
+  const persisted = normalizeAvatarCandidate(persistedCandidate) || normalizeInlineAvatarData(persistedCandidate);
+  if (persisted && persisted.startsWith("data:image/")) {
+    return persisted;
+  }
+
   const provisional = normalizeAvatarCandidate(resolveLoginImageUrl(loginData));
   if (provisional) {
     return provisional;
   }
 
-  const persistedCandidate = readPersistedAvatarCandidate(loginData);
-  const persisted = normalizeAvatarCandidate(persistedCandidate) || normalizeInlineAvatarData(persistedCandidate);
   if (persisted) {
     return persisted;
   }
@@ -11614,6 +13986,60 @@ function resolveAuthAvatarSeed(authData, profile = null) {
   ) || "";
 }
 
+function buildSessionKeySnapshot(loginData = {}) {
+  const profile = resolveLoginProfile(loginData) || {};
+  const imsSession = loginData?.imsSession && typeof loginData.imsSession === "object" ? loginData.imsSession : {};
+  return pruneEmptyObject({
+    userId: compactStorageString(
+      firstNonEmptyString([
+        imsSession?.userId,
+        profile?.userId,
+        profile?.user_id,
+        profile?.sub,
+        profile?.id,
+        loginData?.adobePassOrg?.userId,
+      ]),
+      220
+    ),
+    authId: compactStorageString(
+      firstNonEmptyString([imsSession?.authId, profile?.authId, profile?.aa_id, profile?.adobeID]),
+      220
+    ),
+    sessionId: compactStorageString(firstNonEmptyString([imsSession?.sessionId]), 220),
+    tokenId: compactStorageString(firstNonEmptyString([imsSession?.tokenId]), 220),
+    orgId: compactStorageString(firstNonEmptyString([loginData?.adobePassOrg?.orgId]), 220),
+    accessTokenFingerprint: compactStorageString(loginData?.accessToken ? String(loginData.accessToken).slice(-24) : "", 64),
+  });
+}
+
+function buildLoginSessionPayloadFromAuth(authData, profile = null, imageUrl = "") {
+  const normalizedProfile = profile && typeof profile === "object" ? profile : null;
+  const resolvedImageUrl =
+    normalizeAvatarCandidate(
+      firstNonEmptyString([imageUrl, resolveAuthAvatarSeed(authData, normalizedProfile || undefined)])
+    ) || "";
+  const imsSession = mergeImsSessionSnapshots(
+    deriveImsSessionSnapshotFromToken(authData?.accessToken || ""),
+    authData?.imsSession && typeof authData.imsSession === "object" ? authData.imsSession : null
+  );
+  return {
+    accessToken: firstNonEmptyString([authData?.accessToken]),
+    expiresAt: Number(authData?.expiresAt || 0),
+    tokenType: compactStorageString(firstNonEmptyString([authData?.tokenType]), 60) || "bearer",
+    scope: compactStorageString(firstNonEmptyString([authData?.scope]), 2048),
+    idToken: compactStorageString(firstNonEmptyString([authData?.idToken]), 4096),
+    refreshToken: compactStorageString(firstNonEmptyString([authData?.refreshToken]), 4096),
+    imsSession,
+    profile: normalizedProfile,
+    imageUrl: resolvedImageUrl,
+    sessionKeys: buildSessionKeySnapshot({
+      accessToken: authData?.accessToken || "",
+      profile: normalizedProfile,
+      imsSession,
+    }),
+  };
+}
+
 function getAvatarCacheKey(loginData, url, size = 0) {
   const identity = getAvatarCacheIdentity(loginData);
   const normalizedUrl = normalizeAvatarCandidate(url);
@@ -11744,6 +14170,7 @@ function logAvatarFailureOnce(reason, details = null) {
 
 function purgeAvatarCaches() {
   state.avatarMemoryCache.clear();
+  state.avatarDataUrlPrefetchKeys.clear();
   try {
     const keysToRemove = [];
     for (let index = 0; index < localStorage.length; index += 1) {
@@ -12247,15 +14674,16 @@ async function fetchAvatarBlobUrl(url) {
   return null;
 }
 
-async function fetchAvatarDataUrlViaBackground(url) {
+async function fetchAvatarDataUrlViaBackground(url, accessToken = "") {
   if (!url || url.startsWith("data:image/") || url.startsWith("blob:")) {
     return "";
   }
 
+  const token = firstNonEmptyString([accessToken, state.loginData?.accessToken]);
   const response = await sendRuntimeMessageSafe({
     type: "underpar:fetchAvatarDataUrl",
     url,
-    accessToken: state.loginData?.accessToken || "",
+    accessToken: token,
   });
 
   if (response?.ok && typeof response.dataUrl === "string" && response.dataUrl.startsWith("data:image/")) {
@@ -12263,6 +14691,58 @@ async function fetchAvatarDataUrlViaBackground(url) {
   }
 
   return "";
+}
+
+function buildAvatarDataUrlPrefetchKey(loginData, url) {
+  const sourceUrl = normalizeAvatarCandidate(url);
+  if (!sourceUrl) {
+    return "";
+  }
+  const tokenFingerprint = loginData?.accessToken ? String(loginData.accessToken).slice(-24) : "cookie";
+  const userFingerprint = getAvatarCacheIdentity(loginData);
+  return `${userFingerprint}:${tokenFingerprint}:${sourceUrl}`;
+}
+
+function scheduleAvatarDataUrlPrefetch(loginData, url, cacheKey = "") {
+  const sourceUrl = normalizeAvatarCandidate(url);
+  if (!sourceUrl || sourceUrl.startsWith("data:image/") || sourceUrl.startsWith("blob:")) {
+    return;
+  }
+
+  const prefetchKey = buildAvatarDataUrlPrefetchKey(loginData, sourceUrl);
+  if (!prefetchKey || state.avatarDataUrlPrefetchKeys.has(prefetchKey)) {
+    return;
+  }
+  state.avatarDataUrlPrefetchKeys.add(prefetchKey);
+
+  void (async () => {
+    const token = firstNonEmptyString([loginData?.accessToken, state.loginData?.accessToken]);
+    const dataUrl = await fetchAvatarDataUrlViaBackground(sourceUrl, token);
+    if (!dataUrl || !state.loginData) {
+      return;
+    }
+
+    writePersistedAvatarCandidate(state.loginData, {
+      sourceUrl,
+      resolvedUrl: dataUrl,
+      dataUrl,
+      ttlSeconds: AVATAR_PERSIST_TTL_SECONDS,
+    });
+    if (cacheKey) {
+      writeAvatarCache(cacheKey, {
+        sourceUrl,
+        resolvedUrl: dataUrl,
+        dataUrl,
+        ttlSeconds: AVATAR_CACHE_TTL_SECONDS,
+      });
+    }
+
+    const currentResolved = normalizeAvatarCandidate(state.avatarResolvedUrl);
+    if (!currentResolved || currentResolved === sourceUrl) {
+      setResolvedAvatarUrl(dataUrl, false);
+      render();
+    }
+  })();
 }
 
 async function ensureResolvedAvatarUrl() {
@@ -12326,6 +14806,7 @@ async function ensureResolvedAvatarUrl() {
               resolvedUrl: cachedResolved,
               dataUrl: cachedResolved.startsWith("data:image/") ? cachedResolved : "",
             });
+            scheduleAvatarDataUrlPrefetch(state.loginData, cached.sourceUrl || normalized, cacheKey);
             render();
             return true;
           }
@@ -12370,6 +14851,7 @@ async function ensureResolvedAvatarUrl() {
             resolvedUrl: normalized,
             ttlSeconds: AVATAR_CACHE_TTL_SECONDS,
           });
+          scheduleAvatarDataUrlPrefetch(state.loginData, normalized, cacheKey);
           render();
           return true;
         }
@@ -12523,44 +15005,22 @@ async function clearIdentityTokens() {
   }
 }
 
-async function invalidateImsWebSession() {
-  for (const url of IMS_LOGOUT_URLS) {
-    try {
-      await fetch(url, {
-        method: "GET",
-        credentials: "include",
-        mode: "no-cors",
-        cache: "no-store",
-      });
-    } catch {
-      // Ignore logout endpoint failures and continue best-effort.
-    }
-  }
-}
-
 async function signOutAndResetSession() {
   if (state.busy) {
     return;
   }
 
   closeAvatarMenu();
-  setBusy(true, "Signing out...");
+  setBusy(true, "Signing out of UnderPAR...");
   setStatus("", "info");
+  state.sessionMonitorSuppressed = true;
 
   try {
-    clearRefreshTimer();
-    await Promise.all([clearIdentityTokens(), invalidateImsWebSession()]);
-    await clearLoginData();
+    await clearIdentityTokens();
+    await Promise.all([clearDebugFlowStorageFromChromeStorage(), clearLoginHelperResultStorage()]);
     purgeAvatarCaches();
     purgeDcrCaches();
-
-    resetWorkflowForLoggedOut();
-    state.loginData = null;
-    state.restricted = false;
-    state.sessionReady = false;
-    state.programmersApiEndpoint = null;
-    state.mvpdCacheByRequestor.clear();
-    clearResolvedAvatar();
+    await resetToSignedOutState();
   } finally {
     setBusy(false);
     render();
@@ -12596,12 +15056,7 @@ async function attemptAutoSwitchToAdobePass(organizations, options = {}) {
 
       const profile = await resolveProfileAfterLogin(authData);
       const imageUrl = resolveAuthAvatarSeed(authData, profile);
-      return {
-        accessToken: authData.accessToken,
-        expiresAt: authData.expiresAt,
-        profile,
-        imageUrl,
-      };
+      return buildLoginSessionPayloadFromAuth(authData, profile, imageUrl);
     } catch (error) {
       log("Auto-switch strategy failed", {
         strategy,
@@ -12750,14 +15205,27 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
   }
 
   return activateSession(
-    {
-      accessToken: switched.accessToken,
-      expiresAt: switched.expiresAt,
-      profile: switched.profile,
-    },
+    buildLoginSessionPayloadFromAuth(switched, switched.profile, switched.imageUrl),
     "interactive-auto-switch-recovery",
     { allowDeniedRecovery: false }
   );
+}
+
+function resolveStoredSessionExpiresAt(loginData, tokenSession) {
+  const storedExpiresAt = coercePositiveNumber(loginData?.expiresAt);
+  const tokenExpiresAt = coercePositiveNumber(tokenSession?.expiresAt);
+  if (!tokenExpiresAt) {
+    return storedExpiresAt;
+  }
+  if (!storedExpiresAt) {
+    return tokenExpiresAt;
+  }
+
+  if (Math.abs(storedExpiresAt - tokenExpiresAt) > 2 * 60 * 1000) {
+    return tokenExpiresAt;
+  }
+
+  return Math.min(storedExpiresAt, tokenExpiresAt);
 }
 
 async function loadStoredLoginData() {
@@ -12768,19 +15236,49 @@ async function loadStoredLoginData() {
     return null;
   }
 
-  if (!loginData.accessToken || !loginData.expiresAt || loginData.expiresAt <= Date.now()) {
+  const accessToken = firstNonEmptyString([loginData?.accessToken]);
+  if (!accessToken) {
     await chrome.storage.local.remove(STORAGE_KEY);
     return null;
   }
 
   const normalizedProfile = resolveLoginProfile(loginData);
+  const tokenSnapshot = deriveImsSessionSnapshotFromToken(accessToken);
+  const expiresAt = resolveStoredSessionExpiresAt(loginData, tokenSnapshot);
+  if (!expiresAt || expiresAt <= Date.now()) {
+    await chrome.storage.local.remove(STORAGE_KEY);
+    return null;
+  }
+
+  const imsSession = mergeImsSessionSnapshots(
+    tokenSnapshot,
+    loginData?.imsSession && typeof loginData.imsSession === "object" ? loginData.imsSession : null
+  );
+  if (imsSession && (!coercePositiveNumber(imsSession.expiresAt) || Math.abs(coercePositiveNumber(imsSession.expiresAt) - expiresAt) > 2 * 60 * 1000)) {
+    imsSession.expiresAt = expiresAt;
+  }
   return {
     ...loginData,
+    accessToken,
+    expiresAt,
+    tokenType: compactStorageString(firstNonEmptyString([loginData?.tokenType]), 60) || "bearer",
+    scope: compactStorageString(firstNonEmptyString([loginData?.scope]), 2048),
+    idToken: compactStorageString(firstNonEmptyString([loginData?.idToken]), 4096),
+    refreshToken: compactStorageString(firstNonEmptyString([loginData?.refreshToken]), 4096),
+    imsSession,
     profile: normalizedProfile,
     imageUrl: resolveLoginImageUrl({
       ...loginData,
       profile: normalizedProfile,
     }),
+    sessionKeys:
+      loginData?.sessionKeys && typeof loginData.sessionKeys === "object"
+        ? loginData.sessionKeys
+        : buildSessionKeySnapshot({
+            ...loginData,
+            profile: normalizedProfile,
+            imsSession,
+          }),
   };
 }
 
@@ -12837,6 +15335,38 @@ function compactStorageAvatarUrl(value) {
     return "";
   }
   return normalized;
+}
+
+function compactImsSessionForStorage(session) {
+  if (!session || typeof session !== "object") {
+    return null;
+  }
+
+  const compact = pruneEmptyObject({
+    tokenId: compactStorageString(firstNonEmptyString([session?.tokenId, session?.id]), 220),
+    sessionId: compactStorageString(firstNonEmptyString([session?.sessionId, session?.sid]), 220),
+    sessionUrl: compactStorageString(firstNonEmptyString([session?.sessionUrl, session?.session]), 2048),
+    userId: compactStorageString(firstNonEmptyString([session?.userId, session?.user_id]), 220),
+    authId: compactStorageString(firstNonEmptyString([session?.authId, session?.aa_id]), 220),
+    clientId: compactStorageString(firstNonEmptyString([session?.clientId, session?.client_id]), 140),
+    tokenType: compactStorageString(firstNonEmptyString([session?.tokenType, session?.type]), 60),
+    scope: compactStorageString(firstNonEmptyString([session?.scope]), 2048),
+    as: compactStorageString(firstNonEmptyString([session?.as]), 80),
+    fg: compactStorageString(firstNonEmptyString([session?.fg]), 120),
+    moi: compactStorageString(firstNonEmptyString([session?.moi]), 120),
+    pba: compactStorageString(firstNonEmptyString([session?.pba]), 240),
+    keyAlias: compactStorageString(firstNonEmptyString([session?.keyAlias, session?.key_alias]), 180),
+    stateNonce: compactStorageString(firstNonEmptyString([session?.stateNonce, session?.nonce]), 120),
+    stateJslibVersion: compactStorageString(
+      firstNonEmptyString([session?.stateJslibVersion, session?.jslibver, session?.jslibVersion]),
+      160
+    ),
+    createdAt: Number(session?.createdAt || session?.created_at || 0),
+    issuedAt: Number(session?.issuedAt || session?.issued_at || 0),
+    expiresAt: Number(session?.expiresAt || session?.expires_at || 0),
+  });
+
+  return Object.keys(compact).length > 0 ? compact : null;
 }
 
 function compactAdobePassOrgForStorage(org) {
@@ -12935,7 +15465,17 @@ function compactProfileForStorage(profile) {
 
 function buildStoredLoginData(loginData, minimal = false) {
   const profile = minimal ? null : compactProfileForStorage(resolveLoginProfile(loginData));
+  const imsSession = compactImsSessionForStorage(loginData?.imsSession);
+  const sessionKeys =
+    loginData?.sessionKeys && typeof loginData.sessionKeys === "object"
+      ? pruneEmptyObject(loginData.sessionKeys)
+      : buildSessionKeySnapshot({
+          ...loginData,
+          profile: resolveLoginProfile(loginData),
+          imsSession,
+        });
   const fallbackIdentity = firstNonEmptyString([
+    imsSession?.userId,
     profile?.userId,
     profile?.user_id,
     profile?.sub,
@@ -12946,6 +15486,10 @@ function buildStoredLoginData(loginData, minimal = false) {
   const compact = pruneEmptyObject({
     accessToken: compactStorageString(firstNonEmptyString([loginData?.accessToken]), 4096),
     expiresAt: Number(loginData?.expiresAt || 0),
+    tokenType: compactStorageString(firstNonEmptyString([loginData?.tokenType, imsSession?.tokenType]), 60),
+    scope: compactStorageString(firstNonEmptyString([loginData?.scope, imsSession?.scope]), 2048),
+    idToken: compactStorageString(firstNonEmptyString([loginData?.idToken]), 4096),
+    refreshToken: compactStorageString(firstNonEmptyString([loginData?.refreshToken]), 4096),
     imageUrl: compactStorageAvatarUrl(
       firstNonEmptyString([
         loginData?.imageUrl,
@@ -12958,6 +15502,8 @@ function buildStoredLoginData(loginData, minimal = false) {
       ])
     ),
     profile,
+    imsSession,
+    sessionKeys,
     adobePassOrg: compactAdobePassOrgForStorage(loginData?.adobePassOrg),
   });
 
@@ -12996,6 +15542,34 @@ async function clearDebugFlowStorageFromChromeStorage() {
   } catch {
     return 0;
   }
+}
+
+async function clearLoginHelperResultStorage() {
+  const areas = [chrome.storage?.session, chrome.storage?.local].filter(
+    (area) => area && typeof area.get === "function" && typeof area.remove === "function"
+  );
+  if (areas.length === 0) {
+    return 0;
+  }
+
+  let removedTotal = 0;
+  for (const area of areas) {
+    try {
+      const payload = await area.get(null);
+      const keysToRemove = Object.keys(payload || {}).filter(
+        (key) => key.startsWith(LOGIN_HELPER_RESULT_PREFIX) || key.startsWith(LEGACY_LOGIN_HELPER_RESULT_PREFIX)
+      );
+      if (keysToRemove.length === 0) {
+        continue;
+      }
+      await area.remove(keysToRemove);
+      removedTotal += keysToRemove.length;
+    } catch {
+      // Ignore storage cleanup failures.
+    }
+  }
+
+  return removedTotal;
 }
 
 async function saveLoginData(loginData) {
@@ -13051,6 +15625,302 @@ function clearRefreshTimer() {
   if (state.refreshTimeoutId) {
     clearTimeout(state.refreshTimeoutId);
     state.refreshTimeoutId = null;
+  }
+}
+
+function stopExperienceCloudSessionMonitor() {
+  if (state.sessionMonitorStartTimeoutId) {
+    clearTimeout(state.sessionMonitorStartTimeoutId);
+    state.sessionMonitorStartTimeoutId = 0;
+  }
+  if (state.sessionMonitorIntervalId) {
+    clearInterval(state.sessionMonitorIntervalId);
+    state.sessionMonitorIntervalId = 0;
+  }
+  state.sessionMonitorBusy = false;
+}
+
+function startExperienceCloudSessionMonitor() {
+  stopExperienceCloudSessionMonitor();
+
+  const tick = () => {
+    void runExperienceCloudSessionMonitorTick("interval");
+  };
+
+  state.sessionMonitorStartTimeoutId = window.setTimeout(() => {
+    state.sessionMonitorStartTimeoutId = 0;
+    tick();
+    state.sessionMonitorIntervalId = window.setInterval(tick, IMS_SESSION_MONITOR_INTERVAL_MS);
+  }, IMS_SESSION_MONITOR_START_DELAY_MS);
+}
+
+async function probeImsCookieSessionState() {
+  const endpoints = [
+    `${IMS_BASE_URL}/ims/check/v6/status?client_id=exc_app`,
+    `${IMS_BASE_URL}/ims/check/v6/status?client_id=AdobePass1`,
+    `${IMS_BASE_URL}/ims/check/v6/status?client_id=${encodeURIComponent(IMS_CLIENT_ID)}`,
+    `${IMS_PROFILE_URL}?client_id=exc_app`,
+  ];
+
+  for (const endpoint of endpoints) {
+    try {
+      const response = await fetch(endpoint, {
+        method: "GET",
+        mode: "cors",
+        credentials: "include",
+        headers: {
+          Accept: "application/json, text/plain, */*",
+        },
+      });
+      const responseText = await response.text().catch(() => "");
+      if (responseLooksLikeExperienceCloudSignIn(response, responseText)) {
+        return "inactive";
+      }
+      if (!response.ok) {
+        continue;
+      }
+      const payload = parseJsonText(responseText, null);
+      if (payload && typeof payload === "object") {
+        return "active";
+      }
+    } catch {
+      // Continue probing remaining endpoints.
+    }
+  }
+
+  return "unknown";
+}
+
+async function probeExperienceCloudSsoCookieState() {
+  try {
+    const response = await fetch(EXPERIENCE_CLOUD_SSO_TOKEN_ENDPOINT, {
+      method: "POST",
+      mode: "cors",
+      credentials: "include",
+      headers: {
+        Accept: "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "X-IMS-ClientId": EXPERIENCE_CLOUD_SSO_CLIENT_ID,
+      },
+      body: "{}",
+    });
+    const responseText = await response.text().catch(() => "");
+    const payload = parseJsonText(responseText, {});
+    if (response.status === 401 || response.status === 403) {
+      const errorCode = String(payload?.errorCode || payload?.error || "").toLowerCase();
+      const errorMessage = String(payload?.errorMessage || payload?.message || "").toLowerCase();
+      if (
+        errorCode.includes("invalid_sso_info") ||
+        errorMessage.includes("session cookie is null") ||
+        errorMessage.includes("session cookie")
+      ) {
+        return "inactive";
+      }
+      return "unknown";
+    }
+    if (response.ok) {
+      return "active";
+    }
+    if (responseLooksLikeExperienceCloudSignIn(response, responseText)) {
+      return "inactive";
+    }
+  } catch {
+    // Continue to the other probes.
+  }
+  return "unknown";
+}
+
+function markExperienceCloudSessionProbeResult(value, source = "unknown") {
+  state.sessionMonitorLastProbeSource = String(source || "unknown");
+  return value;
+}
+
+function isStrongInactiveSessionSignal(source = "unknown") {
+  const normalized = String(source || "unknown").trim().toLowerCase();
+  return normalized === "ims-cookie" || normalized === "programmers" || normalized === "sso-cookie";
+}
+
+function getSessionExpiryState() {
+  const expiresAt = Number(state.loginData?.expiresAt || 0);
+  if (!Number.isFinite(expiresAt) || expiresAt <= 0) {
+    return "unknown";
+  }
+  const now = Date.now();
+  if (expiresAt <= now) {
+    return "expired";
+  }
+  if (expiresAt <= now + TOKEN_REFRESH_LEEWAY_MS) {
+    return "expiring";
+  }
+  return "fresh";
+}
+
+async function attemptSessionAutoBootstrap(trigger = "interval") {
+  if (state.sessionMonitorSuppressed || state.sessionReady || state.restricted) {
+    return false;
+  }
+
+  const now = Date.now();
+  if (now - Number(state.sessionMonitorLastBootstrapAttemptAt || 0) < IMS_SESSION_MONITOR_BOOTSTRAP_COOLDOWN_MS) {
+    return false;
+  }
+  state.sessionMonitorLastBootstrapAttemptAt = now;
+
+  const cookieActivated = await tryActivateCookieSession(`session-monitor-${trigger}`, {
+    restrictOnDenied: false,
+  });
+  if (cookieActivated) {
+    return true;
+  }
+
+  const silent = await attemptSilentBootstrapLogin();
+  if (!silent) {
+    return false;
+  }
+
+  return activateSession(silent, `session-monitor-silent-${trigger}`);
+}
+
+async function probeExperienceCloudSessionState() {
+  const ssoCookieState = await probeExperienceCloudSsoCookieState();
+  if (ssoCookieState === "active") {
+    return markExperienceCloudSessionProbeResult("active", "sso-cookie");
+  }
+
+  const imsCookieState = await probeImsCookieSessionState();
+  if (imsCookieState === "active" || imsCookieState === "inactive") {
+    return markExperienceCloudSessionProbeResult(imsCookieState, "ims-cookie");
+  }
+
+  try {
+    const profile = await fetchImsSessionProfile("");
+    if (profile && typeof profile === "object") {
+      return markExperienceCloudSessionProbeResult("active", "ims-profile");
+    }
+  } catch {
+    // Fall through to programmers access check.
+  }
+
+  try {
+    await fetchProgrammersFromApi({ accessToken: "", requireEntities: false });
+    return markExperienceCloudSessionProbeResult("active", "programmers");
+  } catch (error) {
+    if (error?.code === "PROGRAMMERS_ACCESS_DENIED") {
+      return markExperienceCloudSessionProbeResult("inactive", "programmers");
+    }
+    if (ssoCookieState === "inactive") {
+      return markExperienceCloudSessionProbeResult("inactive", "sso-fallback");
+    }
+    return markExperienceCloudSessionProbeResult("unknown", "unknown");
+  }
+}
+
+async function resetToSignedOutState(options = {}) {
+  const statusMessage = String(options.statusMessage || "").trim();
+  const statusType = options.statusType === "error" ? "error" : options.statusType === "success" ? "success" : "info";
+  clearRefreshTimer();
+  clearPremiumServiceAutoRefreshTimers();
+  await clearLoginData();
+  resetWorkflowForLoggedOut();
+  state.loginData = null;
+  state.restricted = false;
+  state.sessionReady = false;
+  state.programmersApiEndpoint = null;
+  state.mvpdCacheByRequestor.clear();
+  state.sessionMonitorConsecutiveInactiveDetections = 0;
+  state.sessionMonitorLastProbeSource = "unknown";
+  state.sessionMonitorInactivityGuardUntil = 0;
+  clearResolvedAvatar();
+  setStatus(statusMessage, statusType);
+  render();
+}
+
+async function runExperienceCloudSessionMonitorTick(trigger = "interval") {
+  if (state.sessionMonitorBusy || state.busy || state.isBootstrapping || state.restrictedOrgSwitchBusy) {
+    return;
+  }
+  if (state.sessionMonitorSuppressed && !state.sessionReady && !state.restricted) {
+    return;
+  }
+
+  state.sessionMonitorBusy = true;
+  try {
+    const expiryState = getSessionExpiryState();
+    if ((expiryState === "expiring" || expiryState === "expired") && state.sessionReady && state.loginData?.accessToken) {
+      const refreshed = await refreshSessionNoTouch();
+      if (!refreshed) {
+        const postRefreshSessionState = await probeExperienceCloudSessionState();
+        if (postRefreshSessionState === "active") {
+          return;
+        }
+        await resetToSignedOutState({
+          statusMessage:
+            "Experience Cloud session is expiring. Please re-log into Experience Cloud, then click Sign In.",
+          statusType: "error",
+        });
+        return;
+      }
+    }
+
+    const sessionState = await probeExperienceCloudSessionState();
+    if (sessionState === "active") {
+      state.sessionMonitorConsecutiveInactiveDetections = 0;
+      if (!state.sessionReady && !state.restricted && !state.sessionMonitorSuppressed) {
+        await attemptSessionAutoBootstrap(trigger);
+      }
+      return;
+    }
+
+    if (sessionState === "unknown") {
+      state.sessionMonitorConsecutiveInactiveDetections = 0;
+      if (!state.sessionReady && !state.restricted && !state.sessionMonitorSuppressed) {
+        await attemptSessionAutoBootstrap(`${trigger}-unknown`);
+      }
+      return;
+    }
+
+    if (sessionState === "inactive" && (state.sessionReady || state.restricted || state.loginData)) {
+      const now = Date.now();
+      const hasFreshUnderparToken =
+        Boolean(state.loginData?.accessToken) && Number(state.loginData?.expiresAt || 0) > now + 60 * 1000;
+      const probeSource = String(state.sessionMonitorLastProbeSource || "unknown");
+      const strongInactiveSignal = isStrongInactiveSessionSignal(probeSource);
+      if (strongInactiveSignal) {
+        state.sessionMonitorConsecutiveInactiveDetections += 1;
+      } else {
+        state.sessionMonitorConsecutiveInactiveDetections = 0;
+      }
+
+      if (
+        hasFreshUnderparToken &&
+        (now < Number(state.sessionMonitorInactivityGuardUntil || 0) || !strongInactiveSignal)
+      ) {
+        return;
+      }
+
+      if (!strongInactiveSignal) {
+        return;
+      }
+
+      if (state.sessionMonitorConsecutiveInactiveDetections < IMS_SESSION_MONITOR_INACTIVE_CONFIRM_TICKS) {
+        return;
+      }
+
+      if (hasFreshUnderparToken) {
+        const refreshed = await refreshSessionNoTouch();
+        if (refreshed) {
+          state.sessionMonitorConsecutiveInactiveDetections = 0;
+          return;
+        }
+      }
+
+      await resetToSignedOutState({
+        statusMessage: "Experience Cloud session ended. UnderPAR is paused. Re-login in Experience Cloud or click Sign In.",
+        statusType: "error",
+      });
+    }
+  } finally {
+    state.sessionMonitorBusy = false;
   }
 }
 
@@ -13154,8 +16024,44 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     normalizeAvatarCandidate(readPersistedAvatarCandidate(resolvedImageData)) ||
     "";
 
+  let validatedImsSession = null;
+  try {
+    validatedImsSession = await fetchValidateTokenSessionSnapshot(enforced.loginData.accessToken || "");
+  } catch {
+    validatedImsSession = null;
+  }
+
+  const resolvedImsSession = mergeImsSessionSnapshots(
+    mergeImsSessionSnapshots(
+      mergeImsSessionSnapshots(
+        deriveImsSessionSnapshotFromToken(enforced.loginData.accessToken || ""),
+        enforced.loginData?.imsSession && typeof enforced.loginData.imsSession === "object"
+          ? enforced.loginData.imsSession
+          : null
+      ),
+      validatedImsSession
+    ),
+    {
+      userId: firstNonEmptyString([
+        resolvedProfile?.userId,
+        resolvedProfile?.user_id,
+        resolvedProfile?.sub,
+        resolvedProfile?.id,
+      ]),
+      authId: firstNonEmptyString([resolvedProfile?.authId, resolvedProfile?.aa_id, resolvedProfile?.adobeID]),
+      expiresAt: Number(enforced.loginData?.expiresAt || 0),
+      tokenType: firstNonEmptyString([enforced.loginData?.tokenType]),
+      scope: firstNonEmptyString([enforced.loginData?.scope]),
+    }
+  );
+
   const resolvedLoginData = {
     ...enforced.loginData,
+    tokenType: compactStorageString(firstNonEmptyString([enforced.loginData?.tokenType]), 60) || "bearer",
+    scope: compactStorageString(firstNonEmptyString([enforced.loginData?.scope, resolvedImsSession?.scope]), 2048),
+    idToken: compactStorageString(firstNonEmptyString([enforced.loginData?.idToken]), 4096),
+    refreshToken: compactStorageString(firstNonEmptyString([enforced.loginData?.refreshToken]), 4096),
+    imsSession: resolvedImsSession,
     profile: resolvedProfile,
     imageUrl: resolvedImageUrl,
     adobePassOrg:
@@ -13167,13 +16073,18 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
         avatarUrl: "",
       },
   };
+  resolvedLoginData.sessionKeys = buildSessionKeySnapshot(resolvedLoginData);
 
   state.loginData = resolvedLoginData;
   writePersistedAvatarCandidate(resolvedLoginData, {
     sourceUrl: resolvedLoginData.imageUrl || "",
     resolvedUrl: resolvedLoginData.imageUrl || "",
   });
+  scheduleAvatarDataUrlPrefetch(resolvedLoginData, resolvedLoginData.imageUrl || "");
   state.restricted = false;
+  state.sessionMonitorSuppressed = false;
+  state.sessionMonitorConsecutiveInactiveDetections = 0;
+  state.sessionMonitorInactivityGuardUntil = Date.now() + IMS_SESSION_MONITOR_INACTIVITY_GUARD_MS;
   clearRestrictedOrgOptions();
   state.sessionReady = true;
   await saveLoginData(resolvedLoginData);
@@ -13187,41 +16098,64 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
 }
 
 async function refreshSessionNoTouch() {
-  if (state.busy || state.isBootstrapping) {
-    return;
+  if (state.silentRefreshPromise) {
+    return state.silentRefreshPromise;
   }
 
-  try {
-    const authData = await startLogin({ interactive: false, allowFallback: false });
-    const profile = await resolveProfileAfterLogin(authData);
-    await activateSession(
-      {
-        accessToken: authData.accessToken,
-        expiresAt: authData.expiresAt,
-        profile,
-      },
-      "silent-refresh"
-    );
-  } catch (error) {
-    log("No-touch refresh skipped", error?.message || String(error));
-    if (state.loginData?.expiresAt && state.loginData.expiresAt > Date.now()) {
-      scheduleNoTouchRefresh();
-    }
+  if (state.busy || state.isBootstrapping) {
+    return false;
   }
+
+  const refreshPromise = (async () => {
+    try {
+      const authData = await startLogin({ interactive: false, allowFallback: false });
+      const profile = await resolveProfileAfterLogin(authData);
+      const activated = await activateSession(buildLoginSessionPayloadFromAuth(authData, profile), "silent-refresh");
+      return activated === true;
+    } catch (error) {
+      log("No-touch refresh skipped", error?.message || String(error));
+      if (state.loginData?.expiresAt && state.loginData.expiresAt > Date.now()) {
+        scheduleNoTouchRefresh();
+      }
+      return false;
+    } finally {
+      if (state.silentRefreshPromise === refreshPromise) {
+        state.silentRefreshPromise = null;
+      }
+    }
+  })();
+
+  state.silentRefreshPromise = refreshPromise;
+  return refreshPromise;
 }
 
 async function attemptSilentBootstrapLogin() {
-  try {
-    const authData = await startLogin({ interactive: false, allowFallback: false });
-    const profile = await resolveProfileAfterLogin(authData);
-    return {
-      accessToken: authData.accessToken,
-      expiresAt: authData.expiresAt,
-      profile,
-    };
-  } catch {
-    return null;
+  const silentVariants = [
+    {},
+    {
+      client_id: EXPERIENCE_CLOUD_SSO_CLIENT_ID,
+      profile_filter: EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER,
+    },
+    {
+      client_id: "AdobePass1",
+    },
+  ];
+
+  for (const variant of silentVariants) {
+    try {
+      const authData = await startLogin({
+        interactive: false,
+        allowFallback: false,
+        extraParams: variant,
+      });
+      const profile = await resolveProfileAfterLogin(authData);
+      return buildLoginSessionPayloadFromAuth(authData, profile);
+    } catch {
+      // Try the next silent variant.
+    }
   }
+
+  return null;
 }
 
 function normalizeProgrammersResponse(data) {
@@ -13714,6 +16648,65 @@ function getAdobeConsoleRequestHeaders(accessToken = "") {
   return headers;
 }
 
+function getAdobeConsoleErrorMessage(parsed, text, statusText = "") {
+  return (
+    normalizeHttpErrorMessage(
+      firstNonEmptyString([
+        parsed?.error_description,
+        parsed?.error?.description,
+        parsed?.error?.message,
+        typeof parsed?.error === "string" ? parsed.error : "",
+        parsed?.message,
+        text,
+        statusText,
+      ])
+    ) || "Request failed."
+  );
+}
+
+function isAdobeConsoleTokenExpiredResponse(status, parsed, text = "") {
+  if (Number(status) !== 401) {
+    return false;
+  }
+
+  const errorCode = String(
+    firstNonEmptyString([
+      parsed?.code,
+      parsed?.error_code,
+      parsed?.errorCode,
+      parsed?.error?.code,
+      parsed?.error?.error_code,
+      parsed?.error?.errorCode,
+    ]) || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (errorCode.includes("expired") || errorCode.includes("invalid_token")) {
+    return true;
+  }
+
+  const normalizedMessage = String(
+    firstNonEmptyString([
+      parsed?.error_description,
+      parsed?.error?.description,
+      parsed?.error?.message,
+      typeof parsed?.error === "string" ? parsed.error : "",
+      parsed?.message,
+      text,
+    ]) || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return (
+    normalizedMessage.includes("access token is expired") ||
+    normalizedMessage.includes("token is expired") ||
+    normalizedMessage.includes("expired token") ||
+    normalizedMessage.includes("invalid access token")
+  );
+}
+
 async function fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, contextLabel) {
   const urls = Array.isArray(urlCandidates)
     ? [...new Set(urlCandidates.filter((item) => typeof item === "string" && item.trim()))]
@@ -13722,17 +16715,23 @@ async function fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, contextLabel
     throw new Error(`${contextLabel} failed: no URL candidates.`);
   }
 
-  const accessToken = state.loginData?.accessToken || "";
-  const headerVariants = [getAdobeConsoleRequestHeaders("")];
-  if (accessToken) {
-    headerVariants.push(getAdobeConsoleRequestHeaders(accessToken));
-  }
+  const getHeaderVariants = () => {
+    const variants = [getAdobeConsoleRequestHeaders("")];
+    const activeAccessToken = firstNonEmptyString([state.loginData?.accessToken]);
+    if (activeAccessToken) {
+      variants.push(getAdobeConsoleRequestHeaders(activeAccessToken));
+    }
+    return variants;
+  };
 
   let lastError = null;
   for (const url of urls) {
     let bootstrapAttemptedForUrl = false;
+    let silentRefreshAttemptedForUrl = false;
+    let headerVariants = getHeaderVariants();
 
-    for (const headers of headerVariants) {
+    headersLoop: for (let headerIndex = 0; headerIndex < headerVariants.length; headerIndex += 1) {
+      const headers = headerVariants[headerIndex];
       for (let round = 0; round < 2; round += 1) {
         try {
           const response = await fetch(url, {
@@ -13753,6 +16752,21 @@ async function fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, contextLabel
             };
           }
 
+          if (
+            isAdobeConsoleTokenExpiredResponse(response.status, parsed, text) &&
+            !silentRefreshAttemptedForUrl &&
+            firstNonEmptyString([state.loginData?.accessToken])
+          ) {
+            silentRefreshAttemptedForUrl = true;
+            const refreshed = await refreshSessionNoTouch();
+            if (refreshed) {
+              headerVariants = getHeaderVariants();
+              bootstrapAttemptedForUrl = false;
+              headerIndex = -1;
+              continue headersLoop;
+            }
+          }
+
           const authorizationCodeUrl = extractAuthorizationCodeUrl(parsed || {});
           if (
             response.status === 401 &&
@@ -13767,17 +16781,12 @@ async function fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, contextLabel
             }
           }
 
-          const message =
-            parsed?.error_description ||
-            parsed?.error?.message ||
-            parsed?.error ||
-            parsed?.message ||
-            text ||
-            response.statusText;
+          const message = getAdobeConsoleErrorMessage(parsed, text, response.statusText);
           lastError = new Error(`${contextLabel} failed (${response.status}): ${message}`);
           break;
         } catch (error) {
-          lastError = error instanceof Error ? error : new Error(String(error));
+          const message = normalizeHttpErrorMessage(error instanceof Error ? error.message : String(error));
+          lastError = new Error(message || `${contextLabel} request failed.`);
           break;
         }
       }
@@ -15331,9 +18340,17 @@ function buildCmTenantEndpointCandidates() {
   return uniqueSorted([...CM_TENANT_ENDPOINT_CANDIDATES, ...dynamicUrls].map((url) => normalizeCmUrl(url)).filter(Boolean));
 }
 
-async function ensureCmApiAccessToken() {
+async function ensureCmApiAccessToken(options = {}) {
+  const forceRefresh = options.forceRefresh === true;
+  const tokenFreshLeewayMs =
+    Number.isFinite(options.freshLeewayMs) && Number(options.freshLeewayMs) >= 0
+      ? Number(options.freshLeewayMs)
+      : 60 * 1000;
   const existingToken = String(state.loginData?.accessToken || "").trim();
-  if (existingToken) {
+  const existingExpiresAt = Number(state.loginData?.expiresAt || 0);
+  const hasKnownExpiry = Number.isFinite(existingExpiresAt) && existingExpiresAt > 0;
+  const tokenLooksFresh = hasKnownExpiry && existingExpiresAt > Date.now() + tokenFreshLeewayMs;
+  if (existingToken && !forceRefresh && (!hasKnownExpiry || tokenLooksFresh)) {
     return existingToken;
   }
 
@@ -15343,8 +18360,8 @@ async function ensureCmApiAccessToken() {
 
   const now = Date.now();
   const lastAttempt = Number(state.cmAuthBootstrapLastAttemptAt || 0);
-  if (lastAttempt > 0 && now - lastAttempt < CM_AUTH_BOOTSTRAP_RETRY_MS) {
-    return "";
+  if (!forceRefresh && lastAttempt > 0 && now - lastAttempt < CM_AUTH_BOOTSTRAP_RETRY_MS) {
+    return existingToken;
   }
   state.cmAuthBootstrapLastAttemptAt = now;
 
@@ -15385,7 +18402,7 @@ async function ensureCmApiAccessToken() {
       log("CM token bootstrap skipped", {
         error: error instanceof Error ? error.message : String(error),
       });
-      return "";
+      return existingToken;
     }
   })();
 
@@ -15408,6 +18425,15 @@ function shouldRetryCachedCmService(cmService) {
   const currentFingerprint = getCmAuthFingerprint();
   if (!cmService || typeof cmService !== "object") {
     return currentFingerprint !== "no-token";
+  }
+
+  const loadError = String(cmService.loadError || "").trim();
+  if (loadError) {
+    const fetchedAt = Number(cmService.fetchedAt || 0);
+    if (!fetchedAt) {
+      return true;
+    }
+    return Date.now() - fetchedAt >= 60 * 1000;
   }
 
   const matchedTenants = Array.isArray(cmService.matchedTenants) ? cmService.matchedTenants : [];
@@ -15588,6 +18614,36 @@ function buildCmUsageSeedRows(tenant, profileHarvest = null) {
   return rows;
 }
 
+function isCmTokenExpiredResponse(status, parsed, text = "") {
+  if (Number(status) !== 401) {
+    return false;
+  }
+
+  const errorCode = extractApiErrorCode(parsed);
+  if (errorCode.includes("expired") || errorCode.includes("invalid_token")) {
+    return true;
+  }
+
+  const message = String(
+    firstNonEmptyString([
+      parsed?.error?.code,
+      parsed?.error?.message,
+      typeof parsed?.error === "string" ? parsed.error : "",
+      parsed?.message,
+      text,
+    ]) || ""
+  )
+    .trim()
+    .toLowerCase();
+
+  return (
+    message.includes("access token is expired") ||
+    message.includes("token is expired") ||
+    message.includes("expired token") ||
+    message.includes("invalid access token")
+  );
+}
+
 async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options = {}) {
   const urls = uniqueSorted((Array.isArray(urlCandidates) ? urlCandidates : []).map((url) => normalizeCmUrl(url)).filter(Boolean));
   if (urls.length === 0) {
@@ -15596,23 +18652,29 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
 
   const method = String(options.method || "GET").toUpperCase();
   const debugMeta = options.debugMeta && typeof options.debugMeta === "object" ? options.debugMeta : {};
-  const accessToken = String(state.loginData?.accessToken || "");
   const baseHeaders = {
     Accept: "application/json, text/plain, */*",
     ...(options.headers && typeof options.headers === "object" ? options.headers : {}),
   };
-  const headerVariants = [baseHeaders];
-  if (accessToken) {
-    headerVariants.push({
-      ...baseHeaders,
-      Authorization: `Bearer ${accessToken}`,
-    });
-  }
+  const buildHeaderVariants = () => {
+    const variants = [baseHeaders];
+    const accessToken = String(state.loginData?.accessToken || "").trim();
+    if (accessToken) {
+      variants.push({
+        ...baseHeaders,
+        Authorization: `Bearer ${accessToken}`,
+      });
+    }
+    return variants;
+  };
 
   let lastError = null;
   let attemptCounter = 0;
   for (const url of urls) {
-    for (const headers of headerVariants) {
+    let tokenRefreshAttempted = false;
+    let headerVariants = buildHeaderVariants();
+    headersLoop: for (let headerIndex = 0; headerIndex < headerVariants.length; headerIndex += 1) {
+      const headers = headerVariants[headerIndex];
       attemptCounter += 1;
       emitCmDebugEvent(
         {
@@ -15665,6 +18727,19 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
             status: Number(response.status || 0),
             lastModified: response.headers?.get("Last-Modified") || "",
           };
+        }
+
+        if (
+          !tokenRefreshAttempted &&
+          isCmTokenExpiredResponse(response.status, parsed, text)
+        ) {
+          tokenRefreshAttempted = true;
+          const refreshedToken = await ensureCmApiAccessToken({ forceRefresh: true });
+          if (String(refreshedToken || "").trim()) {
+            headerVariants = buildHeaderVariants();
+            headerIndex = -1;
+            continue headersLoop;
+          }
         }
 
         const message =
@@ -15851,12 +18926,21 @@ async function ensureCmServiceForProgrammer(programmer, options = {}) {
     try {
       catalog = await ensureCmTenantsCatalog({ forceRefresh });
     } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
       log("CM tenants load failed", {
         programmerId: programmer.programmerId,
-        error: error instanceof Error ? error.message : String(error),
+        error: reason,
       });
-      state.cmServiceByProgrammerId.delete(programmer.programmerId);
-      return null;
+      const service = {
+        matchedTenants: [],
+        sourceUrl: "",
+        fetchedAt: Date.now(),
+        tenantCount: 0,
+        tokenFingerprint: getCmAuthFingerprint(),
+        loadError: reason,
+      };
+      state.cmServiceByProgrammerId.set(programmer.programmerId, service);
+      return service;
     }
 
     const matchedTenants = findCmTenantMatchesForProgrammer(programmer, catalog?.tenants || []);
@@ -16874,6 +19958,72 @@ function createProgrammersError(message, code) {
   return error;
 }
 
+function isExperienceCloudAuthResponseUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) {
+    return false;
+  }
+  try {
+    const parsed = new URL(value);
+    const host = String(parsed.hostname || "").toLowerCase();
+    if (
+      host === "auth.services.adobe.com" ||
+      host.endsWith(".auth.services.adobe.com") ||
+      host === "idg.adobe.com" ||
+      host.endsWith(".idg.adobe.com")
+    ) {
+      return true;
+    }
+    if (host === "ims-na1.adobelogin.com" || host.endsWith(".adobelogin.com")) {
+      return parsed.pathname.startsWith("/ims/authorize") || parsed.pathname.startsWith("/ims/adobeid/");
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function responseLooksLikeExperienceCloudSignIn(response, responseBody = "") {
+  const status = Number(response?.status || 0);
+  const responseUrl = String(response?.url || "").trim();
+  if (response?.redirected && isExperienceCloudAuthResponseUrl(responseUrl)) {
+    return true;
+  }
+  if (isExperienceCloudAuthResponseUrl(responseUrl)) {
+    return true;
+  }
+
+  const contentType = String(response?.headers?.get("content-type") || "").toLowerCase();
+  const body = String(responseBody || "").toLowerCase();
+  if (status === 401 || status === 403) {
+    const authHeader = String(response?.headers?.get("www-authenticate") || "").toLowerCase();
+    if (
+      body.includes("invalid_sso_info") ||
+      body.includes("session cookie is null") ||
+      body.includes("session cookie") ||
+      body.includes("id=\"adobeid_signin\"") ||
+      body.includes("flow_type=token") ||
+      authHeader.includes("adobeid") ||
+      authHeader.includes("login") ||
+      authHeader.includes("invalid_sso_info")
+    ) {
+      return true;
+    }
+  }
+
+  if (!contentType.includes("text/html")) {
+    return false;
+  }
+
+  return (
+    body.includes("auth.services.adobe.com") ||
+    body.includes("/signin/v2/tokens") ||
+    body.includes("flow_type=token") ||
+    body.includes("id=\"adobeid_signin\"") ||
+    body.includes("credential=sso")
+  );
+}
+
 async function fetchProgrammersFromApi(options = {}) {
   const accessToken = options.accessToken || state.loginData?.accessToken || "";
   const requireEntities = options.requireEntities !== false;
@@ -16908,26 +20058,32 @@ async function fetchProgrammersFromApi(options = {}) {
           headers,
         });
 
-        if (response.status === 401 || response.status === 403) {
+        const responseText = await response.text().catch(() => "");
+        if (responseLooksLikeExperienceCloudSignIn(response, responseText)) {
           denied = true;
-          const body = await response.text();
           lastError = createProgrammersError(
-            `Media company access denied (${response.status})${body ? `: ${body}` : ""}`,
+            `Media company access denied (${response.status || 0})`,
             "PROGRAMMERS_ACCESS_DENIED"
           );
           continue;
         }
 
         if (!response.ok) {
-          const body = await response.text();
           lastError = createProgrammersError(
-            `Endpoint ${endpoint} failed (${response.status}): ${body || response.statusText}`,
+            `Endpoint ${endpoint} failed (${response.status}): ${responseText || response.statusText}`,
             "PROGRAMMERS_ENDPOINT_FAILED"
           );
           continue;
         }
 
-        const payload = await response.json();
+        const payload = parseJsonText(responseText, null);
+        if (payload === null) {
+          lastError = createProgrammersError(
+            `Endpoint ${endpoint} returned non-JSON payload (${response.status}).`,
+            "PROGRAMMERS_ENDPOINT_FAILED"
+          );
+          continue;
+        }
         const normalizedEntities = normalizeProgrammersResponse(payload);
         if (requireEntities && normalizedEntities.length === 0) {
           lastError = createProgrammersError(`Endpoint ${endpoint} returned no media companies.`, "PROGRAMMERS_EMPTY");
@@ -16987,6 +20143,7 @@ function applyProgrammerEntities(entities) {
   state.premiumAppsLoadPromiseByProgrammerId.clear();
   state.restV2ProfileHarvestBySelectionKey.clear();
   state.restV2ProfileHarvestByProgrammerId.clear();
+  state.restV2ProfileHarvestBucketByProgrammerId.clear();
   state.restV2ProfileHarvestLast = null;
   state.cmServiceByProgrammerId.clear();
   state.cmServiceLoadPromiseByProgrammerId.clear();
@@ -17008,6 +20165,12 @@ function createCookieSessionLoginData() {
   return {
     accessToken: "",
     expiresAt: 0,
+    tokenType: "bearer",
+    scope: "",
+    idToken: "",
+    refreshToken: "",
+    imsSession: null,
+    sessionKeys: null,
     profile: null,
     imageUrl: "",
     adobePassOrg: {
@@ -17044,13 +20207,30 @@ async function tryActivateCookieSession(source, options = {}) {
             profile: mergedProfile,
           }),
         };
+        writePersistedAvatarCandidate(state.loginData, {
+          sourceUrl: state.loginData.imageUrl || "",
+          resolvedUrl: state.loginData.imageUrl || "",
+        });
       }
     } catch {
       // Ignore cookie-profile lookup errors.
     }
 
+    const cookieSessionData = {
+      ...state.loginData,
+      imsSession: mergeImsSessionSnapshots(
+        deriveImsSessionSnapshotFromToken(state.loginData?.accessToken || ""),
+        state.loginData?.imsSession && typeof state.loginData.imsSession === "object" ? state.loginData.imsSession : null
+      ),
+    };
+    cookieSessionData.sessionKeys = buildSessionKeySnapshot(cookieSessionData);
+    state.loginData = cookieSessionData;
+
     state.sessionReady = true;
     state.restricted = false;
+    state.sessionMonitorSuppressed = false;
+    state.sessionMonitorConsecutiveInactiveDetections = 0;
+    state.sessionMonitorInactivityGuardUntil = Date.now() + IMS_SESSION_MONITOR_INACTIVITY_GUARD_MS;
     clearRestrictedOrgOptions();
     clearRefreshTimer();
     render();
@@ -17098,7 +20278,7 @@ async function hydrateCookieSessionWithProfile() {
       const cookieProfile = await fetchImsSessionProfile("");
       if (cookieProfile && typeof cookieProfile === "object" && state.loginData) {
         const mergedProfile = mergeProfilePayloads(resolveLoginProfile(state.loginData), cookieProfile);
-        state.loginData = {
+        const mergedCookieSession = {
           ...state.loginData,
           profile: mergedProfile,
           imageUrl: resolveLoginImageUrl({
@@ -17106,6 +20286,12 @@ async function hydrateCookieSessionWithProfile() {
             profile: mergedProfile,
           }),
         };
+        mergedCookieSession.sessionKeys = buildSessionKeySnapshot(mergedCookieSession);
+        state.loginData = mergedCookieSession;
+        writePersistedAvatarCandidate(state.loginData, {
+          sourceUrl: state.loginData.imageUrl || "",
+          resolvedUrl: state.loginData.imageUrl || "",
+        });
         state.avatarResolveKey = "";
         render();
       }
@@ -17125,7 +20311,7 @@ async function hydrateCookieSessionWithProfile() {
     });
 
     const hydrated = {
-      ...enforced.loginData,
+      ...buildLoginSessionPayloadFromAuth(enforced.loginData, hydratedProfile, hydratedImageUrl),
       profile: hydratedProfile,
       imageUrl: hydratedImageUrl,
       adobePassOrg:
@@ -17138,8 +20324,13 @@ async function hydrateCookieSessionWithProfile() {
           avatarUrl: "",
         },
     };
+    hydrated.sessionKeys = buildSessionKeySnapshot(hydrated);
 
     state.loginData = hydrated;
+    writePersistedAvatarCandidate(hydrated, {
+      sourceUrl: hydrated.imageUrl || "",
+      resolvedUrl: hydrated.imageUrl || "",
+    });
     state.avatarResolveKey = "";
     await saveLoginData(hydrated);
     scheduleNoTouchRefresh();
@@ -17270,6 +20461,7 @@ function render() {
 }
 
 async function signInInteractive() {
+  state.sessionMonitorSuppressed = false;
   setBusy(true, "Signing in...");
   setStatus("", "info");
 
@@ -17278,15 +20470,7 @@ async function signInInteractive() {
     resetAvatarStateForInteractiveLogin();
     const profile = await resolveProfileAfterLogin(authData);
     const imageUrl = resolveAuthAvatarSeed(authData, profile);
-    const activated = await activateSession(
-      {
-        accessToken: authData.accessToken,
-        expiresAt: authData.expiresAt,
-        profile,
-        imageUrl,
-      },
-      "interactive"
-    );
+    const activated = await activateSession(buildLoginSessionPayloadFromAuth(authData, profile, imageUrl), "interactive");
 
     if (!activated) {
       const cookieActivated = await tryActivateCookieSession("interactive-post-login", {
@@ -17310,6 +20494,7 @@ async function signInInteractive() {
 }
 
 async function refreshSessionManual() {
+  state.sessionMonitorSuppressed = false;
   setBusy(true, "Refreshing session...");
   setStatus("", "info");
 
@@ -17330,12 +20515,7 @@ async function refreshSessionManual() {
     const profile = await resolveProfileAfterLogin(authData);
     const imageUrl = resolveAuthAvatarSeed(authData, profile);
     const activated = await activateSession(
-      {
-        accessToken: authData.accessToken,
-        expiresAt: authData.expiresAt,
-        profile,
-        imageUrl,
-      },
+      buildLoginSessionPayloadFromAuth(authData, profile, imageUrl),
       "manual-refresh"
     );
 
@@ -17400,12 +20580,7 @@ async function onRestrictedOrgSwitch() {
         const profile = await resolveProfileAfterLogin(authData);
         const imageUrl = resolveAuthAvatarSeed(authData, profile);
         const activated = await activateSession(
-          {
-            accessToken: authData.accessToken,
-            expiresAt: authData.expiresAt,
-            profile,
-            imageUrl,
-          },
+          buildLoginSessionPayloadFromAuth(authData, profile, imageUrl),
           "restricted-org-switch",
           { allowDeniedRecovery: false }
         );
@@ -17476,6 +20651,7 @@ async function bootstrapSession() {
     return;
   }
 
+  state.sessionMonitorSuppressed = false;
   state.isBootstrapping = true;
   setBusy(true, "Checking session...");
   setStatus("", "info");
@@ -17485,13 +20661,16 @@ async function bootstrapSession() {
     if (stored) {
       try {
         const profile = await fetchProfile(stored.accessToken);
-        const activated = await activateSession(
-          {
-            accessToken: stored.accessToken,
-            expiresAt: stored.expiresAt,
+        const storedSessionPayload = {
+          ...buildLoginSessionPayloadFromAuth(stored, profile, stored.imageUrl),
+          adobePassOrg: stored.adobePassOrg || null,
+          sessionKeys: buildSessionKeySnapshot({
+            ...stored,
             profile,
-            adobePassOrg: stored.adobePassOrg || null,
-          },
+          }),
+        };
+        const activated = await activateSession(
+          storedSessionPayload,
           "stored"
         );
 
@@ -17641,6 +20820,24 @@ function registerEventHandlers() {
       closeAvatarMenu();
     }
   });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      void runExperienceCloudSessionMonitorTick("visibility");
+    }
+  });
+
+  window.addEventListener("focus", () => {
+    void runExperienceCloudSessionMonitorTick("focus");
+  });
+
+  window.addEventListener(
+    "pagehide",
+    () => {
+      stopExperienceCloudSessionMonitor();
+    },
+    { once: true }
+  );
 }
 
 function init() {
@@ -17653,6 +20850,7 @@ function init() {
   registerEventHandlers();
   render();
   void bootstrapSession();
+  startExperienceCloudSessionMonitor();
 }
 
 init();
