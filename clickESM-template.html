@@ -2,215 +2,469 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>__UP_CLICK_ESM_TITLE__</title>
+<title>ESM3 FINDIT</title>
 <style>
 :root{
-  color-scheme: light;
-  --control-height:34px;
-  --bg:#F3F3F3;
-  --bg-glow-cool:rgba(55,148,255,.08);
-  --bg-glow-warm:rgba(112,119,131,.06);
-  --bg-glow-magenta:rgba(116,129,146,.05);
-  --panel:rgba(255,255,255,.92);
-  --panel-strong:rgba(255,255,255,.98);
-  --text-primary:#1F2328;
-  --text-muted:#5F6773;
-  --accent:#0B62D6;
-  --accent-strong:#084EA8;
-  --secondary-accent:#4774C4;
-  --field-bg:#FFFFFF;
-  --field-border:#C8CED6;
-  --field-border-focus:#0B62D6;
-  --field-focus-ring:rgba(11,98,214,.24);
-  --button-bg:#F7F8FA;
-  --button-hover:#ECEFF3;
-  --button-border:#BCC5D0;
-  --button-text:#202833;
-  --table-head:#ECEFF3;
-  --table-row:#FBFCFD;
-  --table-alt:#F4F6F9;
-  --table-click-base:#2A3E58;
-  --table-click-hover:#355982;
-  --table-click-active:#0B62D6;
-  --row-hover:#E9EDF3;
-  --border:#D5DCE4;
-  --shadow:rgba(15,23,42,.12);
-  --highlight:#FFE082;
-  --highlight-text:#1A1F24;
-  --parent-highlight:rgba(175,202,243,.40);
-  --footer-muted:#6B7481;
-  --spinner-track:rgba(0,0,0,.25);
-  --spinner-head:rgba(0,0,0,.65);
-  --theme-preview:#1E1E1E;
-  --theme-ring:#0B62D6;
-  --theme-halo:rgba(11,98,214,.24);
-  --theme-shadow:rgba(17,26,35,.24);
-  --reset-bg:#C44747;
-  --reset-border:#AB3A3A;
-  --reset-hover:#B53E3E;
+  color-scheme:light;
+  /* ZIP Light x Silver accent ramp */
+  --zip-accent-500:191, 194, 198;
+  --zip-accent-600:179, 183, 187;
+  --zip-accent-700:169, 173, 178;
+  --zip-accent-800:158, 163, 168;
+  --zip-accent-900:142, 147, 151;
+  --zip-accent-1000:123, 127, 131;
+  --zip-accent-1100:107, 111, 114;
+  /* ZIP-generated light vibe values for Silver */
+  --zip-theme-vibe-body-radial-alpha:0.156;
+  --zip-theme-vibe-body-start-mix:30.56%;
+  --zip-theme-vibe-body-end-mix:25.78%;
+  --zip-theme-vibe-shell-mix:25.55%;
+  --zip-theme-vibe-border-mix:38.2%;
+  --zip-theme-vibe-topbar-a-alpha:0.146;
+  --zip-theme-vibe-topbar-b-alpha:0.085;
+  --zip-theme-vibe-topbar-c-mix:27.25%;
+  --zip-theme-vibe-footer-a-alpha:0.12;
+  --zip-theme-vibe-footer-b-mix:19.44%;
+  --zip-theme-vibe-menu-a-mix:16.32%;
+  --zip-theme-vibe-menu-b-mix:14.16%;
+  --zip-theme-vibe-login-a-alpha:0.142;
+  --zip-theme-vibe-login-c-alpha:0.103;
+  --zip-theme-vibe-section-a-mix:19.59%;
+  --zip-theme-vibe-section-b-mix:25.26%;
+  --zip-theme-vibe-header-a-alpha:0.158;
+  --zip-theme-vibe-selection-a-alpha:0.202;
+  --zip-theme-vibe-selection-b-alpha:0.132;
+  --zip-theme-vibe-focus-alpha:0.206;
+  --zip-theme-vibe-surface-soft-alpha:0.094;
+  --zip-theme-vibe-surface-mid-alpha:0.136;
+  --zip-theme-vibe-surface-strong-alpha:0.221;
+  --zip-theme-vibe-menu-surface-mix:14.92%;
+  --zip-theme-vibe-glow-alpha:0.172;
+  --zip-theme-vibe-feedback-bg-alpha:0.143;
+  --zip-theme-vibe-feedback-border-alpha:0.347;
+  --zip-theme-vibe-zebra-contrast:12.68%;
+  --zip-theme-vibe-zebra-hover:8.5%;
+
+  /* ZIP light neutral stop */
+  --zip-gray-25-rgb:255, 255, 255;
+  --zip-gray-50-rgb:248, 248, 248;
+  --zip-gray-75-rgb:243, 243, 243;
+  --zip-gray-100-rgb:233, 233, 233;
+  --zip-gray-200-rgb:225, 225, 225;
+  --zip-gray-300-rgb:218, 218, 218;
+  --zip-gray-400-rgb:198, 198, 198;
+  --zip-gray-500-rgb:143, 143, 143;
+  --zip-gray-600-rgb:113, 113, 113;
+  --zip-gray-700-rgb:80, 80, 80;
+  --zip-gray-800-rgb:41, 41, 41;
+  --zip-gray-900-rgb:19, 19, 19;
+  --zip-gray-1000-rgb:0, 0, 0;
+
+  /* Keep remove-filter icon explicitly destructive red across themes */
+  --danger-rgb:186, 54, 54;
+  --danger-strong-rgb:159, 37, 37;
+  /* RESET (Light): ZIP Indigo family */
+  --reset-bg:#4338CA;
+  --reset-border:#3730A3;
+  --reset-hover:#4F46E5;
   --reset-text:#FFFFFF;
-  /* MVPD banding shades (used for <option> backgrounds) — color-blind friendly pastels */
-  --mvpd-colorA:#EBF2FE; /* cool A-family shade 1 */
-  --mvpd-colorB:#DEE9FC; /* cool A-family shade 2 */
-  --mvpd-colorC:#F6F0E6; /* warm B-family shade 1 */
-  --mvpd-colorD:#EEE3D2; /* warm B-family shade 2 */
-  --mvpd-hover:#E4EBF5; /* subtle hover highlight */
+  --radius-card:14px;
+  --radius-control:8px;
+  --radius-pill:999px;
+  --control-height:34px;
+  --surface-frost:color-mix(in srgb, var(--panel) 92%, rgb(var(--zip-gray-25-rgb)) 8%);
+  --card-shadow:0 1px 2px var(--shadow), 0 10px 24px color-mix(in srgb, var(--shadow) 54%, transparent);
+  --card-shadow-hover:0 2px 5px var(--shadow), 0 16px 30px color-mix(in srgb, var(--shadow) 60%, transparent);
+
+  --zip-shell-surface-bg:color-mix(in srgb, rgb(var(--zip-gray-50-rgb)) calc(100% - var(--zip-theme-vibe-shell-mix)), rgb(var(--zip-accent-1000)) var(--zip-theme-vibe-shell-mix));
+  --zip-surface-border-accent:color-mix(in srgb, rgb(var(--zip-gray-300-rgb)) calc(100% - var(--zip-theme-vibe-border-mix)), rgb(var(--zip-accent-900)) var(--zip-theme-vibe-border-mix));
+  --zip-body-grad-start:color-mix(in srgb, rgb(var(--zip-gray-25-rgb)) calc(100% - var(--zip-theme-vibe-body-start-mix)), rgb(var(--zip-accent-900)) var(--zip-theme-vibe-body-start-mix));
+  --zip-body-grad-end:color-mix(in srgb, rgb(var(--zip-gray-25-rgb)) calc(100% - var(--zip-theme-vibe-body-end-mix)), rgb(var(--zip-accent-1100)) var(--zip-theme-vibe-body-end-mix));
+  --zip-menu-grad-a:color-mix(in srgb, rgb(var(--zip-gray-50-rgb)) calc(100% - var(--zip-theme-vibe-menu-a-mix)), rgb(var(--zip-accent-1000)) var(--zip-theme-vibe-menu-a-mix));
+  --zip-menu-grad-b:color-mix(in srgb, rgb(var(--zip-gray-75-rgb)) calc(100% - var(--zip-theme-vibe-menu-b-mix)), rgb(var(--zip-accent-900)) var(--zip-theme-vibe-menu-b-mix));
+
+  --zip-table-zebra-contrast:var(--zip-theme-vibe-zebra-contrast);
+  --zip-table-zebra-hover-boost:var(--zip-theme-vibe-zebra-hover);
+  --zip-table-row-odd-base:rgb(var(--zip-gray-50-rgb));
+  --zip-table-row-even-base:rgb(var(--zip-gray-75-rgb));
+  --zip-table-row-hover-base:rgb(var(--zip-gray-100-rgb));
+  --zip-table-zebra-odd-accent:calc(var(--zip-table-zebra-contrast) * 0.9);
+  --zip-table-zebra-even-accent:calc(var(--zip-table-zebra-contrast) * 1.22);
+  --zip-table-zebra-hover-accent:calc(var(--zip-table-zebra-even-accent) + var(--zip-table-zebra-hover-boost));
+
+  --bg:rgb(var(--zip-gray-25-rgb));
+  --bg-gradient:
+    radial-gradient(120% 70% at 8% 0%, rgba(var(--zip-accent-800), var(--zip-theme-vibe-body-radial-alpha)) 0%, transparent 52%),
+    linear-gradient(180deg, var(--zip-body-grad-start) 0%, var(--zip-shell-surface-bg) 54%, var(--zip-body-grad-end) 100%);
+  --panel:var(--zip-shell-surface-bg);
+  --text-primary:rgb(var(--zip-gray-800-rgb));
+  --text-muted:rgb(var(--zip-gray-700-rgb));
+  --accent:rgb(var(--zip-accent-900));
+  --accent-strong:rgb(var(--zip-accent-1100));
+  --accent-rgb:var(--zip-accent-900);
+  --field-bg:color-mix(in srgb, rgb(var(--zip-gray-25-rgb)) 86%, rgb(var(--zip-accent-1000)) 14%);
+  --field-border:color-mix(in srgb, rgb(var(--zip-gray-300-rgb)) 78%, rgb(var(--zip-accent-1000)) 22%);
+  --field-border-focus:rgb(var(--zip-accent-1000));
+  --field-focus-ring:rgba(var(--zip-accent-900), .22);
+  --button-bg:linear-gradient(180deg, var(--zip-menu-grad-a) 0%, var(--zip-menu-grad-b) 100%);
+  --button-hover:linear-gradient(180deg, color-mix(in srgb, rgb(var(--zip-gray-50-rgb)) calc(100% - calc(var(--zip-theme-vibe-menu-a-mix) + 4%)), rgb(var(--zip-accent-1000)) calc(var(--zip-theme-vibe-menu-a-mix) + 4%)) 0%, color-mix(in srgb, rgb(var(--zip-gray-75-rgb)) calc(100% - calc(var(--zip-theme-vibe-menu-b-mix) + 3%)), rgb(var(--zip-accent-900)) calc(var(--zip-theme-vibe-menu-b-mix) + 3%)) 100%);
+  --button-border:var(--zip-surface-border-accent);
+  --button-text:rgb(var(--zip-gray-800-rgb));
+  --table-head:color-mix(in srgb, var(--zip-table-row-hover-base) calc(100% - calc(var(--zip-table-zebra-even-accent) + 6%)), rgb(var(--zip-accent-900)) calc(var(--zip-table-zebra-even-accent) + 6%));
+  --table-row:color-mix(in srgb, var(--zip-table-row-odd-base) calc(100% - var(--zip-table-zebra-odd-accent)), rgb(var(--zip-accent-800)) var(--zip-table-zebra-odd-accent));
+  --table-alt:color-mix(in srgb, var(--zip-table-row-even-base) calc(100% - var(--zip-table-zebra-even-accent)), rgb(var(--zip-accent-900)) var(--zip-table-zebra-even-accent));
+  --row-hover:color-mix(in srgb, var(--zip-table-row-hover-base) calc(100% - var(--zip-table-zebra-hover-accent)), rgb(var(--zip-accent-900)) var(--zip-table-zebra-hover-accent));
+  --table-row-hover:color-mix(in srgb, var(--zip-table-row-hover-base) 71%, rgb(var(--click-url-rgb)) 29%);
+  --border:var(--zip-surface-border-accent);
+  --shadow:rgba(0,0,0,.18);
+  --highlight:#FFC20E;
+  --highlight-text:#131820;
+  --highlight-border:rgba(146, 89, 16, .52);
+  --parent-highlight:rgba(37, 99, 235, .17);
+  --parent-highlight-border:rgba(37, 99, 235, .56);
+  --parent-highlight-glow:rgba(37, 99, 235, .24);
+  --match-row-hover:color-mix(in srgb, var(--table-row-hover) 54%, var(--parent-highlight-border) 46%);
+  --chip-highlight-bg:rgba(37, 99, 235, .14);
+  --chip-highlight-border:rgba(37, 99, 235, .58);
+  --footer-muted:rgb(var(--zip-gray-600-rgb));
+  --spinner-track:rgba(0,0,0,.20);
+  --spinner-head:rgba(0,0,0,.58);
+  --theme-preview:linear-gradient(180deg, rgb(var(--zip-gray-25-rgb)) 0%, rgb(var(--zip-gray-75-rgb)) 100%);
+  --theme-ring:rgb(var(--zip-accent-1000));
+  --theme-halo:rgba(var(--zip-accent-900), .24);
+  --theme-shadow:rgba(17,26,35,.24);
+  /* Click URL (Light): ZIP Azure Blue family */
+  --click-url-rgb:0, 108, 191;
+  --click-url-hover-rgb:0, 82, 144;
+  --mvpd-colorA:color-mix(in srgb, var(--table-row) 90%, rgb(var(--zip-accent-1000)) 10%);
+  --mvpd-colorB:color-mix(in srgb, var(--table-alt) 90%, rgb(var(--zip-accent-900)) 10%);
+  --mvpd-colorC:color-mix(in srgb, var(--table-row) 88%, rgb(var(--zip-gray-600-rgb)) 12%);
+  --mvpd-colorD:color-mix(in srgb, var(--table-alt) 88%, rgb(var(--zip-gray-700-rgb)) 12%);
+  --mvpd-hover:var(--row-hover);
 }
 
 body[data-theme="dark"]{
-  color-scheme: dark;
-  --bg:#1E1E1E;
-  --bg-glow-cool:rgba(55,148,255,.10);
-  --bg-glow-warm:rgba(120,126,136,.08);
-  --bg-glow-magenta:rgba(74,84,96,.08);
-  --panel:rgba(37,37,38,.90);
-  --panel-strong:rgba(30,30,30,.96);
-  --text-primary:#D4D4D4;
-  --text-muted:#9CA3AD;
-  --accent:#3794FF;
-  --accent-strong:#63A7FF;
-  --secondary-accent:#7FB9FF;
-  --field-bg:#1F1F1F;
-  --field-border:#3E3E42;
-  --field-border-focus:#3794FF;
-  --field-focus-ring:rgba(55,148,255,.30);
-  --button-bg:#313135;
-  --button-hover:#3A3A3F;
-  --button-border:#4A4A50;
-  --button-text:#DADADA;
-  --table-head:#2D2D30;
-  --table-row:#1F1F1F;
-  --table-alt:#252526;
-  --table-click-base:#B5CCE3;
-  --table-click-hover:#CEE2F4;
-  --table-click-active:#7FB9FF;
-  --row-hover:#2A2D2E;
-  --border:#3F3F46;
-  --shadow:rgba(0,0,0,.38);
-  --highlight:#264F78;
-  --highlight-text:#EAF3FF;
-  --parent-highlight:rgba(55,89,124,.38);
-  --footer-muted:#8E949D;
-  --spinner-track:rgba(212,212,212,.28);
-  --spinner-head:rgba(212,212,212,.80);
-  --theme-preview:#F3F3F3;
-  --theme-ring:#3794FF;
-  --theme-halo:rgba(55,148,255,.24);
-  --theme-shadow:rgba(0,0,0,.50);
-  --reset-bg:#D07A55;
-  --reset-border:#B96846;
-  --reset-hover:#DB8763;
-  --reset-text:#1D120C;
-  --mvpd-colorA:#24384C;
-  --mvpd-colorB:#2B425A;
-  --mvpd-colorC:#4E4030;
-  --mvpd-colorD:#5C4B38;
-  --mvpd-hover:#34506A;
+  color-scheme:dark;
+  /* ZIP Dark x Charcoal accent ramp */
+  --zip-accent-500:22, 22, 22;
+  --zip-accent-600:27, 27, 27;
+  --zip-accent-700:30, 30, 30;
+  --zip-accent-800:34, 34, 34;
+  --zip-accent-900:61, 61, 61;
+  --zip-accent-1000:87, 87, 87;
+  --zip-accent-1100:114, 114, 114;
+  /* ZIP-generated dark vibe values for Charcoal */
+  --zip-theme-vibe-body-radial-alpha:0.27;
+  --zip-theme-vibe-body-start-mix:54.21%;
+  --zip-theme-vibe-body-end-mix:40.4%;
+  --zip-theme-vibe-shell-mix:39.51%;
+  --zip-theme-vibe-border-mix:47.44%;
+  --zip-theme-vibe-topbar-a-alpha:0.24;
+  --zip-theme-vibe-topbar-b-alpha:0.153;
+  --zip-theme-vibe-topbar-c-mix:31.12%;
+  --zip-theme-vibe-footer-a-alpha:0.201;
+  --zip-theme-vibe-footer-b-mix:28.46%;
+  --zip-theme-vibe-menu-a-mix:22.72%;
+  --zip-theme-vibe-menu-b-mix:16.11%;
+  --zip-theme-vibe-login-a-alpha:0.2;
+  --zip-theme-vibe-login-c-alpha:0.139;
+  --zip-theme-vibe-section-a-mix:33.33%;
+  --zip-theme-vibe-section-b-mix:40.01%;
+  --zip-theme-vibe-header-a-alpha:0.23;
+  --zip-theme-vibe-selection-a-alpha:0.283;
+  --zip-theme-vibe-selection-b-alpha:0.169;
+  --zip-theme-vibe-focus-alpha:0.26;
+  --zip-theme-vibe-surface-soft-alpha:0.176;
+  --zip-theme-vibe-surface-mid-alpha:0.275;
+  --zip-theme-vibe-surface-strong-alpha:0.4;
+  --zip-theme-vibe-menu-surface-mix:19.38%;
+  --zip-theme-vibe-glow-alpha:0.243;
+  --zip-theme-vibe-feedback-bg-alpha:0.189;
+  --zip-theme-vibe-feedback-border-alpha:0.41;
+  --zip-theme-vibe-zebra-contrast:15.28%;
+  --zip-theme-vibe-zebra-hover:9.34%;
+
+  --zip-gray-25-rgb:17, 17, 17;
+  --zip-gray-50-rgb:27, 27, 27;
+  --zip-gray-75-rgb:34, 34, 34;
+  --zip-gray-100-rgb:44, 44, 44;
+  --zip-gray-200-rgb:50, 50, 50;
+  --zip-gray-300-rgb:57, 57, 57;
+  --zip-gray-400-rgb:68, 68, 68;
+  --zip-gray-500-rgb:109, 109, 109;
+  --zip-gray-600-rgb:138, 138, 138;
+  --zip-gray-700-rgb:175, 175, 175;
+  --zip-gray-800-rgb:219, 219, 219;
+  --zip-gray-900-rgb:242, 242, 242;
+  --zip-gray-1000-rgb:255, 255, 255;
+
+  --danger-rgb:183, 56, 56;
+  --danger-strong-rgb:198, 84, 84;
+  /* RESET (Dark): ZIP Turquoise family (distinct from Light palette) */
+  --reset-bg:#00B7C4;
+  --reset-border:#007B7F;
+  --reset-hover:#00A3E0;
+  --reset-text:#04161A;
+  --surface-frost:color-mix(in srgb, var(--panel) 90%, rgb(var(--zip-gray-50-rgb)) 10%);
+  --card-shadow:0 2px 8px rgba(0,0,0,.42), 0 18px 34px rgba(0,0,0,.56);
+  --card-shadow-hover:0 4px 12px rgba(0,0,0,.48), 0 22px 38px rgba(0,0,0,.62);
+
+  --zip-shell-surface-bg:color-mix(in srgb, rgb(var(--zip-gray-50-rgb)) calc(100% - var(--zip-theme-vibe-shell-mix)), rgb(var(--zip-accent-1000)) var(--zip-theme-vibe-shell-mix));
+  --zip-surface-border-accent:color-mix(in srgb, rgb(var(--zip-gray-300-rgb)) calc(100% - var(--zip-theme-vibe-border-mix)), rgb(var(--zip-accent-1000)) var(--zip-theme-vibe-border-mix));
+  --zip-body-grad-start:color-mix(in srgb, rgb(var(--zip-gray-25-rgb)) calc(100% - var(--zip-theme-vibe-body-start-mix)), rgb(var(--zip-accent-1100)) var(--zip-theme-vibe-body-start-mix));
+  --zip-body-grad-end:color-mix(in srgb, rgb(var(--zip-gray-25-rgb)) calc(100% - var(--zip-theme-vibe-body-end-mix)), rgb(var(--zip-accent-900)) var(--zip-theme-vibe-body-end-mix));
+  --zip-menu-grad-a:color-mix(in srgb, rgb(var(--zip-gray-75-rgb)) calc(100% - var(--zip-theme-vibe-menu-a-mix)), rgb(var(--zip-accent-1000)) var(--zip-theme-vibe-menu-a-mix));
+  --zip-menu-grad-b:color-mix(in srgb, rgb(var(--zip-gray-50-rgb)) calc(100% - var(--zip-theme-vibe-menu-b-mix)), rgb(var(--zip-accent-900)) var(--zip-theme-vibe-menu-b-mix));
+
+  --zip-table-zebra-contrast:var(--zip-theme-vibe-zebra-contrast);
+  --zip-table-zebra-hover-boost:var(--zip-theme-vibe-zebra-hover);
+  --zip-table-row-odd-base:rgb(var(--zip-gray-75-rgb));
+  --zip-table-row-even-base:rgb(var(--zip-gray-100-rgb));
+  --zip-table-row-hover-base:rgb(var(--zip-gray-200-rgb));
+  --zip-table-zebra-odd-accent:calc(var(--zip-table-zebra-contrast) * 0.9);
+  --zip-table-zebra-even-accent:calc(var(--zip-table-zebra-contrast) * 1.22);
+  --zip-table-zebra-hover-accent:calc(var(--zip-table-zebra-even-accent) + var(--zip-table-zebra-hover-boost));
+
+  --bg:rgb(var(--zip-gray-25-rgb));
+  --bg-gradient:
+    radial-gradient(120% 70% at 8% 0%, rgba(var(--zip-accent-800), var(--zip-theme-vibe-body-radial-alpha)) 0%, transparent 52%),
+    linear-gradient(180deg, var(--zip-body-grad-start) 0%, var(--zip-shell-surface-bg) 54%, var(--zip-body-grad-end) 100%);
+  --panel:var(--zip-shell-surface-bg);
+  --text-primary:rgb(var(--zip-gray-800-rgb));
+  --text-muted:rgb(var(--zip-gray-700-rgb));
+  --accent:rgb(var(--zip-accent-900));
+  --accent-strong:rgb(var(--zip-accent-1100));
+  --accent-rgb:var(--zip-accent-900);
+  --field-bg:color-mix(in srgb, rgb(var(--zip-gray-50-rgb)) 88%, rgb(var(--zip-accent-1000)) 12%);
+  --field-border:color-mix(in srgb, rgb(var(--zip-gray-300-rgb)) 70%, rgb(var(--zip-accent-1000)) 30%);
+  --field-border-focus:rgb(var(--zip-accent-1100));
+  --field-focus-ring:rgba(var(--zip-accent-900), .28);
+  --button-bg:linear-gradient(180deg, var(--zip-menu-grad-a) 0%, var(--zip-menu-grad-b) 100%);
+  --button-hover:linear-gradient(180deg, color-mix(in srgb, rgb(var(--zip-gray-100-rgb)) calc(100% - calc(var(--zip-theme-vibe-menu-a-mix) + 4%)), rgb(var(--zip-accent-1000)) calc(var(--zip-theme-vibe-menu-a-mix) + 4%)) 0%, color-mix(in srgb, rgb(var(--zip-gray-75-rgb)) calc(100% - calc(var(--zip-theme-vibe-menu-b-mix) + 3%)), rgb(var(--zip-accent-900)) calc(var(--zip-theme-vibe-menu-b-mix) + 3%)) 100%);
+  --button-border:var(--zip-surface-border-accent);
+  --button-text:rgb(var(--zip-gray-800-rgb));
+  --table-head:color-mix(in srgb, var(--zip-table-row-hover-base) calc(100% - calc(var(--zip-table-zebra-even-accent) + 6%)), rgb(var(--zip-accent-900)) calc(var(--zip-table-zebra-even-accent) + 6%));
+  --table-row:color-mix(in srgb, var(--zip-table-row-odd-base) calc(100% - var(--zip-table-zebra-odd-accent)), rgb(var(--zip-accent-800)) var(--zip-table-zebra-odd-accent));
+  --table-alt:color-mix(in srgb, var(--zip-table-row-even-base) calc(100% - var(--zip-table-zebra-even-accent)), rgb(var(--zip-accent-900)) var(--zip-table-zebra-even-accent));
+  --row-hover:color-mix(in srgb, var(--zip-table-row-hover-base) calc(100% - var(--zip-table-zebra-hover-accent)), rgb(var(--zip-accent-900)) var(--zip-table-zebra-hover-accent));
+  --table-row-hover:color-mix(in srgb, var(--zip-table-row-hover-base) 66%, rgb(var(--click-url-rgb)) 34%);
+  --border:var(--zip-surface-border-accent);
+  --shadow:rgba(0,0,0,.48);
+  --highlight:#F97316;
+  --highlight-text:#140B05;
+  --highlight-border:rgba(251, 146, 60, .62);
+  --parent-highlight:rgba(16, 185, 129, .20);
+  --parent-highlight-border:rgba(52, 211, 153, .62);
+  --parent-highlight-glow:rgba(16, 185, 129, .27);
+  --match-row-hover:color-mix(in srgb, var(--table-row-hover) 52%, var(--parent-highlight-border) 48%);
+  --chip-highlight-bg:rgba(16, 185, 129, .20);
+  --chip-highlight-border:rgba(52, 211, 153, .64);
+  --footer-muted:rgb(var(--zip-gray-600-rgb));
+  --spinner-track:rgba(242,242,242,.30);
+  --spinner-head:rgba(242,242,242,.84);
+  --theme-preview:linear-gradient(180deg, rgb(var(--zip-gray-50-rgb)) 0%, rgb(var(--zip-gray-25-rgb)) 100%);
+  --theme-ring:rgb(var(--zip-accent-1100));
+  --theme-halo:rgba(var(--zip-accent-900), .30);
+  --theme-shadow:rgba(0,0,0,.56);
+  /* Click URL (Dark): ZIP Emerald family (distinct from Light palette) */
+  --click-url-rgb:31, 167, 135;
+  --click-url-hover-rgb:61, 179, 152;
+  --mvpd-colorA:color-mix(in srgb, var(--table-row) 88%, rgb(var(--zip-accent-1000)) 12%);
+  --mvpd-colorB:color-mix(in srgb, var(--table-alt) 88%, rgb(var(--zip-accent-900)) 12%);
+  --mvpd-colorC:color-mix(in srgb, var(--table-row) 86%, rgb(var(--zip-gray-600-rgb)) 14%);
+  --mvpd-colorD:color-mix(in srgb, var(--table-alt) 86%, rgb(var(--zip-gray-700-rgb)) 14%);
+  --mvpd-hover:var(--row-hover);
 }
 
-html, body { height:100%; }
 body{
-  margin:0;
-  padding:20px;
-  box-sizing:border-box;
-  overflow:hidden;
-  background:
-    radial-gradient(circle at 8% -14%, var(--bg-glow-cool), rgba(0,0,0,0) 44%),
-    radial-gradient(circle at 96% -12%, var(--bg-glow-warm), rgba(0,0,0,0) 42%),
-    radial-gradient(circle at 50% 116%, var(--bg-glow-magenta), rgba(0,0,0,0) 50%),
-    var(--bg);
+  background:var(--bg-gradient, var(--bg));
   color:var(--text-primary);
-  font-family:system-ui,Arial,sans-serif;
+  font-family:adobe-clean, "Adobe Clean", "Source Sans Pro", "Segoe UI", system-ui, sans-serif;
+  margin:20px;
   transition:background-color .18s ease,color .18s ease;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
 }
-
-a{color:var(--accent);text-decoration:none}
-a:hover{color:var(--accent-strong);text-decoration:underline}
-
-.app-shell{
-  display:flex;
-  flex-direction:column;
-  height:100%;
-  gap:12px;
+dl{
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-frost) 96%, transparent) 0%, var(--panel) 100%),
+    var(--panel);
+  padding:16px;
+  border-radius:var(--radius-card);
+  margin-bottom:12px;
+  border:1px solid color-mix(in srgb, var(--border) 82%, rgb(var(--click-url-rgb)) 18%);
+  box-shadow:var(--card-shadow);
+  transition:border-color .16s ease, box-shadow .18s ease, transform .12s ease, background .18s ease;
 }
-
-.search-container{
+dl:hover{
+  border-color:color-mix(in srgb, var(--border) 68%, rgb(var(--click-url-rgb)) 32%);
+  box-shadow:var(--card-shadow-hover);
+  transform:translateY(-1px);
+}
+dt{
   display:flex;
   align-items:center;
   gap:8px;
+  margin-bottom:8px;
+  font-weight:700;
+}
+dl > dt::before{
+  content:"\203A";
+  display:inline-block;
+  font-size:15px;
+  line-height:1;
+  font-weight:700;
+  white-space:nowrap;
+  color:color-mix(in srgb, var(--text-primary) 56%, rgb(var(--click-url-rgb)) 44%);
+  margin-right:2px;
+  transform:translateY(-.5px);
+}
+dd{margin-left:0;margin-bottom:10px}
+.col-list{color:var(--text-muted);font-size:13px}
+
+.col-chip-cloud{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:flex-start;
 }
 
-.search-container-top{
-  background:transparent;
-  border:none;
-  border-radius:0;
+.col-chip{
+  display:flex;
+  flex-direction:column;
+  gap:6px;
   padding:0;
-  gap:6px;
-  flex:0 0 auto;
-  min-height:calc(var(--control-height) + 2px);
-  align-items:center;
+  border:0;
+  border-radius:0;
+  background:transparent;
+  width:auto;
+  max-width:100%;
   box-shadow:none;
-  backdrop-filter:none;
-  overflow-x:auto;
-  overflow-y:hidden;
+  align-items:flex-start;
 }
 
-.search-left{
-  display:flex;
-  align-items:center;
-  gap:6px;
-  flex-wrap:nowrap;
+.col-chip-trigger{
+  border:1px solid var(--button-border);
+  border-radius:var(--radius-pill);
+  background:var(--button-bg);
+  color:var(--button-text);
+  font-size:13px;
+  font-weight:600;
+  line-height:1.2;
+  cursor:pointer;
+  text-align:left;
+  padding:7px 12px;
+  margin:0;
+  width:auto;
+  max-width:100%;
+  white-space:nowrap;
+  box-shadow:inset 0 1px 0 color-mix(in srgb, var(--panel) 64%, transparent);
+  transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease,color .14s ease;
 }
 
-.search-right{
-  margin-left:auto;
-  display:flex;
-  align-items:center;
+.col-chip:hover,
+.col-chip:focus-within{
+  background:transparent;
 }
 
-.search-container-top .search-left{
-  gap:4px;
+.col-chip:hover .col-chip-trigger,
+.col-chip:focus-within .col-chip-trigger{
+  background:var(--button-hover);
+  border-color:color-mix(in srgb, var(--button-border) 76%, rgb(var(--click-url-rgb)) 24%);
 }
 
-.search-container-top .search-right{
-  padding-left:4px;
+.col-chip.col-chip-active{
+  border:0;
+  box-shadow:none;
 }
 
-.search-container-top input,
-.search-container-top select{
-  padding:0 8px;
+.col-chip.col-chip-filtered{
+  border:0;
 }
 
-.search-container-top button:not(.theme-toggle){
+.col-chip.col-chip-filtered .col-chip-trigger{
+  border-color:var(--accent);
+  color:var(--accent-strong);
+  font-weight:700;
+}
+
+.col-chip.col-chip-active .col-chip-trigger{
+  border-color:var(--field-border-focus);
+  background:var(--button-hover);
+  box-shadow:0 0 0 3px var(--field-focus-ring);
+}
+
+.col-chip.col-chip-highlight{
+  background:transparent;
+  border:0;
+  box-shadow:none;
+}
+
+.col-chip.col-chip-highlight .col-chip-trigger{
+  background:var(--chip-highlight-bg);
+  border-color:var(--chip-highlight-border);
+  box-shadow:0 0 0 3px color-mix(in srgb, var(--chip-highlight-border) 34%, transparent);
+}
+
+.local-col-picker-wrap{
+  width:auto;
+  min-width:220px;
+  margin-top:2px;
+}
+
+.local-col-menu{
+  min-width:220px;
+  width:auto;
+}
+
+.local-col-menu option.req-tone-a{
+  background-color:var(--table-row);
+}
+
+.local-col-menu option.req-tone-b{
+  background-color:var(--table-alt);
+}
+
+.local-col-menu option.col-hover,
+.local-col-menu option:hover,
+.local-col-menu option:focus{
+  background-color:var(--mvpd-hover) !important;
+}
+a{color:var(--accent);text-decoration:none}
+a:hover{color:var(--accent-strong);text-decoration:underline}
+/* Table master Click URL should read as the dominant action */
+dl > dt > a{
+  color:rgb(var(--click-url-rgb));
+  font-weight:800;
+  text-decoration:underline;
+  text-decoration-thickness:2px;
+  text-underline-offset:3px;
+  text-decoration-color:color-mix(in srgb, rgb(var(--click-url-rgb)) 80%, transparent);
+  overflow-wrap:anywhere;
+  transition:color .12s ease, text-decoration-color .12s ease, filter .12s ease;
+}
+dl > dt > a:hover{
+  color:rgb(var(--click-url-hover-rgb));
+  text-decoration-color:rgb(var(--click-url-hover-rgb));
+  filter:saturate(1.08);
+}
+dl > dt > a:focus-visible{
+  outline:none;
+  box-shadow:0 0 0 3px var(--field-focus-ring);
+  border-radius:6px;
+}
+input,select{
   padding:0 12px;
   height:var(--control-height);
   min-height:var(--control-height);
-  display:inline-flex;
-  align-items:center;
-  justify-content:center;
-  line-height:1;
-  white-space:nowrap;
-  flex:0 0 auto;
-}
-
-.search-right select{
-  min-width:220px;
-}
-
-input,select{
-  padding:0 10px;
-  height:var(--control-height);
-  min-height:var(--control-height);
-  font-size:15px;
+  font-size:14px;
   border:1px solid var(--field-border);
-  border-radius:6px;
+  border-radius:var(--radius-control);
   background:var(--field-bg);
   color:var(--text-primary);
-  box-shadow:none;
+  box-shadow:inset 0 1px 0 color-mix(in srgb, var(--panel) 66%, transparent);
 }
-
 input::placeholder{color:var(--text-muted)}
-
 input:focus,
 select:focus,
 button:focus-visible,
@@ -218,224 +472,290 @@ button:focus-visible,
   outline:none;
   box-shadow:0 0 0 3px var(--field-focus-ring);
 }
-
 button{
   padding:0 14px;
   height:var(--control-height);
   min-height:var(--control-height);
   border:1px solid var(--button-border);
-  border-radius:6px;
+  border-radius:var(--radius-control);
   background:var(--button-bg);
   color:var(--button-text);
   font-size:13px;
-  font-weight:600;
-  letter-spacing:normal;
-  text-transform:none;
+  font-weight:700;
+  letter-spacing:.01em;
   cursor:pointer;
-  transition:background-color .14s ease,border-color .14s ease;
+  transition:background-color .14s ease,border-color .14s ease,box-shadow .14s ease;
+  box-shadow:0 1px 0 color-mix(in srgb, var(--text-primary) 12%, transparent);
 }
-
 button:hover{
   background:var(--button-hover);
-  transform:none;
-  box-shadow:none;
+  border-color:color-mix(in srgb, var(--button-border) 70%, rgb(var(--click-url-rgb)) 30%);
 }
-
+button:active{transform:translateY(1px)}
 .reset-button{
   background:var(--reset-bg);
   color:var(--reset-text);
   border:1px solid var(--reset-border);
 }
-
 .reset-button:hover{
   background:var(--reset-hover);
   border-color:var(--reset-border);
 }
-
-.theme-toggle{
-  width:30px;
-  height:30px;
-  min-height:30px;
-  padding:0;
-  border-radius:999px;
-  border:2px solid var(--theme-ring);
-  background:var(--theme-preview);
-  box-shadow:none;
-  transition:background-color .14s ease,border-color .14s ease;
-}
-
-.theme-toggle:hover{
-  background:var(--theme-preview);
-  border-color:var(--accent-strong);
-  box-shadow:none;
-  transform:none;
-  filter:none;
-}
-
-.theme-toggle:active{
-  transform:none;
-  box-shadow:none;
-}
-
-.footer-container.search-container{
-  margin-top:2px;
-  background:var(--panel);
-  border:1px solid var(--border);
-  border-radius:14px;
-  padding:8px 10px;
-  box-shadow:0 2px 8px var(--shadow);
-  backdrop-filter:blur(6px);
-}
-
-.esm-scroll-container{
-  flex:1 1 auto;
-  min-height:0;
-  overflow:auto;
-  width:100%;
-  align-self:stretch;
-  margin:0;
-  padding:0;
-  border:none;
-  border-radius:0;
-  background:transparent;
-  box-shadow:none;
-}
-
-dl{
-  background:var(--panel-strong);
-  border:1px solid var(--border);
-  padding:13px 14px;
-  border-radius:8px;
-  width:100%;
-  box-sizing:border-box;
-  margin:0 0 12px;
-  box-shadow:0 2px 8px var(--shadow);
-}
-
-dt{font-weight:600;letter-spacing:0}
-dd{margin-left:20px;margin-bottom:10px}
-.col-list{color:var(--text-muted);font-size:13px}
-
-dd.esm-table-host{margin-left:0}
-
 .esm-table-wrapper{
-  width:100%;
-  box-sizing:border-box;
   max-height:14.5em;
   overflow:auto;
-  border:1px solid var(--border);
-  border-radius:6px;
-  background:var(--panel);
+  border:1px solid color-mix(in srgb, var(--border) 84%, rgb(var(--click-url-rgb)) 16%);
+  border-radius:calc(var(--radius-card) - 4px);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--panel) 76%, transparent),
+    0 2px 8px color-mix(in srgb, var(--shadow) 40%, transparent);
 }
-
-table{
-  border-collapse:collapse;
-  width:100%;
-  table-layout:fixed;
-  font-size:13px;
-}
-
+table{border-collapse:collapse;width:100%;table-layout:fixed;font-size:12.5px}
 th,td{
-  padding:6px 10px;
+  padding:7px 10px;
   white-space:nowrap;
   overflow:hidden;
   text-overflow:ellipsis;
   border-bottom:1px solid var(--border);
   text-align:left;
 }
-
 thead th{
   position:sticky;
   top:0;
   background:var(--table-head);
-  color:var(--table-click-base);
-  font-family:inherit;
-  font-size:13px;
-  font-weight:600;
-  letter-spacing:0;
-  text-decoration:none;
-  text-underline-offset:2px;
-  transition:color .14s ease,text-decoration-color .14s ease,box-shadow .14s ease;
+  font-weight:700;
+  letter-spacing:.01em;
+  box-shadow:inset 0 -1px 0 color-mix(in srgb, var(--border) 70%, transparent);
 }
-
-thead th:hover{
-  color:var(--table-click-hover);
-}
-
 tfoot td{
   position:sticky;
   bottom:0;
-  background:var(--panel-strong);
+  background:var(--panel);
+  border-top:1px solid color-mix(in srgb, var(--border) 74%, transparent);
 }
-
 tbody tr:nth-child(odd){background:var(--table-row)}
 tbody tr:nth-child(even){background:var(--table-alt)}
-tbody tr:hover{background:var(--row-hover)}
-
-th.active-sort{
-  font-weight:600;
-  color:var(--table-click-active);
-  text-decoration:none;
-  box-shadow:inset 0 -2px 0 var(--table-click-active);
+tbody tr:hover{background:var(--table-row-hover, var(--row-hover))}
+/* Premium cue: matched tables get a hotter (but readable) row-hover tone. */
+.parent-highlight .esm-table-wrapper tbody tr:hover{
+  background:var(--match-row-hover);
 }
-
-th .sort-icon{
-  font-size:.75em;
-  color:var(--table-click-base);
-  opacity:.75;
+th.active-sort {
+  font-weight: 600;
+  text-decoration: underline;
 }
-
-th.active-sort .sort-icon{
-  color:var(--table-click-active);
-  opacity:1;
+th .sort-icon {
+  font-size: 0.75em;
+  opacity: 0.8;
 }
-
 .highlight{
   background-color:var(--highlight);
   color:var(--highlight-text);
+  border:1px solid var(--highlight-border);
+  border-radius:4px;
+  padding:0 3px;
+  font-weight:700;
+  box-decoration-break:clone;
+  -webkit-box-decoration-break:clone;
+}
+.parent-highlight{
+  background:
+    linear-gradient(90deg, var(--parent-highlight) 0%, color-mix(in srgb, var(--parent-highlight) 54%, transparent) 62%, transparent 100%),
+    var(--panel);
+  border-color:var(--parent-highlight-border);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--parent-highlight-border) 75%, transparent),
+    0 8px 18px color-mix(in srgb, var(--parent-highlight-glow) 78%, transparent);
+}
+.search-container{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--surface-frost) 95%, transparent) 0%, var(--panel) 100%),
+    var(--panel);
+  border:1px solid color-mix(in srgb, var(--border) 78%, rgb(var(--click-url-rgb)) 22%);
+  border-radius:var(--radius-card);
+  padding:12px 14px;
+  box-shadow:var(--card-shadow);
 }
 
-.parent-highlight{background-color:var(--parent-highlight)}
+.search-left{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
 
-.esm-footer{
+.search-right{
+  margin-left:auto;   /* ← THIS is the key */
   display:flex;
   align-items:center;
 }
 
-.esm-csv-link{
-  font-family:inherit;
-  font-size:13px;
-  font-weight:600;
-  letter-spacing:0;
-  color:var(--table-click-active);
-  text-decoration:underline;
-  text-underline-offset:2px;
+.search-right select{
+  min-width:220px;
+}
+.theme-toggle{
+  width:var(--control-height);
+  height:var(--control-height);
+  padding:0;
+  border-radius:var(--radius-pill);
+  border:1.5px solid var(--theme-ring);
+  background:var(--theme-preview);
+  box-shadow:0 0 0 3px var(--theme-halo),0 3px 10px var(--theme-shadow);
+}
+.theme-toggle:hover{
+  transform:none;
+  filter:none;
+  border-color:var(--accent-strong);
+}
+.theme-toggle:active{
+  transform:none;
+}
+.esm-footer {
+  display: flex;
+  align-items: center;
 }
 
-.esm-csv-link:hover{
-  color:var(--table-click-active);
-  text-decoration-thickness:2px;
+.esm-last-modified {
+  margin-left: auto;
+  margin-right: 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing:.01em;
+  color: var(--footer-muted);
 }
 
-.esm-last-modified{
-  margin-left:auto;
-  margin-right:8px;
-  font-size:12px;
-  font-weight:400;
-  color:var(--footer-muted);
-}
-
-.esm-close{
+.esm-message-label{
+  font-size:11.5px;
   font-weight:700;
-  font-size:16px;
+  letter-spacing:.06em;
+  text-transform:uppercase;
   color:var(--footer-muted);
-  cursor:pointer;
 }
 
-.esm-close:hover{
-  color:var(--accent);
-  text-decoration:underline;
+.esm-message-inline{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  width:100%;
 }
+
+.esm-message-cell{
+  white-space:normal !important;
+  overflow:visible !important;
+  text-overflow:clip !important;
+}
+
+.esm-message-text{
+  flex:1 1 auto;
+  min-width:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+.esm-action-btn{
+  margin-right:8px;
+  width:30px;
+  min-width:30px;
+  max-width:30px;
+  height:30px;
+  min-height:30px;
+  max-height:30px;
+  flex:0 0 30px;
+  aspect-ratio:1 / 1;
+  padding:0;
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  border:1px solid var(--button-border);
+  border-radius:50%;
+  background:var(--button-bg);
+  color:var(--button-text);
+  cursor:pointer;
+  line-height:1;
+  transition:background-color .14s ease,border-color .14s ease,color .14s ease;
+}
+
+.esm-action-btn:hover{
+  background:var(--button-hover);
+}
+
+.esm-action-icon{
+  width:14px;
+  height:14px;
+  stroke:currentColor;
+  fill:none;
+  stroke-width:2;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+
+.esm-action-btn.esm-unfilter{
+  border-color:rgb(var(--danger-strong-rgb));
+  background:rgba(var(--danger-rgb),.15);
+  color:rgb(var(--danger-rgb));
+  box-shadow:0 0 0 1px rgba(var(--danger-rgb),.24);
+}
+
+.esm-action-btn.esm-unfilter:hover{
+  background:rgba(var(--danger-rgb),.2);
+  border-color:rgb(var(--danger-strong-rgb));
+  color:rgb(var(--danger-strong-rgb));
+}
+
+.esm-action-btn.esm-unfilter:active{
+  background:rgba(var(--danger-rgb),.25);
+}
+
+.esm-action-btn.esm-unfilter:disabled{
+  color:rgb(var(--danger-rgb));
+  border-color:rgb(var(--danger-strong-rgb));
+}
+
+.esm-action-btn:disabled{
+  opacity:.65;
+  cursor:default;
+}
+
+body[data-theme="dark"] dl{
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, rgb(255,255,255) 4%, transparent),
+    0 10px 24px var(--shadow);
+}
+
+body[data-theme="dark"] .esm-table-wrapper{
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--table-head) 46%, transparent) 0%, color-mix(in srgb, var(--bg) 92%, transparent) 24%, var(--bg) 100%),
+    var(--bg);
+}
+
+body[data-theme="dark"] thead th{
+  background:var(--table-head);
+}
+
+body[data-theme="dark"] tbody tr:nth-child(odd){
+  background:var(--table-row);
+}
+
+body[data-theme="dark"] tbody tr:nth-child(even){
+  background:var(--table-alt);
+}
+
+body[data-theme="dark"] tbody tr:hover{
+  background:var(--table-row-hover, var(--row-hover));
+}
+
+body[data-theme="dark"] .parent-highlight .esm-table-wrapper tbody tr:hover{
+  background:var(--match-row-hover);
+}
+
+/* --- App shell layout (reduces full-page scrolling) --- */
+html, body { height: 100%; }
+body { margin: 0; padding: 20px; box-sizing: border-box; overflow: hidden; }
+.app-shell { display: flex; flex-direction: column; height: 100%; gap: 12px; }
+.esm-scroll-container { flex: 1 1 auto; min-height: 0; overflow: auto; }
 
 /* Keep requestor-id filter visible while scrolling the ESM table list */
 .footer-container #fltr_requestorid { min-width: 220px; }
@@ -445,6 +765,7 @@ th.active-sort .sort-icon{
 #fltr_requestorid option.req-tone-b { background-color: var(--table-alt); }
 #fltr_requestorid option,
 #fltr_mvpdId option { color: var(--text-primary); }
+
 
 /* MVPD selector: alphabet-banded + within-letter banding (4 colors total)
    Base letter-group family:
@@ -459,6 +780,9 @@ th.active-sort .sort-icon{
 #fltr_mvpdId option.mvpd-direct { font-weight: 700; }
 #fltr_mvpdId option.mvpd-proxy  { font-weight: 400; }
 
+
+
+
 /* MVPD hover hint: subtle highlight while scanning a long list.
    Note: styling <option> hover is browser-dependent, but Chrome/Edge listboxes honor this. */
 #fltr_mvpdId option.mvpd-hover,
@@ -472,26 +796,14 @@ th.active-sort .sort-icon{
   display:none;
   width:14px;
   height:14px;
-  margin-left:6px;
+  margin-left:10px;
   vertical-align:middle;
   border:2px solid var(--spinner-track);
   border-top-color: var(--spinner-head);
   border-radius:50%;
-  animation:netSpin .8s linear infinite;
+  animation: netSpin .8s linear infinite;
 }
-
 @keyframes netSpin{ to { transform: rotate(360deg); } }
-
-@media (max-width:980px){
-  body{padding:14px}
-  .search-container-top{overflow-x:auto}
-  .footer-container.search-container{flex-wrap:wrap}
-  .search-right{
-    margin-left:0;
-    width:100%;
-    justify-content:flex-end;
-  }
-}
 
 body.net-busy { cursor: progress; }
 body.net-busy a,
@@ -509,7 +821,7 @@ body.net-busy input { cursor: progress; }
 
 <div class="app-shell">
 
-<div class="search-container search-container-top">
+<div class="search-container">
   <div class="search-left">
     <select id="filterSelect" onchange="filterList()" title="Zoom Level">
     <option value=""></option>
@@ -519,14 +831,13 @@ body.net-busy input { cursor: progress; }
     <option value="HR">HR</option>
     <option value="MIN">MIN</option>
     </select>
-    <input id="searchText" placeholder="Search tree...">
+    <input id="searchText" placeholder="ESM Column search...">
     <button onclick="highlightText()">FIND IT</button>
-    <button class="reset-button" onclick="resetList()">RESET</button><span id="netIndicator" title="Loading…" aria-label="Loading"></span>
+    <button class="reset-button" type="button" onclick="resetList()" title="Hard reset clickESM2 to first-run state">RESET</button><span id="netIndicator" title="Loading…" aria-label="Loading"></span>
   </div>
   <div class="search-right">
     <button id="themeToggle" class="theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme"></button>
   </div>
-
 </div>
 <div class="esm-scroll-container">
 <dl>
@@ -5809,14 +6120,7 @@ function td(value) {
 }
 
 /* ---------- THEME ---------- */
-const LEGACY_THEME_STORAGE_KEY = 'esm3-findit-theme';
-
-function getScopedThemeStorageKey() {
-  const cid = (document.querySelector('input[name=cid]')?.value ?? '').trim();
-  if (!cid) return 'clickesm_theme_default';
-  const safeCid = cid.replace(/[^a-zA-Z0-9._-]+/g, '_');
-  return 'clickesm_theme_' + safeCid;
-}
+const THEME_STORAGE_KEY = 'esm3-findit-theme';
 
 function __normalizeTheme(theme) {
   return theme === 'dark' ? 'dark' : 'light';
@@ -5824,16 +6128,7 @@ function __normalizeTheme(theme) {
 
 function __readStoredTheme() {
   try {
-    const scopedThemeKey = getScopedThemeStorageKey();
-    const scopedTheme = localStorage.getItem(scopedThemeKey);
-    if (scopedTheme) return scopedTheme;
-
-    // Backward-compatible migration from legacy shared theme key.
-    const legacyTheme = localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
-    if (!legacyTheme) return null;
-    const normalizedLegacyTheme = __normalizeTheme(legacyTheme);
-    localStorage.setItem(scopedThemeKey, normalizedLegacyTheme);
-    return normalizedLegacyTheme;
+    return localStorage.getItem(THEME_STORAGE_KEY);
   } catch (e) {
     return null;
   }
@@ -5841,7 +6136,7 @@ function __readStoredTheme() {
 
 function __saveTheme(theme) {
   try {
-    localStorage.setItem(getScopedThemeStorageKey(), __normalizeTheme(theme));
+    localStorage.setItem(THEME_STORAGE_KEY, __normalizeTheme(theme));
   } catch (e) {
     // no-op when localStorage is blocked
   }
@@ -5903,26 +6198,15 @@ function __netEnd() {
 
 
 /* ---------- TOKEN MANAGEMENT ---------- */
-function getScopedTokenStorageKey() {
-  const cid = (document.querySelector('input[name=cid]')?.value ?? '').trim();
-  if (!cid) return 'clickesm_access_token_default';
-  const safeCid = cid.replace(/[^a-zA-Z0-9._-]+/g, '_');
-  return 'clickesm_access_token_' + safeCid;
-}
-
 function getToken() {
-  const inputToken = (document.querySelector('input[name=access_token]')?.value ?? '').trim();
-  if (inputToken) return inputToken;
-
-  const scopedToken = localStorage.getItem(getScopedTokenStorageKey()) || '';
-  if (scopedToken) return scopedToken;
-
-  // Backward-compatible fallback for legacy clickESM files that used a shared key.
-  return localStorage.getItem('access_token') || '';
+  return (
+    localStorage.getItem('access_token') ||
+    (document.querySelector('input[name=access_token]')?.value ?? '')
+  );
 }
 
 function setToken(t) {
-  localStorage.setItem(getScopedTokenStorageKey(), t);
+  localStorage.setItem('access_token', t);
   const input = document.querySelector('input[name=access_token]');
   if (input) input.value = t;
 }
@@ -6030,6 +6314,438 @@ function appendFilterParams(url) {
   return url + sep + params.join('&');
 }
 
+const __localColumnFilterStateByDl = new WeakMap();
+
+function __parseColumnCloudTokens(rawText) {
+  return String(rawText || '')
+    .split(/\r?\n/)
+    .map(v => v.trim())
+    .filter(Boolean)
+    .filter(v => !/^no report columns$/i.test(v));
+}
+
+function __compareColumnValues(a, b) {
+  return String(a ?? '').localeCompare(
+    String(b ?? ''),
+    undefined,
+    { numeric: true, sensitivity: 'base' }
+  );
+}
+
+function __getLocalColumnFilterState(dl) {
+  if (!dl) return null;
+  if (__localColumnFilterStateByDl.has(dl)) return __localColumnFilterStateByDl.get(dl);
+
+  const dd = dl.querySelector('.col-list');
+  const rawText = dd?.innerText || '';
+
+  const state = {
+    dl,
+    dd,
+    rawText,
+    activeColumn: null,
+    activeChipEl: null,
+    hasBaselineData: false,
+    selectedByColumn: new Map(),
+    distinctByColumn: new Map(),
+    cloudEl: null,
+    pickerWrap: null,
+    pickerSelect: null,
+    outsidePointerHandler: null,
+    outsideKeyHandler: null
+  };
+
+  if (dd) {
+    dd.dataset.searchText = rawText;
+    dd.dataset.colCloud = '0';
+  }
+
+  __localColumnFilterStateByDl.set(dl, state);
+  return state;
+}
+
+function __updateLocalColumnMenuVisualState(state) {
+  if (!state?.cloudEl) return;
+  const pickerOpen = !!state.pickerWrap && !state.pickerWrap.hidden;
+  state.cloudEl.querySelectorAll('.col-chip').forEach(chip => {
+    const col = chip.dataset.column || '';
+    const trigger = chip.querySelector('.col-chip-trigger');
+    const count = state.selectedByColumn.get(col)?.size || 0;
+    chip.classList.toggle('col-chip-active', pickerOpen && state.activeColumn === col);
+    chip.classList.toggle('col-chip-filtered', count > 0);
+    if (trigger) {
+      trigger.textContent = count > 0 ? `${col} (${count})` : col;
+    }
+    const title = count
+      ? `Filter this table by ${col} (${count} selected)`
+      : `Filter this table by ${col}`;
+    chip.title = title;
+    if (trigger) trigger.title = title;
+  });
+}
+
+function __placeLocalPickerNearColumnChip(state, chipEl) {
+  if (!state?.pickerWrap || !state?.cloudEl || !chipEl) return;
+  if (chipEl.parentElement !== state.cloudEl) return;
+  chipEl.appendChild(state.pickerWrap);
+}
+
+function __styleLocalOption(opt, idx) {
+  const isOdd = (idx % 2 === 1);
+  opt.classList.add(isOdd ? 'req-tone-b' : 'req-tone-a');
+  opt.style.backgroundColor = isOdd ? 'var(--table-alt)' : 'var(--table-row)';
+}
+
+function __buildDistinctValuesForColumns(rows, columns) {
+  const out = new Map();
+  columns.forEach(col => out.set(col, new Set()));
+
+  (Array.isArray(rows) ? rows : []).forEach(row => {
+    if (!row || typeof row !== 'object') return;
+    columns.forEach(col => {
+      if (!(col in row)) return;
+      const raw = row[col];
+      if (raw == null) return;
+      const value = String(raw).trim();
+      if (!value) return;
+      out.get(col)?.add(value);
+    });
+  });
+
+  return new Map(
+    [...out.entries()].map(([col, values]) => [
+      col,
+      [...values].sort(__compareColumnValues)
+    ])
+  );
+}
+
+function __syncLocalColumnMenuSelection(menu, selectedValues, { includeAllOption = false } = {}) {
+  if (!menu) return false;
+  const selected = selectedValues instanceof Set ? selectedValues : new Set();
+  let hasSelected = false;
+
+  [...menu.options].forEach((opt, idx) => {
+    if (includeAllOption && idx === 0 && !opt.value) {
+      opt.selected = selected.size === 0;
+      return;
+    }
+    const isSelected = selected.has(opt.value);
+    opt.selected = isSelected;
+    if (isSelected) hasSelected = true;
+  });
+
+  if (!hasSelected && !includeAllOption) menu.selectedIndex = -1;
+  return hasSelected;
+}
+
+function __detachLocalPickerCloseHandlers(state) {
+  if (!state) return;
+  if (state.outsidePointerHandler) {
+    document.removeEventListener('pointerdown', state.outsidePointerHandler, true);
+    state.outsidePointerHandler = null;
+  }
+  if (state.outsideKeyHandler) {
+    document.removeEventListener('keydown', state.outsideKeyHandler, true);
+    state.outsideKeyHandler = null;
+  }
+}
+
+function __closeLocalColumnPicker(state) {
+  if (!state) return;
+  __detachLocalPickerCloseHandlers(state);
+  state.activeColumn = null;
+  state.activeChipEl = null;
+  if (state.pickerSelect) state.pickerSelect.size = 1;
+  if (state.pickerWrap) state.pickerWrap.hidden = true;
+  __updateLocalColumnMenuVisualState(state);
+}
+
+function __attachLocalPickerCloseHandlers(state) {
+  if (!state?.pickerWrap) return;
+  __detachLocalPickerCloseHandlers(state);
+
+  state.outsidePointerHandler = (event) => {
+    if (!state.activeChipEl) return;
+    if (state.activeChipEl.contains(event.target)) return;
+    __closeLocalColumnPicker(state);
+  };
+
+  state.outsideKeyHandler = (event) => {
+    if (event.key !== 'Escape') return;
+    __closeLocalColumnPicker(state);
+  };
+
+  document.addEventListener('pointerdown', state.outsidePointerHandler, true);
+  document.addEventListener('keydown', state.outsideKeyHandler, true);
+}
+
+function __renderLocalColumnPicker(state, columnName) {
+  if (!state || !state.pickerWrap || !state.pickerSelect) return;
+
+  const col = String(columnName || '').trim();
+  if (!col) return;
+
+  state.activeColumn = col;
+  const values = state.distinctByColumn.get(col) || [];
+  const selected = state.selectedByColumn.get(col) || new Set();
+
+  state.pickerSelect.innerHTML = '';
+  state.pickerSelect.title = `Filter by ${col}`;
+
+  if (!values.length) {
+    const opt = document.createElement('option');
+    opt.disabled = true;
+    opt.textContent = 'No values available for this column.';
+    state.pickerSelect.appendChild(opt);
+    state.pickerSelect.size = 1;
+    state.pickerSelect.disabled = true;
+  } else {
+    values.forEach((value, idx) => {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = value;
+      __styleLocalOption(opt, idx);
+      state.pickerSelect.appendChild(opt);
+    });
+    // Keep native multi-select popup behavior (Requestor/MVPD style).
+    state.pickerSelect.size = 1;
+    __syncLocalColumnMenuSelection(state.pickerSelect, selected);
+    state.pickerSelect.disabled = false;
+  }
+
+  state.pickerWrap.hidden = false;
+  __updateLocalColumnMenuVisualState(state);
+}
+
+function __openLocalColumnPickerMenu(state) {
+  if (!state?.pickerSelect || state.pickerWrap?.hidden || state.pickerSelect.disabled) return;
+  try { state.pickerSelect.focus({ preventScroll: true }); } catch (e) {}
+
+  // Best effort: open native picker immediately from the same click gesture.
+  try {
+    if (typeof state.pickerSelect.showPicker === 'function') {
+      state.pickerSelect.showPicker();
+      return;
+    }
+  } catch (e) {}
+
+  try { state.pickerSelect.click(); } catch (e) {}
+}
+
+function __toggleLocalColumnPicker(dl, columnName, chipEl) {
+  const state = __getLocalColumnFilterState(dl);
+  if (!state?.cloudEl) return;
+
+  if (state.activeColumn === columnName && state.pickerWrap && !state.pickerWrap.hidden) {
+    __openLocalColumnPickerMenu(state);
+    return;
+  }
+
+  state.activeChipEl = chipEl || null;
+  __renderLocalColumnPicker(state, columnName);
+  __placeLocalPickerNearColumnChip(state, chipEl);
+  __attachLocalPickerCloseHandlers(state);
+  __openLocalColumnPickerMenu(state);
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => __openLocalColumnPickerMenu(state));
+  }
+}
+
+function __deactivateLocalColumnFilterUi(dl, { clearState = true } = {}) {
+  const state = __getLocalColumnFilterState(dl);
+  if (!state?.dd) return;
+
+  if (clearState) {
+    __closeLocalColumnPicker(state);
+    state.hasBaselineData = false;
+    state.selectedByColumn.clear();
+    state.distinctByColumn.clear();
+  } else {
+    __closeLocalColumnPicker(state);
+  }
+
+  state.dd.innerHTML = state.rawText;
+  state.dd.dataset.searchText = state.rawText;
+  state.dd.dataset.colCloud = '0';
+  state.cloudEl = null;
+  state.pickerWrap = null;
+  state.pickerSelect = null;
+}
+
+function __onLocalColumnPickerChange(state) {
+  if (!state || !state.activeColumn || !state.pickerSelect) return;
+
+  const chosenValues = new Set(
+    [...state.pickerSelect.selectedOptions].map(o => o.value).filter(Boolean)
+  );
+
+  if (chosenValues.size) {
+    state.selectedByColumn.set(state.activeColumn, chosenValues);
+  } else {
+    state.selectedByColumn.delete(state.activeColumn);
+  }
+
+  __syncLocalColumnMenuSelection(state.pickerSelect, state.selectedByColumn.get(state.activeColumn));
+  __updateLocalColumnMenuVisualState(state);
+}
+
+function __activateLocalColumnFilterUi(dl, rows) {
+  const state = __getLocalColumnFilterState(dl);
+  if (!state?.dd) return;
+
+  const sample = Array.isArray(rows) && rows.length ? rows[0] : null;
+  if (!sample || typeof sample !== 'object') {
+    __deactivateLocalColumnFilterUi(dl, { clearState: true });
+    return;
+  }
+
+  if (!state.hasBaselineData) {
+    const sampleColumns = Object.keys(sample).filter(Boolean);
+    if (!sampleColumns.length) {
+      __deactivateLocalColumnFilterUi(dl, { clearState: true });
+      return;
+    }
+
+    const firstDistinct = __buildDistinctValuesForColumns(rows, sampleColumns);
+    const usableColumns = sampleColumns.filter(col => (firstDistinct.get(col) || []).length > 0);
+    if (!usableColumns.length) {
+      __deactivateLocalColumnFilterUi(dl, { clearState: true });
+      return;
+    }
+
+    // Persist baseline values from first successful run for this table.
+    state.distinctByColumn = new Map(
+      usableColumns.map(col => [col, firstDistinct.get(col) || []])
+    );
+    state.hasBaselineData = true;
+  }
+
+  const usableColumns = [...state.distinctByColumn.keys()];
+  if (!usableColumns.length) {
+    __deactivateLocalColumnFilterUi(dl, { clearState: true });
+    return;
+  }
+
+  // Keep only selections that are valid against the first-run baseline set.
+  state.selectedByColumn.forEach((selected, col) => {
+    const allowed = new Set(state.distinctByColumn.get(col) || []);
+    const next = new Set([...selected].filter(v => allowed.has(v)));
+    if (!next.size) {
+      state.selectedByColumn.delete(col);
+      return;
+    }
+    state.selectedByColumn.set(col, next);
+  });
+
+  const cloud = document.createElement('div');
+  cloud.className = 'col-chip-cloud';
+
+  usableColumns.forEach(col => {
+    const chip = document.createElement('div');
+    chip.className = 'col-chip';
+    chip.dataset.column = col;
+
+    const trigger = document.createElement('button');
+    trigger.type = 'button';
+    trigger.className = 'col-chip-trigger';
+    trigger.textContent = col;
+    const invokeToggle = (event, { shouldPreventDefault = true } = {}) => {
+      if (shouldPreventDefault) event.preventDefault();
+      event.stopPropagation();
+      __toggleLocalColumnPicker(dl, col, chip);
+    };
+    trigger.addEventListener('click', (event) => {
+      invokeToggle(event);
+    });
+
+    chip.appendChild(trigger);
+    cloud.appendChild(chip);
+  });
+
+  const pickerWrap = document.createElement('div');
+  pickerWrap.className = 'local-col-picker-wrap';
+  pickerWrap.hidden = true;
+
+  const pickerSelect = document.createElement('select');
+  pickerSelect.className = 'local-col-menu';
+  pickerSelect.multiple = true;
+  pickerSelect.size = 1;
+  pickerSelect.disabled = true;
+  pickerSelect.title = 'Choose one or more values from this column';
+  pickerSelect.addEventListener('change', () => __onLocalColumnPickerChange(state));
+
+  pickerWrap.appendChild(pickerSelect);
+
+  state.dd.innerHTML = '';
+  state.dd.appendChild(cloud);
+  state.dd.appendChild(pickerWrap);
+  state.dd.dataset.colCloud = '1';
+  state.dd.dataset.searchText = usableColumns.join(' ');
+
+  state.cloudEl = cloud;
+  state.pickerWrap = pickerWrap;
+  state.pickerSelect = pickerSelect;
+  if (state.activeColumn && usableColumns.includes(state.activeColumn)) {
+    const matchingChip = [...cloud.querySelectorAll('.col-chip')]
+      .find(chip => chip.dataset.column === state.activeColumn) || null;
+    state.activeChipEl = matchingChip;
+    __renderLocalColumnPicker(state, state.activeColumn);
+    __placeLocalPickerNearColumnChip(state, matchingChip);
+    __attachLocalPickerCloseHandlers(state);
+  } else {
+    __closeLocalColumnPicker(state);
+  }
+  __updateLocalColumnMenuVisualState(state);
+}
+
+function __appendLocalColumnFilterParams(url, dl) {
+  const state = __getLocalColumnFilterState(dl);
+  if (!state?.selectedByColumn?.size) return url;
+
+  const params = [];
+  state.selectedByColumn.forEach((values, col) => {
+    if (!values || !values.size) return;
+    values.forEach(v => {
+      params.push(`${encodeURIComponent(col)}=${encodeURIComponent(v)}`);
+    });
+  });
+
+  if (!params.length) return url;
+  const sep = url.includes('?') ? '&' : '?';
+  return url + sep + params.join('&');
+}
+
+function __hasLocalColumnFilters(dl) {
+  const state = __getLocalColumnFilterState(dl);
+  if (!state?.selectedByColumn?.size) return false;
+  let hasAny = false;
+  state.selectedByColumn.forEach(values => {
+    if (values && values.size > 0) hasAny = true;
+  });
+  return hasAny;
+}
+
+function __clearLocalColumnFilters(dl) {
+  const state = __getLocalColumnFilterState(dl);
+  if (!state) return;
+  state.selectedByColumn.clear();
+  __closeLocalColumnPicker(state);
+  __updateLocalColumnMenuVisualState(state);
+}
+
+function __updateColumnChipHighlights(dd, term) {
+  if (!dd || dd.dataset.colCloud !== '1') return false;
+  let matched = false;
+  dd.querySelectorAll('.col-chip').forEach(chip => {
+    const label = normalizeSearchTerm(chip.dataset.column || chip.textContent || '');
+    const isMatch = !!term && label.includes(term);
+    chip.classList.toggle('col-chip-highlight', isMatch);
+    if (isMatch) matched = true;
+  });
+  return matched;
+}
+
 
 async function loadRequestorIds() {
   const url = 'https://mgmt.auth.adobe.com/esm/v3/media-company/year?requestor-id';
@@ -6048,7 +6764,7 @@ async function loadRequestorIds() {
     if (!mediaCompany && row['media-company']) mediaCompany = row['media-company'];
   });
 
-  if (mediaCompany) document.title = `${mediaCompany} CLICK ESM`;
+  if (mediaCompany) document.title = `ESM3 FINDIT — ${mediaCompany}`;
 
   const sel = document.getElementById('fltr_requestorid');
   if (!sel) return;
@@ -6452,6 +7168,10 @@ function normalizeSearchTerm(raw) {
   return (raw || '').toLowerCase().split(' ').join('');
 }
 
+function __escapeRegexLiteral(value) {
+  return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function applyDlFilters({ doHighlight = false } = {}) {
   const zoomFilter = document.getElementById('filterSelect')?.value ?? '';
   const input = document.getElementById('searchText');
@@ -6466,27 +7186,36 @@ function applyDlFilters({ doHighlight = false } = {}) {
       return;
     }
 
-    // Restore base text before re-highlighting
-    const rawText = dd.innerText;
-    dd.innerHTML = rawText;
+    const isColumnCloud = dd.dataset.colCloud === '1';
+    const rawText = dd.dataset.searchText || dd.innerText;
+    if (!isColumnCloud) dd.textContent = rawText;
     dl.classList.remove('parent-highlight');
 
     const detectedZoom = detectZoomFromHref(anchor.href);
     const zoomPass = !zoomFilter || detectedZoom === zoomFilter;
 
-    const lower = rawText.toLowerCase();
-    const termPass = !term || lower.includes(term);
+    const normalizedRaw = normalizeSearchTerm(rawText);
+    const termPass = !term || normalizedRaw.includes(term);
 
     const show = zoomPass && termPass;
     dl.style.display = show ? '' : 'none';
 
+    if (show && doHighlight && term && isColumnCloud) {
+      const hasChipMatch = __updateColumnChipHighlights(dd, term);
+      if (hasChipMatch) dl.classList.add('parent-highlight');
+      return;
+    }
+
     if (show && doHighlight && term) {
       dd.innerHTML = rawText.replace(
-        new RegExp(term, 'gi'),
+        new RegExp(__escapeRegexLiteral(term), 'gi'),
         m => `<span class="highlight">${m}</span>`
       );
       dl.classList.add('parent-highlight');
+      return;
     }
+
+    if (isColumnCloud) __updateColumnChipHighlights(dd, '');
   });
 }
 
@@ -6502,11 +7231,7 @@ function filterList() {
 }
 
 function resetList() {
-  const st = document.getElementById('searchText');
-  if (st) st.value = '';
-  const fs = document.getElementById('filterSelect');
-  if (fs) fs.selectedIndex = 0;
-  applyDlFilters({ doHighlight: false });
+  window.location.reload();
 }
 
 /* ---------- TABLE + SORT LOGIC ---------- */
@@ -6693,9 +7418,10 @@ async function downloadCsv(link, baseHref, sortState) {
   const anchor = dl?.querySelector('a');
   if (!anchor) return;
 
-  const csvUrl = appendFilterParams(
+  const csvBase = appendFilterParams(
     appendTimeParams(baseHref, anchor) + '&format=json'
   );
+  const csvUrl = __appendLocalColumnFilterParams(csvBase, dl);
 
   const r = await fetchWithRefresh(csvUrl, { esmLimit: ESM_CSV_RESULT_LIMIT });
   if (!r.ok) return;
@@ -6742,11 +7468,14 @@ async function runEsm(a) {
   try {
 
   /* Build request URL (time-aware + filter aware) */
+  const dl = a.closest('dl');
+  const localColumnState = __getLocalColumnFilterState(dl);
   const timedBase = appendTimeParams(a.href, a);
-  const jsonUrl = appendFilterParams(timedBase + '&format=json');
+  const jsonBase = appendFilterParams(timedBase + '&format=json');
+  const jsonUrl = __appendLocalColumnFilterParams(jsonBase, dl);
 
   /* Prepare host DOM */
-  const host = a.closest('dl')?.querySelector('.esm-table-host');
+  const host = dl?.querySelector('.esm-table-host');
   if (!host) return;
 
   host.innerHTML = `
@@ -6773,13 +7502,130 @@ async function runEsm(a) {
     displayCols: []
   };
 
+  const renderFooterControls = ({ colSpan = 1, includeCsv = false, lastModified = null } = {}) => {
+    const ftRow = state.tfoot.querySelector('tr');
+    if (!ftRow) return;
+    ftRow.innerHTML = '';
+
+    const ftd = document.createElement('td');
+    ftd.colSpan = Math.max(1, colSpan || 1);
+
+    const footer = document.createElement('div');
+    footer.className = 'esm-footer';
+
+    const hasLocalFilters = __hasLocalColumnFilters(dl);
+
+    if (includeCsv) {
+      const csv = document.createElement('a');
+      csv.href = '#';
+      csv.textContent = 'CSV';
+      csv.onclick = e => {
+        e.preventDefault();
+        downloadCsv(csv, a.href, state.sortStack[0]);
+      };
+      footer.appendChild(csv);
+    }
+
+    const unfilterBtn = document.createElement('button');
+    unfilterBtn.type = 'button';
+    unfilterBtn.className = 'esm-action-btn esm-unfilter';
+    unfilterBtn.innerHTML = '<svg class="esm-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7z"/></svg>';
+    unfilterBtn.setAttribute('aria-label', 'Un-filter and rerun this ESM table');
+    unfilterBtn.title = hasLocalFilters
+      ? 'Clear this table’s local column filters and rerun this ESM URL'
+      : 'Rerun this ESM URL from its original Click URL state';
+    unfilterBtn.style.marginLeft = 'auto';
+    unfilterBtn.onclick = async () => {
+      unfilterBtn.disabled = true;
+      __clearLocalColumnFilters(dl);
+      await runEsm(a);
+    };
+    footer.appendChild(unfilterBtn);
+
+    if (includeCsv) {
+      const lastModifiedLabel = document.createElement('span');
+      lastModifiedLabel.className = 'esm-last-modified';
+      if (lastModified != null) {
+        const sourceTz = getLastModifiedSourceTimezone(lastModified);
+        lastModifiedLabel.textContent = `Last-Modified: ${formatLastModifiedForDisplay(lastModified)}`;
+        lastModifiedLabel.title = sourceTz
+          ? `Server time: ${sourceTz} (converted to your timezone)`
+          : 'Converted to your timezone';
+      } else {
+        lastModifiedLabel.textContent = 'Last-Modified: (real-time)';
+      }
+      lastModifiedLabel.style.marginLeft = '8px';
+      footer.appendChild(lastModifiedLabel);
+    }
+
+    const deleteDataBtn = document.createElement('button');
+    deleteDataBtn.type = 'button';
+    deleteDataBtn.className = 'esm-action-btn esm-delete-data';
+    deleteDataBtn.innerHTML = '<svg class="esm-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+    deleteDataBtn.setAttribute('aria-label', 'Delete data table');
+    deleteDataBtn.title = 'Delete this table data';
+    if (!includeCsv && !hasLocalFilters) {
+      deleteDataBtn.style.marginLeft = 'auto';
+    }
+    deleteDataBtn.onclick = () => {
+      host.innerHTML = '';
+      if (!localColumnState) return;
+      __closeLocalColumnPicker(localColumnState);
+      __updateLocalColumnMenuVisualState(localColumnState);
+    };
+    footer.appendChild(deleteDataBtn);
+
+    ftd.appendChild(footer);
+    ftRow.appendChild(ftd);
+  };
+
   const showMessage = (msg) => {
+    const headCount = state.thead.querySelectorAll('th').length || 1;
+
     state.tbody.innerHTML = '';
     const tr = document.createElement('tr');
     const td1 = document.createElement('td');
-    td1.textContent = msg || 'No data';
+    td1.className = 'esm-message-cell';
+    td1.colSpan = Math.max(1, headCount);
+    const inline = document.createElement('div');
+    inline.className = 'esm-message-inline';
+
+    const messageText = document.createElement('span');
+    messageText.className = 'esm-message-text';
+    messageText.textContent = msg || 'No data';
+    inline.appendChild(messageText);
+
+    const unfilterBtn = document.createElement('button');
+    unfilterBtn.type = 'button';
+    unfilterBtn.className = 'esm-action-btn esm-unfilter';
+    unfilterBtn.innerHTML = '<svg class="esm-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7z"/></svg>';
+    unfilterBtn.setAttribute('aria-label', 'Remove local column filters and rerun this ESM table');
+    unfilterBtn.title = __hasLocalColumnFilters(dl)
+      ? 'Clear this table’s local column filters and rerun this ESM URL'
+      : 'Rerun this ESM URL';
+    unfilterBtn.style.marginLeft = '8px';
+    unfilterBtn.onclick = async () => {
+      unfilterBtn.disabled = true;
+      __clearLocalColumnFilters(dl);
+      await runEsm(a);
+    };
+    inline.appendChild(unfilterBtn);
+
+    td1.appendChild(inline);
     tr.appendChild(td1);
     state.tbody.appendChild(tr);
+
+    const ftRow = state.tfoot.querySelector('tr');
+    if (ftRow) ftRow.innerHTML = '';
+
+    // Keep first-run column filters available across later no-data/error runs.
+    if (localColumnState?.hasBaselineData) {
+      __closeLocalColumnPicker(localColumnState);
+      __updateLocalColumnMenuVisualState(localColumnState);
+      return;
+    }
+
+    __deactivateLocalColumnFilterUi(dl, { clearState: true });
   };
 
   try {
@@ -6811,6 +7657,7 @@ async function runEsm(a) {
     }
 
     state.data = json.report;
+    __activateLocalColumnFilterUi(dl, state.data);
 
     /* Data freshness: Last-Modified when present; absence means real-time (per ESM spec) */
     const lastModified = r.headers.get('Last-Modified');
@@ -6889,49 +7736,8 @@ async function runEsm(a) {
       headRow.appendChild(th);
     });
 
-    /* Footer (CSV + Close) */
-    const ftRow = state.tfoot.querySelector('tr');
-    ftRow.innerHTML = '';
-
-    const ftd = document.createElement('td');
-    ftd.colSpan = headers.length;
-
-    const footer = document.createElement('div');
-    footer.className = 'esm-footer';
-
-    const csv = document.createElement('a');
-    csv.className = 'esm-csv-link';
-    csv.href = '#';
-    csv.textContent = 'CSV';
-    csv.onclick = e => {
-      e.preventDefault();
-      downloadCsv(csv, a.href, state.sortStack[0]);
-    };
-
-    const lastModifiedLabel = document.createElement('span');
-    lastModifiedLabel.className = 'esm-last-modified';
-    if (lastModified != null) {
-      const sourceTz = getLastModifiedSourceTimezone(lastModified);
-      lastModifiedLabel.textContent = `Last-Modified: ${formatLastModifiedForDisplay(lastModified)}`;
-      lastModifiedLabel.title = sourceTz
-        ? `Server time: ${sourceTz} (converted to your timezone)`
-        : 'Converted to your timezone';
-    } else {
-      lastModifiedLabel.textContent = 'Last-Modified: (real-time)';
-    }
-
-    const close = document.createElement('span');
-    close.className = 'esm-close';
-    close.textContent = ' x ';
-    close.onclick = () => {
-      host.innerHTML = '';
-    };
-
-    footer.appendChild(csv);
-    footer.appendChild(lastModifiedLabel);
-    footer.appendChild(close);
-    ftd.appendChild(footer);
-    ftRow.appendChild(ftd);
+    /* Footer controls (CSV + unfilter + metadata + delete) */
+    renderFooterControls({ colSpan: headers.length, includeCsv: true, lastModified });
 
     /* Initial sort + render (DATE DESC) */
     state.data = sortByStack(state.data, state.sortStack, ctx);
