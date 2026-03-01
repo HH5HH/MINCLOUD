@@ -7602,7 +7602,7 @@ async function runEsm(a) {
     unfilterBtn.setAttribute('aria-label', 'Remove local column filters and rerun this ESM table');
     unfilterBtn.title = __hasLocalColumnFilters(dl)
       ? 'Clear this table’s local column filters and rerun this ESM URL'
-      : 'Rerun this ESM URL';
+      : 'Rerun this ESM URL from its original Click URL state';
     unfilterBtn.style.marginLeft = '8px';
     unfilterBtn.onclick = async () => {
       unfilterBtn.disabled = true;
