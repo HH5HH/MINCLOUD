@@ -13237,8 +13237,18 @@ function mvpdWorkspaceGetSelectionContext(programmer = null, services = null) {
   };
 }
 
+function mvpdWorkspaceGetSelectionMvpdLabel(selectionContext = null) {
+  const context =
+    selectionContext && typeof selectionContext === "object" ? selectionContext : mvpdWorkspaceGetSelectionContext();
+  if (!context?.mvpdId) {
+    return "";
+  }
+  return getRestV2MvpdPickerLabel(context.requestorId, context.mvpdId);
+}
+
 function mvpdWorkspaceGetSelectedControllerStatePayload(programmer = null, services = null) {
   const context = mvpdWorkspaceGetSelectionContext(programmer, services);
+  const mvpdLabel = mvpdWorkspaceGetSelectionMvpdLabel(context);
   return {
     controllerOnline: false,
     mvpdReady: context.isReady,
@@ -13247,6 +13257,8 @@ function mvpdWorkspaceGetSelectedControllerStatePayload(programmer = null, servi
     programmerName: context.programmerName,
     requestorIds: context.requestorId ? [context.requestorId] : [],
     mvpdIds: context.mvpdId ? [context.mvpdId] : [],
+    mvpdLabel,
+    mvpdLabels: mvpdLabel ? [mvpdLabel] : [],
     updatedAt: Date.now(),
   };
 }
@@ -13757,6 +13769,7 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
   if (!context.isReady) {
     throw new Error("Select Requestor + MVPD to load MVPD Workspace details.");
   }
+  const selectedMvpdLabel = mvpdWorkspaceGetSelectionMvpdLabel(context) || context.mvpdId;
   const mvpdDebugContext = {
     programmerId: String(context?.programmerId || ""),
     requestorId: String(context?.requestorId || ""),
@@ -13785,42 +13798,6 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
       urls: [
         `${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/entity/LocalConfiguration")}`,
         `${ADOBE_CONSOLE_BASE}/rest/api/entity/LocalConfiguration`,
-      ],
-    },
-    {
-      key: "clientDataKeys",
-      label: "Client Data Keys",
-      urls: [`${ADOBE_CONSOLE_BASE}/rest/api/entity/enum/ClientDataKeys`],
-    },
-    {
-      key: "extendedProfile",
-      label: "Extended Profile",
-      urls: [`${ADOBE_CONSOLE_BASE}/rest/api/user/extendedProfile`],
-    },
-    {
-      key: "maintenanceStatus",
-      label: "Maintenance Status",
-      urls: [`${ADOBE_CONSOLE_BASE}/rest/api/admin/maintenance/status`],
-    },
-    {
-      key: "tooltips",
-      label: "Tooltips",
-      urls: [
-        `${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/config/tooltips")}`,
-        `${ADOBE_CONSOLE_BASE}/rest/api/config/tooltips`,
-      ],
-    },
-    {
-      key: "propertyNameMappings",
-      label: "Property Name Mappings",
-      urls: [`${ADOBE_CONSOLE_BASE}/rest/api/config/propertyNameMappings`],
-    },
-    {
-      key: "manglers",
-      label: "Manglers",
-      urls: [
-        `${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/config/manglers")}`,
-        `${ADOBE_CONSOLE_BASE}/rest/api/config/manglers`,
       ],
     },
     {
@@ -14018,6 +13995,21 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
   }
 
   const allCalls = [versionCall, ...phaseOneCalls, ...phaseTwoCalls];
+  const callKeysAllowedInWorkspace = new Set([
+    "localConfiguration",
+    "mvpdCatalog",
+    "mvpdProxyCatalog",
+    "serviceProviderCatalog",
+    "programmerCatalog",
+    "integrationConfigurationCatalog",
+    "tmsIdMapRoot",
+    "integrationConfigurationEntity",
+    "bulkRetrieveSelected",
+  ]);
+  const displayedCalls = allCalls.filter((call) => {
+    const callKey = String(call?.key || "").trim();
+    return callKeysAllowedInWorkspace.has(callKey) || callKey.startsWith("tmsIdMap_");
+  });
   const allEntries = [];
   const sourceSamples = [];
 
@@ -14040,7 +14032,7 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
     });
   };
 
-  allCalls
+  displayedCalls
     .filter((call) => call?.ok)
     .forEach((call) => {
       const callKey = String(call?.key || "").trim();
@@ -14098,8 +14090,8 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
     .slice(0, 240);
   const tmsIds = [...new Set([...tmsIdsFromNames, ...tmsIdsFromMaps])].slice(0, 240);
 
-  const completedCalls = allCalls.filter((call) => call?.ok).length;
-  const failedCalls = allCalls.length - completedCalls;
+  const completedCalls = displayedCalls.filter((call) => call?.ok).length;
+  const failedCalls = displayedCalls.length - completedCalls;
   const resolvedIntegration = firstNonEmptyString([
     mvpdWorkspaceNormalizeEntityRef(selectedIntegrationRef),
     mvpdWorkspaceNormalizeEntityRef(selectedIntegrationEntity?.key),
@@ -14108,7 +14100,7 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
       : "",
   ]);
   const loadedTmsMapIds = [...new Set(
-    allCalls
+    displayedCalls
       .filter((call) => call?.ok && String(call?.key || "").startsWith("tmsIdMap_"))
       .map((call) => {
         const labelMatch = String(call?.label || "")
@@ -14138,6 +14130,7 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
     programmerName: context.programmerName,
     requestorId: context.requestorId,
     mvpdId: context.mvpdId,
+    mvpdLabel: selectedMvpdLabel,
     configurationVersion,
     resolvedIntegration,
     loadedTmsMapIds,
@@ -14148,14 +14141,14 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
       { label: "Media Company", value: context.programmerName || context.programmerId || "N/A" },
       { label: "Media Company ID", value: context.programmerId || "N/A" },
       { label: "RequestorId", value: context.requestorId || "N/A" },
-      { label: "MVPD", value: context.mvpdId || "N/A" },
+      { label: "MVPD", value: selectedMvpdLabel || context.mvpdId || "N/A" },
       { label: "Configuration Version", value: configurationVersion > 0 ? String(configurationVersion) : "N/A" },
       { label: "Resolved Integration", value: resolvedIntegration || "N/A" },
-      { label: "Calls Completed", value: `${completedCalls}/${allCalls.length}` },
+      { label: "Calls Completed", value: `${completedCalls}/${displayedCalls.length}` },
       { label: "Calls Failed", value: String(failedCalls) },
       { label: "Flattened Values", value: String(allEntries.length) },
     ],
-    calls: allCalls.map((call) => ({
+    calls: displayedCalls.map((call) => ({
       key: call.key,
       label: call.label,
       ok: call.ok,
@@ -14212,6 +14205,7 @@ async function mvpdWorkspaceRefreshSelectedSnapshot(options = {}) {
   const context = mvpdWorkspaceGetSelectionContext(options.programmer || null, options.services || null);
   const targetWindowId = Number(options.targetWindowId || state.mvpdWorkspaceWindowId || 0);
   const onlyIfWorkspaceOpen = options.onlyIfWorkspaceOpen === true;
+  const mvpdLabel = mvpdWorkspaceGetSelectionMvpdLabel(context) || context.mvpdId;
   const debugContext = {
     programmerId: String(context?.programmerId || ""),
     requestorId: String(context?.requestorId || ""),
@@ -14232,6 +14226,7 @@ async function mvpdWorkspaceRefreshSelectedSnapshot(options = {}) {
           error,
           requestorId: context.requestorId,
           mvpdId: context.mvpdId,
+          mvpdLabel,
         },
         { targetWindowId }
       );
@@ -14252,11 +14247,16 @@ async function mvpdWorkspaceRefreshSelectedSnapshot(options = {}) {
     return { ok: false, skipped: true };
   }
 
+  if (options.clearBeforeRefresh === true) {
+    void mvpdWorkspaceSendWorkspaceMessage("workspace-clear", {}, { targetWindowId });
+  }
+
   void mvpdWorkspaceSendWorkspaceMessage(
     "snapshot-start",
     {
       requestorId: context.requestorId,
       mvpdId: context.mvpdId,
+      mvpdLabel,
       programmerId: context.programmerId,
       startedAt: Date.now(),
     },
@@ -14273,6 +14273,7 @@ async function mvpdWorkspaceRefreshSelectedSnapshot(options = {}) {
         ok: true,
         requestorId: context.requestorId,
         mvpdId: context.mvpdId,
+        mvpdLabel,
         snapshot,
       },
       { targetWindowId }
@@ -14301,6 +14302,7 @@ async function mvpdWorkspaceRefreshSelectedSnapshot(options = {}) {
         ok: false,
         requestorId: context.requestorId,
         mvpdId: context.mvpdId,
+        mvpdLabel,
         error: message,
       },
       { targetWindowId }
@@ -14502,6 +14504,7 @@ async function mvpdWorkspaceOpenFromRestV2(programmer = null, services = null, o
     programmer: resolvedProgrammer,
     services: resolvedServices,
     forceRefresh: options.forceRefresh !== false,
+    clearBeforeRefresh: options.clearBeforeRefresh === true || options.forceRefresh === true,
     targetWindowId,
     surfaceMissingSelectionError: true,
   });
@@ -26487,6 +26490,7 @@ function registerEventHandlers() {
       void mvpdWorkspaceOpenFromRestV2(selectedProgrammer, selectedServices, {
         activate: true,
         forceRefresh: true,
+        clearBeforeRefresh: true,
       }).catch((error) => {
         setStatus(
           `Unable to open MVPD Workspace: ${error instanceof Error ? error.message : String(error)}`,

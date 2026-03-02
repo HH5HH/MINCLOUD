@@ -8,6 +8,7 @@ const state = {
   programmerName: "",
   requestorIds: [],
   mvpdIds: [],
+  mvpdLabel: "",
   loading: false,
   snapshot: null,
 };
@@ -197,13 +198,62 @@ function getProgrammerLabel() {
   return name || id || "Selected Media Company";
 }
 
+function getSelectedRequestorId() {
+  return String(state.requestorIds[0] || "").trim();
+}
+
+function getSelectedMvpdId() {
+  return String(state.mvpdIds[0] || "").trim();
+}
+
+function getSelectedMvpdLabel() {
+  return String(state.mvpdLabel || "").trim();
+}
+
+function getSelectionKey(programmerId = state.programmerId, requestorId = getSelectedRequestorId(), mvpdId = getSelectedMvpdId()) {
+  const programmer = String(programmerId || "").trim();
+  const requestor = String(requestorId || "").trim();
+  const mvpd = String(mvpdId || "").trim();
+  if (!programmer || !requestor || !mvpd) {
+    return "";
+  }
+  return `${programmer}|${requestor}|${mvpd}`;
+}
+
+function resolvePayloadMvpdLabel(payload = null) {
+  const labels = Array.isArray(payload?.mvpdLabels)
+    ? payload.mvpdLabels.map((value) => String(value || "").trim()).filter(Boolean)
+    : [];
+  return firstNonEmptyString([payload?.mvpdLabel, labels[0], payload?.snapshot?.mvpdLabel]);
+}
+
+function payloadMatchesCurrentSelection(payload = null) {
+  const activeProgrammer = String(state.programmerId || "").trim();
+  const activeRequestor = getSelectedRequestorId();
+  const activeMvpd = getSelectedMvpdId();
+  const payloadProgrammer = String(payload?.programmerId || payload?.snapshot?.programmerId || "").trim();
+  const payloadRequestor = String(payload?.requestorId || payload?.snapshot?.requestorId || "").trim();
+  const payloadMvpd = String(payload?.mvpdId || payload?.snapshot?.mvpdId || "").trim();
+  if (activeProgrammer && payloadProgrammer && activeProgrammer !== payloadProgrammer) {
+    return false;
+  }
+  if (!payloadRequestor || !payloadMvpd) {
+    return true;
+  }
+  if (!activeRequestor || !activeMvpd) {
+    return false;
+  }
+  return activeRequestor === payloadRequestor && activeMvpd === payloadMvpd;
+}
+
 function getSelectionLabel() {
-  const requestor = String(state.requestorIds[0] || "").trim();
-  const mvpd = String(state.mvpdIds[0] || "").trim();
+  const requestor = getSelectedRequestorId();
+  const mvpd = getSelectedMvpdId();
+  const mvpdLabel = getSelectedMvpdLabel();
   if (!requestor || !mvpd) {
     return "Select Requestor + MVPD in UnderPAR to load details.";
   }
-  return `Requestor: ${requestor} | MVPD: ${mvpd}`;
+  return `Requestor: ${requestor} | MVPD: ${mvpdLabel || mvpd}`;
 }
 
 function setStatus(message = "", type = "info") {
@@ -219,9 +269,7 @@ function setStatus(message = "", type = "info") {
 }
 
 function hasSelectionContext() {
-  return Boolean(String(state.programmerId || "").trim()) && Boolean(String(state.requestorIds[0] || "").trim()) && Boolean(
-    String(state.mvpdIds[0] || "").trim()
-  );
+  return Boolean(String(state.programmerId || "").trim()) && Boolean(getSelectedRequestorId()) && Boolean(getSelectedMvpdId());
 }
 
 function isWorkspaceNetworkBusy() {
@@ -540,7 +588,6 @@ function renderSnapshot(snapshot) {
   const regularCards = [];
   let selectedMvpdMatchesCard = null;
   let samlMetadataSettingsCard = null;
-  let propertyNameMappingsSampleCard = null;
   const callLinkByKey = new Map();
   const usedAnchorIds = new Set();
   const reserveCardAnchorId = (seed, fallback = "details") => {
@@ -594,10 +641,6 @@ function renderSnapshot(snapshot) {
     if (sampleKey && !callLinkByKey.has(sampleKey)) {
       callLinkByKey.set(sampleKey, anchorId);
     }
-    if (sampleKey === "propertyNameMappings") {
-      propertyNameMappingsSampleCard = card;
-      return;
-    }
     if (sampleContainsTms(sample)) {
       tmsCards.push(card);
       return;
@@ -620,9 +663,6 @@ function renderSnapshot(snapshot) {
   if (samlMetadataSettingsCard) {
     orderedRegularCards.push(samlMetadataSettingsCard);
   }
-  if (propertyNameMappingsSampleCard) {
-    orderedRegularCards.push(propertyNameMappingsSampleCard);
-  }
   if (selectedMvpdMatchesCard) {
     orderedRegularCards.push(selectedMvpdMatchesCard);
   }
@@ -635,6 +675,7 @@ function renderSnapshot(snapshot) {
 }
 
 function applyControllerState(payload) {
+  const previousSelectionKey = getSelectionKey();
   state.controllerOnline = payload?.controllerOnline === true;
   state.mvpdReady = payload?.mvpdReady === true;
   state.programmerId = String(payload?.programmerId || "");
@@ -645,19 +686,42 @@ function applyControllerState(payload) {
   state.mvpdIds = Array.isArray(payload?.mvpdIds)
     ? payload.mvpdIds.map((value) => String(value || "").trim()).filter(Boolean)
     : [];
+  state.mvpdLabel = resolvePayloadMvpdLabel(payload);
+  const nextSelectionKey = getSelectionKey();
+  if (previousSelectionKey && previousSelectionKey !== nextSelectionKey) {
+    state.loading = false;
+    clearWorkspaceCards();
+  }
   updateControllerBanner();
 }
 
 function handleSnapshotStart(payload) {
+  if (!payloadMatchesCurrentSelection(payload)) {
+    return;
+  }
+  const mvpdLabel = resolvePayloadMvpdLabel(payload);
+  if (mvpdLabel) {
+    state.mvpdLabel = mvpdLabel;
+    updateControllerBanner();
+  }
   state.loading = true;
   syncActionButtonsDisabled();
-  const requestorId = String(payload?.requestorId || state.requestorIds[0] || "").trim();
-  const mvpdId = String(payload?.mvpdId || state.mvpdIds[0] || "").trim();
-  const label = requestorId && mvpdId ? `${requestorId} x ${mvpdId}` : "selected MVPD";
+  const requestorId = String(payload?.requestorId || getSelectedRequestorId() || "").trim();
+  const mvpdId = String(payload?.mvpdId || getSelectedMvpdId() || "").trim();
+  const mvpdDisplayLabel = firstNonEmptyString([mvpdLabel, getSelectedMvpdLabel(), mvpdId]);
+  const label = requestorId && mvpdDisplayLabel ? `${requestorId} x ${mvpdDisplayLabel}` : "selected MVPD";
   setStatus(`Loading ${label} details...`);
 }
 
 function handleSnapshotResult(payload) {
+  if (!payloadMatchesCurrentSelection(payload)) {
+    return;
+  }
+  const mvpdLabel = resolvePayloadMvpdLabel(payload);
+  if (mvpdLabel) {
+    state.mvpdLabel = mvpdLabel;
+    updateControllerBanner();
+  }
   state.loading = false;
   syncActionButtonsDisabled();
   if (!payload || payload.ok !== true) {
@@ -692,6 +756,7 @@ function handleWorkspaceEvent(eventName, payload) {
     return;
   }
   if (event === "workspace-clear") {
+    state.loading = false;
     clearWorkspaceCards();
     setStatus("");
   }
