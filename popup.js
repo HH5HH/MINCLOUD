@@ -99,31 +99,17 @@ const EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER =
   '{"findFirst":true, "fallbackToAA":true, "preferForwardProfile":true}; hasPC("dma_tartan")';
 const CLICK_ESM_ENDPOINTS_PATH = "click-esm-endpoints.json";
 const CLICK_ESM_TEMPLATE_PATH = "clickESM-template.html";
-const CLICK_CMU_TEMPLATE_PATH = "clickCMU-template.html";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_TITLE = "__UP_CLICK_ESM_TITLE__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_CID = "__UP_CID__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_CSC = "__UP_CSC__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN = "__UP_ACCESS_TOKEN__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_REQUESTOR_IDS_JSON = "__UP_REQUESTOR_IDS_JSON__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_THEME_SCOPE = "__UP_THEME_SCOPE__";
-const CLICK_CMU_TEMPLATE_PLACEHOLDER_TITLE = "__UP_CLICK_CMU_TITLE__";
-const CLICK_CMU_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN = "__UP_CLICK_CMU_ACCESS_TOKEN__";
-const CLICK_CMU_TEMPLATE_PLACEHOLDER_CLIENT_IDS_JSON = "__UP_CLICK_CMU_CLIENT_IDS_JSON__";
-const CLICK_CMU_TEMPLATE_PLACEHOLDER_USER_ID = "__UP_CLICK_CMU_USER_ID__";
-const CLICK_CMU_TEMPLATE_PLACEHOLDER_SCOPE = "__UP_CLICK_CMU_SCOPE__";
-const CLICK_CMU_TEMPLATE_PLACEHOLDER_ENDPOINTS_JSON = "__UP_CLICK_CMU_ENDPOINTS_JSON__";
-const CLICK_CMU_TEMPLATE_PLACEHOLDER_PROGRAMMER_ID = "__UP_CLICK_CMU_PROGRAMMER_ID__";
 const CLICK_ESM_TEMPLATE_REQUIRED_MARKERS = [
   "const __localColumnFilterStateByDl = new WeakMap();",
   "function __appendLocalColumnFilterParams(url, dl)",
   "function __applyLocalColumnFiltersToRows(rows, dl)",
   "--zip-theme-vibe-body-radial-alpha",
-];
-const CLICK_CMU_TEMPLATE_REQUIRED_MARKERS = [
-  "window.__UNDERPAR_CLICK_CMU_RUNTIME__ = true;",
-  "const CM_REPORTS_BASE_URL = \"https://cm-reports.adobeprimetime.com\";",
-  "async function refreshTokenViaValidateToken",
-  "async function refreshTokenViaImsCheck",
 ];
 const ESM_WORKSPACE_INLINE_RESULT_LIMIT = 100;
 const ESM_WORKSPACE_CSV_RESULT_LIMIT = 10000;
@@ -157,21 +143,462 @@ const CM_POLICIES_PATH_TEMPLATES = [
   "/maitai/policy?orgId={tenantId}",
 ];
 const CM_USAGE_PATH_TEMPLATES = [
-  "/v2/year/month",
-  "/v2/year/month/duration",
-  "/v2/year/month/mvpd",
-  "/v2/year/month/mvpd/duration",
-  "/v2/year/month/mvpd/duration/occurrences",
-  "/v2/year/month/mvpd/duration/occurrences/activity-level",
-  "/v2/year/month/mvpd/duration/occurrences/activity-level/day",
-  "/v2/year/month/mvpd/duration/occurrences/activity-level/day/hour",
-  "/v2/year/month/mvpd/duration/occurrences/activity-level/day/hour/tenant",
-  "/v2/year/month/mvpd/concurrency-level",
-  "/v2/year/month/mvpd/concurrency-level/tenant",
-  "/v2/year/month/mvpd/concurrency-level/tenant/occurrences",
-  "/v2/year/month/mvpd/concurrency-level/tenant/occurrences/day",
-  "/v2/year/month/mvpd/concurrency-level/tenant/occurrences/day/duration",
-  "/v2/year/month/mvpd/concurrency-level/tenant/occurrences/day/duration/hour",
+  "/v2/year",
+  "/v2/year/duration",
+  "/v2/year/duration/occurrences",
+  "/v2/year/duration/occurrences/month",
+  "/v2/year/duration/occurrences/month/activity-level",
+  "/v2/year/duration/occurrences/month/activity-level/day",
+  "/v2/year/duration/occurrences/month/activity-level/day/hour",
+  "/v2/year/duration/occurrences/month/activity-level/day/hour/mvpd",
+  "/v2/year/duration/occurrences/month/activity-level/day/hour/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/activity-level/day/hour/tenant",
+  "/v2/year/duration/occurrences/month/activity-level/day/hour/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/activity-level/day/mvpd",
+  "/v2/year/duration/occurrences/month/activity-level/day/mvpd/hour",
+  "/v2/year/duration/occurrences/month/activity-level/day/mvpd/hour/tenant",
+  "/v2/year/duration/occurrences/month/activity-level/day/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/activity-level/day/mvpd/tenant/hour",
+  "/v2/year/duration/occurrences/month/activity-level/day/tenant",
+  "/v2/year/duration/occurrences/month/activity-level/day/tenant/hour",
+  "/v2/year/duration/occurrences/month/activity-level/day/tenant/hour/mvpd",
+  "/v2/year/duration/occurrences/month/activity-level/day/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/activity-level/day/tenant/mvpd/hour",
+  "/v2/year/duration/occurrences/month/activity-level/mvpd",
+  "/v2/year/duration/occurrences/month/activity-level/mvpd/day",
+  "/v2/year/duration/occurrences/month/activity-level/mvpd/day/hour",
+  "/v2/year/duration/occurrences/month/activity-level/mvpd/day/hour/tenant",
+  "/v2/year/duration/occurrences/month/activity-level/mvpd/day/tenant",
+  "/v2/year/duration/occurrences/month/activity-level/mvpd/day/tenant/hour",
+  "/v2/year/duration/occurrences/month/activity-level/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/activity-level/mvpd/tenant/day",
+  "/v2/year/duration/occurrences/month/activity-level/mvpd/tenant/day/hour",
+  "/v2/year/duration/occurrences/month/activity-level/tenant",
+  "/v2/year/duration/occurrences/month/activity-level/tenant/day",
+  "/v2/year/duration/occurrences/month/activity-level/tenant/day/hour",
+  "/v2/year/duration/occurrences/month/activity-level/tenant/day/hour/mvpd",
+  "/v2/year/duration/occurrences/month/activity-level/tenant/day/mvpd",
+  "/v2/year/duration/occurrences/month/activity-level/tenant/day/mvpd/hour",
+  "/v2/year/duration/occurrences/month/activity-level/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/activity-level/tenant/mvpd/day",
+  "/v2/year/duration/occurrences/month/activity-level/tenant/mvpd/day/hour",
+  "/v2/year/duration/occurrences/month/day",
+  "/v2/year/duration/occurrences/month/day/activity-level",
+  "/v2/year/duration/occurrences/month/day/activity-level/hour",
+  "/v2/year/duration/occurrences/month/day/activity-level/hour/mvpd",
+  "/v2/year/duration/occurrences/month/day/activity-level/hour/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/day/activity-level/hour/tenant",
+  "/v2/year/duration/occurrences/month/day/activity-level/hour/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/day/activity-level/mvpd",
+  "/v2/year/duration/occurrences/month/day/activity-level/mvpd/hour",
+  "/v2/year/duration/occurrences/month/day/activity-level/mvpd/hour/tenant",
+  "/v2/year/duration/occurrences/month/day/activity-level/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/day/activity-level/mvpd/tenant/hour",
+  "/v2/year/duration/occurrences/month/day/activity-level/tenant",
+  "/v2/year/duration/occurrences/month/day/activity-level/tenant/hour",
+  "/v2/year/duration/occurrences/month/day/activity-level/tenant/hour/mvpd",
+  "/v2/year/duration/occurrences/month/day/activity-level/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/day/activity-level/tenant/mvpd/hour",
+  "/v2/year/duration/occurrences/month/day/hour",
+  "/v2/year/duration/occurrences/month/day/hour/activity-level",
+  "/v2/year/duration/occurrences/month/day/hour/activity-level/mvpd",
+  "/v2/year/duration/occurrences/month/day/hour/activity-level/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/day/hour/activity-level/tenant",
+  "/v2/year/duration/occurrences/month/day/hour/activity-level/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/day/hour/mvpd",
+  "/v2/year/duration/occurrences/month/day/hour/mvpd/activity-level",
+  "/v2/year/duration/occurrences/month/day/hour/mvpd/activity-level/tenant",
+  "/v2/year/duration/occurrences/month/day/hour/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/day/hour/mvpd/tenant/activity-level",
+  "/v2/year/duration/occurrences/month/day/hour/mvpd/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/hour/mvpd/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/hour/mvpd/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/month/day/hour/tenant",
+  "/v2/year/duration/occurrences/month/day/hour/tenant/activity-level",
+  "/v2/year/duration/occurrences/month/day/hour/tenant/activity-level/mvpd",
+  "/v2/year/duration/occurrences/month/day/hour/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/day/hour/tenant/mvpd/activity-level",
+  "/v2/year/duration/occurrences/month/day/hour/tenant/mvpd/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/hour/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/hour/tenant/concurrency-level/mvpd",
+  "/v2/year/duration/occurrences/month/day/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/hour/concurrency-level/mvpd",
+  "/v2/year/duration/occurrences/month/day/hour/concurrency-level/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/day/hour/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/month/day/hour/concurrency-level/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/day/mvpd",
+  "/v2/year/duration/occurrences/month/day/mvpd/activity-level",
+  "/v2/year/duration/occurrences/month/day/mvpd/activity-level/hour",
+  "/v2/year/duration/occurrences/month/day/mvpd/activity-level/hour/tenant",
+  "/v2/year/duration/occurrences/month/day/mvpd/activity-level/tenant",
+  "/v2/year/duration/occurrences/month/day/mvpd/activity-level/tenant/hour",
+  "/v2/year/duration/occurrences/month/day/mvpd/hour",
+  "/v2/year/duration/occurrences/month/day/mvpd/hour/activity-level",
+  "/v2/year/duration/occurrences/month/day/mvpd/hour/activity-level/tenant",
+  "/v2/year/duration/occurrences/month/day/mvpd/hour/tenant",
+  "/v2/year/duration/occurrences/month/day/mvpd/hour/tenant/activity-level",
+  "/v2/year/duration/occurrences/month/day/mvpd/hour/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/mvpd/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/mvpd/hour/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/month/day/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/day/mvpd/tenant/activity-level",
+  "/v2/year/duration/occurrences/month/day/mvpd/tenant/activity-level/hour",
+  "/v2/year/duration/occurrences/month/day/mvpd/tenant/hour",
+  "/v2/year/duration/occurrences/month/day/mvpd/tenant/hour/activity-level",
+  "/v2/year/duration/occurrences/month/day/mvpd/tenant/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/mvpd/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/mvpd/tenant/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/day/mvpd/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/mvpd/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/day/mvpd/concurrency-level/hour/tenant",
+  "/v2/year/duration/occurrences/month/day/mvpd/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/month/day/mvpd/concurrency-level/tenant/hour",
+  "/v2/year/duration/occurrences/month/day/tenant",
+  "/v2/year/duration/occurrences/month/day/tenant/activity-level",
+  "/v2/year/duration/occurrences/month/day/tenant/activity-level/hour",
+  "/v2/year/duration/occurrences/month/day/tenant/activity-level/hour/mvpd",
+  "/v2/year/duration/occurrences/month/day/tenant/activity-level/mvpd",
+  "/v2/year/duration/occurrences/month/day/tenant/activity-level/mvpd/hour",
+  "/v2/year/duration/occurrences/month/day/tenant/hour",
+  "/v2/year/duration/occurrences/month/day/tenant/hour/activity-level",
+  "/v2/year/duration/occurrences/month/day/tenant/hour/activity-level/mvpd",
+  "/v2/year/duration/occurrences/month/day/tenant/hour/mvpd",
+  "/v2/year/duration/occurrences/month/day/tenant/hour/mvpd/activity-level",
+  "/v2/year/duration/occurrences/month/day/tenant/hour/mvpd/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/tenant/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/tenant/hour/concurrency-level/mvpd",
+  "/v2/year/duration/occurrences/month/day/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/day/tenant/mvpd/activity-level",
+  "/v2/year/duration/occurrences/month/day/tenant/mvpd/activity-level/hour",
+  "/v2/year/duration/occurrences/month/day/tenant/mvpd/hour",
+  "/v2/year/duration/occurrences/month/day/tenant/mvpd/hour/activity-level",
+  "/v2/year/duration/occurrences/month/day/tenant/mvpd/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/tenant/mvpd/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/tenant/mvpd/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/day/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/tenant/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/day/tenant/concurrency-level/hour/mvpd",
+  "/v2/year/duration/occurrences/month/day/tenant/concurrency-level/mvpd",
+  "/v2/year/duration/occurrences/month/day/tenant/concurrency-level/mvpd/hour",
+  "/v2/year/duration/occurrences/month/day/concurrency-level",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/hour/mvpd",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/hour/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/hour/tenant",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/hour/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/mvpd",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/mvpd/hour",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/mvpd/hour/tenant",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/mvpd/tenant/hour",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/tenant/hour",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/tenant/hour/mvpd",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/day/concurrency-level/tenant/mvpd/hour",
+  "/v2/year/duration/occurrences/month/mvpd",
+  "/v2/year/duration/occurrences/month/mvpd/activity-level",
+  "/v2/year/duration/occurrences/month/mvpd/activity-level/day",
+  "/v2/year/duration/occurrences/month/mvpd/activity-level/day/hour",
+  "/v2/year/duration/occurrences/month/mvpd/activity-level/day/hour/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/activity-level/day/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/activity-level/day/tenant/hour",
+  "/v2/year/duration/occurrences/month/mvpd/activity-level/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/activity-level/tenant/day",
+  "/v2/year/duration/occurrences/month/mvpd/activity-level/tenant/day/hour",
+  "/v2/year/duration/occurrences/month/mvpd/day",
+  "/v2/year/duration/occurrences/month/mvpd/day/activity-level",
+  "/v2/year/duration/occurrences/month/mvpd/day/activity-level/hour",
+  "/v2/year/duration/occurrences/month/mvpd/day/activity-level/hour/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/day/activity-level/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/day/activity-level/tenant/hour",
+  "/v2/year/duration/occurrences/month/mvpd/day/hour",
+  "/v2/year/duration/occurrences/month/mvpd/day/hour/activity-level",
+  "/v2/year/duration/occurrences/month/mvpd/day/hour/activity-level/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/day/hour/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/day/hour/tenant/activity-level",
+  "/v2/year/duration/occurrences/month/mvpd/day/hour/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/month/mvpd/day/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/mvpd/day/hour/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/day/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/day/tenant/activity-level",
+  "/v2/year/duration/occurrences/month/mvpd/day/tenant/activity-level/hour",
+  "/v2/year/duration/occurrences/month/mvpd/day/tenant/hour",
+  "/v2/year/duration/occurrences/month/mvpd/day/tenant/hour/activity-level",
+  "/v2/year/duration/occurrences/month/mvpd/day/tenant/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/mvpd/day/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/month/mvpd/day/tenant/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/mvpd/day/concurrency-level",
+  "/v2/year/duration/occurrences/month/mvpd/day/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/mvpd/day/concurrency-level/hour/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/day/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/day/concurrency-level/tenant/hour",
+  "/v2/year/duration/occurrences/month/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/activity-level",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/activity-level/day",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/activity-level/day/hour",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/day",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/day/activity-level",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/day/activity-level/hour",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/day/hour",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/day/hour/activity-level",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/day/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/day/concurrency-level",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/day/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/concurrency-level/day",
+  "/v2/year/duration/occurrences/month/mvpd/tenant/concurrency-level/day/hour",
+  "/v2/year/duration/occurrences/month/mvpd/concurrency-level",
+  "/v2/year/duration/occurrences/month/mvpd/concurrency-level/day",
+  "/v2/year/duration/occurrences/month/mvpd/concurrency-level/day/hour",
+  "/v2/year/duration/occurrences/month/mvpd/concurrency-level/day/hour/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/concurrency-level/day/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/concurrency-level/day/tenant/hour",
+  "/v2/year/duration/occurrences/month/mvpd/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/month/mvpd/concurrency-level/tenant/day",
+  "/v2/year/duration/occurrences/month/mvpd/concurrency-level/tenant/day/hour",
+  "/v2/year/duration/occurrences/month/tenant",
+  "/v2/year/duration/occurrences/month/tenant/activity-level",
+  "/v2/year/duration/occurrences/month/tenant/activity-level/day",
+  "/v2/year/duration/occurrences/month/tenant/activity-level/day/hour",
+  "/v2/year/duration/occurrences/month/tenant/activity-level/day/hour/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/activity-level/day/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/activity-level/day/mvpd/hour",
+  "/v2/year/duration/occurrences/month/tenant/activity-level/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/activity-level/mvpd/day",
+  "/v2/year/duration/occurrences/month/tenant/activity-level/mvpd/day/hour",
+  "/v2/year/duration/occurrences/month/tenant/day",
+  "/v2/year/duration/occurrences/month/tenant/day/activity-level",
+  "/v2/year/duration/occurrences/month/tenant/day/activity-level/hour",
+  "/v2/year/duration/occurrences/month/tenant/day/activity-level/hour/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/day/activity-level/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/day/activity-level/mvpd/hour",
+  "/v2/year/duration/occurrences/month/tenant/day/hour",
+  "/v2/year/duration/occurrences/month/tenant/day/hour/activity-level",
+  "/v2/year/duration/occurrences/month/tenant/day/hour/activity-level/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/day/hour/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/day/hour/mvpd/activity-level",
+  "/v2/year/duration/occurrences/month/tenant/day/hour/mvpd/concurrency-level",
+  "/v2/year/duration/occurrences/month/tenant/day/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/tenant/day/hour/concurrency-level/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/day/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/day/mvpd/activity-level",
+  "/v2/year/duration/occurrences/month/tenant/day/mvpd/activity-level/hour",
+  "/v2/year/duration/occurrences/month/tenant/day/mvpd/hour",
+  "/v2/year/duration/occurrences/month/tenant/day/mvpd/hour/activity-level",
+  "/v2/year/duration/occurrences/month/tenant/day/mvpd/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/tenant/day/mvpd/concurrency-level",
+  "/v2/year/duration/occurrences/month/tenant/day/mvpd/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/tenant/day/concurrency-level",
+  "/v2/year/duration/occurrences/month/tenant/day/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/tenant/day/concurrency-level/hour/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/day/concurrency-level/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/day/concurrency-level/mvpd/hour",
+  "/v2/year/duration/occurrences/month/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/activity-level",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/activity-level/day",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/activity-level/day/hour",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/day",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/day/activity-level",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/day/activity-level/hour",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/day/hour",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/day/hour/activity-level",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/day/hour/concurrency-level",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/day/concurrency-level",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/day/concurrency-level/hour",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/concurrency-level",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/concurrency-level/day",
+  "/v2/year/duration/occurrences/month/tenant/mvpd/concurrency-level/day/hour",
+  "/v2/year/duration/occurrences/month/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/month/tenant/concurrency-level/day",
+  "/v2/year/duration/occurrences/month/tenant/concurrency-level/day/hour",
+  "/v2/year/duration/occurrences/month/tenant/concurrency-level/day/hour/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/concurrency-level/day/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/concurrency-level/day/mvpd/hour",
+  "/v2/year/duration/occurrences/month/tenant/concurrency-level/mvpd",
+  "/v2/year/duration/occurrences/month/tenant/concurrency-level/mvpd/day",
+  "/v2/year/duration/occurrences/month/tenant/concurrency-level/mvpd/day/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level",
+  "/v2/year/duration/occurrences/month/concurrency-level/day",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/hour/mvpd",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/hour/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/hour/tenant",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/hour/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/mvpd",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/mvpd/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/mvpd/hour/tenant",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/mvpd/tenant/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/tenant",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/tenant/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/tenant/hour/mvpd",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/concurrency-level/day/tenant/mvpd/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level/mvpd",
+  "/v2/year/duration/occurrences/month/concurrency-level/mvpd/day",
+  "/v2/year/duration/occurrences/month/concurrency-level/mvpd/day/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level/mvpd/day/hour/tenant",
+  "/v2/year/duration/occurrences/month/concurrency-level/mvpd/day/tenant",
+  "/v2/year/duration/occurrences/month/concurrency-level/mvpd/day/tenant/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level/mvpd/tenant",
+  "/v2/year/duration/occurrences/month/concurrency-level/mvpd/tenant/day",
+  "/v2/year/duration/occurrences/month/concurrency-level/mvpd/tenant/day/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/month/concurrency-level/tenant/day",
+  "/v2/year/duration/occurrences/month/concurrency-level/tenant/day/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level/tenant/day/hour/mvpd",
+  "/v2/year/duration/occurrences/month/concurrency-level/tenant/day/mvpd",
+  "/v2/year/duration/occurrences/month/concurrency-level/tenant/day/mvpd/hour",
+  "/v2/year/duration/occurrences/month/concurrency-level/tenant/mvpd",
+  "/v2/year/duration/occurrences/month/concurrency-level/tenant/mvpd/day",
+  "/v2/year/duration/occurrences/month/concurrency-level/tenant/mvpd/day/hour",
+  "/v2/year/duration/occurrences/activity-level",
+  "/v2/year/duration/occurrences/activity-level/month",
+  "/v2/year/duration/occurrences/activity-level/month/day",
+  "/v2/year/duration/occurrences/activity-level/month/day/hour",
+  "/v2/year/duration/occurrences/activity-level/month/day/hour/mvpd",
+  "/v2/year/duration/occurrences/activity-level/month/day/hour/mvpd/tenant",
+  "/v2/year/duration/occurrences/activity-level/month/day/hour/tenant",
+  "/v2/year/duration/occurrences/activity-level/month/day/hour/tenant/mvpd",
+  "/v2/year/duration/occurrences/activity-level/month/day/mvpd",
+  "/v2/year/duration/occurrences/activity-level/month/day/mvpd/hour",
+  "/v2/year/duration/occurrences/activity-level/month/day/mvpd/hour/tenant",
+  "/v2/year/duration/occurrences/activity-level/month/day/mvpd/tenant",
+  "/v2/year/duration/occurrences/activity-level/month/day/mvpd/tenant/hour",
+  "/v2/year/duration/occurrences/activity-level/month/day/tenant",
+  "/v2/year/duration/occurrences/activity-level/month/day/tenant/hour",
+  "/v2/year/duration/occurrences/activity-level/month/day/tenant/hour/mvpd",
+  "/v2/year/duration/occurrences/activity-level/month/day/tenant/mvpd",
+  "/v2/year/duration/occurrences/activity-level/month/day/tenant/mvpd/hour",
+  "/v2/year/duration/occurrences/activity-level/month/mvpd",
+  "/v2/year/duration/occurrences/activity-level/month/mvpd/day",
+  "/v2/year/duration/occurrences/activity-level/month/mvpd/day/hour",
+  "/v2/year/duration/occurrences/activity-level/month/mvpd/day/hour/tenant",
+  "/v2/year/duration/occurrences/activity-level/month/mvpd/day/tenant",
+  "/v2/year/duration/occurrences/activity-level/month/mvpd/day/tenant/hour",
+  "/v2/year/duration/occurrences/activity-level/month/mvpd/tenant",
+  "/v2/year/duration/occurrences/activity-level/month/mvpd/tenant/day",
+  "/v2/year/duration/occurrences/activity-level/month/mvpd/tenant/day/hour",
+  "/v2/year/duration/occurrences/activity-level/month/tenant",
+  "/v2/year/duration/occurrences/activity-level/month/tenant/day",
+  "/v2/year/duration/occurrences/activity-level/month/tenant/day/hour",
+  "/v2/year/duration/occurrences/activity-level/month/tenant/day/hour/mvpd",
+  "/v2/year/duration/occurrences/activity-level/month/tenant/day/mvpd",
+  "/v2/year/duration/occurrences/activity-level/month/tenant/day/mvpd/hour",
+  "/v2/year/duration/occurrences/activity-level/month/tenant/mvpd",
+  "/v2/year/duration/occurrences/activity-level/month/tenant/mvpd/day",
+  "/v2/year/duration/occurrences/activity-level/month/tenant/mvpd/day/hour",
+  "/v2/year/duration/occurrences/activity-level/mvpd",
+  "/v2/year/duration/occurrences/activity-level/mvpd/month",
+  "/v2/year/duration/occurrences/activity-level/mvpd/month/day",
+  "/v2/year/duration/occurrences/activity-level/mvpd/month/day/hour",
+  "/v2/year/duration/occurrences/activity-level/mvpd/month/day/hour/tenant",
+  "/v2/year/duration/occurrences/activity-level/mvpd/month/day/tenant",
+  "/v2/year/duration/occurrences/activity-level/mvpd/month/day/tenant/hour",
+  "/v2/year/duration/occurrences/activity-level/mvpd/month/tenant",
+  "/v2/year/duration/occurrences/activity-level/mvpd/month/tenant/day",
+  "/v2/year/duration/occurrences/activity-level/mvpd/month/tenant/day/hour",
+  "/v2/year/duration/occurrences/activity-level/mvpd/tenant",
+  "/v2/year/duration/occurrences/activity-level/mvpd/tenant/month",
+  "/v2/year/duration/occurrences/activity-level/mvpd/tenant/month/day",
+  "/v2/year/duration/occurrences/activity-level/mvpd/tenant/month/day/hour",
+  "/v2/year/duration/occurrences/activity-level/tenant",
+  "/v2/year/duration/occurrences/activity-level/tenant/month",
+  "/v2/year/duration/occurrences/activity-level/tenant/month/day",
+  "/v2/year/duration/occurrences/activity-level/tenant/month/day/hour",
+  "/v2/year/duration/occurrences/activity-level/tenant/month/day/hour/mvpd",
+  "/v2/year/duration/occurrences/activity-level/tenant/month/day/mvpd",
+  "/v2/year/duration/occurrences/activity-level/tenant/month/day/mvpd/hour",
+  "/v2/year/duration/occurrences/activity-level/tenant/month/mvpd",
+  "/v2/year/duration/occurrences/activity-level/tenant/month/mvpd/day",
+  "/v2/year/duration/occurrences/activity-level/tenant/month/mvpd/day/hour",
+  "/v2/year/duration/occurrences/activity-level/tenant/mvpd",
+  "/v2/year/duration/occurrences/activity-level/tenant/mvpd/month",
+  "/v2/year/duration/occurrences/activity-level/tenant/mvpd/month/day",
+  "/v2/year/duration/occurrences/activity-level/tenant/mvpd/month/day/hour",
+  "/v2/year/duration/occurrences/mvpd",
+  "/v2/year/duration/occurrences/mvpd/month",
+  "/v2/year/duration/occurrences/mvpd/month/activity-level",
+  "/v2/year/duration/occurrences/mvpd/month/activity-level/day",
+  "/v2/year/duration/occurrences/mvpd/month/activity-level/day/hour",
+  "/v2/year/duration/occurrences/mvpd/month/activity-level/day/hour/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/activity-level/day/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/activity-level/day/tenant/hour",
+  "/v2/year/duration/occurrences/mvpd/month/activity-level/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/activity-level/tenant/day",
+  "/v2/year/duration/occurrences/mvpd/month/activity-level/tenant/day/hour",
+  "/v2/year/duration/occurrences/mvpd/month/day",
+  "/v2/year/duration/occurrences/mvpd/month/day/activity-level",
+  "/v2/year/duration/occurrences/mvpd/month/day/activity-level/hour",
+  "/v2/year/duration/occurrences/mvpd/month/day/activity-level/hour/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/day/activity-level/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/day/activity-level/tenant/hour",
+  "/v2/year/duration/occurrences/mvpd/month/day/hour",
+  "/v2/year/duration/occurrences/mvpd/month/day/hour/activity-level",
+  "/v2/year/duration/occurrences/mvpd/month/day/hour/activity-level/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/day/hour/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/day/hour/tenant/activity-level",
+  "/v2/year/duration/occurrences/mvpd/month/day/hour/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/mvpd/month/day/hour/concurrency-level",
+  "/v2/year/duration/occurrences/mvpd/month/day/hour/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/day/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/day/tenant/activity-level",
+  "/v2/year/duration/occurrences/mvpd/month/day/tenant/activity-level/hour",
+  "/v2/year/duration/occurrences/mvpd/month/day/tenant/hour",
+  "/v2/year/duration/occurrences/mvpd/month/day/tenant/hour/activity-level",
+  "/v2/year/duration/occurrences/mvpd/month/day/tenant/hour/concurrency-level",
+  "/v2/year/duration/occurrences/mvpd/month/day/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/mvpd/month/day/tenant/concurrency-level/hour",
+  "/v2/year/duration/occurrences/mvpd/month/day/concurrency-level",
+  "/v2/year/duration/occurrences/mvpd/month/day/concurrency-level/hour",
+  "/v2/year/duration/occurrences/mvpd/month/day/concurrency-level/hour/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/day/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/day/concurrency-level/tenant/hour",
+  "/v2/year/duration/occurrences/mvpd/month/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/activity-level",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/activity-level/day",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/activity-level/day/hour",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/day",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/day/activity-level",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/day/activity-level/hour",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/day/hour",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/day/hour/activity-level",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/day/hour/concurrency-level",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/day/concurrency-level",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/day/concurrency-level/hour",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/concurrency-level",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/concurrency-level/day",
+  "/v2/year/duration/occurrences/mvpd/month/tenant/concurrency-level/day/hour",
+  "/v2/year/duration/occurrences/mvpd/month/concurrency-level",
+  "/v2/year/duration/occurrences/mvpd/month/concurrency-level/day",
+  "/v2/year/duration/occurrences/mvpd/month/concurrency-level/day/hour",
+  "/v2/year/duration/occurrences/mvpd/month/concurrency-level/day/hour/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/concurrency-level/day/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/concurrency-level/day/tenant/hour",
+  "/v2/year/duration/occurrences/mvpd/month/concurrency-level/tenant",
+  "/v2/year/duration/occurrences/mvpd/month/concurrency-level/tenant/day",
+  "/v2/year/duration/occurrences/mvpd/month/concurrency-level/tenant/day/hour",
+  "/v2/year/duration/occurrences/mvpd/activity-level",
+  "/v2/year/duration/occurrences/mvpd/activity-level/month",
+  "/v2/year/duration/occurrences/mvpd/activity-level/month/day",
+  "/v2/year/duration/occurrences/mvpd/activity-level/month/day/hour",
+  "/v2/year/duration/occurrences/mvpd/activity-level/month/day/hour/tenant",
+  "/v2/year/duration/occurrences/mvpd/activity-level/month/day/tenant",
+  "/v2/year/duration/occurrences/mvpd/activity-level/month/day/tenant/hour",
+  "/v2/year/duration/occurrences/mvpd/activity-level/month/tenant",
+  "/v2/year/duration/occurrences/mvpd/activity-level/month/tenant/day",
+  "/v2/year/duration/occurrences/mvpd/activity-level/month/tenant/day/hour",
+  "/v2/year/duration/occurrences/mvpd/activity-level/tenant",
+  "/v2/year/duration/occurrences/mvpd/activity-level/tenant/month",
+  "/v2/year/duration/occurrences/mvpd/activity-level/tenant/month/day",
+  "/v2/year/duration/occurrences/mvpd/activity-level/tenant/month/day/hour",
+  "/v2/year/duration/occurrences/mvpd/tenant",
+  "/v2/year/duration/occurrences/mvpd/tenant/month",
+  "/v2/year/duration/occurrences/mvpd/tenant/month/activity-level",
+  "/v2/year/duration/occurrences/mvpd/tenant/month/activity-level/day",
+  "/v2/year/duration/occurrences/mvpd/tenant/month/activity-level/day/hour",
+  "/v2/year/duration/occurrences/mvpd/tenant/month/day",
 ];
 const CM_BASE_URL_CANDIDATES = [
   CM_CONFIG_BASE_URL,
@@ -420,8 +847,6 @@ let clickEsmEndpoints = [];
 let clickEsmEndpointsPromise = null;
 let clickEsmTemplateHtml = "";
 let clickEsmTemplatePromise = null;
-let clickCmuTemplateHtml = "";
-let clickCmuTemplatePromise = null;
 
 function log(message, details = null) {
   if (details === null) {
@@ -741,6 +1166,13 @@ function emitCmDebugEvent(event = {}, options = {}) {
   const payload = {
     source: "extension",
     service: "cm",
+    requestScope: String(
+      firstNonEmptyString([
+        event?.requestScope,
+        debugContext?.requestScope,
+        workspaceKey === "cmu-workspace" ? "cmu-workspace" : "cm",
+      ]) || "cm"
+    ),
     requestorId: String(debugContext.requestorId || state.selectedRequestorId || ""),
     mvpd: String(debugContext.mvpd || state.selectedMvpdId || ""),
     programmerId: String(debugContext.programmerId || resolveSelectedProgrammer()?.programmerId || ""),
@@ -760,7 +1192,10 @@ function emitCmDebugEvent(event = {}, options = {}) {
     options.fallbackTabId || event?.tabId || event?.workspaceTabId || event?.controllerTabId || state.cmWorkspaceTabId || 0
   );
 
-  const flowId = resolveCmDebugFlowId(options.flowId || "");
+  const explicitFlowId = String(options.flowId || "").trim();
+  const workspaceFlowId = getActiveCmWorkspaceActivityDebugFlowId();
+  const useWorkspaceFlow = !explicitFlowId && workspaceKey === "cmu-workspace";
+  const flowId = useWorkspaceFlow ? workspaceFlowId : resolveCmDebugFlowId(explicitFlowId);
   if (flowId) {
     emitRestV2DebugEvent(flowId, payload);
     if (flowId === String(state.cmWorkspaceActivityDebugFlowId || "").trim()) {
@@ -8010,26 +8445,19 @@ function ensureCmUsageEndpointFormat(url) {
 }
 
 function buildClickCmuFallbackEndpoints() {
-  const output = [];
-  const seen = new Set();
-  CM_USAGE_PATH_TEMPLATES.forEach((templatePath, index) => {
+  const entries = CM_USAGE_PATH_TEMPLATES.map((templatePath, index) => {
     const path = String(templatePath || "").trim();
     if (!path) {
-      return;
+      return null;
     }
     const normalizedPath = `/${path.replace(/^\/+/, "").replace(/\?.*$/, "")}`;
-    const url = ensureCmUsageEndpointFormat(`${CM_REPORTS_BASE_URL}${normalizedPath}`);
-    if (!url || seen.has(url)) {
-      return;
-    }
-    seen.add(url);
-    output.push({
+    return {
       id: `cmu-${index + 1}`,
       label: formatCmUsageLabelFromPath(normalizedPath),
-      url,
-    });
-  });
-  return output;
+      url: ensureCmUsageEndpointFormat(`${CM_REPORTS_BASE_URL}${normalizedPath}`),
+    };
+  }).filter(Boolean);
+  return normalizeClickCmuEndpointCatalog(entries);
 }
 
 function resolveClickCmuEndpointsFromCmState(cmState = null) {
@@ -8038,16 +8466,14 @@ function resolveClickCmuEndpointsFromCmState(cmState = null) {
     return [];
   }
   const output = [];
-  const seen = new Set();
   for (const record of recordsById.values()) {
     if (String(record?.kind || "").toLowerCase() !== "usage") {
       continue;
     }
     const requestUrl = ensureCmUsageEndpointFormat(firstNonEmptyString([record?.sourceUrl, record?.requestUrl, record?.endpointUrl]));
-    if (!requestUrl || seen.has(requestUrl)) {
+    if (!requestUrl) {
       continue;
     }
-    seen.add(requestUrl);
     let label = String(record?.name || record?.title || "").trim();
     if (!label) {
       try {
@@ -8063,106 +8489,720 @@ function resolveClickCmuEndpointsFromCmState(cmState = null) {
       url: requestUrl,
     });
   }
-  return output;
+  return normalizeClickCmuEndpointCatalog(output);
+}
+
+function buildClickCmuTemplatePathOrderMap() {
+  const orderMap = new Map();
+  CM_USAGE_PATH_TEMPLATES.forEach((templatePath, index) => {
+    const normalizedPath = `/${String(templatePath || "")
+      .trim()
+      .replace(/^\/+/, "")
+      .replace(/\?.*$/, "")}`;
+    const pathKey = cmuUsagePathPartsToKey(cmuUsageExtractPathParts(normalizedPath));
+    if (!pathKey || orderMap.has(pathKey)) {
+      return;
+    }
+    orderMap.set(pathKey, index);
+  });
+  return orderMap;
+}
+
+function normalizeClickCmuEndpointCatalog(entries = []) {
+  const list = Array.isArray(entries) ? entries : [];
+  const deduped = [];
+  const seen = new Set();
+
+  list.forEach((entry, index) => {
+    const normalizedUrl = ensureCmUsageEndpointFormat(entry?.url);
+    if (!normalizedUrl) {
+      return;
+    }
+    const pathParts = cmuUsageExtractPathParts(normalizedUrl);
+    const pathKey = cmuUsagePathPartsToKey(pathParts);
+    const dedupeKey = String(pathKey || normalizedUrl.split("?", 1)[0]).toLowerCase();
+    if (!dedupeKey || seen.has(dedupeKey)) {
+      return;
+    }
+    seen.add(dedupeKey);
+
+    const fallbackLabel = (() => {
+      try {
+        return formatCmUsageLabelFromPath(new URL(normalizedUrl, CM_REPORTS_BASE_URL).pathname);
+      } catch {
+        return "CMU Endpoint";
+      }
+    })();
+    deduped.push({
+      id: String(entry?.id || `cmu-${index + 1}`).trim() || `cmu-${index + 1}`,
+      label: String(entry?.label || "").trim() || fallbackLabel,
+      url: normalizedUrl,
+      __pathKey: pathKey,
+      __pathParts: pathParts,
+    });
+  });
+
+  const pathOrderMap = buildClickCmuTemplatePathOrderMap();
+  deduped.sort((left, right) => {
+    const leftOrder = pathOrderMap.has(left.__pathKey) ? Number(pathOrderMap.get(left.__pathKey)) : Number.MAX_SAFE_INTEGER;
+    const rightOrder = pathOrderMap.has(right.__pathKey) ? Number(pathOrderMap.get(right.__pathKey)) : Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder;
+    }
+    const pathCompare = esmWorkspaceComparePathParts(left.__pathParts, right.__pathParts);
+    if (pathCompare !== 0) {
+      return pathCompare;
+    }
+    return String(left.url || "").localeCompare(String(right.url || ""), undefined, { sensitivity: "base" });
+  });
+
+  return deduped.map(({ __pathKey, __pathParts, ...entry }) => entry);
 }
 
 function buildClickCmuEndpointCatalog(context = null) {
   const fromState = resolveClickCmuEndpointsFromCmState(context?.cmState || null);
-  const source = fromState.length > 0 ? fromState : buildClickCmuFallbackEndpoints();
-  return source
+  const fallback = buildClickCmuFallbackEndpoints();
+  return normalizeClickCmuEndpointCatalog([...fromState, ...fallback]);
+}
+
+async function loadClickCmuTemplateHtml() {
+  // clickCMU is now rendered from the same embedded clickESM template/runtime.
+  return loadClickEsmTemplateHtml();
+}
+
+function deriveClickCmuEndpointDimensions(endpointUrl = "") {
+  const pathParts = cmuUsageExtractPathParts(endpointUrl)
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+  return pathParts.length > 0 ? pathParts : ["year", "month"];
+}
+
+function deriveClickCmuZoomClass(endpointUrl = "") {
+  const zoomKey = cmuUsageGetZoomKey(cmuUsageExtractPathParts(endpointUrl), endpointUrl);
+  if (zoomKey === "HR" || zoomKey === "MIN") {
+    return "zmHR";
+  }
+  if (zoomKey === "DAY") {
+    return "zmDAY";
+  }
+  if (zoomKey === "MO") {
+    return "zmMO";
+  }
+  return "zmYR";
+}
+
+function buildClickCmuEndpointDlMarkup(endpointCatalog = []) {
+  const normalizedCatalog = (Array.isArray(endpointCatalog) ? endpointCatalog : [])
     .map((entry, index) => ({
       id: String(entry?.id || `cmu-${index + 1}`).trim() || `cmu-${index + 1}`,
       label: String(entry?.label || "CMU Endpoint").trim() || "CMU Endpoint",
       url: ensureCmUsageEndpointFormat(entry?.url),
     }))
-    .filter((entry) => String(entry?.url || "").trim())
-    .slice(0, 120);
+    .filter((entry) => String(entry?.url || "").trim());
+  return normalizedCatalog
+    .map((entry) => {
+      const href = escapeHtml(entry.url);
+      const label = escapeHtml(entry.label);
+      const zoomClass = deriveClickCmuZoomClass(entry.url);
+      const columns = deriveClickCmuEndpointDimensions(entry.url)
+        .map((dimension) => String(dimension || "").trim())
+        .filter(Boolean);
+      const columnText = escapeHtml(columns.join("\n"));
+      return [
+        "<dl>",
+        `  <dt><a href="${href}" class="${zoomClass}" title="${label}" onclick="runEsm(this);return false;">${href}</a></dt>`,
+        `  <dd class="col-list">${columnText}</dd>`,
+        "  <dd class=\"esm-table-host\"></dd>",
+        "</dl>",
+      ].join("\n");
+    })
+    .join("\n");
 }
 
-function isModernClickCmuTemplate(templateHtml) {
-  const text = String(templateHtml || "");
-  if (!text.trim()) {
-    return false;
-  }
-  const placeholders = [
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_TITLE,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_CLIENT_IDS_JSON,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_USER_ID,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_SCOPE,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_ENDPOINTS_JSON,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_PROGRAMMER_ID,
-  ];
-  if (placeholders.some((token) => !text.includes(token))) {
-    return false;
-  }
-  return CLICK_CMU_TEMPLATE_REQUIRED_MARKERS.every((marker) => text.includes(marker));
-}
-
-function buildClickCmuTemplateResourceUrl({ forceBypassCache = false } = {}) {
-  const manifestVersion = String(chrome?.runtime?.getManifest?.()?.version || "").trim();
-  const params = new URLSearchParams();
-  if (manifestVersion) {
-    params.set("v", manifestVersion);
-  }
-  if (forceBypassCache) {
-    params.set("t", String(Date.now()));
-  }
-  const base = chrome.runtime.getURL(CLICK_CMU_TEMPLATE_PATH);
-  const query = params.toString();
-  return query ? `${base}?${query}` : base;
-}
-
-async function fetchClickCmuTemplateHtml({ forceBypassCache = false } = {}) {
-  const resourceUrl = buildClickCmuTemplateResourceUrl({ forceBypassCache });
-  const response = await fetch(resourceUrl, {
-    method: "GET",
-    credentials: "omit",
-    cache: forceBypassCache ? "reload" : "no-cache",
-  });
-  if (!response.ok) {
-    throw new Error(`Unable to load clickCMU template (${response.status}).`);
-  }
-  return await response.text();
-}
-
-async function loadClickCmuTemplateHtml() {
-  if (isModernClickCmuTemplate(clickCmuTemplateHtml)) {
-    return clickCmuTemplateHtml;
-  }
-  if (clickCmuTemplatePromise) {
-    return clickCmuTemplatePromise;
-  }
-
-  clickCmuTemplatePromise = (async () => {
-    let templateHtml = await fetchClickCmuTemplateHtml({ forceBypassCache: false });
-    if (!isModernClickCmuTemplate(templateHtml)) {
-      templateHtml = await fetchClickCmuTemplateHtml({ forceBypassCache: true });
-    }
-    if (!isModernClickCmuTemplate(templateHtml)) {
-      throw new Error("clickCMU template is not the latest export build.");
-    }
-    clickCmuTemplateHtml = templateHtml;
-    return clickCmuTemplateHtml;
-  })();
-
-  try {
-    return await clickCmuTemplatePromise;
-  } finally {
-    clickCmuTemplatePromise = null;
-  }
-}
-
-function clickCmuReplaceTemplateToken(templateHtml, token, value) {
-  const placeholder = String(token || "").trim();
-  if (!placeholder) {
-    throw new Error("clickCMU placeholder token is required.");
-  }
+function replaceClickCmuEndpointBlock(templateHtml, endpointDlMarkup) {
   const output = String(templateHtml || "");
-  if (!output.includes(placeholder)) {
-    throw new Error(`clickCMU template is missing token ${placeholder}.`);
+  const startMarker = "<div class=\"esm-scroll-container\">";
+  const endMarker = "<div class=\"footer-container search-container\">";
+  const startIndex = output.indexOf(startMarker);
+  if (startIndex < 0) {
+    throw new Error("clickCMU build failed: missing ESM scroll container marker.");
   }
-  return output.replaceAll(placeholder, escapeHtml(String(value ?? "").trim()));
+  const contentStart = startIndex + startMarker.length;
+  const endIndex = output.indexOf(endMarker, contentStart);
+  if (endIndex < 0) {
+    throw new Error("clickCMU build failed: missing ESM footer container marker.");
+  }
+  const replacement = `\n${String(endpointDlMarkup || "").trim()}\n\n`;
+  return `${output.slice(0, contentStart)}${replacement}${output.slice(endIndex)}`;
+}
+
+function clickCmuSerializeForInlineScript(value) {
+  return JSON.stringify(value)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026");
+}
+
+function buildClickCmuRuntimePatchSnippet(context = {}) {
+  const runtimeConfig = {
+    programmerId: String(context.programmerId || "").trim(),
+    clientIds: uniqueSorted(
+      (Array.isArray(context.clientIds) ? context.clientIds : [])
+        .map((value) => String(value || "").trim())
+        .filter(Boolean)
+    ),
+    userId: String(context.userId || "").trim(),
+    scope: String(context.scope || CM_IMS_CHECK_DEFAULT_SCOPE).trim() || CM_IMS_CHECK_DEFAULT_SCOPE,
+  };
+  const runtimeJson = clickCmuSerializeForInlineScript(runtimeConfig);
+  return `
+<style id="underpar-clickcmu-theme-overrides">
+:root{
+  --zip-accent-500:110, 206, 42;
+  --zip-accent-600:93, 180, 31;
+  --zip-accent-700:82, 161, 25;
+  --zip-accent-800:72, 144, 20;
+  --zip-accent-900:64, 129, 17;
+  --zip-accent-1000:52, 109, 12;
+  --zip-accent-1100:44, 92, 9;
+  --zip-theme-vibe-body-radial-alpha:0.191;
+  --zip-theme-vibe-body-start-mix:49.54%;
+  --zip-theme-vibe-body-end-mix:33.42%;
+  --zip-theme-vibe-shell-mix:40.13%;
+  --zip-theme-vibe-border-mix:49.24%;
+  --zip-theme-vibe-topbar-a-alpha:0.181;
+  --zip-theme-vibe-topbar-b-alpha:0.12;
+  --zip-theme-vibe-topbar-c-mix:32.63%;
+  --zip-theme-vibe-footer-a-alpha:0.138;
+  --zip-theme-vibe-footer-b-mix:30.2%;
+  --zip-theme-vibe-menu-a-mix:23.46%;
+  --zip-theme-vibe-menu-b-mix:15.36%;
+  --zip-theme-vibe-login-a-alpha:0.174;
+  --zip-theme-vibe-login-c-alpha:0.125;
+  --zip-theme-vibe-section-a-mix:30.11%;
+  --zip-theme-vibe-section-b-mix:38.04%;
+  --zip-theme-vibe-header-a-alpha:0.193;
+  --zip-theme-vibe-selection-a-alpha:0.234;
+  --zip-theme-vibe-selection-b-alpha:0.153;
+  --zip-theme-vibe-focus-alpha:0.241;
+  --zip-theme-vibe-surface-soft-alpha:0.113;
+  --zip-theme-vibe-surface-mid-alpha:0.164;
+  --zip-theme-vibe-surface-strong-alpha:0.236;
+  --zip-theme-vibe-menu-surface-mix:20.94%;
+  --zip-theme-vibe-glow-alpha:0.204;
+  --zip-theme-vibe-feedback-bg-alpha:0.165;
+  --zip-theme-vibe-feedback-border-alpha:0.392;
+  --zip-theme-vibe-zebra-contrast:16.49%;
+  --zip-theme-vibe-zebra-hover:8.68%;
+  --click-url-rgb:64, 129, 17;
+  --click-url-hover-rgb:52, 109, 12;
+  --reset-bg:#408111;
+  --reset-border:#346D0C;
+  --reset-hover:#489014;
+  --reset-text:#F5F8F2;
+  --parent-highlight:rgba(64, 129, 17, .18);
+  --parent-highlight-border:rgba(52, 109, 12, .58);
+  --parent-highlight-glow:rgba(64, 129, 17, .24);
+  --chip-highlight-bg:rgba(64, 129, 17, .16);
+  --chip-highlight-border:rgba(52, 109, 12, .60);
+}
+body[data-theme="dark"]{
+  --zip-accent-500:85, 150, 38;
+  --zip-accent-600:101, 178, 45;
+  --zip-accent-700:115, 203, 52;
+  --zip-accent-800:129, 228, 58;
+  --zip-accent-900:144, 231, 82;
+  --zip-accent-1000:159, 234, 105;
+  --zip-accent-1100:174, 238, 129;
+  --zip-theme-vibe-body-radial-alpha:0.319;
+  --zip-theme-vibe-body-start-mix:62%;
+  --zip-theme-vibe-body-end-mix:47.13%;
+  --zip-theme-vibe-shell-mix:50.22%;
+  --zip-theme-vibe-border-mix:54.03%;
+  --zip-theme-vibe-topbar-a-alpha:0.289;
+  --zip-theme-vibe-topbar-b-alpha:0.187;
+  --zip-theme-vibe-topbar-c-mix:34.92%;
+  --zip-theme-vibe-footer-a-alpha:0.236;
+  --zip-theme-vibe-footer-b-mix:34.96%;
+  --zip-theme-vibe-menu-a-mix:26.88%;
+  --zip-theme-vibe-menu-b-mix:19.49%;
+  --zip-theme-vibe-login-a-alpha:0.238;
+  --zip-theme-vibe-login-c-alpha:0.167;
+  --zip-theme-vibe-section-a-mix:40.94%;
+  --zip-theme-vibe-section-b-mix:46.33%;
+  --zip-theme-vibe-header-a-alpha:0.268;
+  --zip-theme-vibe-selection-a-alpha:0.325;
+  --zip-theme-vibe-selection-b-alpha:0.197;
+  --zip-theme-vibe-focus-alpha:0.298;
+  --zip-theme-vibe-surface-soft-alpha:0.211;
+  --zip-theme-vibe-surface-mid-alpha:0.307;
+  --zip-theme-vibe-surface-strong-alpha:0.425;
+  --zip-theme-vibe-menu-surface-mix:24.36%;
+  --zip-theme-vibe-glow-alpha:0.285;
+  --zip-theme-vibe-feedback-bg-alpha:0.217;
+  --zip-theme-vibe-feedback-border-alpha:0.459;
+  --zip-theme-vibe-zebra-contrast:18.51%;
+  --zip-theme-vibe-zebra-hover:9.96%;
+  --click-url-rgb:144, 231, 82;
+  --click-url-hover-rgb:159, 234, 105;
+  --reset-bg:#90E752;
+  --reset-border:#81E43A;
+  --reset-hover:#9FEA69;
+  --reset-text:#111111;
+  --parent-highlight:rgba(144, 231, 82, .20);
+  --parent-highlight-border:rgba(159, 234, 105, .62);
+  --parent-highlight-glow:rgba(144, 231, 82, .27);
+  --chip-highlight-bg:rgba(144, 231, 82, .20);
+  --chip-highlight-border:rgba(159, 234, 105, .64);
+}
+</style>
+<script>
+(() => {
+  "use strict";
+  window.__UNDERPAR_CLICK_CMU_RUNTIME__ = true;
+  const runtime = ${runtimeJson} || {};
+  const CM_REPORTS_BASE_URL = "https://cm-reports.adobeprimetime.com";
+  const IMS_VALIDATE_TOKEN_URL = "https://ims-na1.adobelogin.com/ims/validate_token/v1?jslVersion=underpar-clickcmu";
+  const IMS_CHECK_TOKEN_URL = "https://adobeid-na1.services.adobe.com/ims/check/v6/token";
+  const DEFAULT_SCOPE = "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
+  const TOKEN_FRESH_SKEW_MS = 45 * 1000;
+  const REQUEST_TIMEOUT_MS = 45 * 1000;
+
+  function normalizeToken(value) {
+    return String(value || "")
+      .trim()
+      .replace(/^Bearer\\s+/i, "")
+      .trim();
+  }
+
+  function parseJwtPayload(token) {
+    const normalized = normalizeToken(token);
+    const parts = normalized.split(".");
+    if (parts.length < 2) {
+      return null;
+    }
+    try {
+      const payloadBase64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const padded = payloadBase64 + "=".repeat((4 - (payloadBase64.length % 4 || 4)) % 4);
+      return JSON.parse(atob(padded));
+    } catch {
+      return null;
+    }
+  }
+
+  function tokenExpiryMs(token) {
+    const payload = parseJwtPayload(token) || {};
+    const exp = Number(payload.exp || 0);
+    if (!Number.isFinite(exp) || exp <= 0) {
+      return 0;
+    }
+    return exp * 1000;
+  }
+
+  function isTokenFresh(token, skewMs = 0) {
+    const normalized = normalizeToken(token);
+    if (!normalized) {
+      return false;
+    }
+    const expMs = tokenExpiryMs(normalized);
+    if (!expMs) {
+      return true;
+    }
+    return expMs > Date.now() + Math.max(0, Number(skewMs) || 0);
+  }
+
+  function safeJsonParse(value, fallback = null) {
+    const text = String(value || "").trim();
+    if (!text) {
+      return fallback;
+    }
+    try {
+      return JSON.parse(text);
+    } catch {
+      return fallback;
+    }
+  }
+
+  function uniqueStrings(values) {
+    const output = [];
+    const seen = new Set();
+    (Array.isArray(values) ? values : []).forEach((value) => {
+      const text = String(value || "").trim();
+      if (!text) {
+        return;
+      }
+      const key = text.toLowerCase();
+      if (seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      output.push(text);
+    });
+    return output;
+  }
+
+  function tokenizeScopeSet(scope) {
+    return String(scope || "")
+      .split(/[\\s,]+/g)
+      .map((part) => String(part || "").trim())
+      .filter(Boolean);
+  }
+
+  function tokenSupportsCmCatalog(token) {
+    const normalized = normalizeToken(token);
+    if (!normalized) {
+      return false;
+    }
+    const claims = parseJwtPayload(normalized) || {};
+    const clientId = String(claims.client_id || claims.clientId || "").trim().toLowerCase();
+    if (clientId === "cm-console-ui") {
+      return true;
+    }
+    const scopes = new Set(tokenizeScopeSet(claims.scope || "").map((scope) => scope.toLowerCase()));
+    return scopes.has("read_organizations") || scopes.has("dma_group_mapping");
+  }
+
+  function extractTokenFromPayload(payload) {
+    if (!payload || typeof payload !== "object") {
+      return "";
+    }
+    const nestedToken =
+      payload.token && typeof payload.token === "object"
+        ? payload.token.access_token || payload.token.accessToken || payload.token.token || payload.token.value || ""
+        : payload.token || "";
+    return normalizeToken(
+      payload.access_token ||
+        payload.accessToken ||
+        nestedToken ||
+        payload.authorization ||
+        payload.Authorization ||
+        payload.bearer ||
+        payload.imsToken ||
+        ""
+    );
+  }
+
+  async function fetchWithTimeout(url, init = {}, timeoutMs = REQUEST_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timerId = window.setTimeout(() => controller.abort(), Math.max(2000, Number(timeoutMs) || REQUEST_TIMEOUT_MS));
+    try {
+      return await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+    } finally {
+      window.clearTimeout(timerId);
+    }
+  }
+
+  function resolveClientIds() {
+    return uniqueStrings([
+      ...(Array.isArray(runtime.clientIds) ? runtime.clientIds : []),
+      "cm-console-ui",
+      "AdobePass1",
+      "exc_app",
+    ]);
+  }
+
+  function buildValidateTokenBody(token, clientId) {
+    const form = new URLSearchParams({
+      type: "access_token",
+      token: normalizeToken(token),
+    });
+    if (clientId) {
+      form.set("client_id", String(clientId).trim());
+    }
+    return form.toString();
+  }
+
+  async function refreshTokenViaValidateToken(seedToken, forceFresh = false) {
+    const candidateClientIds = resolveClientIds();
+    for (const clientId of candidateClientIds) {
+      const credentialModes = ["include", "omit"];
+      for (const credentials of credentialModes) {
+        const response = await fetchWithTimeout(IMS_VALIDATE_TOKEN_URL, {
+          method: "POST",
+          credentials,
+          headers: {
+            Accept: "application/json, text/plain, */*",
+            "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            ...(clientId ? { client_id: clientId } : {}),
+          },
+          body: buildValidateTokenBody(seedToken, clientId),
+        }).catch(() => null);
+        if (!response || !response.ok) {
+          continue;
+        }
+        const parsed = safeJsonParse(await response.text().catch(() => ""), null);
+        if (!parsed || typeof parsed !== "object") {
+          continue;
+        }
+        const refreshed = extractTokenFromPayload(parsed);
+        if (refreshed && (!forceFresh || isTokenFresh(refreshed, TOKEN_FRESH_SKEW_MS))) {
+          return refreshed;
+        }
+        if (parsed.valid === true && !forceFresh && tokenSupportsCmCatalog(seedToken)) {
+          return normalizeToken(seedToken);
+        }
+      }
+    }
+    return "";
+  }
+
+  function buildImsCheckUrl(clientId, scope, userId) {
+    const url = new URL(IMS_CHECK_TOKEN_URL);
+    if (clientId) {
+      url.searchParams.set("client_id", clientId);
+    }
+    if (scope) {
+      url.searchParams.set("scope", scope);
+    }
+    if (userId) {
+      url.searchParams.set("user_id", userId);
+    }
+    return url.toString();
+  }
+
+  async function refreshTokenViaImsCheck(forceFresh = false) {
+    const userId = String(runtime.userId || "").trim();
+    if (!userId) {
+      return "";
+    }
+    const scopeValue = String(runtime.scope || DEFAULT_SCOPE).trim() || DEFAULT_SCOPE;
+    const scopeCandidates = uniqueStrings(
+      [scopeValue, DEFAULT_SCOPE].map((value) => tokenizeScopeSet(value).join(","))
+    );
+    const scopes = scopeCandidates.length > 0 ? scopeCandidates : [DEFAULT_SCOPE];
+    for (const clientId of resolveClientIds()) {
+      for (const scope of scopes) {
+        const response = await fetchWithTimeout(buildImsCheckUrl(clientId, scope, userId), {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            Accept: "application/json, text/plain, */*",
+          },
+        }).catch(() => null);
+        if (!response || !response.ok) {
+          continue;
+        }
+        const parsed = safeJsonParse(await response.text().catch(() => ""), null);
+        if (!parsed || typeof parsed !== "object") {
+          continue;
+        }
+        const refreshed = extractTokenFromPayload(parsed);
+        if (!refreshed) {
+          continue;
+        }
+        if (forceFresh && !isTokenFresh(refreshed, TOKEN_FRESH_SKEW_MS)) {
+          continue;
+        }
+        return refreshed;
+      }
+    }
+    return "";
+  }
+
+  async function refreshImsToken(forceFresh = false) {
+    const seedToken = normalizeToken(typeof window.getToken === "function" ? window.getToken() : "");
+    if (!seedToken) {
+      return "";
+    }
+    if (!forceFresh && isTokenFresh(seedToken, TOKEN_FRESH_SKEW_MS) && tokenSupportsCmCatalog(seedToken)) {
+      return seedToken;
+    }
+    let refreshedToken = "";
+    try {
+      refreshedToken = await refreshTokenViaValidateToken(seedToken, forceFresh);
+    } catch {
+      refreshedToken = "";
+    }
+    if (!refreshedToken) {
+      try {
+        refreshedToken = await refreshTokenViaImsCheck(forceFresh);
+      } catch {
+        refreshedToken = "";
+      }
+    }
+    const fallbackSeedToken = !forceFresh && tokenSupportsCmCatalog(seedToken) ? seedToken : "";
+    const resolvedToken = normalizeToken(refreshedToken || fallbackSeedToken);
+    if (resolvedToken && typeof window.setToken === "function") {
+      window.setToken(resolvedToken);
+    }
+    return resolvedToken;
+  }
+
+  function formatCmuDateValue(date) {
+    const value = date instanceof Date ? date : new Date(date);
+    const yyyy = value.getUTCFullYear();
+    const mm = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const dd = String(value.getUTCDate()).padStart(2, "0");
+    const hh = String(value.getUTCHours()).padStart(2, "0");
+    const mi = String(value.getUTCMinutes()).padStart(2, "0");
+    const ss = String(value.getUTCSeconds()).padStart(2, "0");
+    return yyyy + "-" + mm + "-" + dd + "T" + hh + ":" + mi + ":" + ss;
+  }
+
+  function ensureCmuQueryDefaults(urlValue, limitValue = 1000) {
+    const raw = String(urlValue || "").trim();
+    if (!raw) {
+      return "";
+    }
+    try {
+      const parsed = new URL(raw, CM_REPORTS_BASE_URL);
+      if (!parsed.searchParams.has("format")) {
+        parsed.searchParams.set("format", "json");
+      }
+      if (!parsed.searchParams.has("start") || !parsed.searchParams.has("end")) {
+        const endDate = new Date();
+        const startDate = new Date(endDate.getTime() - 9 * 24 * 60 * 60 * 1000);
+        if (!parsed.searchParams.has("start")) {
+          parsed.searchParams.set("start", formatCmuDateValue(startDate));
+        }
+        if (!parsed.searchParams.has("end")) {
+          parsed.searchParams.set("end", formatCmuDateValue(endDate));
+        }
+      }
+      const limit = Number(limitValue);
+      if (!parsed.searchParams.has("limit") && Number.isFinite(limit) && limit > 0) {
+        parsed.searchParams.set("limit", String(Math.max(1, Math.round(limit))));
+      }
+      const lowerPath = parsed.pathname.toLowerCase();
+      if (
+        !parsed.searchParams.has("metrics") &&
+        (lowerPath.includes("/tenant") || lowerPath.includes("/hour"))
+      ) {
+        parsed.searchParams.set("metrics", "users");
+      }
+      return parsed.toString();
+    } catch {
+      return raw;
+    }
+  }
+
+  window.refreshToken = async function refreshTokenOverride() {
+    if (typeof window.__netStart === "function") {
+      window.__netStart();
+    }
+    try {
+      const refreshedToken = await refreshImsToken(true);
+      if (!refreshedToken) {
+        throw new Error("Unable to refresh IMS token.");
+      }
+      return refreshedToken;
+    } finally {
+      if (typeof window.__netEnd === "function") {
+        window.__netEnd();
+      }
+    }
+  };
+
+  window.fetchWithRefresh = async function fetchWithRefreshOverride(url, options = {}) {
+    if (typeof window.__netStart === "function") {
+      window.__netStart();
+    }
+    try {
+      const opts = options && typeof options === "object" ? options : {};
+      const method = String(opts.method || "GET").toUpperCase();
+      const limitValue = Number.isFinite(Number(opts.esmLimit)) ? Number(opts.esmLimit) : 1000;
+      const finalUrl = ensureCmuQueryDefaults(url, limitValue);
+      const headers = {
+        Accept: "application/json, text/plain, */*",
+        ...(opts.headers && typeof opts.headers === "object" ? opts.headers : {}),
+      };
+      let token = normalizeToken(typeof window.getToken === "function" ? window.getToken() : "");
+      if (!token || !isTokenFresh(token, TOKEN_FRESH_SKEW_MS) || !tokenSupportsCmCatalog(token)) {
+        token = await refreshImsToken(false);
+      }
+      if (token) {
+        headers.Authorization = "Bearer " + token;
+      }
+
+      let response = await fetch(finalUrl, {
+        method,
+        credentials: "include",
+        headers,
+        ...(opts.body != null ? { body: opts.body } : {}),
+      });
+
+      if (response.status === 401 || response.status === 403) {
+        const refreshedToken = await refreshImsToken(true);
+        if (refreshedToken) {
+          headers.Authorization = "Bearer " + refreshedToken;
+          response = await fetch(finalUrl, {
+            method,
+            credentials: "include",
+            headers,
+            ...(opts.body != null ? { body: opts.body } : {}),
+          });
+        }
+      }
+      return response;
+    } finally {
+      if (typeof window.__netEnd === "function") {
+        window.__netEnd();
+      }
+    }
+  };
+
+  window.appendTimeParams = function appendTimeParamsOverride(base) {
+    return ensureCmuQueryDefaults(base, 1000);
+  };
+
+  const searchInput = document.getElementById("searchText");
+  if (searchInput && String(searchInput.placeholder || "").trim()) {
+    searchInput.placeholder = String(searchInput.placeholder).replaceAll("ESM", "CMU");
+  }
+
+  const zoomSelect = document.getElementById("filterSelect");
+  if (zoomSelect) {
+    [...zoomSelect.options].forEach((option) => {
+      const value = String(option?.value || "").trim().toUpperCase();
+      const label = String(option?.textContent || "").trim().toUpperCase();
+      if (value === "MIN" || label === "MIN") {
+        option.remove();
+      }
+    });
+
+    const hasYrOption = [...zoomSelect.options].some((option) => String(option?.value || "").trim().toUpperCase() === "YR");
+    if (!hasYrOption) {
+      const yrOption = document.createElement("option");
+      yrOption.value = "YR";
+      yrOption.textContent = "YR";
+      const firstOption = zoomSelect.querySelector("option");
+      if (firstOption && String(firstOption.value || "").trim() === "") {
+        firstOption.insertAdjacentElement("afterend", yrOption);
+      } else {
+        zoomSelect.insertBefore(yrOption, zoomSelect.firstChild || null);
+      }
+    }
+
+    if (String(zoomSelect.value || "").trim().toUpperCase() === "MIN") {
+      zoomSelect.value = [...zoomSelect.options]
+        .map((option) => String(option?.value || "").trim().toUpperCase())
+        .find((value) => value && value !== "MIN") || "";
+    }
+  }
+
+  const resetButton = document.querySelector(".reset-button");
+  if (resetButton) {
+    resetButton.title = String(resetButton.title || "").replaceAll("clickESM2", "clickCMU");
+  }
+
+  const requestorSelect = document.getElementById("fltr_requestorid");
+  if (requestorSelect) {
+    requestorSelect.innerHTML = "";
+    requestorSelect.disabled = true;
+    requestorSelect.title = "Requestor-id filter is disabled for clickCMU usage tables.";
+  }
+  const mvpdSelect = document.getElementById("fltr_mvpdId");
+  if (mvpdSelect) {
+    mvpdSelect.innerHTML = "";
+    mvpdSelect.disabled = true;
+    mvpdSelect.style.display = "none";
+  }
+})();
+</script>
+`;
 }
 
 function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
@@ -8177,9 +9217,6 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
       .map((value) => String(value || "").trim())
       .filter(Boolean)
   );
-  if (clientIds.length === 0) {
-    clientIds.push("cm-console-ui");
-  }
   const endpointCatalog = (Array.isArray(context.endpointCatalog) ? context.endpointCatalog : [])
     .map((entry, index) => ({
       id: String(entry?.id || `cmu-${index + 1}`).trim() || `cmu-${index + 1}`,
@@ -8191,38 +9228,35 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
     throw new Error("No CMU endpoints are available for clickCMU export.");
   }
 
-  let output = String(templateHtml || "");
-  output = clickCmuReplaceTemplateToken(output, CLICK_CMU_TEMPLATE_PLACEHOLDER_TITLE, titleText);
-  output = clickCmuReplaceTemplateToken(
-    output,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN,
-    encodeURIComponent(accessToken)
-  );
-  output = clickCmuReplaceTemplateToken(
-    output,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_CLIENT_IDS_JSON,
-    encodeURIComponent(JSON.stringify(clientIds))
-  );
-  output = clickCmuReplaceTemplateToken(
-    output,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_USER_ID,
-    encodeURIComponent(String(context.userId || ""))
-  );
-  output = clickCmuReplaceTemplateToken(
-    output,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_SCOPE,
-    encodeURIComponent(String(context.scope || CM_IMS_CHECK_DEFAULT_SCOPE))
-  );
-  output = clickCmuReplaceTemplateToken(
-    output,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_ENDPOINTS_JSON,
-    encodeURIComponent(JSON.stringify(endpointCatalog))
-  );
-  output = clickCmuReplaceTemplateToken(
-    output,
-    CLICK_CMU_TEMPLATE_PLACEHOLDER_PROGRAMMER_ID,
-    encodeURIComponent(String(context.programmerId || ""))
-  );
+  const primaryClientId = String(clientIds[0] || "cm-console-ui").trim() || "cm-console-ui";
+  const programmerId = String(context.programmerId || "").trim();
+  let output = buildClickEsmHtmlFromTemplate(templateHtml, {
+    programmerLabel,
+    programmerId,
+    themeScope: programmerId || programmerLabel || "MediaCompany",
+    clientId: primaryClientId,
+    clientSecret: "cmu-ims-token-flow",
+    accessToken,
+    requestorCatalogIds: [],
+  });
+  output = output.replace(/<title[\s\S]*?<\/title>/i, `<title>${escapeHtml(titleText)}</title>`);
+  output = replaceClickCmuEndpointBlock(output, buildClickCmuEndpointDlMarkup(endpointCatalog));
+  output = output
+    .replace("placeholder=\"ESM Column search...\"", "placeholder=\"CMU Column search...\"")
+    .replace("Hard reset clickESM2 to first-run state", "Hard reset clickCMU to first-run state")
+    .replaceAll("ESM table", "CMU table")
+    .replaceAll("ESM URL", "CMU URL");
+
+  const runtimePatch = buildClickCmuRuntimePatchSnippet({
+    programmerId,
+    clientIds,
+    userId: String(context.userId || "").trim(),
+    scope: String(context.scope || CM_IMS_CHECK_DEFAULT_SCOPE).trim() || CM_IMS_CHECK_DEFAULT_SCOPE,
+  });
+  if (!output.includes("</body>")) {
+    throw new Error("clickCMU build failed: missing </body> marker.");
+  }
+  output = output.replace("</body>", `${runtimePatch}\n</body>`);
   return output;
 }
 
@@ -8234,6 +9268,96 @@ function buildClickCmuDownloadFileName(programmer) {
   ]);
   const base = sanitizeDownloadFileSegment(label, "MediaCompany");
   return `${base}_clickCMU.html`;
+}
+
+function buildClickCmuWorkspaceDownloadFileName(programmer) {
+  const label = firstNonEmptyString([
+    programmer?.programmerName,
+    programmer?.mediaCompanyName,
+    programmer?.programmerId,
+  ]);
+  const base = sanitizeDownloadFileSegment(label, "MediaCompany");
+  const epoch = Date.now();
+  return `${base}_clickCMUWS_${epoch}.html`;
+}
+
+function getClickCmuWorkspaceCardUrlCandidates(card = null) {
+  return uniqueSorted(
+    [card?.requestUrl, card?.baseRequestUrl, card?.endpointUrl]
+      .map((value) => ensureCmUsageEndpointFormat(value))
+      .filter((value) => String(value || "").trim())
+  );
+}
+
+function isClickCmuUsagePath(pathValue = "") {
+  const normalizedPath = `/${String(pathValue || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^\/+/, "")}`;
+  if (!normalizedPath || normalizedPath === "/") {
+    return false;
+  }
+  if (normalizedPath.includes("/cmu/")) {
+    return true;
+  }
+  if (/\/v2\/year(?:\/|$)/i.test(normalizedPath)) {
+    return true;
+  }
+  if (/\/v2\/year\/month(?:\/|$)/i.test(normalizedPath)) {
+    return true;
+  }
+  return /\/v2\/.+/i.test(normalizedPath) && /\/(?:usage|concurrency-level|occurrences|activity-level|duration)(?:\/|$)/i.test(normalizedPath);
+}
+
+function isClickCmuUsageCardLike(card = null, endpointUrl = "") {
+  const zoomKey = String(card?.zoomKey || "")
+    .trim()
+    .toLowerCase();
+  if (zoomKey === "usage" || zoomKey === "cmu") {
+    return true;
+  }
+  const candidateUrl = String(endpointUrl || "").trim();
+  if (!candidateUrl) {
+    return false;
+  }
+  try {
+    return isClickCmuUsagePath(new URL(candidateUrl, CM_REPORTS_BASE_URL).pathname);
+  } catch {
+    return isClickCmuUsagePath(candidateUrl);
+  }
+}
+
+function buildClickCmuWorkspaceEndpointCatalog(cards = []) {
+  const output = [];
+  (Array.isArray(cards) ? cards : []).forEach((card, index) => {
+    const urlCandidates = getClickCmuWorkspaceCardUrlCandidates(card);
+    if (urlCandidates.length === 0) {
+      return;
+    }
+    const usageCandidateUrl = urlCandidates.find((candidateUrl) => isClickCmuUsageCardLike(card, candidateUrl));
+    const endpointUrl = usageCandidateUrl || (isClickCmuUsageCardLike(card, "") ? urlCandidates[0] : "");
+    if (!endpointUrl) {
+      return;
+    }
+
+    const endpointId = String(card?.cardId || `cmu-ws-${index + 1}`).trim() || `cmu-ws-${index + 1}`;
+    let label = "";
+    try {
+      label = formatCmUsageLabelFromPath(new URL(endpointUrl, CM_REPORTS_BASE_URL).pathname);
+    } catch {
+      label = "";
+    }
+    if (!label) {
+      const zoomLabel = String(card?.zoomKey || "").trim().toUpperCase();
+      label = zoomLabel ? `CMU ${zoomLabel}` : "CMU Workspace Endpoint";
+    }
+    output.push({
+      id: endpointId,
+      label,
+      url: endpointUrl,
+    });
+  });
+  return normalizeClickCmuEndpointCatalog(output).slice(0, 120);
 }
 
 async function resolveClickCmuDownloadContext(cmState = null) {
@@ -8340,6 +9464,38 @@ async function makeClickCmuDownload(context, requestToken, options = {}) {
   };
 }
 
+async function makeClickCmuWorkspaceDownload(context, cards, requestToken, options = {}) {
+  const programmer = context?.programmer || null;
+  const workspaceCards = Array.isArray(cards) ? cards : [];
+  if (workspaceCards.length === 0) {
+    throw new Error("Open at least one workspace report before generating clickCMUWS_TEARSHEET.");
+  }
+
+  const authContext = await resolveClickCmuAuthContext(context, requestToken, options);
+  const endpointCatalog = buildClickCmuWorkspaceEndpointCatalog(workspaceCards);
+  if (endpointCatalog.length === 0) {
+    throw new Error("Open at least one CMU usage table before generating clickCMUWS_TEARSHEET.");
+  }
+
+  const templateHtml = await loadClickCmuTemplateHtml();
+  const fileName = buildClickCmuWorkspaceDownloadFileName(programmer);
+  const downloadHtml = buildClickCmuHtmlFromTemplate(templateHtml, {
+    programmerLabel: authContext.programmerLabel,
+    programmerId: String(programmer?.programmerId || ""),
+    accessToken: authContext.accessToken,
+    clientIds: authContext.clientIds,
+    userId: authContext.userId,
+    scope: authContext.scope,
+    endpointCatalog,
+  });
+  downloadClickEsmHtmlFile(downloadHtml, fileName);
+  return {
+    fileName,
+    programmerLabel: authContext.programmerLabel,
+    endpointCount: endpointCatalog.length,
+  };
+}
+
 function isRestV2ScopedAppMappingMissingError(error) {
   const code = String(error?.code || "").trim().toUpperCase();
   if (code === "RESTV2_APP_MAPPING_MISSING") {
@@ -8352,36 +9508,65 @@ function isRestV2ScopedAppMappingMissingError(error) {
   );
 }
 
+const ZIP_THEME_PALETTE_HEX = {
+  AZURE_BLUE: "#0078D4",
+  INDIGO: "#4338CA",
+  VIOLET: "#8A3FFC",
+  PINK: "#FF94DB",
+  FUCHSIA: "#EB3FA9",
+  MAGENTA: "#C2185B",
+  PETRUS_RED: "#8B0000",
+  CARMINE: "#D4433A",
+  PUMPKIN: "#D6702A",
+  AMBER: "#C68500",
+  SUNFLOWER: "#FFC20E",
+  CHARTREUSE: "#8DB600",
+  CELERY: "#81E43A",
+  EMERALD: "#009B77",
+  CYAN: "#00A3E0",
+  CINNAMON: "#B66A50",
+  BRONZE: "#8C6A3A",
+  SILVER: "#9EA3A8",
+  SLATE_GRAY: "#6B7280",
+  CHARCOAL: "#222222",
+};
+
 const ESM_WORKSPACE_SEGMENT_COLORS = {
-  year: "#2D8CFF",
-  month: "#28C76F",
-  day: "#EA5455",
-  hour: "#FF9F43",
-  minute: "#A97142",
-  "requestor-id": "#D4A106",
-  proxy: "#8B5E34",
-  mvpd: "#00B8D9",
-  platform: "#6C7A89",
-  "platform-version": "#95A5A6",
-  dc: "#E67E22",
-  channel: "#1ABC9C",
-  "customer-app": "#2E86DE",
-  "application-name": "#9B59B6",
-  "application-version": "#AF7AC5",
-  nsdk: "#27AE60",
-  "nsdk-version": "#2ECC71",
-  "sso-type": "#F1C40F",
-  cdt: "#D35400",
-  eap: "#34495E",
-  "content-category": "#16A085",
-  "os-family": "#2980B9",
-  "browser-family": "#5DADE2",
-  "browser-version": "#85C1E9",
-  device: "#7F8C8D",
-  reason: "#C0392B",
-  "decision-type": "#7D3C98",
-  api: "#6C3483",
-  event: "#E84393",
+  year: ZIP_THEME_PALETTE_HEX.AZURE_BLUE,
+  month: ZIP_THEME_PALETTE_HEX.CELERY,
+  day: ZIP_THEME_PALETTE_HEX.CARMINE,
+  hour: ZIP_THEME_PALETTE_HEX.PUMPKIN,
+  minute: ZIP_THEME_PALETTE_HEX.CINNAMON,
+  "requestor-id": ZIP_THEME_PALETTE_HEX.AMBER,
+  proxy: ZIP_THEME_PALETTE_HEX.BRONZE,
+  mvpd: ZIP_THEME_PALETTE_HEX.CYAN,
+  platform: ZIP_THEME_PALETTE_HEX.SLATE_GRAY,
+  "platform-version": ZIP_THEME_PALETTE_HEX.SILVER,
+  dc: ZIP_THEME_PALETTE_HEX.PUMPKIN,
+  "media-company": ZIP_THEME_PALETTE_HEX.BRONZE,
+  channel: ZIP_THEME_PALETTE_HEX.EMERALD,
+  "customer-app": ZIP_THEME_PALETTE_HEX.INDIGO,
+  "application-name": ZIP_THEME_PALETTE_HEX.VIOLET,
+  "application-version": ZIP_THEME_PALETTE_HEX.FUCHSIA,
+  nsdk: ZIP_THEME_PALETTE_HEX.CHARTREUSE,
+  "nsdk-version": ZIP_THEME_PALETTE_HEX.CELERY,
+  "sso-type": ZIP_THEME_PALETTE_HEX.AMBER,
+  cdt: ZIP_THEME_PALETTE_HEX.PUMPKIN,
+  eap: ZIP_THEME_PALETTE_HEX.CHARCOAL,
+  "content-category": ZIP_THEME_PALETTE_HEX.EMERALD,
+  "os-family": ZIP_THEME_PALETTE_HEX.AZURE_BLUE,
+  "browser-family": ZIP_THEME_PALETTE_HEX.CYAN,
+  "browser-version": ZIP_THEME_PALETTE_HEX.SILVER,
+  device: ZIP_THEME_PALETTE_HEX.SLATE_GRAY,
+  reason: ZIP_THEME_PALETTE_HEX.PETRUS_RED,
+  "decision-type": ZIP_THEME_PALETTE_HEX.MAGENTA,
+  duration: ZIP_THEME_PALETTE_HEX.INDIGO,
+  occurrences: ZIP_THEME_PALETTE_HEX.VIOLET,
+  "activity-level": ZIP_THEME_PALETTE_HEX.MAGENTA,
+  "concurrency-level": ZIP_THEME_PALETTE_HEX.CYAN,
+  tenant: ZIP_THEME_PALETTE_HEX.CELERY,
+  api: ZIP_THEME_PALETTE_HEX.INDIGO,
+  event: ZIP_THEME_PALETTE_HEX.FUCHSIA,
 };
 
 function esmWorkspaceHexToRgb(hexValue) {
@@ -8404,23 +9589,97 @@ function esmWorkspaceHexToRgb(hexValue) {
 
 function esmWorkspaceGetSegmentColor(segment) {
   const key = String(segment || "").trim().toLowerCase();
-  return ESM_WORKSPACE_SEGMENT_COLORS[key] || "#6A6A6A";
+  return ESM_WORKSPACE_SEGMENT_COLORS[key] || ZIP_THEME_PALETTE_HEX.SLATE_GRAY;
+}
+
+const ZIP_WHITE_RGB_TRIPLET = [255, 255, 255];
+const ZIP_BLACK_RGB_TRIPLET = [0, 0, 0];
+const ZIP_NODE_TONE_CACHE = new Map();
+
+function zipClampRgbChannel(value) {
+  return Math.max(0, Math.min(255, Math.round(Number(value) || 0)));
+}
+
+function zipMixRgbTriplets(baseTriplet, targetTriplet, ratioToTarget) {
+  const ratio = Math.max(0, Math.min(1, Number(ratioToTarget) || 0));
+  return [
+    zipClampRgbChannel((baseTriplet[0] * (1 - ratio)) + (targetTriplet[0] * ratio)),
+    zipClampRgbChannel((baseTriplet[1] * (1 - ratio)) + (targetTriplet[1] * ratio)),
+    zipClampRgbChannel((baseTriplet[2] * (1 - ratio)) + (targetTriplet[2] * ratio)),
+  ];
+}
+
+function zipRgbTripletToCss(rgbTriplet = []) {
+  return [
+    zipClampRgbChannel(rgbTriplet[0]),
+    zipClampRgbChannel(rgbTriplet[1]),
+    zipClampRgbChannel(rgbTriplet[2]),
+  ].join(", ");
+}
+
+function zipBuildTonePaletteFromRgb(baseRgbTriplet, paletteSet = "dark") {
+  const base = Array.isArray(baseRgbTriplet) ? baseRgbTriplet : ZIP_BLACK_RGB_TRIPLET;
+  if (paletteSet === "light") {
+    return {
+      "500": zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.34),
+      "600": zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.22),
+      "700": zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.11),
+      "800": base,
+      "900": zipMixRgbTriplets(base, ZIP_BLACK_RGB_TRIPLET, 0.1),
+      "1000": zipMixRgbTriplets(base, ZIP_BLACK_RGB_TRIPLET, 0.22),
+      "1100": zipMixRgbTriplets(base, ZIP_BLACK_RGB_TRIPLET, 0.32),
+    };
+  }
+  return {
+    "500": zipMixRgbTriplets(base, ZIP_BLACK_RGB_TRIPLET, 0.34),
+    "600": zipMixRgbTriplets(base, ZIP_BLACK_RGB_TRIPLET, 0.22),
+    "700": zipMixRgbTriplets(base, ZIP_BLACK_RGB_TRIPLET, 0.11),
+    "800": base,
+    "900": zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.12),
+    "1000": zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.24),
+    "1100": zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.36),
+  };
+}
+
+function zipResolveNodeToneSet(segment) {
+  const hexColor = esmWorkspaceGetSegmentColor(segment);
+  const cacheKey = String(hexColor || "").trim().toLowerCase();
+  if (ZIP_NODE_TONE_CACHE.has(cacheKey)) {
+    return ZIP_NODE_TONE_CACHE.get(cacheKey);
+  }
+  const parsed = esmWorkspaceHexToRgb(hexColor) || { red: 107, green: 114, blue: 128 };
+  const base = [parsed.red, parsed.green, parsed.blue];
+  const lightPalette = zipBuildTonePaletteFromRgb(base, "light");
+  const darkPalette = zipBuildTonePaletteFromRgb(base, "dark");
+  const toneSet = {
+    // Resting state mirrors ZIP Light x Color.
+    restRgb: zipRgbTripletToCss(lightPalette["900"] || base),
+    // Interactive state mirrors ZIP Dark x Color "hot" tones.
+    hotRgb: zipRgbTripletToCss(darkPalette["1000"] || darkPalette["900"] || base),
+    activeRgb: zipRgbTripletToCss(darkPalette["1100"] || darkPalette["1000"] || base),
+  };
+  ZIP_NODE_TONE_CACHE.set(cacheKey, toneSet);
+  return toneSet;
 }
 
 function esmWorkspaceApplyChipColor(chipElement, segment) {
   if (!chipElement) {
     return;
   }
-  const rgb = esmWorkspaceHexToRgb(esmWorkspaceGetSegmentColor(segment));
-  if (!rgb) {
+  const tones = zipResolveNodeToneSet(segment);
+  chipElement.style.setProperty("--esm-workspace-seg-rest-rgb", tones.restRgb);
+  chipElement.style.setProperty("--esm-workspace-seg-hot-rgb", tones.hotRgb);
+  chipElement.style.setProperty("--esm-workspace-seg-active-rgb", tones.activeRgb);
+}
+
+function esmWorkspaceApplyTreemapTileColor(tileElement, segment) {
+  if (!tileElement) {
     return;
   }
-  const luminance = (0.2126 * rgb.red + 0.7152 * rgb.green + 0.0722 * rgb.blue) / 255;
-  const textColor = luminance > 0.58 ? "16, 24, 40" : "250, 252, 255";
-  chipElement.style.setProperty("--esm-workspace-seg-rgb", `${rgb.red}, ${rgb.green}, ${rgb.blue}`);
-  chipElement.style.color = `rgb(${textColor})`;
-  chipElement.style.background = `linear-gradient(140deg, rgba(${rgb.red}, ${rgb.green}, ${rgb.blue}, 0.22), rgba(${rgb.red}, ${rgb.green}, ${rgb.blue}, 0.12) 58%, rgba(255, 255, 255, 0.42) 100%)`;
-  chipElement.style.borderColor = `rgba(${rgb.red}, ${rgb.green}, ${rgb.blue}, 0.42)`;
+  const tones = zipResolveNodeToneSet(segment);
+  tileElement.style.setProperty("--tile-rest-rgb", tones.restRgb);
+  tileElement.style.setProperty("--tile-hot-rgb", tones.hotRgb);
+  tileElement.style.setProperty("--tile-active-rgb", tones.activeRgb);
 }
 
 function esmWorkspaceCompareSegments(left, right) {
@@ -10474,14 +11733,7 @@ function esmWorkspaceCreateTreemapTile(esmWorkspaceState, nodeEntry, requestToke
   const tile = document.createElement("article");
   tile.className = "esm-workspace-map-tile";
   tile.dataset.depth = String(Math.max(1, Number(nodeEntry?.depth || 1)));
-
-  const hexColor = esmWorkspaceGetSegmentColor(nodeEntry?.key);
-  const rgb = esmWorkspaceHexToRgb(hexColor);
-  if (rgb) {
-    tile.style.setProperty("--tile-rgb", `${rgb.red}, ${rgb.green}, ${rgb.blue}`);
-  } else {
-    tile.style.setProperty("--tile-rgb", "106, 106, 106");
-  }
+  esmWorkspaceApplyTreemapTileColor(tile, nodeEntry?.key);
 
   const endpoint =
     nodeEntry?.endpointIndex != null && Number.isInteger(nodeEntry.endpointIndex)
@@ -12319,6 +13571,26 @@ function cmuUsagePathPartsToKey(pathParts) {
     .join("/");
 }
 
+function cmuUsageNormalizeTreemapPathParts(pathParts) {
+  const normalized = esmWorkspaceNormalizeEndpointSegments(pathParts);
+  if (String(normalized[0] || "").trim().toLowerCase() === "year") {
+    return normalized.slice(1);
+  }
+  return normalized;
+}
+
+function cmuUsageBuildPathLookupCandidates(pathParts) {
+  const normalized = esmWorkspaceNormalizeEndpointSegments(pathParts);
+  if (normalized.length === 0) {
+    return [];
+  }
+  const candidates = [normalized];
+  if (String(normalized[0] || "").trim().toLowerCase() !== "year") {
+    candidates.push(["year", ...normalized]);
+  }
+  return candidates;
+}
+
 function cmuUsageBuildCatalog(usageRecords) {
   const recordsByPathKey = new Map();
   const catalog = [];
@@ -12344,6 +13616,7 @@ function cmuUsageBuildCatalog(usageRecords) {
     catalog.push({
       key: pathKey,
       pathParts,
+      segs: pathParts.slice(),
       pathHay: pathParts.join(" ").toLowerCase().replace(/\s+/g, ""),
       zoomKey,
       columns,
@@ -12367,7 +13640,7 @@ function cmuUsageBuildCatalog(usageRecords) {
 }
 
 function cmuUsageBuildShellHtml() {
-  const zoomOptions = CLICK_ESM_ZOOM_OPTIONS.filter((key) => key !== "MIN" && key !== "YR").map((key) => {
+  const zoomOptions = CLICK_ESM_ZOOM_OPTIONS.filter((key) => key !== "MIN").map((key) => {
     const value = escapeHtml(key);
     const label = key ? escapeHtml(key) : "";
     return `<option value="${value}">${label}</option>`;
@@ -12386,6 +13659,36 @@ function cmuUsageBuildShellHtml() {
         </div>
         <div class="esm-workspace-tree-scroll cmu-jelly-tree-scroll" hidden>
           <div class="esm-workspace-tree-root cmu-jelly-tree-root"></div>
+        </div>
+      </div>
+      <div class="esm-workspace-treemap-panel cmu-jelly-treemap-panel">
+        <div class="esm-workspace-treemap-head cmu-jelly-treemap-head">
+          <div class="esm-workspace-treemap-title">TreeMap</div>
+        </div>
+        <div class="esm-workspace-treemap-scroll cmu-jelly-treemap-scroll" hidden>
+          <div class="esm-workspace-treemap-root cmu-jelly-treemap-root"></div>
+        </div>
+      </div>
+      <div class="esm-workspace-footer cmu-jelly-footer">
+        <div class="esm-workspace-footer-status" aria-hidden="true">
+          <span class="esm-workspace-net-indicator" title="Loading" aria-label="Loading" hidden></span>
+        </div>
+        <div class="esm-workspace-footer-actions">
+          <button
+            type="button"
+            class="cmu-jelly-make-clickcmu-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"
+            title="Generate CMU tearsheet (clickCMU)"
+            aria-label="Generate CMU tearsheet (clickCMU)"
+          >
+            <span class="esm-workspace-toolbar-icon esm-workspace-toolbar-icon--tearsheet" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
+                <path d="M14.25 3.75V8.5H19" />
+                <path d="M9.5 12.75 10 14.25 11.5 14.75 10 15.25 9.5 16.75 9 15.25 7.5 14.75 9 14.25 9.5 12.75Z" />
+                <path d="M14 12.25 14.3 13.1 15.2 13.4 14.3 13.7 14 14.55 13.7 13.7 12.8 13.4 13.7 13.1 14 12.25Z" />
+              </svg>
+            </span>
+          </button>
         </div>
       </div>
     </div>
@@ -12414,23 +13717,26 @@ function cmuUsageDeduplicateRecords(records = []) {
   return deduped;
 }
 
-function cmuUsageResolveRecordsByPath(cmuUsageState, pathParts) {
+function cmuUsageResolveRecordsByPath(cmuUsageState, pathParts, options = {}) {
   const map = cmuUsageState?.recordsByPathKey instanceof Map ? cmuUsageState.recordsByPathKey : null;
   if (!map) {
     return [];
   }
-  const normalizedParts = esmWorkspaceNormalizeEndpointSegments(pathParts);
-  for (let size = normalizedParts.length; size >= 1; size -= 1) {
-    const key = cmuUsagePathPartsToKey(normalizedParts.slice(0, size));
-    if (!key) {
-      continue;
-    }
-    const records = map.get(key);
-    if (Array.isArray(records) && records.length > 0) {
-      const deduped = cmuUsageDeduplicateRecords(records);
-      if (deduped.length > 0) {
-        // CMU JellyBeans should add one table card per click.
-        return [deduped[0]];
+  const allowPrefixFallback = options?.allowPrefixFallback === true;
+  const lookupCandidates = cmuUsageBuildPathLookupCandidates(pathParts);
+  for (const candidateParts of lookupCandidates) {
+    const minSize = allowPrefixFallback ? 1 : candidateParts.length;
+    for (let size = candidateParts.length; size >= minSize; size -= 1) {
+      const key = cmuUsagePathPartsToKey(candidateParts.slice(0, size));
+      if (!key) {
+        continue;
+      }
+      const records = map.get(key);
+      if (Array.isArray(records) && records.length > 0) {
+        const deduped = cmuUsageDeduplicateRecords(records);
+        if (deduped.length > 0) {
+          return deduped;
+        }
       }
     }
   }
@@ -12438,7 +13744,7 @@ function cmuUsageResolveRecordsByPath(cmuUsageState, pathParts) {
 }
 
 async function cmuUsageRunRecordsFromUi(cmState, cmuUsageState, records, requestToken, source = "cmu-jelly") {
-  const queue = cmuUsageDeduplicateRecords(records).slice(0, 1);
+  const queue = cmuUsageDeduplicateRecords(records);
   if (!cmState || !cmuUsageState || queue.length === 0) {
     return;
   }
@@ -12471,6 +13777,142 @@ async function cmuUsageRunRecordsFromUi(cmState, cmuUsageState, records, request
   }
 }
 
+function cmuUsageCreateTreemapTile(cmState, cmuUsageState, nodeEntry, requestToken) {
+  const tile = document.createElement("article");
+  tile.className = "esm-workspace-map-tile";
+  tile.dataset.depth = String(Math.max(1, Number(nodeEntry?.depth || 1)));
+  esmWorkspaceApplyTreemapTileColor(tile, nodeEntry?.key);
+
+  const endpoint =
+    nodeEntry?.endpointIndex != null && Number.isInteger(nodeEntry.endpointIndex)
+      ? cmuUsageState.catalog[nodeEntry.endpointIndex]
+      : null;
+  if (endpoint) {
+    tile.classList.add("esm-workspace-map-leaf");
+  }
+
+  const content = document.createElement("div");
+  content.className = "esm-workspace-map-content";
+
+  const name = document.createElement("div");
+  name.className = "esm-workspace-map-name";
+  name.textContent = nodeEntry?.key || "node";
+  name.title = Array.isArray(nodeEntry?.pathParts) ? nodeEntry.pathParts.join("/") : "";
+  content.appendChild(name);
+
+  const parent = document.createElement("div");
+  parent.className = "esm-workspace-map-parent";
+  const parentParts = Array.isArray(nodeEntry?.pathParts) ? nodeEntry.pathParts.slice(0, -1) : [];
+  parent.textContent = parentParts.join(" / ");
+  parent.title = parentParts.join("/");
+  parent.hidden = parentParts.length === 0;
+  content.appendChild(parent);
+
+  const meta = document.createElement("div");
+  meta.className = "esm-workspace-map-meta";
+  if (endpoint?.zoomKey) {
+    meta.textContent = `[${endpoint.zoomKey}]`;
+  } else {
+    const endpointCount = Number(nodeEntry?.count || 0);
+    meta.textContent = `${endpointCount} endpoint${endpointCount === 1 ? "" : "s"}`;
+  }
+  content.appendChild(meta);
+  tile.appendChild(content);
+
+  if (endpoint) {
+    tile.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const records = cmuUsageResolveRecordsByPath(cmuUsageState, endpoint.pathParts);
+      void cmuUsageRunRecordsFromUi(cmState, cmuUsageState, records, requestToken, "cmu-jelly-treemap");
+    });
+  }
+
+  return tile;
+}
+
+function cmuUsageRenderTreemap(cmState, cmuUsageState, endpointIndexes, options = {}) {
+  const treemapRoot = cmuUsageState?.treemapRootElement;
+  if (!treemapRoot) {
+    return;
+  }
+  const requestToken = Number(options.requestToken || cmuUsageState?.requestToken || state.premiumPanelRequestToken || 0);
+  const endpointList = [...new Set(
+    (Array.isArray(endpointIndexes) ? endpointIndexes : [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isInteger(value) && value >= 0)
+  )];
+  const treemapCatalog = Array.isArray(cmuUsageState?.catalog) ? cmuUsageState.catalog : [];
+  const model = esmWorkspaceBuildTreemapModel(treemapCatalog, endpointList);
+  const onlyRunnable = options.onlyRunnable === true;
+  const nodeEntries = esmWorkspaceFlattenTreemapNodes(model)
+    .map((nodeEntry) => {
+      const normalizedPathParts = cmuUsageNormalizeTreemapPathParts(nodeEntry?.pathParts);
+      if (!Array.isArray(normalizedPathParts) || normalizedPathParts.length === 0) {
+        return null;
+      }
+      const normalizedEntry = {
+        ...nodeEntry,
+        pathParts: normalizedPathParts,
+        depth: normalizedPathParts.length,
+        key: normalizedPathParts[normalizedPathParts.length - 1] || String(nodeEntry?.key || "").trim(),
+      };
+      if (onlyRunnable) {
+        return Number.isInteger(normalizedEntry?.endpointIndex) && normalizedEntry.endpointIndex >= 0
+          ? normalizedEntry
+          : null;
+      }
+      return normalizedEntry;
+    })
+    .filter(Boolean);
+  treemapRoot.innerHTML = "";
+
+  if (!model || nodeEntries.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "esm-workspace-treemap-empty";
+    empty.textContent = "No CMU endpoints match current zoom/search filters.";
+    treemapRoot.appendChild(empty);
+    return;
+  }
+
+  const groupedByDepth = new Map();
+  nodeEntries.forEach((nodeEntry) => {
+    const depth = Math.max(1, Number(nodeEntry.depth || 1));
+    if (!groupedByDepth.has(depth)) {
+      groupedByDepth.set(depth, []);
+    }
+    groupedByDepth.get(depth).push(nodeEntry);
+  });
+
+  [...groupedByDepth.keys()].sort((left, right) => left - right).forEach((depth) => {
+    const depthNodes = groupedByDepth.get(depth) || [];
+    const band = document.createElement("section");
+    band.className = "esm-workspace-map-depth-band";
+    band.dataset.depth = String(depth);
+
+    const bandHead = document.createElement("div");
+    bandHead.className = "esm-workspace-map-depth-head";
+    const depthLabel = document.createElement("span");
+    depthLabel.className = "esm-workspace-map-depth-label";
+    depthLabel.textContent = `Level ${depth}`;
+    const depthCount = document.createElement("span");
+    depthCount.className = "esm-workspace-map-depth-count";
+    depthCount.textContent = `${depthNodes.length} node${depthNodes.length === 1 ? "" : "s"}`;
+    bandHead.appendChild(depthLabel);
+    bandHead.appendChild(depthCount);
+    band.appendChild(bandHead);
+
+    const bandGrid = document.createElement("div");
+    bandGrid.className = "esm-workspace-map-grid";
+    depthNodes.forEach((nodeEntry) => {
+      const tile = cmuUsageCreateTreemapTile(cmState, cmuUsageState, nodeEntry, requestToken);
+      bandGrid.appendChild(tile);
+    });
+    band.appendChild(bandGrid);
+    treemapRoot.appendChild(band);
+  });
+}
+
 function cmuUsageApplyFilters(cmState, cmuUsageState, requestToken, options = {}) {
   const root = cmuUsageState?.treeRootElement;
   if (!root) {
@@ -12481,9 +13923,12 @@ function cmuUsageApplyFilters(cmState, cmuUsageState, requestToken, options = {}
     .trim()
     .toUpperCase();
   const term = clickEsmNormalizeSearchTerm(options.term ?? cmuUsageState.searchInput?.value ?? "");
+  const searchMode = Boolean(term);
+  const filteredMode = Boolean(searchMode || zoomFilter);
   const doHighlight = Boolean(options.highlight && term);
   const highlightPattern = doHighlight ? new RegExp(clickEsmEscapeRegExp(term), "gi") : null;
   const visibleEndpointIndexes = [];
+  root.classList.toggle("esm-workspace-search-mode", searchMode);
 
   const endpointItems = root.querySelectorAll("ul.esm-workspace-root > li[data-endpoint-index]");
   endpointItems.forEach((item) => {
@@ -12517,6 +13962,12 @@ function cmuUsageApplyFilters(cmState, cmuUsageState, requestToken, options = {}
     }
   });
 
+  cmuUsageRenderTreemap(cmState, cmuUsageState, visibleEndpointIndexes, {
+    zoomFilter,
+    onlyRunnable: filteredMode,
+    requestToken: options.requestToken || cmuUsageState?.requestToken || state.premiumPanelRequestToken || 0,
+  });
+  esmWorkspaceSyncTreeToggleButton(cmuUsageState);
   return { visibleEndpointCount: visibleEndpointIndexes.length };
 }
 
@@ -12527,6 +13978,14 @@ function cmuUsageBuildTree(cmState, cmuUsageState, requestToken) {
   }
   const catalog = Array.isArray(cmuUsageState.catalog) ? cmuUsageState.catalog : [];
   treeRoot.innerHTML = "";
+  if (catalog.length === 0) {
+    treeRoot.innerHTML = '<div class="cmu-jelly-empty">No CM Usage endpoints available for JellyBeans.</div>';
+    cmuUsageRenderTreemap(cmState, cmuUsageState, [], {
+      onlyRunnable: true,
+      requestToken: requestToken || cmuUsageState?.requestToken || state.premiumPanelRequestToken || 0,
+    });
+    return;
+  }
   const rootList = document.createElement("ul");
   rootList.className = "esm-workspace-root";
 
@@ -12625,9 +14084,19 @@ function cmuUsageWireInteractions(cmState, cmuUsageState, requestToken) {
     ) !== "false";
     esmWorkspaceSetTreeCollapsed(cmuUsageState, expanded);
   };
+  const toggleTreemap = () => {
+    const expanded = String(
+      cmuUsageState.treemapHeadElement?.getAttribute("aria-expanded") ||
+        (cmuUsageState.treemapScrollElement?.hidden ? "false" : "true")
+    ) !== "false";
+    esmWorkspaceSetTreemapCollapsed(cmuUsageState, expanded);
+  };
 
   cmuUsageState.treeHeadElement?.addEventListener("click", () => {
     toggleTree();
+  });
+  cmuUsageState.treemapHeadElement?.addEventListener("click", () => {
+    toggleTreemap();
   });
   cmuUsageState.treeHeadElement?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") {
@@ -12635,6 +14104,13 @@ function cmuUsageWireInteractions(cmState, cmuUsageState, requestToken) {
     }
     event.preventDefault();
     toggleTree();
+  });
+  cmuUsageState.treemapHeadElement?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    toggleTreemap();
   });
 }
 
@@ -12644,27 +14120,22 @@ function cmMountUsageJellyBeans(cmState, usageRecords, requestToken) {
     return;
   }
   const usageCatalog = cmuUsageBuildCatalog(usageRecords);
-  if (!Array.isArray(usageCatalog.catalog) || usageCatalog.catalog.length === 0) {
-    host.innerHTML = `
-      <div class="cmu-jelly-shell">
-        <div class="cmu-jelly-empty">No CM Usage endpoints available for JellyBeans.</div>
-      </div>
-    `;
-    return;
-  }
-
   host.innerHTML = cmuUsageBuildShellHtml();
   const cmuUsageState = {
-    catalog: usageCatalog.catalog,
+    catalog: Array.isArray(usageCatalog.catalog) ? usageCatalog.catalog : [],
     recordsByPathKey: usageCatalog.recordsByPathKey,
     endpointIndexByPathKey: new Map(),
     requestToken,
     treeHeadElement: host.querySelector(".cmu-jelly-tree-head"),
     treeScrollElement: host.querySelector(".cmu-jelly-tree-scroll"),
     treeRootElement: host.querySelector(".cmu-jelly-tree-root"),
+    treemapHeadElement: host.querySelector(".cmu-jelly-treemap-head"),
+    treemapScrollElement: host.querySelector(".cmu-jelly-treemap-scroll"),
+    treemapRootElement: host.querySelector(".cmu-jelly-treemap-root"),
     zoomFilterSelect: host.querySelector(".cmu-jelly-zoom-filter"),
     searchInput: host.querySelector(".cmu-jelly-search"),
     resetButton: host.querySelector(".cmu-jelly-reset-btn"),
+    makeClickCmuButton: host.querySelector(".cmu-jelly-make-clickcmu-btn"),
   };
 
   cmState.cmuUsageState = cmuUsageState;
@@ -12674,9 +14145,16 @@ function cmMountUsageJellyBeans(cmState, usageRecords, requestToken) {
     cmuUsageState.treeHeadElement.setAttribute("aria-expanded", "false");
     cmuUsageState.treeHeadElement.setAttribute("aria-label", "Toggle CMU JellyBeans");
   }
+  if (cmuUsageState.treemapHeadElement) {
+    cmuUsageState.treemapHeadElement.setAttribute("role", "button");
+    cmuUsageState.treemapHeadElement.setAttribute("tabindex", "0");
+    cmuUsageState.treemapHeadElement.setAttribute("aria-expanded", "false");
+    cmuUsageState.treemapHeadElement.setAttribute("aria-label", "Toggle CMU TreeMap");
+  }
   cmuUsageWireInteractions(cmState, cmuUsageState, requestToken);
   cmuUsageBuildTree(cmState, cmuUsageState, requestToken);
   esmWorkspaceSetTreeCollapsed(cmuUsageState, true);
+  esmWorkspaceSetTreemapCollapsed(cmuUsageState, true);
 }
 
 function getActiveCmState() {
@@ -13348,6 +14826,60 @@ async function handleCmWorkspaceAction(message, sender = null) {
     preferredWindowId: senderWindowId || Number(cmState.controllerWindowId || state.cmWorkspaceWindowId || 0),
     fallbackTabId: senderTabId || mappedSenderTabId || cmGetBoundWorkspaceTabId(senderWindowId || 0),
   });
+
+  if (action === "make-clickcmu") {
+    const clickCmuContext = await resolveClickCmuDownloadContext(cmState);
+    if (!clickCmuContext) {
+      return { ok: false, error: "Select a media company with Concurrency Monitoring access to generate clickCMU." };
+    }
+    const exportResult = await makeClickCmuDownload(clickCmuContext, requestToken, {
+      source: "workspace",
+    });
+    return {
+      ok: true,
+      fileName: exportResult.fileName,
+      programmerLabel: exportResult.programmerLabel,
+      endpointCount: Number(exportResult?.endpointCount || 0),
+    };
+  }
+
+  if (action === "resolve-clickcmuws-auth") {
+    const clickCmuContext = await resolveClickCmuDownloadContext(cmState);
+    if (!clickCmuContext) {
+      return { ok: false, error: "Select a media company with Concurrency Monitoring access to generate clickCMU workspace tearsheet." };
+    }
+    const authContext = await resolveClickCmuAuthContext(clickCmuContext, requestToken, {
+      source: "workspace-tearsheet",
+    });
+    return {
+      ok: true,
+      programmerLabel: authContext.programmerLabel,
+      accessToken: authContext.accessToken,
+      clientIds: Array.isArray(authContext.clientIds) ? authContext.clientIds : [],
+      userId: String(authContext.userId || ""),
+      scope: String(authContext.scope || CM_IMS_CHECK_DEFAULT_SCOPE || ""),
+    };
+  }
+
+  if (action === "make-clickcmuws") {
+    const cards = Array.isArray(message?.cards) ? message.cards : [];
+    if (cards.length === 0) {
+      return { ok: false, error: "Open at least one workspace report before generating clickCMUWS_TEARSHEET." };
+    }
+    const clickCmuContext = await resolveClickCmuDownloadContext(cmState);
+    if (!clickCmuContext) {
+      return { ok: false, error: "Select a media company with Concurrency Monitoring access to generate clickCMUWS_TEARSHEET." };
+    }
+    const exportResult = await makeClickCmuWorkspaceDownload(clickCmuContext, cards, requestToken, {
+      source: "workspace-tearsheet",
+    });
+    return {
+      ok: true,
+      fileName: exportResult.fileName,
+      programmerLabel: exportResult.programmerLabel,
+      endpointCount: Number(exportResult?.endpointCount || 0),
+    };
+  }
 
   if (action === "open-workspace") {
     const targetWindowId = senderWindowId || Number(cmState.controllerWindowId || 0);
@@ -15059,31 +16591,31 @@ async function loadCmService(programmer, cmService, section, contentElement, req
       }
     });
     const recordsById = new Map(records.map((record) => [record.cardId, record]));
-    const sourceLabel = String(cmService?.sourceUrl || "").trim() || "CM API discovery";
     const cmuJellyMarkup = `<section class="cmu-jelly-host"></section>`;
+    const correlationGroup =
+      groupDefinitions.find((group) => group.key === "correlation") || {
+        key: "correlation",
+        label: "MVPD Login History",
+        records: [],
+      };
+    const correlationGroupRecord = groupRecordsByKey.get(correlationGroup.key);
+    const correlationMarkup = cmBuildGroupListHtml(
+      correlationGroup.label,
+      correlationGroup.records,
+      correlationGroupRecord?.cardId || ""
+    );
     const groupMarkup = groupDefinitions
-      .filter((group) => !hiddenCmGroupKeys.has(group.key))
+      .filter((group) => !hiddenCmGroupKeys.has(group.key) && group.key !== "correlation")
       .map((group) => {
         const groupRecord = groupRecordsByKey.get(group.key);
-        const groupHtml = cmBuildGroupListHtml(group.label, group.records, groupRecord?.cardId || "");
-        if (group.key === "usage") {
-          return `${cmuJellyMarkup}${groupHtml}`;
-        }
-        return groupHtml;
+        return cmBuildGroupListHtml(group.label, group.records, groupRecord?.cardId || "");
       })
       .join("");
 
     contentElement.innerHTML = `
       <div class="cm-shell">
-        <div class="cm-toolbar">
-          <p class="cm-summary">
-            Matched ${matchedTenants.length} tenant${matchedTenants.length === 1 ? "" : "s"} from ${escapeHtml(sourceLabel)}.
-          </p>
-          <div class="cm-toolbar-actions">
-            <button type="button" class="cm-open-workspace-btn">Open CM Workspace</button>
-            <button type="button" class="cm-export-clickcmu-btn">Generate clickCMU</button>
-          </div>
-        </div>
+        ${cmuJellyMarkup}
+        <div class="cm-correlation-host">${correlationMarkup}</div>
         <div class="cm-sidepanel">${groupMarkup}</div>
       </div>
     `;
@@ -15103,20 +16635,7 @@ async function loadCmService(programmer, cmService, section, contentElement, req
     section.__underparCmState = cmState;
     cmMountUsageJellyBeans(cmState, usageRecords, requestToken);
 
-    const openWorkspaceButton = contentElement.querySelector(".cm-open-workspace-btn");
-    if (openWorkspaceButton) {
-      openWorkspaceButton.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        const targetWindowId = Number(cmState.controllerWindowId || 0);
-        const workspaceTab = await cmEnsureWorkspaceTab({
-          activate: true,
-          windowId: targetWindowId || undefined,
-        });
-        cmBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
-        cmBroadcastControllerState(cmState, Number(workspaceTab?.windowId || targetWindowId || 0));
-      });
-    }
-    const exportClickCmuButton = contentElement.querySelector(".cm-export-clickcmu-btn");
+    const exportClickCmuButton = contentElement.querySelector(".cmu-jelly-make-clickcmu-btn");
     if (exportClickCmuButton) {
       exportClickCmuButton.addEventListener("click", async (event) => {
         event.stopPropagation();
