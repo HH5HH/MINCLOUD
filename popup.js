@@ -8636,6 +8636,26 @@ function replaceClickCmuEndpointBlock(templateHtml, endpointDlMarkup) {
   return `${output.slice(0, contentStart)}${replacement}${output.slice(endIndex)}`;
 }
 
+function stripClickCmuFooterFilterRow(templateHtml) {
+  const output = String(templateHtml || "");
+  const startMarker = "<div class=\"footer-container search-container\">";
+  const startIndex = output.indexOf(startMarker);
+  if (startIndex < 0) {
+    return output;
+  }
+  const scriptIndex = output.indexOf("<script>", startIndex);
+  if (scriptIndex < 0) {
+    return output;
+  }
+  const between = output.slice(startIndex, scriptIndex);
+  const appShellCloseIndex = between.lastIndexOf("</div>");
+  if (appShellCloseIndex < 0) {
+    return output;
+  }
+  const appShellClose = between.slice(appShellCloseIndex);
+  return `${output.slice(0, startIndex)}${appShellClose}${output.slice(scriptIndex)}`;
+}
+
 function clickCmuSerializeForInlineScript(value) {
   return JSON.stringify(value)
     .replaceAll("<", "\\u003c")
@@ -9188,17 +9208,9 @@ body[data-theme="dark"]{
     resetButton.title = String(resetButton.title || "").replaceAll("clickESM2", "clickCMU");
   }
 
-  const requestorSelect = document.getElementById("fltr_requestorid");
-  if (requestorSelect) {
-    requestorSelect.innerHTML = "";
-    requestorSelect.disabled = true;
-    requestorSelect.title = "Requestor-id filter is disabled for clickCMU usage tables.";
-  }
-  const mvpdSelect = document.getElementById("fltr_mvpdId");
-  if (mvpdSelect) {
-    mvpdSelect.innerHTML = "";
-    mvpdSelect.disabled = true;
-    mvpdSelect.style.display = "none";
+  const footerFilterRow = document.querySelector(".footer-container.search-container");
+  if (footerFilterRow) {
+    footerFilterRow.remove();
   }
 })();
 </script>
@@ -9246,6 +9258,7 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
     .replace("Hard reset clickESM2 to first-run state", "Hard reset clickCMU to first-run state")
     .replaceAll("ESM table", "CMU table")
     .replaceAll("ESM URL", "CMU URL");
+  output = stripClickCmuFooterFilterRow(output);
 
   const runtimePatch = buildClickCmuRuntimePatchSnippet({
     programmerId,
