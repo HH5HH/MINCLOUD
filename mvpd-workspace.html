@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UP MVPD Workspace</title>
+    <link id="workspace-style-link" rel="stylesheet" href="mvpd-workspace.css" />
+  </head>
+  <body>
+    <main id="workspace-app-root" class="workspace-app">
+      <header class="workspace-header">
+        <div class="workspace-title-wrap">
+          <p id="workspace-controller-state" class="workspace-controller-state">
+            Waiting for UnderPAR side panel controller...
+          </p>
+          <p id="workspace-filter-state" class="workspace-filter-state"></p>
+        </div>
+        <div class="workspace-actions">
+          <button
+            id="workspace-rerun-all"
+            class="workspace-icon-btn workspace-icon-btn--accent"
+            type="button"
+            title="Refresh selected MVPD details"
+            aria-label="Refresh selected MVPD details"
+          >
+            <span class="workspace-icon workspace-icon--rerun-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M18.75 12a6.75 6.75 0 1 1-1.98-4.77" />
+                <path d="M16.77 3.75h3.48v3.48" />
+              </svg>
+            </span>
+            <span id="workspace-rerun-indicator" class="workspace-net-indicator" aria-hidden="true" hidden></span>
+          </button>
+          <button
+            id="workspace-clear-all"
+            class="workspace-icon-btn"
+            type="button"
+            title="Clear"
+            aria-label="Clear"
+          >
+            <span class="workspace-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M7 7 17 17" />
+                <path d="M17 7 7 17" />
+              </svg>
+            </span>
+          </button>
+        </div>
+      </header>
+
+      <p id="workspace-status" class="workspace-status" aria-live="polite"></p>
+      <section id="workspace-cards" class="workspace-cards"></section>
+    </main>
+
+    <script src="mvpd-workspace.js"></script>
+  </body>
+</html>

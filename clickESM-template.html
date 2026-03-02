@@ -5856,7 +5856,7 @@ year</dd>
 </dl>
 <dl>
 <dt><a href="https://mgmt.auth.adobe.com/esm/v3/media-company/year/month/day/requestor-id/proxy/mvpd/platform/nsdk/nsdk-version/os-family/browser-family" class="zmDAY" onclick="runEsm(this);return false;">https://mgmt.auth.adobe.com/esm/v3/media-company/year/month/day/requestor-id/proxy/mvpd/platform/nsdk/nsdk-version/os-family/browser-family</a></dt>
-<dd class="col-list"><em>No report columns</em></dd>
+<dd class="col-list"></dd>
 <dd class="esm-table-host"></dd>
 </dl>
 <dl>
@@ -6172,6 +6172,7 @@ function appendFilterParams(url) {
 
 const __localColumnFilterStateByDl = new WeakMap();
 const ESM_SUPPRESSED_COLUMNS = new Set(['media-company']);
+const ESM_LOCAL_FILTER_EXCLUDED_COLUMNS = new Set(['year', 'month', 'day', 'hour', 'minute']);
 
 const ESM_PROGRAMMER_DIMENSION_DESCRIPTIONS = new Map([
   ['year', '4-digit year'],
@@ -6231,6 +6232,11 @@ function __isSuppressedEsmColumn(columnName) {
   return Boolean(normalized) && ESM_SUPPRESSED_COLUMNS.has(normalized);
 }
 
+function __isLocalFilterExcludedDimension(columnName) {
+  const normalized = __normalizeDimensionName(columnName);
+  return Boolean(normalized) && ESM_LOCAL_FILTER_EXCLUDED_COLUMNS.has(normalized);
+}
+
 function __normalizeDimensionName(columnName) {
   return __normalizeColumnName(columnName);
 }
@@ -6253,8 +6259,18 @@ function __getDimensionDescription(columnName, href = '') {
   return String(secondary.get(key) || '').trim();
 }
 
-function __isFilterableDimension(columnName, href = '') {
+function __isSupportedDimension(columnName, href = '') {
   return Boolean(__getDimensionDescription(columnName, href));
+}
+
+function __isDisplayableDimension(columnName, href = '') {
+  if (__isLocalFilterExcludedDimension(columnName)) return false;
+  return __isSupportedDimension(columnName, href);
+}
+
+function __isFilterableDimension(columnName, href = '') {
+  if (__isLocalFilterExcludedDimension(columnName)) return false;
+  return __isSupportedDimension(columnName, href);
 }
 
 function __parseColumnCloudTokens(rawText) {
@@ -6266,7 +6282,7 @@ function __parseColumnCloudTokens(rawText) {
     .filter(v => !__isSuppressedEsmColumn(v));
 }
 
-function __getFilterableDimensionsFromHref(href = '') {
+function __getSupportedDimensionsFromHref(href = '') {
   const rawHref = String(href || '').trim();
   if (!rawHref) return [];
 
@@ -6295,7 +6311,7 @@ function __getFilterableDimensionsFromHref(href = '') {
   const seen = new Set();
   dimensionSegments.forEach(seg => {
     if (__isSuppressedEsmColumn(seg)) return;
-    if (!__isFilterableDimension(seg, rawHref)) return;
+    if (!__isDisplayableDimension(seg, rawHref)) return;
     if (seen.has(seg)) return;
     seen.add(seg);
     orderedUnique.push(seg);
@@ -6320,9 +6336,9 @@ function __getLocalColumnFilterState(dl) {
   const anchor = dl.querySelector('a');
   const baselineHref = String(anchor?.href || '');
   const rawText = dd?.innerText || '';
-  const hrefDimensions = __getFilterableDimensionsFromHref(baselineHref);
+  const hrefDimensions = __getSupportedDimensionsFromHref(baselineHref);
   const staticDimensions = __parseColumnCloudTokens(rawText)
-    .filter(col => __isFilterableDimension(col, baselineHref));
+    .filter(col => __isDisplayableDimension(col, baselineHref));
   const sanitizedRawText = (hrefDimensions.length ? hrefDimensions : staticDimensions).join('\n');
 
   const state = {
@@ -6345,7 +6361,7 @@ function __getLocalColumnFilterState(dl) {
   };
 
   if (dd) {
-    dd.textContent = sanitizedRawText || 'No report columns';
+    dd.textContent = sanitizedRawText;
     dd.dataset.searchText = sanitizedRawText;
     dd.dataset.colCloud = '0';
   }
@@ -6728,19 +6744,131 @@ function __activateLocalColumnFilterUi(dl, rows) {
 
 function __appendLocalColumnFilterParams(url, dl) {
   const state = __getLocalColumnFilterState(dl);
-  if (!state?.selectedByColumn?.size) return url;
+  if (!state) return url;
 
-  const params = [];
+  const normalizedSelectedByColumn = new Map();
   state.selectedByColumn.forEach((values, col) => {
-    if (!values || !values.size) return;
-    values.forEach(v => {
-      params.push(`${encodeURIComponent(col)}=${encodeURIComponent(v)}`);
+    const normalizedColumn = __normalizeDimensionName(col);
+    if (
+      !normalizedColumn ||
+      __isSuppressedEsmColumn(normalizedColumn) ||
+      __isLocalFilterExcludedDimension(normalizedColumn) ||
+      !__isFilterableDimension(normalizedColumn, state.baselineHref)
+    ) {
+      return;
+    }
+    const nextValues = new Set();
+    (values instanceof Set ? [...values] : []).forEach(value => {
+      const normalizedValue = String(value || '').trim();
+      if (!normalizedValue) return;
+      nextValues.add(normalizedValue);
     });
+    if (nextValues.size > 0) normalizedSelectedByColumn.set(normalizedColumn, nextValues);
   });
 
-  if (!params.length) return url;
-  const sep = url.includes('?') ? '&' : '?';
-  return url + sep + params.join('&');
+  const resetKeys = new Set();
+  const includeMapKeys = (catalog) => {
+    if (!(catalog instanceof Map)) return;
+    catalog.forEach((_description, columnName) => {
+      const normalizedColumn = __normalizeDimensionName(columnName);
+      if (!normalizedColumn || __isSuppressedEsmColumn(normalizedColumn)) return;
+      resetKeys.add(normalizedColumn);
+    });
+  };
+  includeMapKeys(ESM_PROGRAMMER_DIMENSION_DESCRIPTIONS);
+  includeMapKeys(ESM_MVPD_DIMENSION_DESCRIPTIONS);
+
+  const hasLocalRequestorFilter = normalizedSelectedByColumn.has('requestor-id');
+  const hasLocalMvpdFilter = normalizedSelectedByColumn.has('mvpd');
+  if (!hasLocalRequestorFilter) resetKeys.delete('requestor-id');
+  if (!hasLocalMvpdFilter) resetKeys.delete('mvpd');
+
+  try {
+    const parsed = new URL(String(url || ''), window.location.href);
+    resetKeys.forEach(columnName => {
+      parsed.searchParams.delete(columnName);
+    });
+    normalizedSelectedByColumn.forEach((values, columnName) => {
+      [...values].forEach(value => {
+        parsed.searchParams.append(columnName, value);
+      });
+    });
+    return parsed.toString();
+  } catch {
+    const params = [];
+    normalizedSelectedByColumn.forEach((values, columnName) => {
+      [...values].forEach(value => {
+        params.push(`${encodeURIComponent(columnName)}=${encodeURIComponent(value)}`);
+      });
+    });
+    if (!params.length) return url;
+    const sep = url.includes('?') ? '&' : '?';
+    return url + sep + params.join('&');
+  }
+}
+
+function __matchesLocalFilterValue(rowValue, selectedValues) {
+  if (!selectedValues || selectedValues.size === 0 || rowValue == null) return false;
+
+  const rowText = String(rowValue).trim();
+  if (!rowText) return false;
+  if (selectedValues.has(rowText)) return true;
+
+  const rowLower = rowText.toLowerCase();
+  const rowNumber = Number(rowText);
+  const rowIsNumber = Number.isFinite(rowNumber);
+
+  for (const selectedValue of selectedValues) {
+    const selectedText = String(selectedValue || '').trim();
+    if (!selectedText) continue;
+    if (selectedText.toLowerCase() === rowLower) return true;
+    if (rowIsNumber) {
+      const selectedNumber = Number(selectedText);
+      if (Number.isFinite(selectedNumber) && selectedNumber === rowNumber) return true;
+    }
+  }
+
+  return false;
+}
+
+function __applyLocalColumnFiltersToRows(rows, dl) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) return list;
+
+  const state = __getLocalColumnFilterState(dl);
+  if (!state) return list;
+
+  const normalizedSelectedByColumn = new Map();
+  state.selectedByColumn.forEach((values, col) => {
+    const normalizedColumn = __normalizeDimensionName(col);
+    if (
+      !normalizedColumn ||
+      __isSuppressedEsmColumn(normalizedColumn) ||
+      __isLocalFilterExcludedDimension(normalizedColumn) ||
+      !__isFilterableDimension(normalizedColumn, state.baselineHref)
+    ) {
+      return;
+    }
+    const nextValues = new Set();
+    (values instanceof Set ? [...values] : []).forEach((value) => {
+      const normalizedValue = String(value || '').trim();
+      if (!normalizedValue) return;
+      nextValues.add(normalizedValue);
+    });
+    if (nextValues.size > 0) normalizedSelectedByColumn.set(normalizedColumn, nextValues);
+  });
+
+  if (!normalizedSelectedByColumn.size) return list;
+
+  return list.filter((row) => {
+    if (!row || typeof row !== 'object') return false;
+    for (const [columnName, selectedValues] of normalizedSelectedByColumn.entries()) {
+      if (!__matchesLocalFilterValue(row[columnName], selectedValues)) {
+        return false;
+      }
+    }
+    return true;
+  });
 }
 
 function __hasLocalColumnFilters(dl) {
@@ -7272,11 +7400,11 @@ function __sanitizeAllStaticColumnLists() {
     if (!dd) return;
     const anchor = dl.querySelector('a');
     const baselineHref = String(anchor?.href || '');
-    const hrefDimensions = __getFilterableDimensionsFromHref(baselineHref);
+    const hrefDimensions = __getSupportedDimensionsFromHref(baselineHref);
     const staticDimensions = __parseColumnCloudTokens(dd.innerText || dd.textContent || '')
-      .filter(col => __isFilterableDimension(col, baselineHref));
+      .filter(col => __isDisplayableDimension(col, baselineHref));
     const sanitizedRawText = (hrefDimensions.length ? hrefDimensions : staticDimensions).join('\n');
-    dd.textContent = sanitizedRawText || 'No report columns';
+    dd.textContent = sanitizedRawText;
     dd.dataset.searchText = sanitizedRawText;
     dd.dataset.colCloud = '0';
   });
@@ -7475,17 +7603,18 @@ async function downloadCsv(link, baseHref, sortState) {
   if (!r.ok) return;
 
   const j = await r.json();
-  if (!j.report || !j.report.length) return;
+  const filteredRows = __applyLocalColumnFiltersToRows(Array.isArray(j?.report) ? j.report : [], dl);
+  if (!filteredRows.length) return;
 
   // Use a context that enables derived metric sort if it exists in data
-  const row0 = j.report[0];
+  const row0 = filteredRows[0];
   const ctx = {
     authN: row0['authn-attempts'] != null && row0['authn-successful'] != null,
     authZ: row0['authz-attempts'] != null && row0['authz-successful'] != null
   };
 
   const sortStack = sortState ? [sortState] : getDefaultSortStack();
-  const sorted = sortByStack(j.report, sortStack, ctx);
+  const sorted = sortByStack(filteredRows, sortStack, ctx);
 
   const headers = Object.keys(sorted[0]);
   const lines = [
@@ -7703,12 +7832,13 @@ async function runEsm(a) {
       return;
     }
 
-    if (!json.report || !json.report.length) {
+    const filteredRows = __applyLocalColumnFiltersToRows(Array.isArray(json?.report) ? json.report : [], dl);
+    if (!filteredRows.length) {
       showMessage('No data');
       return;
     }
 
-    state.data = json.report;
+    state.data = filteredRows;
     __activateLocalColumnFilterUi(dl, state.data);
 
     /* Data freshness: Last-Modified when present; absence means real-time (per ESM spec) */

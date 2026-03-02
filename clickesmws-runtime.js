@@ -24,6 +24,54 @@
   ]);
   const ESM_DATE_PARTS = ["year", "month", "day", "hour", "minute"];
   const ESM_DEPRECATED_COLUMN_KEYS = new Set(["clientless-failures", "clientless-tokens"]);
+  const ESM_SUPPRESSED_COLUMNS = new Set(["media-company"]);
+  const ESM_PROGRAMMER_DIMENSION_DESCRIPTIONS = new Map([
+    ["year", "4-digit year"],
+    ["month", "Month"],
+    ["day", "Day"],
+    ["hour", "Hour of day"],
+    ["minute", "Minute of hour"],
+    ["dc", "Data center"],
+    ["proxy", "Proxy MVPD"],
+    ["mvpd", "MVPD granting entitlement"],
+    ["requestor-id", "Requestor ID used for entitlement"],
+    ["channel", "Channel website"],
+    ["resource-id", "Resource title"],
+    ["device", "Device platform"],
+    ["eap", "External auth provider"],
+    ["os-family", "OS family"],
+    ["browser-family", "Browser family"],
+    ["cdt", "Clientless device type"],
+    ["platform-version", "Clientless SDK version"],
+    ["os-type", "OS"],
+    ["browser-version", "Browser version"],
+    ["nsdk", "Client SDK"],
+    ["nsdk-version", "Adobe Pass SDK version"],
+    ["event", "Adobe Pass event name"],
+    ["reason", "Failure reason"],
+    ["sso-type", "SSO mechanism"],
+    ["platform", "Device platform"],
+    ["application-name", "DCR app name"],
+    ["application-version", "DCR app version"],
+    ["customer-app", "Custom application ID"],
+    ["content-category", "Content category requested"],
+    ["api", "API entry point"],
+  ]);
+  const ESM_MVPD_DIMENSION_DESCRIPTIONS = new Map([
+    ["year", "4-digit year"],
+    ["month", "Month"],
+    ["day", "Day"],
+    ["hour", "Hour of day"],
+    ["minute", "Minute of hour"],
+    ["mvpd", "MVPD ID"],
+    ["requestor-id", "Requestor ID"],
+    ["eap", "External auth provider"],
+    ["cdt", "Clientless device type"],
+    ["sdk-type", "Flash, HTML5, Android native, iOS, Clientless, etc."],
+    ["platform", "Device platform"],
+    ["nsdk", "Client SDK"],
+    ["nsdk-version", "Adobe Pass SDK version"],
+  ]);
   const ESM_NODE_BASE_URL = "https://mgmt.auth.adobe.com/esm/v3/media-company/";
   const ESM_NODE_BASE_PATH = "esm/v3/media-company/";
   const WORKSPACE_EXPORT_FILE_SYSTEM_QUERY_KEYS = new Set(["format", "limit"]);
@@ -88,7 +136,12 @@
     if (!els.status) {
       return;
     }
-    els.status.textContent = String(message || "").trim();
+    const text = String(message || "").trim();
+    // Keep workspace status focused on actionable failures only.
+    if (type !== "error" && text) {
+      return;
+    }
+    els.status.textContent = text;
     els.status.classList.remove("error");
     if (type === "error") {
       els.status.classList.add("error");
@@ -523,7 +576,7 @@
       parsed.searchParams.append("mvpd", mvpdId);
     });
 
-    return parsed.toString();
+    return appendLocalColumnFiltersToUrl(parsed.toString(), cardState?.localColumnFilters);
   }
 
   function safeDecodeUrlSegment(segment) {
@@ -681,7 +734,8 @@
     });
   }
 
-  function normalizeEsmColumns(columns) {
+  function normalizeEsmColumns(columns, options = {}) {
+    const hrefValue = String(options?.href || "").trim();
     const output = [];
     const seen = new Set();
     (Array.isArray(columns) ? columns : []).forEach((value) => {
@@ -693,14 +747,10 @@
         return;
       }
       if (/^no\s+report\s+columns$/i.test(normalized)) {
-        if (!seen.has("no report columns")) {
-          output.push("No report columns");
-          seen.add("no report columns");
-        }
         return;
       }
       const lower = normalized.toLowerCase();
-      if (ESM_DEPRECATED_COLUMN_KEYS.has(lower)) {
+      if (ESM_DEPRECATED_COLUMN_KEYS.has(lower) || lower === "media-company") {
         return;
       }
       if (!seen.has(lower)) {
@@ -708,7 +758,391 @@
         seen.add(lower);
       }
     });
+    if (output.length === 0 && hrefValue) {
+      return getSupportedDimensionsFromHref(hrefValue);
+    }
     return output;
+  }
+
+  function normalizeDimensionName(columnName) {
+    return String(columnName || "").trim().toLowerCase();
+  }
+
+  function isSuppressedEsmColumn(columnName) {
+    const normalized = normalizeDimensionName(columnName);
+    return Boolean(normalized) && ESM_SUPPRESSED_COLUMNS.has(normalized);
+  }
+
+  function isDateTimeDimension(columnName) {
+    const normalized = normalizeDimensionName(columnName);
+    return Boolean(normalized) && ESM_DATE_PARTS.includes(normalized);
+  }
+
+  function resolveDimensionCatalogForHref(hrefValue) {
+    const normalizedHref = String(hrefValue || "").toLowerCase();
+    if (normalizedHref.includes("/esm/v3/mvpd/")) {
+      return ESM_MVPD_DIMENSION_DESCRIPTIONS;
+    }
+    return ESM_PROGRAMMER_DIMENSION_DESCRIPTIONS;
+  }
+
+  function getDimensionDescription(columnName, hrefValue = "") {
+    const key = normalizeDimensionName(columnName);
+    if (!key || isSuppressedEsmColumn(key)) {
+      return "";
+    }
+    const primary = resolveDimensionCatalogForHref(hrefValue);
+    if (primary.has(key)) {
+      return String(primary.get(key) || "").trim();
+    }
+    const secondary =
+      primary === ESM_MVPD_DIMENSION_DESCRIPTIONS
+        ? ESM_PROGRAMMER_DIMENSION_DESCRIPTIONS
+        : ESM_MVPD_DIMENSION_DESCRIPTIONS;
+    return String(secondary.get(key) || "").trim();
+  }
+
+  function isFilterableDimension(columnName, hrefValue = "") {
+    if (isDateTimeDimension(columnName)) {
+      return false;
+    }
+    return Boolean(getDimensionDescription(columnName, hrefValue));
+  }
+
+  function isSupportedDimension(columnName, hrefValue = "") {
+    return Boolean(getDimensionDescription(columnName, hrefValue));
+  }
+
+  function isDisplayableDimension(columnName, hrefValue = "") {
+    if (isDateTimeDimension(columnName)) {
+      return false;
+    }
+    return isSupportedDimension(columnName, hrefValue);
+  }
+
+  function getSupportedDimensionsFromHref(hrefValue = "") {
+    const rawHref = String(hrefValue || "").trim();
+    if (!rawHref) {
+      return [];
+    }
+
+    let path = "";
+    try {
+      const parsed = new URL(rawHref, window.location.href);
+      path = String(parsed.pathname || "");
+    } catch {
+      path = rawHref.split("?", 1)[0] || "";
+    }
+
+    const segments = path
+      .split("/")
+      .map((segment) => decodeURIComponent(String(segment || "").trim().toLowerCase()))
+      .filter(Boolean);
+    if (!segments.length) {
+      return [];
+    }
+
+    const v3Index = segments.findIndex((segment, index) => segment === "v3" && segments[index - 1] === "esm");
+    const startIndex = v3Index >= 0 ? v3Index + 1 : 0;
+    let dimensionSegments = segments.slice(startIndex);
+    if (dimensionSegments[0] === "media-company" || dimensionSegments[0] === "mvpd") {
+      dimensionSegments = dimensionSegments.slice(1);
+    }
+
+    const output = [];
+    const seen = new Set();
+    dimensionSegments.forEach((segment) => {
+      const normalized = normalizeDimensionName(segment);
+      if (
+        !normalized ||
+        isSuppressedEsmColumn(normalized) ||
+        !isDisplayableDimension(normalized, rawHref) ||
+        seen.has(normalized)
+      ) {
+        return;
+      }
+      seen.add(normalized);
+      output.push(normalized);
+    });
+    return output;
+  }
+
+  function buildDisplayDimensions(columns, hrefValue = "") {
+    const fromHref = getSupportedDimensionsFromHref(hrefValue);
+    if (fromHref.length > 0) {
+      return fromHref;
+    }
+
+    const output = [];
+    const seen = new Set();
+    normalizeEsmColumns(columns).forEach((columnName) => {
+      const normalized = normalizeDimensionName(columnName);
+      if (
+        !normalized ||
+        isSuppressedEsmColumn(normalized) ||
+        !isDisplayableDimension(normalized, hrefValue) ||
+        seen.has(normalized)
+      ) {
+        return;
+      }
+      seen.add(normalized);
+      output.push(normalized);
+    });
+    return output;
+  }
+
+  function compareColumnValues(leftValue, rightValue) {
+    return String(leftValue ?? "").localeCompare(String(rightValue ?? ""), undefined, {
+      numeric: true,
+      sensitivity: "base",
+    });
+  }
+
+  function buildDistinctValuesForColumns(rows, columns) {
+    const distinct = new Map();
+    (Array.isArray(columns) ? columns : []).forEach((columnName) => {
+      const normalized = normalizeDimensionName(columnName);
+      if (!normalized || isSuppressedEsmColumn(normalized)) {
+        return;
+      }
+      distinct.set(normalized, new Set());
+    });
+    (Array.isArray(rows) ? rows : []).forEach((row) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        return;
+      }
+      distinct.forEach((set, columnName) => {
+        if (!(columnName in row)) {
+          return;
+        }
+        const raw = row[columnName];
+        if (raw == null) {
+          return;
+        }
+        const normalizedValue = String(raw).trim();
+        if (!normalizedValue) {
+          return;
+        }
+        set.add(normalizedValue);
+      });
+    });
+    const output = new Map();
+    distinct.forEach((set, columnName) => {
+      if (!set || set.size === 0) {
+        return;
+      }
+      output.set(
+        columnName,
+        [...set].sort((left, right) => compareColumnValues(left, right))
+      );
+    });
+    return output;
+  }
+
+  function normalizeLocalColumnFilters(rawFilters) {
+    const output = new Map();
+    const appendValues = (columnName, values) => {
+      const normalizedColumn = normalizeDimensionName(columnName);
+      if (
+        !normalizedColumn ||
+        isSuppressedEsmColumn(normalizedColumn) ||
+        isDateTimeDimension(normalizedColumn)
+      ) {
+        return;
+      }
+      const nextSet = new Set();
+      (Array.isArray(values) ? values : []).forEach((value) => {
+        const normalizedValue = String(value || "").trim();
+        if (!normalizedValue) {
+          return;
+        }
+        nextSet.add(normalizedValue);
+      });
+      if (nextSet.size > 0) {
+        output.set(normalizedColumn, nextSet);
+      }
+    };
+
+    if (rawFilters instanceof Map) {
+      rawFilters.forEach((values, columnName) => {
+        appendValues(columnName, values instanceof Set ? [...values] : values);
+      });
+      return output;
+    }
+
+    if (Array.isArray(rawFilters)) {
+      rawFilters.forEach((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return;
+        }
+        appendValues(entry.column, entry.values);
+      });
+      return output;
+    }
+
+    if (rawFilters && typeof rawFilters === "object") {
+      Object.entries(rawFilters).forEach(([columnName, values]) => {
+        appendValues(columnName, values);
+      });
+    }
+    return output;
+  }
+
+  function buildLocalFilterResetKeys(normalizedFilters = new Map()) {
+    const keys = new Set();
+    const includeMapKeys = (catalog) => {
+      if (!(catalog instanceof Map)) {
+        return;
+      }
+      catalog.forEach((_description, columnName) => {
+        const normalized = normalizeDimensionName(columnName);
+        if (!normalized || isSuppressedEsmColumn(normalized)) {
+          return;
+        }
+        keys.add(normalized);
+      });
+    };
+
+    includeMapKeys(ESM_PROGRAMMER_DIMENSION_DESCRIPTIONS);
+    includeMapKeys(ESM_MVPD_DIMENSION_DESCRIPTIONS);
+
+    const hasLocalRequestorFilter =
+      normalizedFilters instanceof Map &&
+      normalizedFilters.has("requestor-id") &&
+      (normalizedFilters.get("requestor-id") || new Set()).size > 0;
+    const hasLocalMvpdFilter =
+      normalizedFilters instanceof Map && normalizedFilters.has("mvpd") && (normalizedFilters.get("mvpd") || new Set()).size > 0;
+
+    if (!hasLocalRequestorFilter) {
+      keys.delete("requestor-id");
+    }
+    if (!hasLocalMvpdFilter) {
+      keys.delete("mvpd");
+    }
+
+    return keys;
+  }
+
+  function serializeLocalColumnFilters(filterMap) {
+    const normalized = normalizeLocalColumnFilters(filterMap);
+    const output = {};
+    [...normalized.keys()]
+      .sort()
+      .forEach((columnName) => {
+        const values = normalized.get(columnName) || new Set();
+        const sortedValues = [...values].sort((left, right) => compareColumnValues(left, right));
+        if (sortedValues.length > 0) {
+          output[columnName] = sortedValues;
+        }
+      });
+    return output;
+  }
+
+  function hasLocalColumnFilters(filterMap) {
+    const normalized = normalizeLocalColumnFilters(filterMap);
+    let hasAny = false;
+    normalized.forEach((values) => {
+      if (values instanceof Set && values.size > 0) {
+        hasAny = true;
+      }
+    });
+    return hasAny;
+  }
+
+  function appendLocalColumnFiltersToUrl(urlValue, filterMap) {
+    const normalizedFilters = normalizeLocalColumnFilters(filterMap);
+    const rawUrl = String(urlValue || "").trim();
+    if (!rawUrl) {
+      return rawUrl;
+    }
+    const resetKeys = buildLocalFilterResetKeys(normalizedFilters);
+    try {
+      const parsed = new URL(rawUrl);
+      resetKeys.forEach((columnName) => {
+        parsed.searchParams.delete(columnName);
+      });
+      normalizedFilters.forEach((values, columnName) => {
+        [...values].forEach((value) => {
+          parsed.searchParams.append(columnName, value);
+        });
+      });
+      return parsed.toString();
+    } catch {
+      const params = [];
+      normalizedFilters.forEach((values, columnName) => {
+        [...values].forEach((value) => {
+          params.push(`${encodeURIComponent(columnName)}=${encodeURIComponent(value)}`);
+        });
+      });
+      if (params.length === 0) {
+        return rawUrl;
+      }
+      const separator = rawUrl.includes("?") ? "&" : "?";
+      return `${rawUrl}${separator}${params.join("&")}`;
+    }
+  }
+
+  function matchesLocalFilterValue(rowValue, selectedValues) {
+    if (!selectedValues || selectedValues.size === 0 || rowValue == null) {
+      return false;
+    }
+
+    const rowText = String(rowValue).trim();
+    if (!rowText) {
+      return false;
+    }
+    if (selectedValues.has(rowText)) {
+      return true;
+    }
+
+    const rowLower = rowText.toLowerCase();
+    const rowNumber = Number(rowText);
+    const rowIsNumber = Number.isFinite(rowNumber);
+
+    for (const selectedValue of selectedValues) {
+      const selectedText = String(selectedValue || "").trim();
+      if (!selectedText) {
+        continue;
+      }
+      if (selectedText.toLowerCase() === rowLower) {
+        return true;
+      }
+      if (rowIsNumber) {
+        const selectedNumber = Number(selectedText);
+        if (Number.isFinite(selectedNumber) && selectedNumber === rowNumber) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function applyLocalColumnFiltersToRows(rows, filterMap) {
+    const list = Array.isArray(rows) ? rows : [];
+    if (!list.length) {
+      return list;
+    }
+
+    const normalizedFilters = normalizeLocalColumnFilters(filterMap);
+    const entries = [...normalizedFilters.entries()].filter(
+      ([columnName, values]) => String(columnName || "").trim() && values instanceof Set && values.size > 0
+    );
+    if (!entries.length) {
+      return list;
+    }
+
+    return list.filter((row) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) {
+        return false;
+      }
+      for (const [columnName, values] of entries) {
+        if (!matchesLocalFilterValue(row[columnName], values)) {
+          return false;
+        }
+      }
+      return true;
+    });
   }
 
   function getEndpointColumnsCacheKey(urlValue) {
@@ -823,27 +1257,348 @@
   }
 
   function buildCardColumnsMarkup(cardState) {
-    const columns = normalizeEsmColumns(cardState?.columns);
     const requestUrl = String(cardState?.requestUrl || cardState?.endpointUrl || "").trim();
+    const sourceColumns =
+      cardState?.localDistinctByColumn && cardState.localDistinctByColumn.size > 0
+        ? [...cardState.localDistinctByColumn.keys()]
+        : normalizeEsmColumns(cardState?.columns, { href: requestUrl });
+    const displayColumns = buildDisplayDimensions(sourceColumns, requestUrl);
     const nodeLabel = getEsmNodeLabel(requestUrl);
     const endpointMarkup = requestUrl
       ? `<a class="card-col-parent-url card-rerun-url" href="${escapeHtml(requestUrl)}" title="${escapeHtml(requestUrl)}">${escapeHtml(
           nodeLabel
         )}</a>`
       : `<span class="card-col-parent-url card-col-parent-url-empty">node</span>`;
+    const normalizedFilterableColumns = displayColumns.filter((column) => isFilterableDimension(column, requestUrl));
+    const hasInteractiveBaseline =
+      Boolean(cardState?.localHasBaselineData) &&
+      cardState?.localDistinctByColumn instanceof Map &&
+      cardState.localDistinctByColumn.size > 0;
+    const interactiveColumns = hasInteractiveBaseline
+      ? [...cardState.localDistinctByColumn.keys()]
+          .map((column) => normalizeDimensionName(column))
+          .filter((column) => normalizedFilterableColumns.includes(column))
+      : [];
+    const interactiveColumnSet = new Set(interactiveColumns);
     const columnsMarkup =
-      columns.length > 0
-        ? columns.map((column) => `<span class="card-col-chip">${escapeHtml(column)}</span>`).join("")
-        : `<span class="card-col-empty">No columns</span>`;
+      displayColumns.length > 0
+        ? `<div class="col-chip-cloud">${displayColumns
+            .map((column) => {
+              if (interactiveColumnSet.has(column)) {
+              const description = String(
+                cardState?.localDescriptionByColumn?.get(column) || getDimensionDescription(column, requestUrl) || ""
+              ).trim();
+              const selectedCount = cardState?.localColumnFilters?.get(column)?.size || 0;
+              const label = selectedCount > 0 ? `${column} (${selectedCount})` : column;
+              const title = selectedCount > 0 ? `${description || column} (${selectedCount} selected)` : description || column;
+              const classes = `col-chip${selectedCount > 0 ? " col-chip-filtered" : ""}`;
+              return `<div class="${classes}" data-column="${escapeHtml(column)}" data-filterable="1"${
+                description ? ` data-description="${escapeHtml(description)}"` : ""
+              } title="${escapeHtml(title)}">
+                <button type="button" class="col-chip-trigger" title="${escapeHtml(title)}">${escapeHtml(label)}</button>
+              </div>`;
+              }
+              const description = String(getDimensionDescription(column, requestUrl) || "").trim();
+              const title = description || column;
+              return `<div class="col-chip" data-column="${escapeHtml(column)}" data-filterable="0" title="${escapeHtml(title)}">
+                <span class="col-chip-label col-chip-label-static" title="${escapeHtml(title)}">${escapeHtml(column)}</span>
+              </div>`;
+            })
+            .join("")}</div>`
+        : `<span class="card-col-empty"></span>`;
 
     return `
       <div class="card-col-list">
         <div class="card-col-layout">
           <div class="card-col-node">${endpointMarkup}</div>
-          <div class="card-col-columns" aria-label="ESM columns">${columnsMarkup}</div>
+          <div class="card-col-columns-wrap">
+            <div class="card-col-columns" aria-label="ESM columns">${columnsMarkup}</div>
+            <div class="local-col-picker-wrap" hidden>
+              <select class="local-col-menu" multiple size="1" title="Choose one or more values from this column"></select>
+            </div>
+          </div>
         </div>
       </div>
     `;
+  }
+
+  function initializeCardLocalFilterBaseline(cardState, rows, requestUrl) {
+    if (!cardState || !Array.isArray(rows) || rows.length === 0) {
+      return;
+    }
+    if (!cardState.localHasBaselineData) {
+      const rowSample = rows[0] && typeof rows[0] === "object" ? rows[0] : {};
+      const fallbackColumns = Object.keys(rowSample)
+        .map((columnName) => normalizeDimensionName(columnName))
+        .filter(Boolean)
+        .filter((columnName) => !isSuppressedEsmColumn(columnName));
+      const candidateColumns = normalizeEsmColumns(cardState.columns, { href: requestUrl })
+        .map((columnName) => normalizeDimensionName(columnName))
+        .filter(Boolean)
+        .filter((columnName) => !isSuppressedEsmColumn(columnName));
+      const baselineColumns = (candidateColumns.length > 0 ? candidateColumns : fallbackColumns)
+        .filter((columnName) => isFilterableDimension(columnName, requestUrl));
+      const distinct = buildDistinctValuesForColumns(rows, baselineColumns);
+
+      cardState.localDistinctByColumn.clear();
+      cardState.localDescriptionByColumn.clear();
+      distinct.forEach((values, columnName) => {
+        if (!Array.isArray(values) || values.length === 0) {
+          return;
+        }
+        cardState.localDistinctByColumn.set(columnName, values);
+        const description = getDimensionDescription(columnName, requestUrl);
+        if (description) {
+          cardState.localDescriptionByColumn.set(columnName, description);
+        }
+      });
+      cardState.localHasBaselineData = cardState.localDistinctByColumn.size > 0;
+    }
+    if (!cardState.localHasBaselineData) {
+      return;
+    }
+
+    const nextFilters = normalizeLocalColumnFilters(cardState.localColumnFilters);
+    const prunedFilters = new Map();
+    nextFilters.forEach((values, columnName) => {
+      const allowed = new Set(cardState.localDistinctByColumn.get(columnName) || []);
+      if (allowed.size === 0) {
+        return;
+      }
+      const retained = new Set([...values].filter((value) => allowed.has(value)));
+      if (retained.size > 0) {
+        prunedFilters.set(columnName, retained);
+      }
+    });
+    cardState.localColumnFilters = prunedFilters;
+  }
+
+  function buildCardLocalFilterResetMarkup(cardState, { compact = false } = {}) {
+    if (!hasLocalColumnFilters(cardState?.localColumnFilters)) {
+      return "";
+    }
+    const className = compact
+      ? "esm-action-btn esm-unfilter esm-clear-filter-rerun esm-clear-filter-rerun--inline"
+      : "esm-action-btn esm-unfilter esm-clear-filter-rerun";
+    const ariaLabel = compact
+      ? "Remove local column filters and rerun this ESM table"
+      : "Un-filter and rerun this ESM table";
+    return `<button type="button" class="${className}" aria-label="${ariaLabel}" title="Clear this table local column filters and rerun this ESM URL"><svg class="esm-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7z"/></svg></button>`;
+  }
+
+  function renderCardMessage(cardState, message, options = {}) {
+    const cssClass = options.error ? "card-message error" : "card-message";
+    const resetMarkup = buildCardLocalFilterResetMarkup(cardState, { compact: true });
+    cardState.bodyElement.innerHTML = `
+      <p class="${cssClass}">
+        <span class="card-message-inline">
+          <span class="card-message-text">${escapeHtml(message || "")}</span>
+          ${resetMarkup}
+        </span>
+      </p>
+      ${buildCardColumnsMarkup(cardState)}
+    `;
+    wireCardRerunAndFilterActions(cardState);
+  }
+
+  function wireCardRerunAndFilterActions(cardState) {
+    const rerunUrl = cardState?.bodyElement?.querySelector(".card-rerun-url");
+    if (rerunUrl) {
+      rerunUrl.addEventListener("click", (event) => {
+        event.preventDefault();
+        void rerunCard(cardState);
+      });
+    }
+    const clearFilterButtons = cardState?.bodyElement?.querySelectorAll(".esm-clear-filter-rerun") || [];
+    clearFilterButtons.forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        cardState.localColumnFilters = new Map();
+        cardState.pickerOpenColumn = "";
+        void rerunCard(cardState);
+      });
+    });
+    wireCardColumnFilterCloud(cardState);
+  }
+
+  function wireCardColumnFilterCloud(cardState) {
+    const bodyElement = cardState?.bodyElement;
+    if (!bodyElement) {
+      return;
+    }
+
+    const cloudElement = bodyElement.querySelector(".card-col-columns");
+    const pickerWrap = bodyElement.querySelector(".local-col-picker-wrap");
+    const pickerSelect = bodyElement.querySelector(".local-col-menu");
+    if (!cloudElement || !pickerWrap || !pickerSelect) {
+      return;
+    }
+
+    if (typeof cardState.pickerOutsidePointerHandler === "function") {
+      document.removeEventListener("pointerdown", cardState.pickerOutsidePointerHandler, true);
+    }
+    if (typeof cardState.pickerOutsideKeyHandler === "function") {
+      document.removeEventListener("keydown", cardState.pickerOutsideKeyHandler, true);
+    }
+    cardState.pickerOutsidePointerHandler = null;
+    cardState.pickerOutsideKeyHandler = null;
+
+    const updateVisualState = () => {
+      const pickerOpen = !pickerWrap.hidden;
+      cloudElement.querySelectorAll(".col-chip[data-column]").forEach((chip) => {
+        const columnName = normalizeDimensionName(chip.getAttribute("data-column"));
+        if (!columnName) {
+          return;
+        }
+        const trigger = chip.querySelector(".col-chip-trigger");
+        const selectedCount = cardState?.localColumnFilters?.get(columnName)?.size || 0;
+        const description = String(chip.getAttribute("data-description") || "").trim();
+        const title = selectedCount > 0 ? `${description || columnName} (${selectedCount} selected)` : description || columnName;
+        chip.classList.toggle("col-chip-active", pickerOpen && cardState.pickerOpenColumn === columnName);
+        chip.classList.toggle("col-chip-filtered", selectedCount > 0);
+        if (trigger) {
+          trigger.textContent = selectedCount > 0 ? `${columnName} (${selectedCount})` : columnName;
+          trigger.title = title;
+        }
+        chip.title = title;
+      });
+    };
+
+    const closePicker = () => {
+      pickerWrap.hidden = true;
+      pickerWrap.removeAttribute("data-column");
+      cardState.pickerOpenColumn = "";
+      pickerSelect.size = 1;
+      if (typeof cardState.pickerOutsidePointerHandler === "function") {
+        document.removeEventListener("pointerdown", cardState.pickerOutsidePointerHandler, true);
+      }
+      if (typeof cardState.pickerOutsideKeyHandler === "function") {
+        document.removeEventListener("keydown", cardState.pickerOutsideKeyHandler, true);
+      }
+      cardState.pickerOutsidePointerHandler = null;
+      cardState.pickerOutsideKeyHandler = null;
+      updateVisualState();
+    };
+
+    const openNativePicker = () => {
+      if (pickerWrap.hidden || pickerSelect.disabled) {
+        return;
+      }
+      try {
+        pickerSelect.focus({ preventScroll: true });
+      } catch (_error) {
+        pickerSelect.focus();
+      }
+      try {
+        if (typeof pickerSelect.showPicker === "function") {
+          pickerSelect.showPicker();
+          return;
+        }
+      } catch (_error) {
+        // ignore
+      }
+      try {
+        pickerSelect.click();
+      } catch (_error) {
+        // ignore
+      }
+    };
+
+    const openPicker = (columnName, chipElement) => {
+      const normalizedColumn = normalizeDimensionName(columnName);
+      if (!normalizedColumn) {
+        return;
+      }
+      const values = cardState.localDistinctByColumn.get(normalizedColumn) || [];
+      if (!Array.isArray(values) || values.length === 0) {
+        return;
+      }
+
+      pickerWrap.dataset.column = normalizedColumn;
+      cardState.pickerOpenColumn = normalizedColumn;
+      pickerSelect.innerHTML = "";
+      const selectedValues = cardState.localColumnFilters.get(normalizedColumn) || new Set();
+      values.forEach((value, index) => {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = value;
+        option.selected = selectedValues.has(value);
+        option.classList.add(index % 2 === 1 ? "req-tone-b" : "req-tone-a");
+        pickerSelect.appendChild(option);
+      });
+      pickerSelect.disabled = values.length === 0;
+      chipElement.appendChild(pickerWrap);
+      pickerWrap.hidden = false;
+      cardState.pickerOutsidePointerHandler = (event) => {
+        if (chipElement.contains(event.target)) {
+          return;
+        }
+        closePicker();
+      };
+      cardState.pickerOutsideKeyHandler = (event) => {
+        if (event.key === "Escape") {
+          closePicker();
+        }
+      };
+      document.addEventListener("pointerdown", cardState.pickerOutsidePointerHandler, true);
+      document.addEventListener("keydown", cardState.pickerOutsideKeyHandler, true);
+      updateVisualState();
+      openNativePicker();
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(() => openNativePicker());
+      }
+    };
+
+    cloudElement.querySelectorAll(".col-chip[data-filterable=\"1\"][data-column]").forEach((chip) => {
+      const trigger = chip.querySelector(".col-chip-trigger");
+      if (!trigger) {
+        return;
+      }
+      trigger.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const columnName = normalizeDimensionName(chip.getAttribute("data-column"));
+        if (!columnName) {
+          return;
+        }
+        const isSameColumn = cardState.pickerOpenColumn === columnName && pickerWrap.hidden === false;
+        if (isSameColumn) {
+          openNativePicker();
+          return;
+        }
+        openPicker(columnName, chip);
+      });
+    });
+
+    pickerSelect.addEventListener("change", () => {
+      const columnName = normalizeDimensionName(pickerWrap.dataset.column || "");
+      if (!columnName) {
+        return;
+      }
+      const selected = new Set(
+        [...pickerSelect.selectedOptions]
+          .map((option) => String(option.value || "").trim())
+          .filter(Boolean)
+      );
+      if (selected.size > 0) {
+        cardState.localColumnFilters.set(columnName, selected);
+      } else {
+        cardState.localColumnFilters.delete(columnName);
+      }
+      updateVisualState();
+    });
+
+    const openColumn = normalizeDimensionName(cardState.pickerOpenColumn || "");
+    if (openColumn) {
+      const chipToReopen = [...cloudElement.querySelectorAll(".col-chip[data-column]")].find(
+        (chip) => normalizeDimensionName(chip.getAttribute("data-column")) === openColumn
+      );
+      if (chipToReopen) {
+        openPicker(openColumn, chipToReopen);
+        return;
+      }
+    }
+    updateVisualState();
   }
 
   function updateCardHeader(cardState) {
@@ -894,6 +1649,7 @@
 
     if (state.cardsById.has(cardId)) {
       const existing = state.cardsById.get(cardId);
+      const previousEndpointKey = getEndpointColumnsCacheKey(String(existing.endpointUrl || existing.requestUrl || ""));
       if (cardMeta?.endpointUrl) {
         existing.endpointUrl = String(cardMeta.endpointUrl);
       }
@@ -915,6 +1671,17 @@
       if (Array.isArray(cardMeta?.sortStack)) {
         existing.sortStack = normalizeSortStack(cardMeta.sortStack);
       }
+      if (cardMeta?.localColumnFilters && typeof cardMeta.localColumnFilters === "object") {
+        existing.localColumnFilters = normalizeLocalColumnFilters(cardMeta.localColumnFilters);
+      }
+      const nextEndpointKey = getEndpointColumnsCacheKey(String(existing.endpointUrl || existing.requestUrl || ""));
+      if (previousEndpointKey && nextEndpointKey && previousEndpointKey !== nextEndpointKey) {
+        existing.localColumnFilters = new Map();
+        existing.localDistinctByColumn.clear();
+        existing.localDescriptionByColumn.clear();
+        existing.localHasBaselineData = false;
+        existing.pickerOpenColumn = "";
+      }
       cacheEndpointColumns(existing.endpointUrl || existing.requestUrl, existing.columns);
       updateCardHeader(existing);
       return existing;
@@ -929,6 +1696,13 @@
       rows: cloneRows(cardMeta?.rows),
       sortStack: normalizeSortStack(cardMeta?.sortStack),
       lastModified: String(cardMeta?.lastModified || ""),
+      localColumnFilters: normalizeLocalColumnFilters(cardMeta?.localColumnFilters),
+      localDistinctByColumn: new Map(),
+      localDescriptionByColumn: new Map(),
+      localHasBaselineData: false,
+      pickerOpenColumn: "",
+      pickerOutsidePointerHandler: null,
+      pickerOutsideKeyHandler: null,
       running: false,
       element: null,
       titleElement: null,
@@ -943,6 +1717,12 @@
     renderCardMessage(cardState, "Waiting for data...");
 
     cardState.closeButton.addEventListener("click", () => {
+      if (typeof cardState.pickerOutsidePointerHandler === "function") {
+        document.removeEventListener("pointerdown", cardState.pickerOutsidePointerHandler, true);
+      }
+      if (typeof cardState.pickerOutsideKeyHandler === "function") {
+        document.removeEventListener("keydown", cardState.pickerOutsideKeyHandler, true);
+      }
       cardState.element.remove();
       state.cardsById.delete(cardState.cardId);
       syncToolbarButtons();
@@ -1047,23 +1827,7 @@
     });
   }
 
-  function renderCardMessage(cardState, message, options = {}) {
-    const cssClass = options.error ? "card-message error" : "card-message";
-    cardState.bodyElement.innerHTML = `<p class="${cssClass}">${escapeHtml(message || "")}</p>${buildCardColumnsMarkup(cardState)}`;
-    wireCardRerunUrl(cardState);
-  }
-
-  function wireCardRerunUrl(cardState) {
-    const rerunUrl = cardState?.bodyElement?.querySelector(".card-rerun-url");
-    if (!rerunUrl) {
-      return;
-    }
-
-    rerunUrl.addEventListener("click", (event) => {
-      event.preventDefault();
-      void rerunCard(cardState);
-    });
-  }
+  
 
   function esmPartsToUtcMs(row) {
     const year = Number(row?.year ?? 1970);
@@ -1338,7 +2102,7 @@
     const hasAuthZ = firstRow["authz-attempts"] != null && firstRow["authz-successful"] != null;
     const hasCount = firstRow.count != null;
     const displayColumns = Object.keys(firstRow).filter(
-      (column) => !ESM_METRIC_COLUMNS.has(column) && !ESM_DATE_PARTS.includes(column) && column !== "media-company"
+      (column) => !ESM_METRIC_COLUMNS.has(column) && !ESM_DATE_PARTS.includes(column) && !isSuppressedEsmColumn(column)
     );
 
     const headers = ["DATE"];
@@ -1363,8 +2127,11 @@
               <td class="esm-footer-cell">
                 <div class="esm-footer">
                   <a href="#" class="esm-csv-link">CSV</a>
-                  <span class="esm-last-modified"></span>
-                  <span class="esm-close" title="Close table"> x </span>
+                  <div class="esm-footer-controls">
+                    ${buildCardLocalFilterResetMarkup(cardState)}
+                    <span class="esm-last-modified"></span>
+                    <span class="esm-close" title="Close table"> x </span>
+                  </div>
                 </div>
               </td>
             </tr>
@@ -1474,7 +2241,7 @@
       });
     }
 
-    wireCardRerunUrl(cardState);
+    wireCardRerunAndFilterActions(cardState);
     tableState.data = sortRows(tableState.data, tableState.sortStack, tableState.context);
     renderTableBody(tableState);
     updateTableWrapperViewport(tableState);
@@ -1531,12 +2298,14 @@
       }
 
       const rows = Array.isArray(parsed?.report) ? parsed.report : [];
-      cardState.rows = cloneRows(rows);
+      const filteredRows = applyLocalColumnFiltersToRows(rows, cardState.localColumnFilters);
+      cardState.rows = cloneRows(filteredRows);
       cardState.lastModified = String(response.headers.get("Last-Modified") || response.headers.get("Date") || "");
       cardState.sortStack = getDefaultSortStack();
+      initializeCardLocalFilterBaseline(cardState, filteredRows, requestUrl);
 
-      if (rows.length > 0) {
-        cardState.columns = deriveColumnsFromRows(rows, cardState.columns);
+      if (filteredRows.length > 0) {
+        cardState.columns = deriveColumnsFromRows(filteredRows, cardState.columns);
         cacheEndpointColumns(cardState.endpointUrl || cardState.requestUrl, cardState.columns);
         updateCardHeader(cardState);
         renderCardTable(cardState, cardState.rows, cardState.lastModified);
@@ -1546,7 +2315,7 @@
       }
 
       if (!suppressStatus) {
-        setStatus(rows.length > 0 ? `Loaded ${rows.length} row(s).` : "No data.");
+        setStatus(filteredRows.length > 0 ? `Loaded ${filteredRows.length} row(s).` : "No data.");
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1602,6 +2371,7 @@
           requestUrl: String(cardMeta?.requestUrl || cardMeta?.endpointUrl || ""),
           zoomKey: String(cardMeta?.zoomKey || "").trim().toUpperCase(),
           columns: normalizeEsmColumns(cardMeta?.columns),
+          localColumnFilters: cardMeta?.localColumnFilters,
           rows: cloneRows(cardMeta?.rows),
           sortStack: normalizeSortStack(cardMeta?.sortStack),
           lastModified: String(cardMeta?.lastModified || ""),
@@ -1614,7 +2384,15 @@
       }
       cacheEndpointColumns(cardState.endpointUrl || cardState.requestUrl, cardState.columns);
 
+      const hydratedRows = applyLocalColumnFiltersToRows(cardState.rows, cardState.localColumnFilters);
+      cardState.rows = cloneRows(hydratedRows);
+
       if (cardState.rows.length > 0) {
+        initializeCardLocalFilterBaseline(
+          cardState,
+          cardState.rows,
+          String(cardState.requestUrl || cardState.endpointUrl || "")
+        );
         renderCardTable(cardState, cardState.rows, cardState.lastModified);
       } else {
         renderCardMessage(cardState, "No data");
@@ -1631,6 +2409,7 @@
       requestUrl: String(cardState.requestUrl || cardState.endpointUrl || ""),
       zoomKey: String(cardState.zoomKey || ""),
       columns: normalizeEsmColumns(cardState.columns),
+      localColumnFilters: serializeLocalColumnFilters(cardState.localColumnFilters),
       rows: cloneRows(cardState.rows),
       sortStack: normalizeSortStack(cardState.sortStack),
       lastModified: String(cardState.lastModified || ""),
@@ -1657,11 +2436,8 @@
       sanitizeFileSegment(firstNonEmptyString([snapshot?.programmerName, snapshot?.programmerId, "MediaCompany"]), "MediaCompany"),
       48
     );
-    const tableCount = Math.max(0, Number(Array.isArray(snapshot?.cards) ? snapshot.cards.length : 0));
-    const tableCountHint = `t${tableCount}`;
-    const globalContextHint = buildWorkspaceExportGlobalContext(snapshot);
-    const stamp = buildFileStamp();
-    return `${mediaCompany}_clickESMWS_${tableCountHint}_${globalContextHint}_${stamp}.html`;
+    const epoch = Date.now();
+    return `${mediaCompany}_clickESMWS_${epoch}.html`;
   }
 
   function downloadHtmlFile(htmlText, fileName) {

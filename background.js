@@ -24,6 +24,8 @@ const FETCH_AVATAR_REQUEST_TYPE = "underpar:fetchAvatarDataUrl";
 const LEGACY_FETCH_AVATAR_REQUEST_TYPE = "mincloudlogin:fetchAvatarDataUrl";
 const IMS_FETCH_REQUEST_TYPE = "underpar:imsFetch";
 const LEGACY_IMS_FETCH_REQUEST_TYPE = "mincloudlogin:imsFetch";
+const CM_FETCH_REQUEST_TYPE = "underpar:cmFetch";
+const LEGACY_CM_FETCH_REQUEST_TYPE = "mincloudlogin:cmFetch";
 const DEBUG_MESSAGE_TYPE_PREFIX = "underpardebug:";
 const LEGACY_DEBUG_MESSAGE_TYPE_PREFIX = "minclouddebug:";
 const DEBUG_DEVTOOLS_PORT_NAME = "underpardebug-devtools";
@@ -43,9 +45,9 @@ const BUILD_FINGERPRINT_FILES = [
   "popup.html",
   "sidepanel.html",
   "popup.css",
-  "decomp-workspace.html",
-  "decomp-workspace.css",
-  "decomp-workspace.js",
+  "esm-workspace.html",
+  "esm-workspace.css",
+  "esm-workspace.js",
   "clickesmws-runtime.js",
   "clickESM-template.html",
   "cm-workspace.html",
@@ -656,6 +658,67 @@ async function fetchImsRelayResponse(payload = {}) {
   };
 }
 
+function isAllowedCmRelayUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return false;
+  }
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:") {
+      return false;
+    }
+    const host = parsed.hostname.toLowerCase();
+    return (
+      host === "config.adobeprimetime.com" ||
+      host === "cm-reports.adobeprimetime.com" ||
+      host.endsWith(".adobeprimetime.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function fetchCmRelayResponse(payload = {}) {
+  const requestUrl = String(payload?.url || "").trim();
+  if (!isAllowedCmRelayUrl(requestUrl)) {
+    throw new Error("CM relay blocked: unsupported URL.");
+  }
+
+  const method = String(payload?.method || "GET").trim().toUpperCase();
+  if (method !== "GET" && method !== "POST") {
+    throw new Error(`CM relay blocked: unsupported method "${method}".`);
+  }
+
+  const credentials = normalizeImsRelayCredentials(payload?.credentials);
+  const headers = normalizeImsRelayHeaders(payload?.headers);
+  const bodyText = typeof payload?.body === "string" ? payload.body : "";
+
+  const response = await fetch(requestUrl, {
+    method,
+    credentials,
+    cache: "no-store",
+    redirect: "follow",
+    headers,
+    body: method === "POST" ? bodyText : undefined,
+  });
+
+  const headersObject = {};
+  response.headers.forEach((value, key) => {
+    headersObject[key] = value;
+  });
+
+  return {
+    ok: response.ok,
+    status: Number(response.status || 0),
+    statusText: String(response.statusText || ""),
+    url: String(response.url || requestUrl),
+    redirected: Boolean(response.redirected),
+    headers: headersObject,
+    bodyText: await response.text().catch(() => ""),
+  };
+}
+
 async function syncBuildInfo(trigger) {
   const manifestVersion = chrome.runtime.getManifest().version;
   const fingerprint = await computeBuildFingerprint();
@@ -993,6 +1056,13 @@ async function reattachDebuggersFromState() {
     if (!flow) {
       continue;
     }
+    const shouldCaptureNetwork =
+      flow.context && typeof flow.context === "object" && Object.prototype.hasOwnProperty.call(flow.context, "captureNetwork")
+        ? flow.context.captureNetwork === true
+        : false;
+    if (!shouldCaptureNetwork) {
+      continue;
+    }
     try {
       await ensureDebuggerAttachedForTab(tabId, flow);
     } catch (error) {
@@ -1293,9 +1363,13 @@ async function bindFlowToTab(flowId, tabId, metadata = {}) {
   }
 
   flow.tabId = normalizedTabId;
+  const captureNetwork = !(
+    (metadata && typeof metadata === "object" && metadata.eventsOnly === true) ||
+    (metadata && typeof metadata === "object" && metadata.captureNetwork === false)
+  );
   if (metadata && typeof metadata === "object") {
     const nextContext = flow.context && typeof flow.context === "object" ? { ...flow.context } : {};
-    const contextFields = ["requestorId", "mvpd", "loginUrl", "redirectUrl"];
+    const contextFields = ["requestorId", "mvpd", "loginUrl", "redirectUrl", "serviceType"];
     for (const field of contextFields) {
       const value = metadata[field];
       if (value === undefined || value === null || value === "") {
@@ -1303,6 +1377,13 @@ async function bindFlowToTab(flowId, tabId, metadata = {}) {
       }
       nextContext[field] = String(value);
     }
+    nextContext.captureNetwork = captureNetwork;
+    nextContext.eventsOnly = !captureNetwork;
+    flow.context = nextContext;
+  } else {
+    const nextContext = flow.context && typeof flow.context === "object" ? { ...flow.context } : {};
+    nextContext.captureNetwork = captureNetwork;
+    nextContext.eventsOnly = !captureNetwork;
     flow.context = nextContext;
   }
   debugState.flowIdByTabId.set(normalizedTabId, flow.flowId);
@@ -1310,10 +1391,15 @@ async function bindFlowToTab(flowId, tabId, metadata = {}) {
     source: "extension",
     phase: "tab-bound",
     tabId: normalizedTabId,
+    captureNetwork,
     ...metadata,
   });
 
-  await ensureDebuggerAttachedForTab(normalizedTabId, flow);
+  if (captureNetwork) {
+    await ensureDebuggerAttachedForTab(normalizedTabId, flow);
+  } else if (debugState.debuggerAttachedTabIds.has(normalizedTabId)) {
+    await detachDebuggerForTab(normalizedTabId, "events-only-flow");
+  }
   scheduleFlowPersist(flow);
   scheduleFlowIndexPersist();
   sendFlowSnapshotToTabPorts(normalizedTabId);
@@ -1927,6 +2013,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === CM_FETCH_REQUEST_TYPE || message?.type === LEGACY_CM_FETCH_REQUEST_TYPE) {
+    void fetchCmRelayResponse(message || {})
+      .then((response) => {
+        sendResponse({ ok: true, response });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+
+    return true;
+  }
+
   if (message?.type === `${DEBUG_MESSAGE_TYPE_PREFIX}startFlow` || message?.type === `${LEGACY_DEBUG_MESSAGE_TYPE_PREFIX}startFlow`) {
     const flow = createDebugFlow(message?.context || {});
     appendFlowEvent(flow, {
@@ -2017,7 +2115,15 @@ chrome.runtime.onConnect.addListener((port) => {
         void restoreFlowForTabFromStorage(subscribedTabId).then((restored) => {
           if (restored) {
             sendFlowSnapshotToTabPorts(subscribedTabId);
-            void ensureDebuggerAttachedForTab(subscribedTabId, restored);
+            const shouldCaptureNetwork =
+              restored.context &&
+              typeof restored.context === "object" &&
+              Object.prototype.hasOwnProperty.call(restored.context, "captureNetwork")
+                ? restored.context.captureNetwork === true
+                : false;
+            if (shouldCaptureNetwork) {
+              void ensureDebuggerAttachedForTab(subscribedTabId, restored);
+            }
           }
         });
       }

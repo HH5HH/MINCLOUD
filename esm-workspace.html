@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UP ESM Workspace</title>
+    <link id="workspace-style-link" rel="stylesheet" href="esm-workspace.css" />
+  </head>
+  <body>
+    <main id="workspace-app-root" class="workspace-app">
+      <header class="workspace-header">
+        <div class="workspace-title-wrap">
+          <div class="workspace-title-row">
+            <button
+              id="workspace-make-clickesm"
+              class="workspace-icon-btn workspace-icon-btn--tearsheet workspace-icon-btn--reference"
+              type="button"
+              title="Generate static clickESM reference tearsheet (not workspace context)"
+              aria-label="Generate static clickESM reference tearsheet (not workspace context)"
+              hidden
+            >
+              <span class="workspace-icon workspace-icon--tearsheet" aria-hidden="true">
+                <svg viewBox="0 0 24 24" focusable="false">
+                  <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
+                  <path d="M14.25 3.75V8.5H19" />
+                  <path d="M9.5 12.75 10 14.25 11.5 14.75 10 15.25 9.5 16.75 9 15.25 7.5 14.75 9 14.25 9.5 12.75Z" />
+                  <path d="M14 12.25 14.3 13.1 15.2 13.4 14.3 13.7 14 14.55 13.7 13.7 12.8 13.4 13.7 13.1 14 12.25Z" />
+                </svg>
+              </span>
+            </button>
+            <div class="workspace-title-copy">
+              <p id="workspace-controller-state" class="workspace-controller-state">
+                Waiting for UnderPAR side panel controller...
+              </p>
+              <p id="workspace-filter-state" class="workspace-filter-state"></p>
+            </div>
+          </div>
+        </div>
+        <div class="workspace-actions">
+          <button
+            id="workspace-make-clickesmws"
+            class="workspace-icon-btn workspace-icon-btn--tearsheet workspace-icon-btn--accent workspace-icon-btn--workspace-tearsheet"
+            type="button"
+            title="Generate clickESM Workspace tearsheet from active workspace context"
+            aria-label="Generate clickESM Workspace tearsheet from active workspace context"
+            hidden
+          >
+            <span class="workspace-icon workspace-icon--tearsheet" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M6.75 3.75h10.5A1.5 1.5 0 0 1 18.75 5.25V18a2.25 2.25 0 0 1-2.25 2.25H6.75A1.5 1.5 0 0 1 5.25 18.75V5.25a1.5 1.5 0 0 1 1.5-1.5Z" />
+                <path d="M7.75 8.25h8.5" />
+                <path d="M7.75 11.75h8.5" />
+                <path d="M7.75 15.25h4.5" />
+                <path d="M14.5 14.5 15.75 15.75 18.25 13.25" />
+              </svg>
+            </span>
+          </button>
+          <button
+            id="workspace-rerun-all"
+            class="workspace-icon-btn workspace-icon-btn--rerun"
+            type="button"
+            title="Re-run all"
+            aria-label="Re-run all"
+          >
+            <span class="workspace-icon workspace-icon--rerun-glyph" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M18.75 12a6.75 6.75 0 1 1-1.98-4.77" />
+                <path d="M16.77 3.75h3.48v3.48" />
+              </svg>
+            </span>
+            <span id="workspace-rerun-indicator" class="workspace-net-indicator" aria-hidden="true" hidden></span>
+          </button>
+          <button
+            id="workspace-clear-all"
+            class="workspace-icon-btn"
+            type="button"
+            title="Clear"
+            aria-label="Clear"
+          >
+            <span class="workspace-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M7 7 17 17" />
+                <path d="M17 7 7 17" />
+              </svg>
+            </span>
+          </button>
+        </div>
+      </header>
+
+      <p id="workspace-status" class="workspace-status" aria-live="polite"></p>
+      <section id="workspace-lock-banner" class="workspace-lock-banner" hidden>
+        <p id="workspace-lock-message" class="workspace-lock-message"></p>
+      </section>
+
+      <section id="workspace-cards" class="workspace-cards"></section>
+    </main>
+    <main id="workspace-non-esm-screen" hidden>
+      <h1>
+        <code><tt id="workspace-non-esm-headline">No Soup for Selected Media Company. No Premium, No ESM, No Dice.</tt></code>
+      </h1>
+      <p>
+        <small id="workspace-non-esm-note"
+          >* Please ensure the Adobe Pass console has all expected ESM Scoped Registered Applications across all up to date
+          Premium Workflow Customers.</small
+        >
+      </p>
+    </main>
+    <script src="esm-workspace.js"></script>
+  </body>
+</html>

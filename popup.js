@@ -14,6 +14,8 @@ const LOGIN_HELPER_RESULT_MESSAGE_TYPE = "underpar:loginHelperResult";
 const LEGACY_LOGIN_HELPER_RESULT_MESSAGE_TYPE = "mincloudlogin:loginHelperResult";
 const IMS_FETCH_REQUEST_TYPE = "underpar:imsFetch";
 const LEGACY_IMS_FETCH_REQUEST_TYPE = "mincloudlogin:imsFetch";
+const CM_FETCH_REQUEST_TYPE = "underpar:cmFetch";
+const LEGACY_CM_FETCH_REQUEST_TYPE = "mincloudlogin:cmFetch";
 const CONSOLE_AUTH_CALLBACK_PREFIX = "https://console.auth.adobe.com/oauth2/callback";
 
 const ADOBE_CONSOLE_BASE = "https://console.auth.adobe.com";
@@ -28,7 +30,7 @@ const PROGRAMMER_ENDPOINTS = [
 ];
 const DCR_CACHE_PREFIX = "underpar_dcr_cache_v1";
 const LEGACY_DCR_CACHE_PREFIX = "mincloudlogin_dcr_cache_v1";
-const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "decompTree", "degradation", "cm"];
+const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "esmWorkspace", "degradation", "cm"];
 const PREMIUM_SERVICE_SCOPE_BY_KEY = {
   degradation: "decisions:owner",
   esm: "analytics:client",
@@ -38,7 +40,7 @@ const REST_V2_SCOPE = PREMIUM_SERVICE_SCOPE_BY_KEY.restV2;
 const PREMIUM_SERVICE_TITLE_BY_KEY = {
   cm: "Concurrency Monitoring",
   degradation: "DEGRADATION",
-  decompTree: "ESM",
+  esmWorkspace: "ESM",
   restV2: "REST V2",
 };
 const REST_V2_DEVICE_ID_STORAGE_KEY = "underpar_restv2_device_id_v1";
@@ -103,15 +105,25 @@ const CLICK_ESM_TEMPLATE_PLACEHOLDER_CSC = "__UP_CSC__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN = "__UP_ACCESS_TOKEN__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_REQUESTOR_IDS_JSON = "__UP_REQUESTOR_IDS_JSON__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_THEME_SCOPE = "__UP_THEME_SCOPE__";
-const DECOMP_INLINE_RESULT_LIMIT = 100;
-const DECOMP_CSV_RESULT_LIMIT = 10000;
+const CLICK_ESM_TEMPLATE_REQUIRED_MARKERS = [
+  "const __localColumnFilterStateByDl = new WeakMap();",
+  "function __appendLocalColumnFilterParams(url, dl)",
+  "function __applyLocalColumnFiltersToRows(rows, dl)",
+  "--zip-theme-vibe-body-radial-alpha",
+];
+const ESM_WORKSPACE_INLINE_RESULT_LIMIT = 100;
+const ESM_WORKSPACE_CSV_RESULT_LIMIT = 10000;
+const ESM_LOCAL_FILTER_EXCLUDED_COLUMNS = new Set(["year", "month", "day", "hour", "minute"]);
 const ESM_DEPRECATED_COLUMN_KEYS = new Set(["clientless-failures", "clientless-tokens"]);
-const DECOMP_WORKSPACE_PATH = "decomp-workspace.html";
-const DECOMP_MESSAGE_TYPE = "underpar:decomp";
-const LEGACY_DECOMP_MESSAGE_TYPE = "mincloud:decomp";
+const ESM_WORKSPACE_WORKSPACE_PATH = "esm-workspace.html";
+const ESM_WORKSPACE_MESSAGE_TYPE = "underpar:esm-workspace";
+const LEGACY_ESM_WORKSPACE_MESSAGE_TYPE = "mincloud:esm-workspace";
 const CM_WORKSPACE_PATH = "cm-workspace.html";
 const CM_MESSAGE_TYPE = "underpar:cm";
 const LEGACY_CM_MESSAGE_TYPE = "mincloud:cm";
+const MVPD_WORKSPACE_PATH = "mvpd-workspace.html";
+const MVPD_WORKSPACE_MESSAGE_TYPE = "underpar:mvpd-workspace";
+const LEGACY_MVPD_WORKSPACE_MESSAGE_TYPE = "mincloud:mvpd-workspace";
 const ESM_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
 const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const CM_CONFIG_BASE_URL = "https://config.adobeprimetime.com";
@@ -158,6 +170,8 @@ const CM_IMS_CHECK_DEFAULT_SCOPE =
 const CM_IMS_VALIDATE_CLIENT_IDS = ["cm-console-ui", "AdobePass1", IMS_CLIENT_ID];
 const CM_IMS_CHECK_CLIENT_IDS = ["cm-console-ui", "AdobePass1", IMS_CLIENT_ID];
 const CM_IMS_FORCE_REFRESH_SKEW_MS = 30 * 1000;
+const CM_BOOTSTRAP_PARALLELISM = 6;
+const CM_BOOTSTRAP_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
 const CM_V2_OPERATION_DEFINITIONS = [
   {
     key: "metadata",
@@ -244,7 +258,8 @@ const LOGIN_HELPER_RESULT_MESSAGE_TYPES = new Set([
   LOGIN_HELPER_RESULT_MESSAGE_TYPE,
   LEGACY_LOGIN_HELPER_RESULT_MESSAGE_TYPE,
 ]);
-const DECOMP_MESSAGE_TYPES = new Set([DECOMP_MESSAGE_TYPE, LEGACY_DECOMP_MESSAGE_TYPE]);
+const ESM_WORKSPACE_MESSAGE_TYPES = new Set([ESM_WORKSPACE_MESSAGE_TYPE, LEGACY_ESM_WORKSPACE_MESSAGE_TYPE]);
+const MVPD_WORKSPACE_MESSAGE_TYPES = new Set([MVPD_WORKSPACE_MESSAGE_TYPE, LEGACY_MVPD_WORKSPACE_MESSAGE_TYPE]);
 
 const state = {
   busy: false,
@@ -307,6 +322,8 @@ const state = {
   cmServiceLoadPromiseByProgrammerId: new Map(),
   cmTenantsCatalog: null,
   cmTenantsCatalogPromise: null,
+  cmConsoleBootstrapSummary: null,
+  cmConsoleBootstrapPromise: null,
   cmAuthBootstrapPromise: null,
   cmAuthBootstrapLastAttemptAt: 0,
   cmTenantBundleByTenantKey: new Map(),
@@ -326,23 +343,36 @@ const state = {
   sessionMonitorInactivityGuardUntil: 0,
   sessionMonitorConsecutiveInactiveDetections: 0,
   sessionMonitorLastBootstrapAttemptAt: 0,
-  decompWorkspaceTabId: 0,
-  decompWorkspaceWindowId: 0,
-  decompWorkspaceTabIdByWindowId: new Map(),
-  decompRuntimeListenerBound: false,
-  decompWorkspaceTabWatcherBound: false,
-  decompDebugFlowId: "",
-  decompRecordingActive: false,
-  decompRecordingStartedAt: 0,
-  decompRecordingContext: null,
-  decompStopping: false,
-  decompTraceViewerWindowId: 0,
-  decompTraceViewerTabId: 0,
+  esmWorkspaceWorkspaceTabId: 0,
+  esmWorkspaceWorkspaceWindowId: 0,
+  esmWorkspaceWorkspaceTabIdByWindowId: new Map(),
+  esmWorkspaceRuntimeListenerBound: false,
+  esmWorkspaceWorkspaceTabWatcherBound: false,
+  esmWorkspaceDebugFlowId: "",
+  esmWorkspaceActivityDebugFlowId: "",
+  esmWorkspaceActivityDebugFlowPromise: null,
+  esmWorkspaceActivityDebugTargetTabId: 0,
+  esmWorkspaceRecordingActive: false,
+  esmWorkspaceRecordingStartedAt: 0,
+  esmWorkspaceRecordingContext: null,
+  esmWorkspaceStopping: false,
+  esmWorkspaceTraceViewerWindowId: 0,
+  esmWorkspaceTraceViewerTabId: 0,
   cmWorkspaceTabId: 0,
   cmWorkspaceWindowId: 0,
   cmWorkspaceTabIdByWindowId: new Map(),
   cmRuntimeListenerBound: false,
   cmWorkspaceTabWatcherBound: false,
+  cmWorkspaceActivityDebugFlowId: "",
+  cmWorkspaceActivityDebugFlowPromise: null,
+  cmWorkspaceActivityDebugTargetTabId: 0,
+  mvpdWorkspaceTabId: 0,
+  mvpdWorkspaceWindowId: 0,
+  mvpdWorkspaceTabIdByWindowId: new Map(),
+  mvpdWorkspaceRuntimeListenerBound: false,
+  mvpdWorkspaceTabWatcherBound: false,
+  mvpdWorkspaceSnapshotCacheBySelectionKey: new Map(),
+  mvpdWorkspaceSnapshotPromiseBySelectionKey: new Map(),
 };
 
 const els = {
@@ -515,6 +545,66 @@ async function relayImsFetch(endpoint, options = {}) {
   };
 }
 
+function isCmRelayEligibleUrl(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw || !/^https?:\/\//i.test(raw)) {
+    return false;
+  }
+  try {
+    const parsed = new URL(raw);
+    const host = String(parsed.hostname || "").toLowerCase();
+    return (
+      host === "config.adobeprimetime.com" ||
+      host === "cm-reports.adobeprimetime.com" ||
+      host.endsWith(".adobeprimetime.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function relayCmFetch(endpoint, options = {}) {
+  const url = String(endpoint || "").trim();
+  if (!url) {
+    throw new Error("CM relay request missing URL.");
+  }
+
+  const message = {
+    type: CM_FETCH_REQUEST_TYPE,
+    url,
+    method: String(options?.method || "GET").trim().toUpperCase(),
+    credentials: String(options?.credentials || "include").trim().toLowerCase(),
+    headers: options?.headers && typeof options.headers === "object" ? { ...options.headers } : {},
+    body: typeof options?.body === "string" ? options.body : "",
+  };
+
+  let response = await sendRuntimeMessageSafe(message);
+  if (!response?.ok && response?.error && String(response.error).toLowerCase().includes("unsupported")) {
+    response = await sendRuntimeMessageSafe({
+      ...message,
+      type: LEGACY_CM_FETCH_REQUEST_TYPE,
+    });
+  }
+  if (!response || response.ok !== true || !response.response || typeof response.response !== "object") {
+    throw new Error(String(response?.error || "CM relay request failed."));
+  }
+
+  const payload = response.response;
+  const bodyText = typeof payload?.bodyText === "string" ? payload.bodyText : "";
+  const headers =
+    payload?.headers && typeof payload.headers === "object" ? new Headers(payload.headers) : new Headers();
+
+  return {
+    ok: Boolean(payload?.ok),
+    status: Number(payload?.status || 0),
+    statusText: String(payload?.statusText || ""),
+    url: String(payload?.url || url),
+    redirected: Boolean(payload?.redirected),
+    headers,
+    text: async () => bodyText,
+  };
+}
+
 async function startRestV2DebugFlow(context = {}, trigger = "test-mvpd-login") {
   const response = await sendRuntimeMessageSafe({
     type: "underpardebug:startFlow",
@@ -546,7 +636,7 @@ function getActivePremiumDebugFlowId() {
       return restFlowId;
     }
   }
-  return getActiveDecompDebugFlowId();
+  return getActiveEsmWorkspaceDebugFlowId();
 }
 
 function resolveCmDebugFlowId(explicitFlowId = "") {
@@ -554,7 +644,11 @@ function resolveCmDebugFlowId(explicitFlowId = "") {
   if (direct) {
     return direct;
   }
-  return String(getActivePremiumDebugFlowId() || "").trim();
+  const activePremiumFlowId = String(getActivePremiumDebugFlowId() || "").trim();
+  if (activePremiumFlowId) {
+    return activePremiumFlowId;
+  }
+  return String(state.cmWorkspaceActivityDebugFlowId || "").trim();
 }
 
 function detectCmAuthMode(headersLike) {
@@ -587,20 +681,172 @@ function detectCmAuthMode(headersLike) {
   return "custom";
 }
 
+function normalizeWorkspaceDebugKey(value = "") {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) {
+    return "";
+  }
+  if (raw.includes("mvpd")) {
+    return "mvpd-workspace";
+  }
+  if (raw.includes("cmu") || raw.includes("cm-workspace") || raw === "cm") {
+    return "cmu-workspace";
+  }
+  if (raw.includes("esm")) {
+    return "esm-workspace";
+  }
+  return raw;
+}
+
+function getWorkspaceDebugLabel(workspaceKey = "") {
+  const normalized = normalizeWorkspaceDebugKey(workspaceKey);
+  if (normalized === "esm-workspace") {
+    return "ESM Workspace";
+  }
+  if (normalized === "cmu-workspace") {
+    return "CMU Workspace";
+  }
+  if (normalized === "mvpd-workspace") {
+    return "MVPD Workspace";
+  }
+  return "";
+}
+
 function emitCmDebugEvent(event = {}, options = {}) {
+  const debugContext = options.context && typeof options.context === "object" ? options.context : {};
+  const workspaceKey = normalizeWorkspaceDebugKey(
+    firstNonEmptyString([event?.workspaceKey, debugContext?.workspaceKey, debugContext?.workspaceOrigin])
+  );
+  const workspaceOrigin = firstNonEmptyString([
+    event?.workspaceOrigin,
+    debugContext?.workspaceOrigin,
+    getWorkspaceDebugLabel(workspaceKey),
+  ]);
+  const payload = {
+    source: "extension",
+    service: "cm",
+    requestorId: String(debugContext.requestorId || state.selectedRequestorId || ""),
+    mvpd: String(debugContext.mvpd || state.selectedMvpdId || ""),
+    programmerId: String(debugContext.programmerId || resolveSelectedProgrammer()?.programmerId || ""),
+    ...(workspaceKey ? { workspaceKey } : {}),
+    ...(workspaceOrigin ? { workspaceOrigin } : {}),
+    ...event,
+  };
+  const preferredWindowId = Number(
+    options.preferredWindowId ||
+      event?.windowId ||
+      event?.controllerWindowId ||
+      event?.targetWindowId ||
+      state.cmWorkspaceWindowId ||
+      0
+  );
+  const fallbackTabId = Number(
+    options.fallbackTabId || event?.tabId || event?.workspaceTabId || event?.controllerTabId || state.cmWorkspaceTabId || 0
+  );
+
+  const flowId = resolveCmDebugFlowId(options.flowId || "");
+  if (flowId) {
+    emitRestV2DebugEvent(flowId, payload);
+    if (flowId === String(state.cmWorkspaceActivityDebugFlowId || "").trim()) {
+      void ensureCmWorkspaceActivityDebugFlow({
+        reason: String(event?.phase || "cm-activity"),
+        preferredWindowId,
+        fallbackTabId,
+      });
+    }
+    return;
+  }
+
+  void ensureCmWorkspaceActivityDebugFlow({
+    reason: String(event?.phase || "cm-activity"),
+    preferredWindowId,
+    fallbackTabId,
+  }).then((resolvedFlowId) => {
+    const normalizedFlowId = String(resolvedFlowId || "").trim();
+    if (!normalizedFlowId) {
+      return;
+    }
+    emitRestV2DebugEvent(normalizedFlowId, payload);
+  });
+}
+
+function emitPremiumDecisionDebugEvent(event = {}, options = {}) {
   const flowId = resolveCmDebugFlowId(options.flowId || "");
   if (!flowId) {
     return;
   }
 
   const debugContext = options.context && typeof options.context === "object" ? options.context : {};
+  const resolvedProgrammer = options.programmer && typeof options.programmer === "object" ? options.programmer : null;
   emitRestV2DebugEvent(flowId, {
     source: "extension",
-    service: "cm",
+    service: "premium-decision",
+    requestScope: "premium-decision",
     requestorId: String(debugContext.requestorId || state.selectedRequestorId || ""),
     mvpd: String(debugContext.mvpd || state.selectedMvpdId || ""),
-    programmerId: String(debugContext.programmerId || resolveSelectedProgrammer()?.programmerId || ""),
+    programmerId: String(debugContext.programmerId || resolvedProgrammer?.programmerId || ""),
+    mediaCompany: String(
+      debugContext.mediaCompany || resolvedProgrammer?.mediaCompanyName || resolvedProgrammer?.programmerName || ""
+    ),
     ...event,
+  });
+}
+
+function emitMvpdWorkspaceDebugEvent(event = {}, options = {}) {
+  const debugContext = options.context && typeof options.context === "object" ? options.context : {};
+  const workspaceKey = normalizeWorkspaceDebugKey(
+    firstNonEmptyString([event?.workspaceKey, debugContext?.workspaceKey, "mvpd-workspace"])
+  );
+  const workspaceOrigin = firstNonEmptyString([
+    event?.workspaceOrigin,
+    debugContext?.workspaceOrigin,
+    getWorkspaceDebugLabel(workspaceKey),
+  ]);
+  const payload = {
+    source: "extension",
+    service: "mvpd-workspace",
+    requestScope: "mvpd-workspace",
+    requestorId: String(debugContext.requestorId || state.selectedRequestorId || ""),
+    mvpd: String(debugContext.mvpd || debugContext.mvpdId || state.selectedMvpdId || ""),
+    programmerId: String(debugContext.programmerId || resolveSelectedProgrammer()?.programmerId || ""),
+    workspaceKey,
+    workspaceOrigin,
+    ...event,
+  };
+
+  const preferredWindowId = Number(
+    options.preferredWindowId ||
+      event?.windowId ||
+      event?.controllerWindowId ||
+      event?.targetWindowId ||
+      state.mvpdWorkspaceWindowId ||
+      0
+  );
+  const fallbackTabId = Number(
+    options.fallbackTabId ||
+      event?.tabId ||
+      event?.workspaceTabId ||
+      event?.controllerTabId ||
+      state.mvpdWorkspaceTabId ||
+      0
+  );
+
+  const flowId = resolveCmDebugFlowId(options.flowId || "");
+  if (flowId) {
+    emitRestV2DebugEvent(flowId, payload);
+    return;
+  }
+
+  void ensureCmWorkspaceActivityDebugFlow({
+    reason: String(event?.phase || "mvpd-workspace"),
+    preferredWindowId,
+    fallbackTabId,
+  }).then((resolvedFlowId) => {
+    const normalizedFlowId = String(resolvedFlowId || "").trim();
+    if (!normalizedFlowId) {
+      return;
+    }
+    emitRestV2DebugEvent(normalizedFlowId, payload);
   });
 }
 
@@ -3509,11 +3755,11 @@ async function openOrFocusUPTraceViewer(tabId, flowId = "") {
   });
 }
 
-async function openOrFocusDecompTraceViewer(tabId, flowId = "") {
+async function openOrFocusEsmWorkspaceTraceViewer(tabId, flowId = "") {
   return openOrFocusUPTraceViewerWithState(tabId, flowId, {
-    source: "esm-decomp-recording",
-    traceTabStateKey: "decompTraceViewerTabId",
-    traceWindowStateKey: "decompTraceViewerWindowId",
+    source: "esm-recording",
+    traceTabStateKey: "esmWorkspaceTraceViewerTabId",
+    traceWindowStateKey: "esmWorkspaceTraceViewerWindowId",
   });
 }
 
@@ -6694,8 +6940,8 @@ function buildHarLogFromFlowSnapshot(flowSnapshot, context = null, logoutResult 
   const pageId = `page-${String(flowSnapshot?.flowId || "capture")}`;
   const manifestVersion = chrome.runtime.getManifest().version;
   const pageTitle =
-    context?.serviceType === "esm-decomp"
-      ? "ESM decomp session"
+    String(context?.serviceType || "").trim().toLowerCase().includes("esm")
+      ? "ESM session"
       : context?.requestorId && context?.mvpd
         ? formatRestV2RequestorMvpdDisplay(
             String(context.requestorId || "").trim(),
@@ -7282,8 +7528,56 @@ function clickEsmEnsureLimit(url, limit) {
   }
 }
 
+function extractEsmDisplayDimensionsFromHref(href = "") {
+  const rawHref = String(href || "").trim();
+  if (!rawHref) {
+    return [];
+  }
+
+  let path = "";
+  try {
+    const parsed = new URL(rawHref, window.location.href);
+    path = String(parsed.pathname || "");
+  } catch {
+    path = rawHref.split("?", 1)[0] || "";
+  }
+
+  const segments = path
+    .split("/")
+    .map((segment) => decodeURIComponent(String(segment || "").trim().toLowerCase()))
+    .filter(Boolean);
+  if (!segments.length) {
+    return [];
+  }
+
+  const v3Index = segments.findIndex((segment, index) => segment === "v3" && segments[index - 1] === "esm");
+  const startIndex = v3Index >= 0 ? v3Index + 1 : 0;
+  let dimensionSegments = segments.slice(startIndex);
+  if (dimensionSegments[0] === "media-company" || dimensionSegments[0] === "mvpd") {
+    dimensionSegments = dimensionSegments.slice(1);
+  }
+
+  const output = [];
+  const seen = new Set();
+  dimensionSegments.forEach((segment) => {
+    const normalized = String(segment || "").trim().toLowerCase();
+    if (
+      !normalized ||
+      normalized === "media-company" ||
+      ESM_LOCAL_FILTER_EXCLUDED_COLUMNS.has(normalized) ||
+      ESM_DEPRECATED_COLUMN_KEYS.has(normalized) ||
+      seen.has(normalized)
+    ) {
+      return;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  });
+  return output;
+}
+
 function normalizeEsmColumns(columns, options = {}) {
-  const includeFallbackLabel = options.includeFallbackLabel === true;
+  const href = String(options?.href || "").trim();
   const output = [];
   const seen = new Set();
 
@@ -7297,16 +7591,11 @@ function normalizeEsmColumns(columns, options = {}) {
     }
 
     if (/^no\s+report\s+columns$/i.test(normalized)) {
-      const key = "no report columns";
-      if (!seen.has(key)) {
-        output.push("No report columns");
-        seen.add(key);
-      }
       return;
     }
 
     const lower = normalized.toLowerCase();
-    if (ESM_DEPRECATED_COLUMN_KEYS.has(lower)) {
+    if (ESM_DEPRECATED_COLUMN_KEYS.has(lower) || lower === "media-company") {
       return;
     }
     if (!seen.has(lower)) {
@@ -7315,8 +7604,8 @@ function normalizeEsmColumns(columns, options = {}) {
     }
   });
 
-  if (output.length === 0 && includeFallbackLabel) {
-    return ["No report columns"];
+  if (output.length === 0 && href) {
+    return extractEsmDisplayDimensionsFromHref(href);
   }
   return output;
 }
@@ -7352,7 +7641,7 @@ async function loadClickEsmEndpoints() {
           return null;
         }
         const zoomKey = clickEsmGetZoomKey(endpoint);
-        const normalizedColumns = normalizeEsmColumns(endpoint.columns, { includeFallbackLabel: true });
+        const normalizedColumns = normalizeEsmColumns(endpoint.columns, { href: url });
 
         return {
           url,
@@ -7373,8 +7662,50 @@ async function loadClickEsmEndpoints() {
   }
 }
 
+function isModernClickEsmTemplate(templateHtml) {
+  const text = String(templateHtml || "");
+  if (!text.trim()) {
+    return false;
+  }
+  if (
+    !text.includes(CLICK_ESM_TEMPLATE_PLACEHOLDER_CID) ||
+    !text.includes(CLICK_ESM_TEMPLATE_PLACEHOLDER_CSC) ||
+    !text.includes(CLICK_ESM_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN)
+  ) {
+    return false;
+  }
+  return CLICK_ESM_TEMPLATE_REQUIRED_MARKERS.every((marker) => text.includes(marker));
+}
+
+function buildClickEsmTemplateResourceUrl({ forceBypassCache = false } = {}) {
+  const manifestVersion = String(chrome?.runtime?.getManifest?.()?.version || "").trim();
+  const params = new URLSearchParams();
+  if (manifestVersion) {
+    params.set("v", manifestVersion);
+  }
+  if (forceBypassCache) {
+    params.set("t", String(Date.now()));
+  }
+  const base = chrome.runtime.getURL(CLICK_ESM_TEMPLATE_PATH);
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
+async function fetchClickEsmTemplateHtml({ forceBypassCache = false } = {}) {
+  const resourceUrl = buildClickEsmTemplateResourceUrl({ forceBypassCache });
+  const response = await fetch(resourceUrl, {
+    method: "GET",
+    credentials: "omit",
+    cache: forceBypassCache ? "reload" : "no-cache",
+  });
+  if (!response.ok) {
+    throw new Error(`Unable to load clickESM template (${response.status}).`);
+  }
+  return await response.text();
+}
+
 async function loadClickEsmTemplateHtml() {
-  if (typeof clickEsmTemplateHtml === "string" && clickEsmTemplateHtml.trim().length > 0) {
+  if (isModernClickEsmTemplate(clickEsmTemplateHtml)) {
     return clickEsmTemplateHtml;
   }
   if (clickEsmTemplatePromise) {
@@ -7382,18 +7713,12 @@ async function loadClickEsmTemplateHtml() {
   }
 
   clickEsmTemplatePromise = (async () => {
-    const resourceUrl = chrome.runtime.getURL(CLICK_ESM_TEMPLATE_PATH);
-    const response = await fetch(resourceUrl, {
-      method: "GET",
-      credentials: "omit",
-      cache: "no-cache",
-    });
-    if (!response.ok) {
-      throw new Error(`Unable to load clickESM template (${response.status}).`);
+    let templateHtml = await fetchClickEsmTemplateHtml({ forceBypassCache: false });
+    if (!isModernClickEsmTemplate(templateHtml)) {
+      templateHtml = await fetchClickEsmTemplateHtml({ forceBypassCache: true });
     }
-    const templateHtml = await response.text();
-    if (typeof templateHtml !== "string" || templateHtml.trim().length === 0) {
-      throw new Error("clickESM template is empty.");
+    if (!isModernClickEsmTemplate(templateHtml)) {
+      throw new Error("clickESM template is not the latest skinned/export build.");
     }
     clickEsmTemplateHtml = templateHtml;
     return clickEsmTemplateHtml;
@@ -7535,7 +7860,7 @@ function getGlobalRequestorCatalogIds() {
   );
 }
 
-async function resolveClickEsmDownloadContext(decompState = null) {
+async function resolveClickEsmDownloadContext(esmWorkspaceState = null) {
   const globalSelections = getGlobalRequestorMvpdSelections();
   const selectedProgrammer = resolveSelectedProgrammer();
   if (!selectedProgrammer?.programmerId) {
@@ -7544,7 +7869,7 @@ async function resolveClickEsmDownloadContext(decompState = null) {
 
   const selectedServices = state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null;
   const cachedEsmApp = hasEsmScopedApp(selectedServices) ? selectedServices.esm : null;
-  const controllerEsmApp = decompState?.appInfo?.guid ? decompState.appInfo : null;
+  const controllerEsmApp = esmWorkspaceState?.appInfo?.guid ? esmWorkspaceState.appInfo : null;
   const esmApp = cachedEsmApp || controllerEsmApp;
   if (!esmApp?.guid) {
     return null;
@@ -7564,7 +7889,7 @@ async function resolveClickEsmDownloadContext(decompState = null) {
     requestorIds: globalSelections.requestorIds,
     requestorCatalogIds,
     mvpdIds: globalSelections.mvpdIds,
-    section: decompState?.section || null,
+    section: esmWorkspaceState?.section || null,
   };
 }
 
@@ -7593,7 +7918,7 @@ async function resolveClickEsmAuthContext(context, requestToken, options = {}) {
     context?.section &&
     !isEsmServiceRequestActive(context.section, requestToken, programmer.programmerId)
   ) {
-    throw new Error("decomp controller is no longer active for the selected media company.");
+    throw new Error("ESM controller is no longer active for the selected media company.");
   }
 
   const programmerLabel = firstNonEmptyString([
@@ -7664,8 +7989,7 @@ function isRestV2ScopedAppMappingMissingError(error) {
   );
 }
 
-const DECOMP_SEGMENT_COLORS = {
-  "media-company": "#222222",
+const ESM_WORKSPACE_SEGMENT_COLORS = {
   year: "#2D8CFF",
   month: "#28C76F",
   day: "#EA5455",
@@ -7697,7 +8021,7 @@ const DECOMP_SEGMENT_COLORS = {
   event: "#E84393",
 };
 
-function decompHexToRgb(hexValue) {
+function esmWorkspaceHexToRgb(hexValue) {
   const match = String(hexValue || "")
     .trim()
     .match(/^#?([0-9a-f]{6})$/i);
@@ -7715,35 +8039,34 @@ function decompHexToRgb(hexValue) {
   };
 }
 
-function decompGetSegmentColor(segment) {
+function esmWorkspaceGetSegmentColor(segment) {
   const key = String(segment || "").trim().toLowerCase();
-  return DECOMP_SEGMENT_COLORS[key] || "#6A6A6A";
+  return ESM_WORKSPACE_SEGMENT_COLORS[key] || "#6A6A6A";
 }
 
-function decompApplyChipColor(chipElement, segment) {
+function esmWorkspaceApplyChipColor(chipElement, segment) {
   if (!chipElement) {
     return;
   }
-  const rgb = decompHexToRgb(decompGetSegmentColor(segment));
+  const rgb = esmWorkspaceHexToRgb(esmWorkspaceGetSegmentColor(segment));
   if (!rgb) {
     return;
   }
   const luminance = (0.2126 * rgb.red + 0.7152 * rgb.green + 0.0722 * rgb.blue) / 255;
   const textColor = luminance > 0.58 ? "16, 24, 40" : "250, 252, 255";
-  chipElement.style.setProperty("--decomp-seg-rgb", `${rgb.red}, ${rgb.green}, ${rgb.blue}`);
+  chipElement.style.setProperty("--esm-workspace-seg-rgb", `${rgb.red}, ${rgb.green}, ${rgb.blue}`);
   chipElement.style.color = `rgb(${textColor})`;
   chipElement.style.background = `linear-gradient(140deg, rgba(${rgb.red}, ${rgb.green}, ${rgb.blue}, 0.22), rgba(${rgb.red}, ${rgb.green}, ${rgb.blue}, 0.12) 58%, rgba(255, 255, 255, 0.42) 100%)`;
   chipElement.style.borderColor = `rgba(${rgb.red}, ${rgb.green}, ${rgb.blue}, 0.42)`;
 }
 
-function decompCompareSegments(left, right) {
+function esmWorkspaceCompareSegments(left, right) {
   const rank = {
-    "media-company": 0,
-    year: 1,
-    month: 2,
-    day: 3,
-    hour: 4,
-    minute: 5,
+    year: 0,
+    month: 1,
+    day: 2,
+    hour: 3,
+    minute: 4,
   };
   const leftKey = String(left || "").toLowerCase();
   const rightKey = String(right || "").toLowerCase();
@@ -7755,7 +8078,7 @@ function decompCompareSegments(left, right) {
   return leftKey.localeCompare(rightKey, undefined, { sensitivity: "base" });
 }
 
-function decompComparePathParts(leftParts, rightParts) {
+function esmWorkspaceComparePathParts(leftParts, rightParts) {
   const left = Array.isArray(leftParts) ? leftParts : [];
   const right = Array.isArray(rightParts) ? rightParts : [];
   const max = Math.max(left.length, right.length);
@@ -7765,12 +8088,12 @@ function decompComparePathParts(leftParts, rightParts) {
     if (leftSegment === rightSegment) {
       continue;
     }
-    return decompCompareSegments(leftSegment, rightSegment);
+    return esmWorkspaceCompareSegments(leftSegment, rightSegment);
   }
   return left.length - right.length;
 }
 
-function decompExtractSegments(endpointUrl) {
+function esmWorkspaceExtractSegments(endpointUrl) {
   try {
     const parsed = new URL(endpointUrl);
     const marker = "/esm/v3/";
@@ -7788,7 +8111,7 @@ function decompExtractSegments(endpointUrl) {
   }
 }
 
-function decompNormalizeEndpointSegments(rawSegments) {
+function esmWorkspaceNormalizeEndpointSegments(rawSegments) {
   const segments = Array.isArray(rawSegments)
     ? rawSegments.map((segment) => String(segment || "").trim()).filter(Boolean)
     : [];
@@ -7800,7 +8123,7 @@ function decompNormalizeEndpointSegments(rawSegments) {
   return withoutMediaCompany.slice(yearIndex);
 }
 
-function decompBuildCatalog(endpoints) {
+function esmWorkspaceBuildCatalog(endpoints) {
   return (Array.isArray(endpoints) ? endpoints : [])
     .map((endpoint) => {
       if (!endpoint || typeof endpoint !== "object") {
@@ -7810,11 +8133,11 @@ function decompBuildCatalog(endpoints) {
       if (!url) {
         return null;
       }
-      const segs = decompNormalizeEndpointSegments(decompExtractSegments(url));
+      const segs = esmWorkspaceNormalizeEndpointSegments(esmWorkspaceExtractSegments(url));
       if (segs.length === 0) {
         return null;
       }
-      const columns = normalizeEsmColumns(endpoint.columns);
+      const columns = normalizeEsmColumns(endpoint.columns, { href: url });
       const zoomKey = clickEsmGetZoomKey(endpoint);
       return {
         url,
@@ -7829,7 +8152,7 @@ function decompBuildCatalog(endpoints) {
     .filter(Boolean);
 }
 
-function decompBuildTrie(catalog) {
+function esmWorkspaceBuildTrie(catalog) {
   const root = { key: "", endpointIndex: null, children: new Map() };
   catalog.forEach((item, index) => {
     let node = root;
@@ -7844,7 +8167,7 @@ function decompBuildTrie(catalog) {
   return root;
 }
 
-function decompCompressTrie(node) {
+function esmWorkspaceCompressTrie(node) {
   let cursor = node;
   const parts = [];
   if (cursor.key) {
@@ -7864,29 +8187,29 @@ function decompCompressTrie(node) {
     count: 0,
   };
 
-  const children = [...cursor.children.values()].sort((left, right) => decompCompareSegments(left.key, right.key));
-  output.children = children.map((child) => decompCompressTrie(child));
+  const children = [...cursor.children.values()].sort((left, right) => esmWorkspaceCompareSegments(left.key, right.key));
+  output.children = children.map((child) => esmWorkspaceCompressTrie(child));
   return output;
 }
 
-function decompCountEndpoints(node) {
+function esmWorkspaceCountEndpoints(node) {
   let count = node.endpointIndex != null ? 1 : 0;
   node.children.forEach((child) => {
-    count += decompCountEndpoints(child);
+    count += esmWorkspaceCountEndpoints(child);
   });
   node.count = count;
   return count;
 }
 
-function decompGetWorkspaceUrl() {
-  return chrome.runtime.getURL(DECOMP_WORKSPACE_PATH);
+function esmWorkspaceGetWorkspaceUrl() {
+  return chrome.runtime.getURL(ESM_WORKSPACE_WORKSPACE_PATH);
 }
 
-function decompIsWorkspaceTab(tabLike) {
-  return String(tabLike?.url || "").startsWith(decompGetWorkspaceUrl());
+function esmWorkspaceIsWorkspaceTab(tabLike) {
+  return String(tabLike?.url || "").startsWith(esmWorkspaceGetWorkspaceUrl());
 }
 
-async function decompGetCurrentWindowId() {
+async function esmWorkspaceGetCurrentWindowId() {
   try {
     const currentWindow = await chrome.windows.getCurrent();
     return Number(currentWindow?.id || 0);
@@ -7895,63 +8218,63 @@ async function decompGetCurrentWindowId() {
   }
 }
 
-function decompBindWorkspaceTab(windowId, tabId) {
+function esmWorkspaceBindWorkspaceTab(windowId, tabId) {
   const normalizedWindowId = Number(windowId || 0);
   const normalizedTabId = Number(tabId || 0);
   if (normalizedWindowId > 0 && normalizedTabId > 0) {
-    state.decompWorkspaceTabIdByWindowId.set(normalizedWindowId, normalizedTabId);
+    state.esmWorkspaceWorkspaceTabIdByWindowId.set(normalizedWindowId, normalizedTabId);
   }
   if (normalizedWindowId > 0) {
-    state.decompWorkspaceWindowId = normalizedWindowId;
+    state.esmWorkspaceWorkspaceWindowId = normalizedWindowId;
   }
   if (normalizedTabId > 0) {
-    state.decompWorkspaceTabId = normalizedTabId;
+    state.esmWorkspaceWorkspaceTabId = normalizedTabId;
   }
 }
 
-function decompUnbindWorkspaceTab(tabId) {
+function esmWorkspaceUnbindWorkspaceTab(tabId) {
   const normalizedTabId = Number(tabId || 0);
   if (normalizedTabId > 0) {
-    for (const [windowId, mappedTabId] of state.decompWorkspaceTabIdByWindowId.entries()) {
+    for (const [windowId, mappedTabId] of state.esmWorkspaceWorkspaceTabIdByWindowId.entries()) {
       if (Number(mappedTabId || 0) === normalizedTabId) {
-        state.decompWorkspaceTabIdByWindowId.delete(windowId);
+        state.esmWorkspaceWorkspaceTabIdByWindowId.delete(windowId);
       }
     }
   }
 
-  if (!normalizedTabId || Number(state.decompWorkspaceTabId || 0) === normalizedTabId) {
-    state.decompWorkspaceTabId = 0;
-    state.decompWorkspaceWindowId = 0;
+  if (!normalizedTabId || Number(state.esmWorkspaceWorkspaceTabId || 0) === normalizedTabId) {
+    state.esmWorkspaceWorkspaceTabId = 0;
+    state.esmWorkspaceWorkspaceWindowId = 0;
   }
 }
 
-function decompGetBoundWorkspaceTabId(windowId) {
+function esmWorkspaceGetBoundWorkspaceTabId(windowId) {
   const normalizedWindowId = Number(windowId || 0);
   if (normalizedWindowId > 0) {
-    const mapped = Number(state.decompWorkspaceTabIdByWindowId.get(normalizedWindowId) || 0);
+    const mapped = Number(state.esmWorkspaceWorkspaceTabIdByWindowId.get(normalizedWindowId) || 0);
     if (mapped > 0) {
       return mapped;
     }
   }
-  return Number(state.decompWorkspaceTabId || 0);
+  return Number(state.esmWorkspaceWorkspaceTabId || 0);
 }
 
-function decompGetControllerStatePayload(decompState) {
+function esmWorkspaceGetControllerStatePayload(esmWorkspaceState) {
   const selections = getGlobalRequestorMvpdSelections();
   const requestorIds = selections.requestorIds;
   const mvpdIds = selections.mvpdIds;
   const profileHarvestContext = {
-    programmerId: String(decompState?.programmer?.programmerId || ""),
+    programmerId: String(esmWorkspaceState?.programmer?.programmerId || ""),
     requestorId: String(requestorIds[0] || ""),
     mvpd: String(mvpdIds[0] || ""),
   };
   const profileHarvest = getRestV2ProfileHarvestForContext(profileHarvestContext);
   const profileHarvestList = getRestV2ProfileHarvestBucketForProgrammer(profileHarvestContext.programmerId);
   return {
-    controllerOnline: Boolean(decompState?.section?.isConnected),
+    controllerOnline: Boolean(esmWorkspaceState?.section?.isConnected),
     esmAvailable: true,
-    programmerId: String(decompState?.programmer?.programmerId || ""),
-    programmerName: String(decompState?.programmer?.programmerName || ""),
+    programmerId: String(esmWorkspaceState?.programmer?.programmerId || ""),
+    programmerName: String(esmWorkspaceState?.programmer?.programmerName || ""),
     requestorIds,
     mvpdIds,
     profileHarvest:
@@ -7970,7 +8293,7 @@ function decompGetControllerStatePayload(decompState) {
   };
 }
 
-function decompGetSelectedControllerStatePayload(programmer = null, services = null, options = {}) {
+function esmWorkspaceGetSelectedControllerStatePayload(programmer = null, services = null, options = {}) {
   const resolvedProgrammer =
     programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
   let resolvedServices = services;
@@ -8022,22 +8345,22 @@ function hasEsmScopedApp(services) {
   return Boolean(String(services?.esm?.guid || "").trim());
 }
 
-function decompBroadcastSelectedControllerState(programmer = null, services = null, targetWindowId = 0, options = {}) {
-  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.decompWorkspaceWindowId || 0);
-  void decompSendWorkspaceMessage(
+function esmWorkspaceBroadcastSelectedControllerState(programmer = null, services = null, targetWindowId = 0, options = {}) {
+  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.esmWorkspaceWorkspaceWindowId || 0);
+  void esmWorkspaceSendWorkspaceMessage(
     "controller-state",
-    decompGetSelectedControllerStatePayload(programmer, services, options),
+    esmWorkspaceGetSelectedControllerStatePayload(programmer, services, options),
     {
       targetWindowId: resolvedWindowId,
     }
   );
 }
 
-async function decompSendWorkspaceMessage(event, payload = {}, options = {}) {
+async function esmWorkspaceSendWorkspaceMessage(event, payload = {}, options = {}) {
   const targetWindowId = Number(options.targetWindowId || 0);
   try {
     const message = {
-      type: DECOMP_MESSAGE_TYPE,
+      type: ESM_WORKSPACE_MESSAGE_TYPE,
       channel: "workspace-event",
       event: String(event || ""),
       payload,
@@ -8051,33 +8374,33 @@ async function decompSendWorkspaceMessage(event, payload = {}, options = {}) {
   }
 }
 
-function decompBroadcastControllerState(decompState, targetWindowId = 0) {
-  if (!decompState) {
+function esmWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId = 0) {
+  if (!esmWorkspaceState) {
     return;
   }
   const resolvedWindowId =
-    Number(targetWindowId || 0) || Number(decompState.controllerWindowId || 0) || Number(state.decompWorkspaceWindowId || 0);
-  void decompSendWorkspaceMessage("controller-state", decompGetControllerStatePayload(decompState), {
+    Number(targetWindowId || 0) || Number(esmWorkspaceState.controllerWindowId || 0) || Number(state.esmWorkspaceWorkspaceWindowId || 0);
+  void esmWorkspaceSendWorkspaceMessage("controller-state", esmWorkspaceGetControllerStatePayload(esmWorkspaceState), {
     targetWindowId: resolvedWindowId,
   });
 }
 
-async function decompEnsureWorkspaceTab(options = {}) {
+async function esmWorkspaceEnsureWorkspaceTab(options = {}) {
   const shouldActivate = options.activate !== false;
   const requestedWindowId = Number(options.windowId || 0);
-  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await decompGetCurrentWindowId();
+  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await esmWorkspaceGetCurrentWindowId();
   const useWindowFilter = targetWindowId > 0;
   let workspaceTab = null;
 
-  const boundTabId = decompGetBoundWorkspaceTabId(targetWindowId);
+  const boundTabId = esmWorkspaceGetBoundWorkspaceTabId(targetWindowId);
   if (boundTabId > 0) {
     try {
       const existing = await chrome.tabs.get(boundTabId);
-      if (decompIsWorkspaceTab(existing) && (!useWindowFilter || Number(existing.windowId || 0) === targetWindowId)) {
+      if (esmWorkspaceIsWorkspaceTab(existing) && (!useWindowFilter || Number(existing.windowId || 0) === targetWindowId)) {
         workspaceTab = existing;
       }
     } catch {
-      decompUnbindWorkspaceTab(boundTabId);
+      esmWorkspaceUnbindWorkspaceTab(boundTabId);
       workspaceTab = null;
     }
   }
@@ -8085,7 +8408,7 @@ async function decompEnsureWorkspaceTab(options = {}) {
   if (!workspaceTab) {
     try {
       const allTabs = await chrome.tabs.query(useWindowFilter ? { windowId: targetWindowId } : { currentWindow: true });
-      workspaceTab = allTabs.find((tab) => decompIsWorkspaceTab(tab)) || null;
+      workspaceTab = allTabs.find((tab) => esmWorkspaceIsWorkspaceTab(tab)) || null;
     } catch {
       workspaceTab = null;
     }
@@ -8093,7 +8416,7 @@ async function decompEnsureWorkspaceTab(options = {}) {
 
   if (!workspaceTab) {
     workspaceTab = await chrome.tabs.create({
-      url: decompGetWorkspaceUrl(),
+      url: esmWorkspaceGetWorkspaceUrl(),
       active: shouldActivate,
       ...(useWindowFilter ? { windowId: targetWindowId } : {}),
     });
@@ -8108,84 +8431,325 @@ async function decompEnsureWorkspaceTab(options = {}) {
     }
   }
 
-  decompBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+  esmWorkspaceBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
   return workspaceTab;
 }
 
-function getDecompRecordingSelections() {
+function getEsmWorkspaceRecordingSelections() {
   return getGlobalRequestorMvpdSelections();
 }
 
-function toDecompRecordingContext(decompState) {
-  const selections = getDecompRecordingSelections();
+function toEsmWorkspaceRecordingContext(esmWorkspaceState) {
+  const selections = getEsmWorkspaceRecordingSelections();
   return {
-    serviceType: "esm-decomp",
-    programmerId: String(decompState?.programmer?.programmerId || ""),
-    programmerName: String(decompState?.programmer?.programmerName || ""),
+    serviceType: "esm",
+    programmerId: String(esmWorkspaceState?.programmer?.programmerId || ""),
+    programmerName: String(esmWorkspaceState?.programmer?.programmerName || ""),
     requestorIds: selections.requestorIds.slice(0, 24),
     mvpdIds: selections.mvpdIds.slice(0, 24),
     requestorId: String(selections.requestorIds[0] || ""),
     mvpd: String(selections.mvpdIds[0] || ""),
-    appInfo: decompState?.appInfo
+    appInfo: esmWorkspaceState?.appInfo
       ? {
-          guid: String(decompState.appInfo.guid || ""),
-          appName: String(decompState.appInfo.appName || decompState.appInfo.guid || ""),
-          scopes: Array.isArray(decompState.appInfo.scopes) ? decompState.appInfo.scopes.slice(0, 12) : [],
+          guid: String(esmWorkspaceState.appInfo.guid || ""),
+          appName: String(esmWorkspaceState.appInfo.appName || esmWorkspaceState.appInfo.guid || ""),
+          scopes: Array.isArray(esmWorkspaceState.appInfo.scopes) ? esmWorkspaceState.appInfo.scopes.slice(0, 12) : [],
         }
       : null,
     startedAt: Date.now(),
   };
 }
 
-function getActiveDecompDebugFlowId() {
-  if (!state.decompRecordingActive) {
+function getActiveEsmWorkspaceDebugFlowId() {
+  if (!state.esmWorkspaceRecordingActive) {
     return "";
   }
-  return String(state.decompDebugFlowId || "").trim();
+  return String(state.esmWorkspaceDebugFlowId || "").trim();
 }
 
-function emitDecompDebugEvent(flowId, event = {}) {
-  const normalizedFlowId = String(flowId || "").trim();
-  if (!normalizedFlowId) {
+function isEsmWorkspaceDebuggableTab(tab = null) {
+  const tabId = Number(tab?.id || 0);
+  if (!Number.isFinite(tabId) || tabId <= 0) {
+    return false;
+  }
+
+  const url = String(tab?.url || tab?.pendingUrl || "").trim().toLowerCase();
+  if (!url) {
+    return false;
+  }
+
+  if (
+    url.startsWith("chrome-extension://") ||
+    url.startsWith("chrome://") ||
+    url.startsWith("edge://") ||
+    url.startsWith("about:") ||
+    url.startsWith("devtools://")
+  ) {
+    return false;
+  }
+
+  return /^https?:\/\//.test(url);
+}
+
+async function getEsmWorkspaceDebuggableTabById(tabId) {
+  const normalizedTabId = Number(tabId || 0);
+  if (!Number.isFinite(normalizedTabId) || normalizedTabId <= 0) {
+    return null;
+  }
+
+  try {
+    const tab = await chrome.tabs.get(normalizedTabId);
+    return isEsmWorkspaceDebuggableTab(tab) ? tab : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getEsmWorkspaceActiveTabForWindow(windowId = 0) {
+  const normalizedWindowId = Number(windowId || 0);
+  if (!Number.isFinite(normalizedWindowId) || normalizedWindowId <= 0) {
+    return null;
+  }
+
+  try {
+    const tabs = await chrome.tabs.query({
+      active: true,
+      windowId: normalizedWindowId,
+    });
+    return Array.isArray(tabs) && tabs.length > 0 ? tabs[0] : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveEsmWorkspaceDebugTargetTabId(options = {}) {
+  const preferredWindowId = Number(options.preferredWindowId || 0);
+  const fallbackTabId = Number(options.fallbackTabId || 0);
+
+  const candidateTabIds = [];
+  const pushCandidateTabId = (tabId) => {
+    const normalizedTabId = Number(tabId || 0);
+    if (!Number.isFinite(normalizedTabId) || normalizedTabId <= 0) {
+      return;
+    }
+    if (!candidateTabIds.includes(normalizedTabId)) {
+      candidateTabIds.push(normalizedTabId);
+    }
+  };
+
+  pushCandidateTabId(state.esmWorkspaceActivityDebugTargetTabId);
+  pushCandidateTabId(fallbackTabId);
+  pushCandidateTabId(state.restV2LastLaunchTabId);
+
+  const preferredWindowTab = await getEsmWorkspaceActiveTabForWindow(preferredWindowId);
+  if (preferredWindowTab) {
+    pushCandidateTabId(preferredWindowTab.id);
+  }
+
+  const activeTab = await getCurrentActiveTab();
+  if (activeTab) {
+    pushCandidateTabId(activeTab.id);
+  }
+
+  for (const candidateTabId of candidateTabIds) {
+    const tab = await getEsmWorkspaceDebuggableTabById(candidateTabId);
+    if (tab) {
+      state.esmWorkspaceActivityDebugTargetTabId = Number(tab.id || 0);
+      return Number(tab.id || 0);
+    }
+  }
+
+  state.esmWorkspaceActivityDebugTargetTabId = 0;
+  return 0;
+}
+
+function buildEsmWorkspaceDebugContext(esmWorkspaceState = null) {
+  const selections = getGlobalRequestorMvpdSelections();
+  const programmer = esmWorkspaceState?.programmer || resolveSelectedProgrammer() || null;
+  return {
+    serviceType: "esm",
+    programmerId: String(programmer?.programmerId || ""),
+    programmerName: String(programmer?.programmerName || ""),
+    requestorId: String(selections.requestorIds[0] || ""),
+    mvpd: String(selections.mvpdIds[0] || ""),
+    requestorIds: selections.requestorIds.slice(0, 24),
+    mvpdIds: selections.mvpdIds.slice(0, 24),
+  };
+}
+
+async function ensureEsmWorkspaceActivityDebugFlow(options = {}) {
+  const activeRecordingFlowId = getActiveEsmWorkspaceDebugFlowId();
+  if (activeRecordingFlowId) {
+    return activeRecordingFlowId;
+  }
+
+  const preferredWindowId = Number(options.preferredWindowId || 0);
+  const fallbackTabId = Number(options.fallbackTabId || 0);
+  const existingFlowId = String(state.esmWorkspaceActivityDebugFlowId || "").trim();
+
+  if (existingFlowId) {
+    const previousTargetTabId = Number(state.esmWorkspaceActivityDebugTargetTabId || 0);
+    const targetTabId = await resolveEsmWorkspaceDebugTargetTabId({
+      preferredWindowId,
+      fallbackTabId,
+    });
+    if (targetTabId > 0 && targetTabId !== previousTargetTabId) {
+      const context = buildEsmWorkspaceDebugContext(getActiveEsmWorkspaceState());
+      const bound = await bindRestV2DebugFlowToTab(existingFlowId, targetTabId, {
+        requestorId: context.requestorId,
+        mvpd: context.mvpd,
+        serviceType: "esm",
+        eventsOnly: true,
+        captureNetwork: false,
+      });
+      if (bound) {
+        state.esmWorkspaceActivityDebugTargetTabId = targetTabId;
+      }
+    }
+    return existingFlowId;
+  }
+
+  if (state.esmWorkspaceActivityDebugFlowPromise) {
+    return state.esmWorkspaceActivityDebugFlowPromise;
+  }
+
+  const createPromise = (async () => {
+    const context = buildEsmWorkspaceDebugContext(getActiveEsmWorkspaceState());
+    if (!context.programmerId) {
+      return "";
+    }
+
+    const flowId = await startRestV2DebugFlow(context, "esm-activity");
+    if (!flowId) {
+      return "";
+    }
+
+    state.esmWorkspaceActivityDebugFlowId = flowId;
+
+    const targetTabId = await resolveEsmWorkspaceDebugTargetTabId({
+      preferredWindowId,
+      fallbackTabId,
+    });
+    if (targetTabId > 0) {
+      const bound = await bindRestV2DebugFlowToTab(flowId, targetTabId, {
+        requestorId: context.requestorId,
+        mvpd: context.mvpd,
+        serviceType: "esm",
+        eventsOnly: true,
+        captureNetwork: false,
+      });
+      if (bound) {
+        state.esmWorkspaceActivityDebugTargetTabId = targetTabId;
+      }
+    }
+
+    emitRestV2DebugEvent(flowId, {
+      source: "extension",
+      service: "esm",
+      phase: "activity-flow-start",
+      trigger: String(options.reason || "esm-activity"),
+      programmerId: context.programmerId,
+      requestorId: context.requestorId,
+      mvpd: context.mvpd,
+      tabId: Number(state.esmWorkspaceActivityDebugTargetTabId || 0),
+    });
+
+    return flowId;
+  })()
+    .catch(() => "")
+    .finally(() => {
+      state.esmWorkspaceActivityDebugFlowPromise = null;
+    });
+
+  state.esmWorkspaceActivityDebugFlowPromise = createPromise;
+  return createPromise;
+}
+
+function clearEsmWorkspaceActivityDebugFlow(reason = "state-reset", options = {}) {
+  const normalizedReason = String(reason || "state-reset").trim() || "state-reset";
+  const flowId = String(state.esmWorkspaceActivityDebugFlowId || "").trim();
+  const shouldStopFlow = options?.stopFlow === true;
+
+  if (flowId && shouldStopFlow) {
+    void stopRestV2DebugFlowAndSnapshot(flowId, normalizedReason);
+  }
+
+  state.esmWorkspaceActivityDebugFlowId = "";
+  state.esmWorkspaceActivityDebugFlowPromise = null;
+  state.esmWorkspaceActivityDebugTargetTabId = 0;
+}
+
+function emitEsmWorkspaceDebugEvent(flowId, event = {}) {
+  const workspaceKey = normalizeWorkspaceDebugKey(firstNonEmptyString([event?.workspaceKey, "esm-workspace"]));
+  const workspaceOrigin = firstNonEmptyString([event?.workspaceOrigin, getWorkspaceDebugLabel(workspaceKey)]);
+  const payload = {
+    source: "extension",
+    service: "esm",
+    requestScope: String(event?.requestScope || "esm-workspace"),
+    workspaceKey,
+    workspaceOrigin,
+    ...event,
+  };
+
+  const explicitFlowId = String(flowId || "").trim();
+  if (explicitFlowId) {
+    emitRestV2DebugEvent(explicitFlowId, payload);
     return;
   }
 
-  emitRestV2DebugEvent(normalizedFlowId, {
-    source: "extension",
-    service: "esm-decomp",
-    ...event,
+  const activityFlowId = String(state.esmWorkspaceActivityDebugFlowId || "").trim();
+  if (activityFlowId) {
+    emitRestV2DebugEvent(activityFlowId, payload);
+    void ensureEsmWorkspaceActivityDebugFlow({
+      reason: String(event?.phase || "esm-activity"),
+      preferredWindowId: Number(event?.windowId || event?.controllerWindowId || 0),
+      fallbackTabId: Number(event?.tabId || event?.workspaceTabId || 0),
+    });
+    return;
+  }
+
+  void ensureEsmWorkspaceActivityDebugFlow({
+    reason: String(event?.phase || "esm-activity"),
+    preferredWindowId: Number(event?.windowId || event?.controllerWindowId || 0),
+    fallbackTabId: Number(event?.tabId || event?.workspaceTabId || 0),
+  }).then((resolvedFlowId) => {
+    const normalizedFlowId = String(resolvedFlowId || "").trim();
+    if (!normalizedFlowId) {
+      return;
+    }
+    emitRestV2DebugEvent(normalizedFlowId, payload);
   });
 }
 
-function setDecompRecordingStatus(decompState, message = "", type = "info") {
-  if (!decompState?.recordingStatusElement) {
+function setEsmWorkspaceRecordingStatus(esmWorkspaceState, message = "", type = "info") {
+  if (!esmWorkspaceState?.recordingStatusElement) {
     return;
   }
 
-  decompState.recordingStatusElement.textContent = String(message || "").trim();
-  decompState.recordingStatusElement.classList.remove("success", "error");
+  esmWorkspaceState.recordingStatusElement.textContent = String(message || "").trim();
+  esmWorkspaceState.recordingStatusElement.classList.remove("success", "error");
   if (type === "success") {
-    decompState.recordingStatusElement.classList.add("success");
+    esmWorkspaceState.recordingStatusElement.classList.add("success");
   } else if (type === "error") {
-    decompState.recordingStatusElement.classList.add("error");
+    esmWorkspaceState.recordingStatusElement.classList.add("error");
   }
 }
 
-function syncDecompRecordingControls(decompState) {
-  if (!decompState) {
+function syncEsmWorkspaceRecordingControls(esmWorkspaceState) {
+  if (!esmWorkspaceState) {
     return;
   }
 
-  const toggleButton = decompState.recordingToggleButton;
-  const context = toDecompRecordingContext(decompState);
+  const toggleButton = esmWorkspaceState.recordingToggleButton;
+  const context = toEsmWorkspaceRecordingContext(esmWorkspaceState);
   const hasProgrammer = Boolean(context.programmerId);
 
   if (!toggleButton) {
     return;
   }
 
-  const icon = toggleButton.querySelector(".decomp-record-btn-icon");
-  const label = toggleButton.querySelector(".decomp-record-btn-label");
+  const icon = toggleButton.querySelector(".esm-workspace-record-btn-icon");
+  const label = toggleButton.querySelector(".esm-workspace-record-btn-label");
   const setToggleState = (mode = "idle") => {
     const isRecording = mode === "recording" || mode === "stopping";
     const isStopping = mode === "stopping";
@@ -8199,21 +8763,21 @@ function syncDecompRecordingControls(decompState) {
     }
 
     if (icon) {
-      icon.classList.remove("decomp-record-btn-icon--record", "decomp-record-btn-icon--stop");
-      icon.classList.add(isRecording ? "decomp-record-btn-icon--stop" : "decomp-record-btn-icon--record");
+      icon.classList.remove("esm-workspace-record-btn-icon--record", "esm-workspace-record-btn-icon--stop");
+      icon.classList.add(isRecording ? "esm-workspace-record-btn-icon--stop" : "esm-workspace-record-btn-icon--record");
     }
   };
 
-  if (state.decompStopping) {
+  if (state.esmWorkspaceStopping) {
     setToggleState("stopping");
     toggleButton.disabled = true;
     toggleButton.title = "Finalizing ESM recording...";
     toggleButton.setAttribute("aria-label", "Finalizing ESM recording");
-    setDecompRecordingStatus(decompState, "Finalizing ESM recording...");
+    setEsmWorkspaceRecordingStatus(esmWorkspaceState, "Finalizing ESM recording...");
     return;
   }
 
-  const activeFlowId = getActiveDecompDebugFlowId();
+  const activeFlowId = getActiveEsmWorkspaceDebugFlowId();
   if (activeFlowId) {
     setToggleState("recording");
     toggleButton.disabled = false;
@@ -8222,8 +8786,8 @@ function syncDecompRecordingControls(decompState) {
 
     const requestorLabel = context.requestorIds.length > 0 ? context.requestorIds.join(", ") : "all requestors";
     const mvpdLabel = context.mvpdIds.length > 0 ? context.mvpdIds.join(", ") : "all MVPDs";
-    setDecompRecordingStatus(
-      decompState,
+    setEsmWorkspaceRecordingStatus(
+      esmWorkspaceState,
       `Recording ESM flow for ${requestorLabel} / ${mvpdLabel}. Click STOP to end capture.`,
       "success"
     );
@@ -8236,17 +8800,17 @@ function syncDecompRecordingControls(decompState) {
   toggleButton.setAttribute("aria-label", "Record ESM");
 
   if (!hasProgrammer) {
-    setDecompRecordingStatus(decompState, "Select a Media Company first.");
+    setEsmWorkspaceRecordingStatus(esmWorkspaceState, "Select a Media Company first.");
     return;
   }
 
-  setDecompRecordingStatus(
-    decompState,
-    "Click RECORD ESM to capture token + decomp ESM API activity in the UP trace."
+  setEsmWorkspaceRecordingStatus(
+    esmWorkspaceState,
+    "Click RECORD ESM to capture token + ESM API activity in the UP trace."
   );
 }
 
-function buildDecompHarFilename(recordingContext = null) {
+function buildEsmWorkspaceHarFilename(recordingContext = null) {
   const programmer = sanitizeHarFileSegment(recordingContext?.programmerId || "programmer", "programmer");
   const requestors = sanitizeHarFileSegment(
     Array.isArray(recordingContext?.requestorIds) && recordingContext.requestorIds.length > 0
@@ -8261,67 +8825,67 @@ function buildDecompHarFilename(recordingContext = null) {
     "all-mvpds"
   );
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return `underpar-esm-decomp-${programmer}-${requestors}-${mvpds}-${stamp}.har`;
+  return `underpar-esm-${programmer}-${requestors}-${mvpds}-${stamp}.har`;
 }
 
-function clearDecompRecordingState(reason = "state-reset", options = {}) {
+function clearEsmWorkspaceRecordingState(reason = "state-reset", options = {}) {
   const shouldStopFlow = options?.stopFlow !== false;
-  const activeFlowId = String(state.decompDebugFlowId || "").trim();
+  const activeFlowId = String(state.esmWorkspaceDebugFlowId || "").trim();
   if (activeFlowId && shouldStopFlow) {
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "recording-force-stop",
       reason: String(reason || "state-reset"),
     });
     void stopRestV2DebugFlowAndSnapshot(activeFlowId, String(reason || "state-reset"));
   }
 
-  state.decompDebugFlowId = "";
-  state.decompRecordingActive = false;
-  state.decompRecordingStartedAt = 0;
-  state.decompRecordingContext = null;
-  state.decompStopping = false;
-  state.decompTraceViewerWindowId = 0;
-  state.decompTraceViewerTabId = 0;
+  state.esmWorkspaceDebugFlowId = "";
+  state.esmWorkspaceRecordingActive = false;
+  state.esmWorkspaceRecordingStartedAt = 0;
+  state.esmWorkspaceRecordingContext = null;
+  state.esmWorkspaceStopping = false;
+  state.esmWorkspaceTraceViewerWindowId = 0;
+  state.esmWorkspaceTraceViewerTabId = 0;
 }
 
-async function startDecompEsmRecording(decompState, requestToken) {
-  if (!decompState) {
+async function startEsmWorkspaceEsmRecording(esmWorkspaceState, requestToken) {
+  if (!esmWorkspaceState) {
     return;
   }
-  if (state.decompStopping) {
+  if (state.esmWorkspaceStopping) {
     return;
   }
-  if (state.decompRecordingActive && state.decompDebugFlowId) {
-    syncDecompRecordingControls(decompState);
+  if (state.esmWorkspaceRecordingActive && state.esmWorkspaceDebugFlowId) {
+    syncEsmWorkspaceRecordingControls(esmWorkspaceState);
     return;
   }
-  if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
-    setDecompRecordingStatus(decompState, "decomp view is stale. Refresh this panel first.", "error");
+  if (!isEsmServiceRequestActive(esmWorkspaceState.section, requestToken, esmWorkspaceState.programmer?.programmerId)) {
+    setEsmWorkspaceRecordingStatus(esmWorkspaceState, "ESM view is stale. Refresh this panel first.", "error");
     return;
   }
 
-  const recordingContext = toDecompRecordingContext(decompState);
+  const recordingContext = toEsmWorkspaceRecordingContext(esmWorkspaceState);
   if (!recordingContext.programmerId || !recordingContext.appInfo?.guid) {
-    setDecompRecordingStatus(decompState, "Missing decomp app context for recording.", "error");
+    setEsmWorkspaceRecordingStatus(esmWorkspaceState, "Missing ESM app context for recording.", "error");
     return;
   }
 
-  state.decompStopping = true;
-  syncDecompRecordingControls(decompState);
+  state.esmWorkspaceStopping = true;
+  syncEsmWorkspaceRecordingControls(esmWorkspaceState);
 
   try {
-    const workspaceTab = await decompEnsureWorkspaceTab({
+    const workspaceTab = await esmWorkspaceEnsureWorkspaceTab({
       activate: true,
-      windowId: Number(decompState.controllerWindowId || 0),
+      windowId: Number(esmWorkspaceState.controllerWindowId || 0),
     });
-    const workspaceTabId = Number(workspaceTab?.id || decompGetBoundWorkspaceTabId(decompState.controllerWindowId));
+    const workspaceTabId = Number(workspaceTab?.id || esmWorkspaceGetBoundWorkspaceTabId(esmWorkspaceState.controllerWindowId));
     if (!Number.isFinite(workspaceTabId) || workspaceTabId <= 0) {
-      throw new Error("Unable to open decomp workspace tab.");
+      throw new Error("Unable to open ESM Workspace tab.");
     }
 
     const flowId = await startRestV2DebugFlow(
       {
-        serviceType: "esm-decomp",
+        serviceType: "esm",
         programmerId: recordingContext.programmerId,
         programmerName: recordingContext.programmerName,
         requestorId: recordingContext.requestorId,
@@ -8335,109 +8899,117 @@ async function startDecompEsmRecording(decompState, requestToken) {
       throw new Error("Unable to start UP ESM recording flow.");
     }
 
-    state.decompDebugFlowId = flowId;
-    state.decompRecordingActive = true;
-    state.decompRecordingStartedAt = Date.now();
-    state.decompRecordingContext = recordingContext;
+    state.esmWorkspaceDebugFlowId = flowId;
+    state.esmWorkspaceRecordingActive = true;
+    state.esmWorkspaceRecordingStartedAt = Date.now();
+    state.esmWorkspaceRecordingContext = recordingContext;
 
-    emitDecompDebugEvent(flowId, {
+    const debugTargetTabId = await resolveEsmWorkspaceDebugTargetTabId({
+      preferredWindowId: Number(esmWorkspaceState.controllerWindowId || 0),
+      fallbackTabId: workspaceTabId,
+    });
+    const flowBoundTabId = Number(debugTargetTabId || workspaceTabId);
+
+    emitEsmWorkspaceDebugEvent(flowId, {
       phase: "recording-start",
       workspaceTabId,
+      flowBoundTabId,
       programmerId: recordingContext.programmerId,
       requestorIds: recordingContext.requestorIds,
       mvpdIds: recordingContext.mvpdIds,
     });
 
-    const bound = await bindRestV2DebugFlowToTab(flowId, workspaceTabId, {
+    const bound = await bindRestV2DebugFlowToTab(flowId, flowBoundTabId, {
       requestorId: recordingContext.requestorId,
       mvpd: recordingContext.mvpd,
-      serviceType: "esm-decomp",
+      serviceType: "esm",
     });
     if (!bound) {
-      emitDecompDebugEvent(flowId, {
+      emitEsmWorkspaceDebugEvent(flowId, {
         phase: "workspace-bind-failed",
         workspaceTabId,
+        flowBoundTabId,
       });
     }
 
-    const traceViewerResult = await openOrFocusDecompTraceViewer(workspaceTabId, flowId);
+    const traceViewerResult = await openOrFocusEsmWorkspaceTraceViewer(flowBoundTabId, flowId);
     if (traceViewerResult.ok) {
-      emitDecompDebugEvent(flowId, {
+      emitEsmWorkspaceDebugEvent(flowId, {
         phase: "trace-view-opened",
         traceTabId: traceViewerResult.tabId || 0,
         traceWindowId: traceViewerResult.windowId || 0,
         traceMode: traceViewerResult.mode || (traceViewerResult.reused ? "reuse" : "unknown"),
       });
     } else {
-      emitDecompDebugEvent(flowId, {
+      emitEsmWorkspaceDebugEvent(flowId, {
         phase: "trace-view-open-failed",
         error: traceViewerResult.error || "Unable to open UP trace viewer.",
       });
     }
 
     try {
-      await ensureDcrAccessToken(recordingContext.programmerId, decompState.appInfo, true, {
+      await ensureDcrAccessToken(recordingContext.programmerId, esmWorkspaceState.appInfo, true, {
         flowId,
         scope: "esm-access-token",
         requestorId: recordingContext.requestorId,
         mvpd: recordingContext.mvpd,
-        service: "esm-decomp",
+        service: "esm",
       });
-      emitDecompDebugEvent(flowId, {
+      emitEsmWorkspaceDebugEvent(flowId, {
         phase: "access-token-ready",
         appGuid: recordingContext.appInfo.guid,
       });
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
-      emitDecompDebugEvent(flowId, {
+      emitEsmWorkspaceDebugEvent(flowId, {
         phase: "access-token-prime-failed",
         error: reason,
       });
       throw new Error(`Unable to fetch a fresh ESM access token: ${reason}`);
     }
 
-    state.decompStopping = false;
-    syncDecompRecordingControls(decompState);
-    setDecompRecordingStatus(
-      decompState,
+    state.esmWorkspaceStopping = false;
+    syncEsmWorkspaceRecordingControls(esmWorkspaceState);
+    setEsmWorkspaceRecordingStatus(
+      esmWorkspaceState,
       "ESM recording started. Run reports / CSV actions and watch events live in the UP tab.",
       "success"
     );
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
-    emitDecompDebugEvent(state.decompDebugFlowId, {
+    emitEsmWorkspaceDebugEvent(state.esmWorkspaceDebugFlowId, {
       phase: "recording-start-failed",
       error: reason,
     });
-    clearDecompRecordingState("start-failed");
-    state.decompStopping = false;
-    syncDecompRecordingControls(decompState);
-    setDecompRecordingStatus(decompState, reason, "error");
+    clearEsmWorkspaceRecordingState("start-failed");
+    state.esmWorkspaceStopping = false;
+    syncEsmWorkspaceRecordingControls(esmWorkspaceState);
+    setEsmWorkspaceRecordingStatus(esmWorkspaceState, reason, "error");
   }
 }
 
-async function stopDecompEsmRecording(decompState) {
-  if (state.decompStopping) {
+async function stopEsmWorkspaceEsmRecording(esmWorkspaceState) {
+  if (state.esmWorkspaceStopping) {
     return;
   }
 
-  const activeFlowId = String(state.decompDebugFlowId || "").trim();
+  const activeFlowId = String(state.esmWorkspaceDebugFlowId || "").trim();
   if (!activeFlowId) {
-    clearDecompRecordingState("stop-empty");
-    syncDecompRecordingControls(decompState);
-    setDecompRecordingStatus(decompState, "No active ESM recording session was found.");
+    clearEsmWorkspaceRecordingState("stop-empty");
+    syncEsmWorkspaceRecordingControls(esmWorkspaceState);
+    setEsmWorkspaceRecordingStatus(esmWorkspaceState, "No active ESM recording session was found.");
     return;
   }
 
-  state.decompStopping = true;
-  syncDecompRecordingControls(decompState);
+  state.esmWorkspaceStopping = true;
+  syncEsmWorkspaceRecordingControls(esmWorkspaceState);
 
   const recordingContext =
-    state.decompRecordingContext && typeof state.decompRecordingContext === "object"
-      ? state.decompRecordingContext
-      : toDecompRecordingContext(decompState);
+    state.esmWorkspaceRecordingContext && typeof state.esmWorkspaceRecordingContext === "object"
+      ? state.esmWorkspaceRecordingContext
+      : toEsmWorkspaceRecordingContext(esmWorkspaceState);
 
-  emitDecompDebugEvent(activeFlowId, {
+  emitEsmWorkspaceDebugEvent(activeFlowId, {
     phase: "recording-stop-request",
     requestorIds: recordingContext?.requestorIds || [],
     mvpdIds: recordingContext?.mvpdIds || [],
@@ -8446,45 +9018,45 @@ async function stopDecompEsmRecording(decompState) {
   try {
     await waitForDelay(400);
     const stopResult = await stopRestV2DebugFlowAndSnapshot(activeFlowId, "esm-user-stop");
-    clearDecompRecordingState("stop-complete", { stopFlow: false });
-    state.decompStopping = false;
-    syncDecompRecordingControls(decompState);
+    clearEsmWorkspaceRecordingState("stop-complete", { stopFlow: false });
+    state.esmWorkspaceStopping = false;
+    syncEsmWorkspaceRecordingControls(esmWorkspaceState);
 
     if (stopResult?.flow) {
       const harPayload = buildHarLogFromFlowSnapshot(stopResult.flow, recordingContext, null);
-      const fileName = buildDecompHarFilename(recordingContext);
+      const fileName = buildEsmWorkspaceHarFilename(recordingContext);
       downloadHarFile(harPayload, fileName);
-      setDecompRecordingStatus(
-        decompState,
+      setEsmWorkspaceRecordingStatus(
+        esmWorkspaceState,
         `ESM recording stopped. HAR downloaded as ${fileName}.`,
         "success"
       );
       return;
     }
 
-    setDecompRecordingStatus(
-      decompState,
+    setEsmWorkspaceRecordingStatus(
+      esmWorkspaceState,
       `Recording stopped, but snapshot export failed: ${stopResult?.error || "unknown error"}.`,
       "error"
     );
   } catch (error) {
-    clearDecompRecordingState("stop-failed");
-    state.decompStopping = false;
-    syncDecompRecordingControls(decompState);
-    setDecompRecordingStatus(
-      decompState,
+    clearEsmWorkspaceRecordingState("stop-failed");
+    state.esmWorkspaceStopping = false;
+    syncEsmWorkspaceRecordingControls(esmWorkspaceState);
+    setEsmWorkspaceRecordingStatus(
+      esmWorkspaceState,
       error instanceof Error ? error.message : String(error),
       "error"
     );
   }
 }
 
-function decompSetNetworkBusy(decompState, isBusy) {
-  if (!decompState?.contentElement) {
+function esmWorkspaceSetNetworkBusy(esmWorkspaceState, isBusy) {
+  if (!esmWorkspaceState?.contentElement) {
     return;
   }
-  const shell = decompState.contentElement.querySelector(".decomp-shell");
-  const indicator = decompState.contentElement.querySelector(".decomp-net-indicator");
+  const shell = esmWorkspaceState.contentElement.querySelector(".esm-workspace-shell");
+  const indicator = esmWorkspaceState.contentElement.querySelector(".esm-workspace-net-indicator");
   if (shell) {
     shell.classList.toggle("net-busy", Boolean(isBusy));
   }
@@ -8493,27 +9065,27 @@ function decompSetNetworkBusy(decompState, isBusy) {
   }
 }
 
-function decompStartNetwork(decompState) {
-  if (!decompState) {
+function esmWorkspaceStartNetwork(esmWorkspaceState) {
+  if (!esmWorkspaceState) {
     return;
   }
-  decompState.netInFlight = Number(decompState.netInFlight || 0) + 1;
-  if (decompState.netInFlight === 1) {
-    decompSetNetworkBusy(decompState, true);
+  esmWorkspaceState.netInFlight = Number(esmWorkspaceState.netInFlight || 0) + 1;
+  if (esmWorkspaceState.netInFlight === 1) {
+    esmWorkspaceSetNetworkBusy(esmWorkspaceState, true);
   }
 }
 
-function decompEndNetwork(decompState) {
-  if (!decompState) {
+function esmWorkspaceEndNetwork(esmWorkspaceState) {
+  if (!esmWorkspaceState) {
     return;
   }
-  decompState.netInFlight = Math.max(0, Number(decompState.netInFlight || 0) - 1);
-  if (decompState.netInFlight === 0) {
-    decompSetNetworkBusy(decompState, false);
+  esmWorkspaceState.netInFlight = Math.max(0, Number(esmWorkspaceState.netInFlight || 0) - 1);
+  if (esmWorkspaceState.netInFlight === 0) {
+    esmWorkspaceSetNetworkBusy(esmWorkspaceState, false);
   }
 }
 
-function decompBuildEndpointUrl(decompState, endpoint) {
+function esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint) {
   const zoomKey = clickEsmGetZoomKey(endpoint);
   const timeWindow = clickEsmComputeTimeWindow(zoomKey);
   const selections = getGlobalRequestorMvpdSelections();
@@ -8535,7 +9107,7 @@ function decompBuildEndpointUrl(decompState, endpoint) {
   return parsed.toString();
 }
 
-function decompNormalizeRunRequestUrlOverride(endpointUrl, requestUrlOverride) {
+function esmWorkspaceNormalizeRunRequestUrlOverride(endpointUrl, requestUrlOverride) {
   const endpointRaw = String(endpointUrl || "").trim();
   const overrideRaw = String(requestUrlOverride || "").trim();
   if (!endpointRaw || !overrideRaw) {
@@ -8557,7 +9129,220 @@ function decompNormalizeRunRequestUrlOverride(endpointUrl, requestUrlOverride) {
   }
 }
 
-function decompBuildRequestMetadata(decompState) {
+function esmWorkspaceNormalizeLocalColumnFilters(rawFilters) {
+  const output = {};
+  const appendValues = (columnName, values) => {
+    const normalizedColumn = String(columnName || "").trim().toLowerCase();
+    if (
+      !normalizedColumn ||
+      normalizedColumn === "media-company" ||
+      ESM_LOCAL_FILTER_EXCLUDED_COLUMNS.has(normalizedColumn)
+    ) {
+      return;
+    }
+    const nextValues = [];
+    const seen = new Set();
+    (Array.isArray(values) ? values : []).forEach((value) => {
+      const normalizedValue = String(value || "").trim();
+      if (!normalizedValue || seen.has(normalizedValue)) {
+        return;
+      }
+      seen.add(normalizedValue);
+      nextValues.push(normalizedValue);
+    });
+    if (nextValues.length > 0) {
+      output[normalizedColumn] = nextValues;
+    }
+  };
+
+  if (rawFilters instanceof Map) {
+    rawFilters.forEach((values, columnName) => {
+      appendValues(columnName, values instanceof Set ? [...values] : values);
+    });
+    return output;
+  }
+  if (Array.isArray(rawFilters)) {
+    rawFilters.forEach((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return;
+      }
+      appendValues(entry.column, entry.values);
+    });
+    return output;
+  }
+  if (rawFilters && typeof rawFilters === "object") {
+    Object.entries(rawFilters).forEach(([columnName, values]) => {
+      appendValues(columnName, values);
+    });
+  }
+  return output;
+}
+
+function esmWorkspaceBuildLocalFilterResetKeys(normalizedFilters = {}) {
+  const keys = new Set([
+    "year",
+    "month",
+    "day",
+    "hour",
+    "minute",
+    "dc",
+    "proxy",
+    "mvpd",
+    "requestor-id",
+    "channel",
+    "resource-id",
+    "device",
+    "eap",
+    "os-family",
+    "browser-family",
+    "cdt",
+    "platform-version",
+    "os-type",
+    "browser-version",
+    "nsdk",
+    "nsdk-version",
+    "event",
+    "reason",
+    "sso-type",
+    "platform",
+    "application-name",
+    "application-version",
+    "customer-app",
+    "content-category",
+    "api",
+    "sdk-type",
+    "decision-type",
+  ]);
+
+  Object.keys(normalizedFilters || {}).forEach((columnName) => {
+    const normalized = String(columnName || "").trim().toLowerCase();
+    if (!normalized || normalized === "media-company") {
+      return;
+    }
+    keys.add(normalized);
+  });
+
+  const hasLocalRequestorFilter =
+    Array.isArray(normalizedFilters["requestor-id"]) && normalizedFilters["requestor-id"].length > 0;
+  const hasLocalMvpdFilter = Array.isArray(normalizedFilters.mvpd) && normalizedFilters.mvpd.length > 0;
+
+  if (!hasLocalRequestorFilter) {
+    keys.delete("requestor-id");
+  }
+  if (!hasLocalMvpdFilter) {
+    keys.delete("mvpd");
+  }
+
+  return keys;
+}
+
+function esmWorkspaceAppendLocalColumnFilters(urlValue, rawFilters) {
+  const normalizedFilters = esmWorkspaceNormalizeLocalColumnFilters(rawFilters);
+  const rawUrl = String(urlValue || "").trim();
+  if (!rawUrl) {
+    return "";
+  }
+  const entries = Object.entries(normalizedFilters);
+  const resetKeys = esmWorkspaceBuildLocalFilterResetKeys(normalizedFilters);
+
+  try {
+    const parsed = new URL(rawUrl);
+    resetKeys.forEach((columnName) => {
+      parsed.searchParams.delete(columnName);
+    });
+    entries.forEach(([columnName, values]) => {
+      (Array.isArray(values) ? values : []).forEach((value) => {
+        parsed.searchParams.append(columnName, value);
+      });
+    });
+    return parsed.toString();
+  } catch (_error) {
+    const params = [];
+    entries.forEach(([columnName, values]) => {
+      (Array.isArray(values) ? values : []).forEach((value) => {
+        params.push(`${encodeURIComponent(columnName)}=${encodeURIComponent(value)}`);
+      });
+    });
+    if (params.length === 0) {
+      return rawUrl;
+    }
+    const separator = rawUrl.includes("?") ? "&" : "?";
+    return `${rawUrl}${separator}${params.join("&")}`;
+  }
+}
+
+function esmWorkspaceMatchesLocalFilterValue(rowValue, selectedValues = []) {
+  const values = Array.isArray(selectedValues) ? selectedValues : [];
+  if (!values.length || rowValue == null) {
+    return false;
+  }
+
+  const rowText = String(rowValue).trim();
+  if (!rowText) {
+    return false;
+  }
+
+  if (values.includes(rowText)) {
+    return true;
+  }
+
+  const rowLower = rowText.toLowerCase();
+  const rowNumber = Number(rowText);
+  const rowIsNumber = Number.isFinite(rowNumber);
+
+  for (const selectedValue of values) {
+    const selectedText = String(selectedValue || "").trim();
+    if (!selectedText) {
+      continue;
+    }
+    if (selectedText.toLowerCase() === rowLower) {
+      return true;
+    }
+    if (rowIsNumber) {
+      const selectedNumber = Number(selectedText);
+      if (Number.isFinite(selectedNumber) && selectedNumber === rowNumber) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function esmWorkspaceApplyLocalColumnFiltersToRows(rows, rawFilters = {}) {
+  const list = Array.isArray(rows) ? rows : [];
+  if (!list.length) {
+    return list;
+  }
+
+  const normalizedFilters = esmWorkspaceNormalizeLocalColumnFilters(rawFilters);
+  const entries = Object.entries(normalizedFilters || {}).filter(
+    ([columnName, values]) =>
+      String(columnName || "").trim() &&
+      String(columnName || "").trim().toLowerCase() !== "media-company" &&
+      !ESM_LOCAL_FILTER_EXCLUDED_COLUMNS.has(String(columnName || "").trim().toLowerCase()) &&
+      Array.isArray(values) &&
+      values.length > 0
+  );
+
+  if (!entries.length) {
+    return list;
+  }
+
+  return list.filter((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      return false;
+    }
+    for (const [columnName, values] of entries) {
+      if (!esmWorkspaceMatchesLocalFilterValue(row[columnName], values)) {
+        return false;
+      }
+    }
+    return true;
+  });
+}
+
+function esmWorkspaceBuildRequestMetadata(esmWorkspaceState) {
   const selections = getGlobalRequestorMvpdSelections();
   const requestorIds = selections.requestorIds;
   const mvpds = selections.mvpdIds;
@@ -8569,16 +9354,16 @@ function decompBuildRequestMetadata(decompState) {
   };
 }
 
-async function decompFetchWithPremiumAuth(decompState, url, options = {}, limit = DECOMP_CSV_RESULT_LIMIT, debugMeta = {}) {
+async function esmWorkspaceFetchWithPremiumAuth(esmWorkspaceState, url, options = {}, limit = ESM_WORKSPACE_CSV_RESULT_LIMIT, debugMeta = {}) {
   const finalUrl = clickEsmEnsureLimit(url, limit);
-  const requestMeta = decompBuildRequestMetadata(decompState);
-  const activeFlowId = getActiveDecompDebugFlowId();
-  const requestScope = String(debugMeta?.scope || "esm-decomp").trim() || "esm-decomp";
-  decompStartNetwork(decompState);
+  const requestMeta = esmWorkspaceBuildRequestMetadata(esmWorkspaceState);
+  const activeFlowId = getActiveEsmWorkspaceDebugFlowId();
+  const requestScope = String(debugMeta?.scope || "esm").trim() || "esm";
+  esmWorkspaceStartNetwork(esmWorkspaceState);
   try {
     return await fetchWithPremiumAuth(
-      decompState.programmer?.programmerId,
-      decompState.appInfo,
+      esmWorkspaceState.programmer?.programmerId,
+      esmWorkspaceState.appInfo,
       finalUrl,
       options,
       "refresh",
@@ -8588,18 +9373,20 @@ async function decompFetchWithPremiumAuth(decompState, url, options = {}, limit 
         mvpd: requestMeta.mvpd,
         requestorIds: requestMeta.requestorIds,
         mvpdIds: requestMeta.mvpdIds,
-        service: "esm-decomp",
+        service: "esm",
         endpointUrl: String(debugMeta?.endpointUrl || ""),
         cardId: String(debugMeta?.cardId || ""),
         scope: requestScope,
+        workspaceKey: "esm-workspace",
+        workspaceOrigin: "ESM Workspace",
       }
     );
   } finally {
-    decompEndNetwork(decompState);
+    esmWorkspaceEndNetwork(esmWorkspaceState);
   }
 }
 
-function decompNormalizeSortRule(rule) {
+function esmWorkspaceNormalizeSortRule(rule) {
   if (!rule || typeof rule !== "object") {
     return null;
   }
@@ -8611,7 +9398,7 @@ function decompNormalizeSortRule(rule) {
   return { col, dir };
 }
 
-function decompBuildCsvFileName(decompState, endpointUrl) {
+function esmWorkspaceBuildCsvFileName(esmWorkspaceState, endpointUrl) {
   let endpointPath = "endpoint";
   try {
     const parsed = new URL(endpointUrl);
@@ -8627,31 +9414,31 @@ function decompBuildCsvFileName(decompState, endpointUrl) {
   const mvpdId = sanitizeHarFileSegment(selectedMvpds.join("-") || "all-mvpds", "all-mvpds");
   const endpointSegment = sanitizeHarFileSegment(endpointPath, "endpoint");
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  return `decomp_${sanitizeHarFileSegment(decompState?.programmer?.programmerId, "programmer")}_${requestorId}_${mvpdId}_${endpointSegment}_${stamp}.csv`;
+  return `esm_${sanitizeHarFileSegment(esmWorkspaceState?.programmer?.programmerId, "programmer")}_${requestorId}_${mvpdId}_${endpointSegment}_${stamp}.csv`;
 }
 
-function decompFindEndpointByUrl(decompState, endpointUrl, fallback = {}) {
+function esmWorkspaceFindEndpointByUrl(esmWorkspaceState, endpointUrl, fallback = {}) {
   const normalizedUrl = String(endpointUrl || "").trim();
   if (!normalizedUrl) {
     return null;
   }
-  const mappedEndpoint = decompState?.endpointByUrl?.get(normalizedUrl) || null;
+  const mappedEndpoint = esmWorkspaceState?.endpointByUrl?.get(normalizedUrl) || null;
   if (mappedEndpoint) {
     return mappedEndpoint;
   }
   return {
     url: normalizedUrl,
     zoomKey: String(fallback.zoomKey || clickEsmGetZoomKey({ url: normalizedUrl }) || ""),
-    columns: normalizeEsmColumns(fallback.columns),
+    columns: normalizeEsmColumns(fallback.columns, { href: normalizedUrl }),
   };
 }
 
-async function decompDownloadCsvForCard(decompState, endpoint, sortRule, requestToken, cardId = "") {
-  const targetWindowId = Number(decompState?.controllerWindowId || state.decompWorkspaceWindowId || 0);
-  const normalizedSort = decompNormalizeSortRule(sortRule);
-  const dataUrl = decompBuildEndpointUrl(decompState, endpoint);
-  const activeFlowId = getActiveDecompDebugFlowId();
-  emitDecompDebugEvent(activeFlowId, {
+async function esmWorkspaceDownloadCsvForCard(esmWorkspaceState, endpoint, sortRule, requestToken, cardId = "", localColumnFilters = {}) {
+  const targetWindowId = Number(esmWorkspaceState?.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0);
+  const normalizedSort = esmWorkspaceNormalizeSortRule(sortRule);
+  const dataUrl = esmWorkspaceAppendLocalColumnFilters(esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint), localColumnFilters);
+  const activeFlowId = getActiveEsmWorkspaceDebugFlowId();
+  emitEsmWorkspaceDebugEvent(activeFlowId, {
     phase: "csv-download-start",
     endpointUrl: String(endpoint?.url || ""),
     cardId: String(cardId || ""),
@@ -8659,19 +9446,19 @@ async function decompDownloadCsvForCard(decompState, endpoint, sortRule, request
   });
   let response;
   try {
-    response = await decompFetchWithPremiumAuth(
-      decompState,
+    response = await esmWorkspaceFetchWithPremiumAuth(
+      esmWorkspaceState,
       dataUrl,
       { method: "GET" },
-      DECOMP_CSV_RESULT_LIMIT,
+      ESM_WORKSPACE_CSV_RESULT_LIMIT,
       {
-        scope: "esm-decomp-csv",
+        scope: "esm-csv",
         endpointUrl: endpoint?.url || "",
         cardId: String(cardId || ""),
       }
     );
   } catch (error) {
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "csv-download-error",
       endpointUrl: String(endpoint?.url || ""),
       cardId: String(cardId || ""),
@@ -8679,11 +9466,11 @@ async function decompDownloadCsvForCard(decompState, endpoint, sortRule, request
     });
     throw error;
   }
-  if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
+  if (!isEsmServiceRequestActive(esmWorkspaceState.section, requestToken, esmWorkspaceState.programmer?.programmerId)) {
     return;
   }
   if (!response.ok) {
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "csv-download-failed",
       endpointUrl: String(endpoint?.url || ""),
       cardId: String(cardId || ""),
@@ -8695,8 +9482,9 @@ async function decompDownloadCsvForCard(decompState, endpoint, sortRule, request
 
   const payload = await response.json().catch(() => null);
   const rows = Array.isArray(payload?.report) ? payload.report : [];
-  if (rows.length === 0) {
-    emitDecompDebugEvent(activeFlowId, {
+  const filteredRows = esmWorkspaceApplyLocalColumnFiltersToRows(rows, localColumnFilters);
+  if (filteredRows.length === 0) {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "csv-download-no-data",
       endpointUrl: String(endpoint?.url || ""),
       cardId: String(cardId || ""),
@@ -8704,21 +9492,26 @@ async function decompDownloadCsvForCard(decompState, endpoint, sortRule, request
     return;
   }
 
-  const firstRow = rows[0];
+  const firstRow = filteredRows[0];
   const context = {
     hasAuthN: firstRow["authn-attempts"] != null && firstRow["authn-successful"] != null,
     hasAuthZ: firstRow["authz-attempts"] != null && firstRow["authz-successful"] != null,
   };
 
-  downloadEsmCsv(rows, normalizedSort || getDefaultEsmSortStack()[0], context, decompBuildCsvFileName(decompState, endpoint.url));
-  emitDecompDebugEvent(activeFlowId, {
+  downloadEsmCsv(
+    filteredRows,
+    normalizedSort || getDefaultEsmSortStack()[0],
+    context,
+    esmWorkspaceBuildCsvFileName(esmWorkspaceState, endpoint.url)
+  );
+  emitEsmWorkspaceDebugEvent(activeFlowId, {
     phase: "csv-download-complete",
     endpointUrl: String(endpoint?.url || ""),
     cardId: String(cardId || ""),
-    rowCount: rows.length,
+    rowCount: filteredRows.length,
   });
   if (cardId) {
-    void decompSendWorkspaceMessage("csv-complete", {
+    void esmWorkspaceSendWorkspaceMessage("csv-complete", {
       cardId: String(cardId),
       endpointUrl: endpoint.url,
       completedAt: Date.now(),
@@ -8728,35 +9521,38 @@ async function decompDownloadCsvForCard(decompState, endpoint, sortRule, request
   }
 }
 
-async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, requestToken, options = {}) {
+async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, cardId, requestToken, options = {}) {
   if (!endpoint?.url) {
     return;
   }
   const normalizedCardId = String(cardId || generateRequestId());
-  const requestUrlOverride = decompNormalizeRunRequestUrlOverride(endpoint.url, options.requestUrlOverride);
+  const requestUrlOverride = esmWorkspaceNormalizeRunRequestUrlOverride(endpoint.url, options.requestUrlOverride);
+  const normalizedLocalColumnFilters = esmWorkspaceNormalizeLocalColumnFilters(options.localColumnFilters);
+  const baseRequestUrl = requestUrlOverride || esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint);
   const requestUrl = clickEsmEnsureLimit(
-    requestUrlOverride || decompBuildEndpointUrl(decompState, endpoint),
-    DECOMP_INLINE_RESULT_LIMIT
+    esmWorkspaceAppendLocalColumnFilters(baseRequestUrl, normalizedLocalColumnFilters),
+    ESM_WORKSPACE_INLINE_RESULT_LIMIT
   );
-  const activeFlowId = getActiveDecompDebugFlowId();
+  const activeFlowId = getActiveEsmWorkspaceDebugFlowId();
   const reportMeta = {
     cardId: normalizedCardId,
     endpointUrl: endpoint.url,
     requestUrl,
     zoomKey: clickEsmGetZoomKey(endpoint),
-    columns: normalizeEsmColumns(endpoint.columns),
+    columns: normalizeEsmColumns(endpoint.columns, { href: endpoint.url }),
+    localColumnFilters: normalizedLocalColumnFilters,
   };
-  const targetWindowId = Number(decompState?.controllerWindowId || state.decompWorkspaceWindowId || 0);
+  const targetWindowId = Number(esmWorkspaceState?.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0);
 
   if (options.emitStart !== false) {
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "report-start",
       cardId: normalizedCardId,
       endpointUrl: endpoint.url,
       requestUrl,
       requestSource: String(options.requestSource || "tree"),
     });
-    void decompSendWorkspaceMessage("report-start", {
+    void esmWorkspaceSendWorkspaceMessage("report-start", {
       ...reportMeta,
       requestSource: String(options.requestSource || "tree"),
       startedAt: Date.now(),
@@ -8765,31 +9561,31 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
     });
   }
 
-  if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
+  if (!isEsmServiceRequestActive(esmWorkspaceState.section, requestToken, esmWorkspaceState.programmer?.programmerId)) {
     return;
   }
 
   let response;
   try {
-    response = await decompFetchWithPremiumAuth(
-      decompState,
+    response = await esmWorkspaceFetchWithPremiumAuth(
+      esmWorkspaceState,
       requestUrl,
       { method: "GET" },
-      DECOMP_INLINE_RESULT_LIMIT,
+      ESM_WORKSPACE_INLINE_RESULT_LIMIT,
       {
-        scope: "esm-decomp-report",
+        scope: "esm-report",
         endpointUrl: endpoint.url,
         cardId: normalizedCardId,
       }
     );
   } catch (error) {
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "report-fetch-error",
       cardId: normalizedCardId,
       endpointUrl: endpoint.url,
       error: error instanceof Error ? error.message : String(error),
     });
-    void decompSendWorkspaceMessage("report-result", {
+    void esmWorkspaceSendWorkspaceMessage("report-result", {
       ...reportMeta,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
@@ -8801,13 +9597,13 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
     return;
   }
 
-  if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
+  if (!isEsmServiceRequestActive(esmWorkspaceState.section, requestToken, esmWorkspaceState.programmer?.programmerId)) {
     return;
   }
 
   if (!response.ok) {
     const bodyText = await response.text().catch(() => "");
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "report-http-error",
       cardId: normalizedCardId,
       endpointUrl: endpoint.url,
@@ -8815,7 +9611,7 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
       statusText: String(response.statusText || ""),
       responsePreview: truncateDebugText(bodyText, 2000),
     });
-    void decompSendWorkspaceMessage("report-result", {
+    void esmWorkspaceSendWorkspaceMessage("report-result", {
       ...reportMeta,
       ok: false,
       error: `HTTP ${response.status} ${normalizeHttpErrorMessage(bodyText) || response.statusText || "Request failed"}`,
@@ -8839,14 +9635,14 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
   }
 
   if (!payload && bodyText.trim()) {
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "report-parse-error",
       cardId: normalizedCardId,
       endpointUrl: endpoint.url,
       error: "Response was not valid JSON.",
       responsePreview: truncateDebugText(bodyText, 2000),
     });
-    void decompSendWorkspaceMessage("report-result", {
+    void esmWorkspaceSendWorkspaceMessage("report-result", {
       ...reportMeta,
       ok: false,
       error: bodyText.trim(),
@@ -8859,19 +9655,20 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
   }
 
   const rows = Array.isArray(payload?.report) ? payload.report : [];
-  emitDecompDebugEvent(activeFlowId, {
+  const filteredRows = esmWorkspaceApplyLocalColumnFiltersToRows(rows, normalizedLocalColumnFilters);
+  emitEsmWorkspaceDebugEvent(activeFlowId, {
     phase: "report-result",
     cardId: normalizedCardId,
     endpointUrl: endpoint.url,
-    rowCount: rows.length,
-    noData: rows.length === 0,
+    rowCount: filteredRows.length,
+    noData: filteredRows.length === 0,
     lastModified: response.headers.get("Last-Modified") || response.headers.get("Date") || "",
   });
-  void decompSendWorkspaceMessage("report-result", {
+  void esmWorkspaceSendWorkspaceMessage("report-result", {
     ...reportMeta,
     ok: true,
-    rows,
-    noData: rows.length === 0,
+    rows: filteredRows,
+    noData: filteredRows.length === 0,
     lastModified: response.headers.get("Last-Modified") || response.headers.get("Date") || "",
     completedAt: Date.now(),
   }, {
@@ -8879,7 +9676,7 @@ async function decompRunEndpointToWorkspace(decompState, endpoint, cardId, reque
   });
 }
 
-function decompBuildShellHtml() {
+function esmWorkspaceBuildShellHtml() {
   const zoomOptions = CLICK_ESM_ZOOM_OPTIONS.map((key) => {
     const value = escapeHtml(key);
     const label = key ? escapeHtml(key) : "";
@@ -8887,49 +9684,51 @@ function decompBuildShellHtml() {
   }).join("");
 
   return `
-    <div class="decomp-shell">
-      <div class="decomp-toolbar">
-        <select class="decomp-zoom-filter" title="Zoom Level">${zoomOptions}</select>
-        <input type="text" class="decomp-search" placeholder="ESM Column search..." />
-        <button type="button" class="decomp-reset-btn">RESET</button>
-        <div class="decomp-toolbar-recording-actions decomp-recording-actions">
+    <div class="esm-workspace-shell">
+      <div class="esm-workspace-toolbar">
+        <select class="esm-workspace-zoom-filter" title="Zoom Level">${zoomOptions}</select>
+        <input type="text" class="esm-workspace-search" placeholder="ESM Column search..." />
+        <button type="button" class="esm-workspace-reset-btn">RESET</button>
+        <div class="esm-workspace-toolbar-recording-actions esm-workspace-recording-actions">
           <button
             type="button"
-            class="decomp-record-toggle-btn"
+            class="esm-workspace-record-toggle-btn"
             title="Record ESM"
             aria-label="Record ESM"
           >
-            <span class="decomp-record-btn-icon decomp-record-btn-icon--record" aria-hidden="true"></span>
-            <span class="decomp-record-btn-label">ESM</span>
+            <span class="esm-workspace-record-btn-icon esm-workspace-record-btn-icon--record" aria-hidden="true"></span>
+            <span class="esm-workspace-record-btn-label">ESM</span>
           </button>
         </div>
-        <span class="decomp-net-indicator" title="Loading" aria-label="Loading" hidden></span>
       </div>
-      <div class="decomp-tree-panel">
-        <div class="decomp-tree-head">
-          <div class="decomp-tree-title">JellyBeans</div>
+      <div class="esm-workspace-tree-panel">
+        <div class="esm-workspace-tree-head">
+          <div class="esm-workspace-tree-title">JellyBeans</div>
         </div>
-        <div class="decomp-tree-scroll" hidden>
-          <div class="decomp-tree-root"></div>
-        </div>
-      </div>
-      <div class="decomp-treemap-panel">
-        <div class="decomp-treemap-head">
-          <div class="decomp-treemap-title">TreeMap</div>
-        </div>
-        <div class="decomp-treemap-scroll" hidden>
-          <div class="decomp-treemap-root"></div>
+        <div class="esm-workspace-tree-scroll" hidden>
+          <div class="esm-workspace-tree-root"></div>
         </div>
       </div>
-      <div class="decomp-footer">
-        <div class="decomp-footer-actions">
+      <div class="esm-workspace-treemap-panel">
+        <div class="esm-workspace-treemap-head">
+          <div class="esm-workspace-treemap-title">TreeMap</div>
+        </div>
+        <div class="esm-workspace-treemap-scroll" hidden>
+          <div class="esm-workspace-treemap-root"></div>
+        </div>
+      </div>
+      <div class="esm-workspace-footer">
+        <div class="esm-workspace-footer-status" aria-hidden="true">
+          <span class="esm-workspace-net-indicator" title="Loading" aria-label="Loading" hidden></span>
+        </div>
+        <div class="esm-workspace-footer-actions">
           <button
             type="button"
-            class="decomp-make-clickesm-btn decomp-toolbar-icon-btn decomp-toolbar-icon-btn--tearsheet"
+            class="esm-workspace-make-clickesm-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"
             title="Generate ESM tearsheet (clickESM)"
             aria-label="Generate ESM tearsheet (clickESM)"
           >
-            <span class="decomp-toolbar-icon decomp-toolbar-icon--tearsheet" aria-hidden="true">
+            <span class="esm-workspace-toolbar-icon esm-workspace-toolbar-icon--tearsheet" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
                 <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
                 <path d="M14.25 3.75V8.5H19" />
@@ -8944,7 +9743,7 @@ function decompBuildShellHtml() {
   `;
 }
 
-function decompParsePathParts(rawValue) {
+function esmWorkspaceParsePathParts(rawValue) {
   if (typeof rawValue !== "string" || rawValue.trim() === "") {
     return [];
   }
@@ -8959,27 +9758,27 @@ function decompParsePathParts(rawValue) {
   }
 }
 
-function decompPathPartsToKey(pathParts) {
+function esmWorkspacePathPartsToKey(pathParts) {
   if (!Array.isArray(pathParts)) {
     return "";
   }
-  return decompNormalizeEndpointSegments(pathParts)
+  return esmWorkspaceNormalizeEndpointSegments(pathParts)
     .map((value) => String(value || "").trim().toLowerCase())
     .filter(Boolean)
     .join("/");
 }
 
-function decompResolveEndpointByPathParts(decompState, pathParts) {
-  const normalizedParts = decompNormalizeEndpointSegments(pathParts);
+function esmWorkspaceResolveEndpointByPathParts(esmWorkspaceState, pathParts) {
+  const normalizedParts = esmWorkspaceNormalizeEndpointSegments(pathParts);
   if (!normalizedParts.length) {
     return null;
   }
-  const map = decompState?.endpointIndexByPathKey instanceof Map ? decompState.endpointIndexByPathKey : null;
-  const catalog = Array.isArray(decompState?.catalog) ? decompState.catalog : [];
+  const map = esmWorkspaceState?.endpointIndexByPathKey instanceof Map ? esmWorkspaceState.endpointIndexByPathKey : null;
+  const catalog = Array.isArray(esmWorkspaceState?.catalog) ? esmWorkspaceState.catalog : [];
 
   for (let size = normalizedParts.length; size >= 1; size -= 1) {
     const candidateParts = normalizedParts.slice(0, size);
-    const candidateKey = decompPathPartsToKey(candidateParts);
+    const candidateKey = esmWorkspacePathPartsToKey(candidateParts);
     if (!candidateKey) {
       continue;
     }
@@ -8987,7 +9786,7 @@ function decompResolveEndpointByPathParts(decompState, pathParts) {
     if (Number.isInteger(mappedIndex) && mappedIndex >= 0) {
       return catalog[mappedIndex] || null;
     }
-    const fallbackIndex = catalog.findIndex((entry) => decompPathPartsToKey(entry?.segs) === candidateKey);
+    const fallbackIndex = catalog.findIndex((entry) => esmWorkspacePathPartsToKey(entry?.segs) === candidateKey);
     if (fallbackIndex >= 0) {
       if (map) {
         map.set(candidateKey, fallbackIndex);
@@ -8998,7 +9797,7 @@ function decompResolveEndpointByPathParts(decompState, pathParts) {
   return null;
 }
 
-function decompRenderLabelChips(labelElement, pathParts, term = "", highlightPattern = null, options = {}) {
+function esmWorkspaceRenderLabelChips(labelElement, pathParts, term = "", highlightPattern = null, options = {}) {
   if (!labelElement) {
     return;
   }
@@ -9010,7 +9809,7 @@ function decompRenderLabelChips(labelElement, pathParts, term = "", highlightPat
   labelElement.innerHTML = "";
   normalizedParts.forEach((segment, index) => {
     const chip = document.createElement("span");
-    chip.className = "decomp-chip";
+    chip.className = "esm-workspace-chip";
     chip.dataset.raw = segment;
     chip.dataset.segmentIndex = String(index);
     const segHay = segment.toLowerCase().replace(/\s+/g, "");
@@ -9020,13 +9819,13 @@ function decompRenderLabelChips(labelElement, pathParts, term = "", highlightPat
     } else {
       chip.textContent = segment;
     }
-    decompApplyChipColor(chip, segment);
+    esmWorkspaceApplyChipColor(chip, segment);
     if (onSegmentClick) {
       const segmentPathParts = normalizedParts.slice(0, index + 1);
       const runSegment = () => {
         onSegmentClick(segmentPathParts, segment, index);
       };
-      chip.classList.add("decomp-chip-clickable");
+      chip.classList.add("esm-workspace-chip-clickable");
       chip.tabIndex = 0;
       chip.setAttribute("role", "button");
       chip.setAttribute("aria-label", `Open ESM table for ${segmentPathParts.join(" / ")}`);
@@ -9049,32 +9848,32 @@ function decompRenderLabelChips(labelElement, pathParts, term = "", highlightPat
   });
 }
 
-async function decompRunEndpointFromUi(decompState, endpoint, requestToken, requestSource = "tree") {
-  if (!decompState || !endpoint?.url) {
+async function esmWorkspaceRunEndpointFromUi(esmWorkspaceState, endpoint, requestToken, requestSource = "tree") {
+  if (!esmWorkspaceState || !endpoint?.url) {
     return;
   }
   try {
-    await decompEnsureWorkspaceTab({ activate: true, windowId: decompState.controllerWindowId });
-    decompBroadcastControllerState(decompState);
-    await decompRunEndpointToWorkspace(decompState, endpoint, generateRequestId(), requestToken, {
+    await esmWorkspaceEnsureWorkspaceTab({ activate: true, windowId: esmWorkspaceState.controllerWindowId });
+    esmWorkspaceBroadcastControllerState(esmWorkspaceState);
+    await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, generateRequestId(), requestToken, {
       emitStart: true,
       requestSource,
     });
   } catch (error) {
-    setStatus(`Unable to open decomp workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
+    setStatus(`Unable to open ESM Workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
 
-async function decompMakeClickEsmFromUi(decompState, requestToken, source = "sidepanel") {
-  if (!decompState) {
+async function esmWorkspaceMakeClickEsmFromUi(esmWorkspaceState, requestToken, source = "sidepanel") {
+  if (!esmWorkspaceState) {
     return;
   }
-  const triggerButton = decompState.makeClickEsmButton;
+  const triggerButton = esmWorkspaceState.makeClickEsmButton;
   if (triggerButton) {
     triggerButton.disabled = true;
   }
   try {
-    const context = await resolveClickEsmDownloadContext(decompState);
+    const context = await resolveClickEsmDownloadContext(esmWorkspaceState);
     if (!context) {
       throw new Error("Select a media company with ESM access to generate clickESM.");
     }
@@ -9082,19 +9881,19 @@ async function decompMakeClickEsmFromUi(decompState, requestToken, source = "sid
   } catch (error) {
     setStatus(`Unable to generate clickESM: ${error instanceof Error ? error.message : String(error)}`, "error");
   } finally {
-    if (triggerButton && isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
+    if (triggerButton && isEsmServiceRequestActive(esmWorkspaceState.section, requestToken, esmWorkspaceState.programmer?.programmerId)) {
       triggerButton.disabled = false;
     }
   }
 }
 
-function decompRenderTreeNode(decompState, node, parentUl, requestToken, parentPathParts = []) {
+function esmWorkspaceRenderTreeNode(esmWorkspaceState, node, parentUl, requestToken, parentPathParts = []) {
   const item = document.createElement("li");
   const nodeRow = document.createElement("div");
-  nodeRow.className = "decomp-node";
+  nodeRow.className = "esm-workspace-node";
 
   const twisty = document.createElement("span");
-  twisty.className = "decomp-twisty";
+  twisty.className = "esm-workspace-twisty";
   const hasChildren = Array.isArray(node.children) && node.children.length > 0;
   twisty.textContent = hasChildren ? "+" : "";
   if (!hasChildren) {
@@ -9102,16 +9901,16 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken, parentP
   }
 
   const label = document.createElement("span");
-  label.className = "decomp-label";
+  label.className = "esm-workspace-label";
   const parts = Array.isArray(node.parts) ? node.parts.map((value) => String(value || "").trim()).filter(Boolean) : [];
   const fullPathParts = [...(Array.isArray(parentPathParts) ? parentPathParts : []), ...parts];
   item.dataset.nodeParts = JSON.stringify(parts);
   item.dataset.pathParts = JSON.stringify(fullPathParts);
   item.dataset.pathHay = fullPathParts.join(" ").toLowerCase().replace(/\s+/g, "");
-  decompRenderLabelChips(label, parts);
+  esmWorkspaceRenderLabelChips(label, parts);
 
   const meta = document.createElement("span");
-  meta.className = "decomp-meta";
+  meta.className = "esm-workspace-meta";
   meta.textContent = "";
 
   nodeRow.appendChild(twisty);
@@ -9119,7 +9918,7 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken, parentP
   nodeRow.appendChild(meta);
 
   if (node.endpointIndex != null) {
-    const endpoint = decompState.catalog[node.endpointIndex];
+    const endpoint = esmWorkspaceState.catalog[node.endpointIndex];
     item.dataset.endpointIndex = String(node.endpointIndex);
     item.dataset.zoomKey = String(endpoint?.zoomKey || "");
     item.dataset.hay = String(endpoint?.hay || "");
@@ -9129,14 +9928,14 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken, parentP
     }
 
     const runButton = document.createElement("button");
-    runButton.className = "decomp-run";
+    runButton.className = "esm-workspace-run";
     runButton.type = "button";
     runButton.textContent = "▶";
     runButton.title = "Run this endpoint in Workspace";
     runButton.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      void decompRunEndpointFromUi(decompState, endpoint, requestToken, "tree");
+      void esmWorkspaceRunEndpointFromUi(esmWorkspaceState, endpoint, requestToken, "tree");
     });
     nodeRow.appendChild(runButton);
   }
@@ -9149,7 +9948,7 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken, parentP
     const collapsed = childList.style.display === "none";
     childList.style.display = collapsed ? "" : "none";
     twisty.textContent = collapsed ? "−" : "+";
-    decompSyncTreeToggleButton(decompState);
+    esmWorkspaceSyncTreeToggleButton(esmWorkspaceState);
   };
 
   twisty.addEventListener("click", (event) => {
@@ -9163,8 +9962,8 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken, parentP
     event.stopPropagation();
     const isLeaf = !hasChildren;
     if (isLeaf && node.endpointIndex != null) {
-      const endpoint = decompState.catalog[node.endpointIndex];
-      void decompRunEndpointFromUi(decompState, endpoint, requestToken, "tree");
+      const endpoint = esmWorkspaceState.catalog[node.endpointIndex];
+      void esmWorkspaceRunEndpointFromUi(esmWorkspaceState, endpoint, requestToken, "tree");
       return;
     }
     if (hasChildren) {
@@ -9177,16 +9976,16 @@ function decompRenderTreeNode(decompState, node, parentUl, requestToken, parentP
     const childUl = document.createElement("ul");
     childUl.style.display = "none";
     node.children.forEach((child) => {
-      decompRenderTreeNode(decompState, child, childUl, requestToken, fullPathParts);
+      esmWorkspaceRenderTreeNode(esmWorkspaceState, child, childUl, requestToken, fullPathParts);
     });
     item.appendChild(childUl);
   }
   parentUl.appendChild(item);
 }
 
-function decompSetTreeCollapsed(decompState, shouldCollapse) {
-  const scrollElement = decompState?.treeScrollElement;
-  const headElement = decompState?.treeHeadElement;
+function esmWorkspaceSetTreeCollapsed(esmWorkspaceState, shouldCollapse) {
+  const scrollElement = esmWorkspaceState?.treeScrollElement;
+  const headElement = esmWorkspaceState?.treeHeadElement;
   if (!scrollElement) {
     return;
   }
@@ -9197,19 +9996,19 @@ function decompSetTreeCollapsed(decompState, shouldCollapse) {
   }
 }
 
-function decompSyncTreeToggleButton(decompState) {
-  const scrollElement = decompState?.treeScrollElement;
-  const root = decompState?.treeRootElement;
+function esmWorkspaceSyncTreeToggleButton(esmWorkspaceState) {
+  const scrollElement = esmWorkspaceState?.treeScrollElement;
+  const root = esmWorkspaceState?.treeRootElement;
   if (!scrollElement || !root) {
     return;
   }
-  const hasRows = root.querySelector("ul.decomp-root > li[data-endpoint-index]") != null;
+  const hasRows = root.querySelector("ul.esm-workspace-root > li[data-endpoint-index]") != null;
   if (!hasRows) {
-    decompSetTreeCollapsed(decompState, true);
+    esmWorkspaceSetTreeCollapsed(esmWorkspaceState, true);
   }
 }
 
-function decompBuildTreemapModel(catalog, endpointIndexes) {
+function esmWorkspaceBuildTreemapModel(catalog, endpointIndexes) {
   const root = {
     key: "",
     pathParts: [],
@@ -9230,7 +10029,7 @@ function decompBuildTreemapModel(catalog, endpointIndexes) {
       return;
     }
     let cursor = root;
-    const segments = decompNormalizeEndpointSegments(endpoint?.segs);
+    const segments = esmWorkspaceNormalizeEndpointSegments(endpoint?.segs);
     if (segments.length === 0) {
       return;
     }
@@ -9254,7 +10053,7 @@ function decompBuildTreemapModel(catalog, endpointIndexes) {
   });
 
   const finalize = (node) => {
-    const childNodes = [...node.children.values()].sort((left, right) => decompCompareSegments(left.key, right.key));
+    const childNodes = [...node.children.values()].sort((left, right) => esmWorkspaceCompareSegments(left.key, right.key));
     node.children = childNodes.map((child) => finalize(child));
     let endpointCount = node.endpointIndex != null ? 1 : 0;
     node.children.forEach((child) => {
@@ -9267,7 +10066,7 @@ function decompBuildTreemapModel(catalog, endpointIndexes) {
   return finalize(root);
 }
 
-function decompFlattenTreemapNodes(model) {
+function esmWorkspaceFlattenTreemapNodes(model) {
   const output = [];
   const walk = (node) => {
     if (!node || !Array.isArray(node.children)) {
@@ -9278,7 +10077,7 @@ function decompFlattenTreemapNodes(model) {
         ? child.pathParts
             .slice()
             .map((value) => String(value || "").trim())
-            .filter((value) => value && value.toLowerCase() !== "media-company")
+            .filter(Boolean)
         : [String(child.key || "").trim()].filter(Boolean);
       if (pathParts.length === 0) {
         walk(child);
@@ -9308,13 +10107,13 @@ function decompFlattenTreemapNodes(model) {
   return output;
 }
 
-function decompCreateTreemapTile(decompState, nodeEntry, requestToken) {
+function esmWorkspaceCreateTreemapTile(esmWorkspaceState, nodeEntry, requestToken) {
   const tile = document.createElement("article");
-  tile.className = "decomp-map-tile";
+  tile.className = "esm-workspace-map-tile";
   tile.dataset.depth = String(Math.max(1, Number(nodeEntry?.depth || 1)));
 
-  const hexColor = decompGetSegmentColor(nodeEntry?.key);
-  const rgb = decompHexToRgb(hexColor);
+  const hexColor = esmWorkspaceGetSegmentColor(nodeEntry?.key);
+  const rgb = esmWorkspaceHexToRgb(hexColor);
   if (rgb) {
     tile.style.setProperty("--tile-rgb", `${rgb.red}, ${rgb.green}, ${rgb.blue}`);
   } else {
@@ -9323,23 +10122,23 @@ function decompCreateTreemapTile(decompState, nodeEntry, requestToken) {
 
   const endpoint =
     nodeEntry?.endpointIndex != null && Number.isInteger(nodeEntry.endpointIndex)
-      ? decompState.catalog[nodeEntry.endpointIndex]
+      ? esmWorkspaceState.catalog[nodeEntry.endpointIndex]
       : null;
   if (endpoint) {
-    tile.classList.add("decomp-map-leaf");
+    tile.classList.add("esm-workspace-map-leaf");
   }
 
   const content = document.createElement("div");
-  content.className = "decomp-map-content";
+  content.className = "esm-workspace-map-content";
 
   const name = document.createElement("div");
-  name.className = "decomp-map-name";
+  name.className = "esm-workspace-map-name";
   name.textContent = nodeEntry?.key || "node";
   name.title = Array.isArray(nodeEntry?.pathParts) ? nodeEntry.pathParts.join("/") : "";
   content.appendChild(name);
 
   const parent = document.createElement("div");
-  parent.className = "decomp-map-parent";
+  parent.className = "esm-workspace-map-parent";
   const parentParts = Array.isArray(nodeEntry?.pathParts) ? nodeEntry.pathParts.slice(0, -1) : [];
   parent.textContent = parentParts.join(" / ");
   parent.title = parentParts.join("/");
@@ -9347,7 +10146,7 @@ function decompCreateTreemapTile(decompState, nodeEntry, requestToken) {
   content.appendChild(parent);
 
   const meta = document.createElement("div");
-  meta.className = "decomp-map-meta";
+  meta.className = "esm-workspace-map-meta";
   if (endpoint?.zoomKey) {
     meta.textContent = `[${endpoint.zoomKey}]`;
   } else {
@@ -9358,47 +10157,30 @@ function decompCreateTreemapTile(decompState, nodeEntry, requestToken) {
   tile.appendChild(content);
 
   if (endpoint) {
-    const runLink = document.createElement("a");
-    runLink.href = "#";
-    runLink.className = "decomp-map-run-link";
-    runLink.textContent = "Get ESM";
-    runLink.title = "Get ESM in Workspace";
-    runLink.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      void decompRunEndpointFromUi(decompState, endpoint, requestToken, "treemap");
-    });
-    tile.appendChild(runLink);
-  }
-
-  if (endpoint) {
     tile.addEventListener("click", (event) => {
-      if (event.target instanceof Element && event.target.closest(".decomp-map-run-link")) {
-        return;
-      }
       event.preventDefault();
       event.stopPropagation();
-      void decompRunEndpointFromUi(decompState, endpoint, requestToken, "treemap");
+      void esmWorkspaceRunEndpointFromUi(esmWorkspaceState, endpoint, requestToken, "treemap");
     });
   }
 
   return tile;
 }
 
-function decompRenderTreemap(decompState, endpointIndexes, options = {}) {
-  const treemapRoot = decompState?.treemapRootElement;
+function esmWorkspaceRenderTreemap(esmWorkspaceState, endpointIndexes, options = {}) {
+  const treemapRoot = esmWorkspaceState?.treemapRootElement;
   if (!treemapRoot) {
     return;
   }
-  const requestToken = Number(options.requestToken || decompState?.requestToken || state.premiumPanelRequestToken || 0);
+  const requestToken = Number(options.requestToken || esmWorkspaceState?.requestToken || state.premiumPanelRequestToken || 0);
   const endpointList = [...new Set(
     (Array.isArray(endpointIndexes) ? endpointIndexes : [])
       .map((value) => Number(value))
       .filter((value) => Number.isInteger(value) && value >= 0)
   )];
-  const model = decompBuildTreemapModel(decompState.catalog, endpointList);
+  const model = esmWorkspaceBuildTreemapModel(esmWorkspaceState.catalog, endpointList);
   const onlyRunnable = options.onlyRunnable === true;
-  const nodeEntries = decompFlattenTreemapNodes(model).filter((nodeEntry) => {
+  const nodeEntries = esmWorkspaceFlattenTreemapNodes(model).filter((nodeEntry) => {
     if (!onlyRunnable) {
       return true;
     }
@@ -9408,7 +10190,7 @@ function decompRenderTreemap(decompState, endpointIndexes, options = {}) {
 
   if (!model || nodeEntries.length === 0) {
     const empty = document.createElement("div");
-    empty.className = "decomp-treemap-empty";
+    empty.className = "esm-workspace-treemap-empty";
     empty.textContent = "No endpoints match current zoom/search filters.";
     treemapRoot.appendChild(empty);
   } else {
@@ -9424,25 +10206,25 @@ function decompRenderTreemap(decompState, endpointIndexes, options = {}) {
     [...groupedByDepth.keys()].sort((left, right) => left - right).forEach((depth) => {
       const depthNodes = groupedByDepth.get(depth) || [];
       const band = document.createElement("section");
-      band.className = "decomp-map-depth-band";
+      band.className = "esm-workspace-map-depth-band";
       band.dataset.depth = String(depth);
 
       const bandHead = document.createElement("div");
-      bandHead.className = "decomp-map-depth-head";
+      bandHead.className = "esm-workspace-map-depth-head";
       const depthLabel = document.createElement("span");
-      depthLabel.className = "decomp-map-depth-label";
+      depthLabel.className = "esm-workspace-map-depth-label";
       depthLabel.textContent = `Level ${depth}`;
       const depthCount = document.createElement("span");
-      depthCount.className = "decomp-map-depth-count";
+      depthCount.className = "esm-workspace-map-depth-count";
       depthCount.textContent = `${depthNodes.length} node${depthNodes.length === 1 ? "" : "s"}`;
       bandHead.appendChild(depthLabel);
       bandHead.appendChild(depthCount);
       band.appendChild(bandHead);
 
       const bandGrid = document.createElement("div");
-      bandGrid.className = "decomp-map-grid";
+      bandGrid.className = "esm-workspace-map-grid";
       depthNodes.forEach((nodeEntry) => {
-        const tile = decompCreateTreemapTile(decompState, nodeEntry, requestToken);
+        const tile = esmWorkspaceCreateTreemapTile(esmWorkspaceState, nodeEntry, requestToken);
         bandGrid.appendChild(tile);
       });
       band.appendChild(bandGrid);
@@ -9453,9 +10235,9 @@ function decompRenderTreemap(decompState, endpointIndexes, options = {}) {
 
 }
 
-function decompSetTreemapCollapsed(decompState, shouldCollapse) {
-  const scrollElement = decompState?.treemapScrollElement;
-  const headElement = decompState?.treemapHeadElement;
+function esmWorkspaceSetTreemapCollapsed(esmWorkspaceState, shouldCollapse) {
+  const scrollElement = esmWorkspaceState?.treemapScrollElement;
+  const headElement = esmWorkspaceState?.treemapHeadElement;
   if (!scrollElement) {
     return;
   }
@@ -9466,24 +10248,24 @@ function decompSetTreemapCollapsed(decompState, shouldCollapse) {
   }
 }
 
-function decompApplyTreeFilters(decompState, options = {}) {
-  const root = decompState?.treeRootElement;
+function esmWorkspaceApplyTreeFilters(esmWorkspaceState, options = {}) {
+  const root = esmWorkspaceState?.treeRootElement;
   if (!root) {
     return { visibleEndpointCount: 0 };
   }
 
-  const zoomFilter = String(options.zoomFilter ?? decompState.zoomFilterSelect?.value ?? "")
+  const zoomFilter = String(options.zoomFilter ?? esmWorkspaceState.zoomFilterSelect?.value ?? "")
     .trim()
     .toUpperCase();
-  const term = clickEsmNormalizeSearchTerm(options.term ?? decompState.searchInput?.value ?? "");
+  const term = clickEsmNormalizeSearchTerm(options.term ?? esmWorkspaceState.searchInput?.value ?? "");
   const searchMode = Boolean(term);
   const filteredMode = Boolean(searchMode || zoomFilter);
   const doHighlight = Boolean(options.highlight && term);
   const highlightPattern = doHighlight ? new RegExp(clickEsmEscapeRegExp(term), "gi") : null;
   const visibleEndpointIndexes = [];
-  root.classList.toggle("decomp-search-mode", searchMode);
+  root.classList.toggle("esm-workspace-search-mode", searchMode);
 
-  const endpointItems = root.querySelectorAll("ul.decomp-root > li[data-endpoint-index]");
+  const endpointItems = root.querySelectorAll("ul.esm-workspace-root > li[data-endpoint-index]");
   endpointItems.forEach((item) => {
     const endpointZoom = String(item.dataset.zoomKey || "").trim().toUpperCase();
     const haystack = String(item.dataset.hay || "").toLowerCase();
@@ -9492,7 +10274,7 @@ function decompApplyTreeFilters(decompState, options = {}) {
     const isVisible = zoomPass && termPass;
 
     item.style.display = isVisible ? "" : "none";
-    item.classList.remove("decomp-search-parent");
+    item.classList.remove("esm-workspace-search-parent");
 
     if (isVisible) {
       const endpointIndex = Number(item.dataset.endpointIndex || -1);
@@ -9501,44 +10283,44 @@ function decompApplyTreeFilters(decompState, options = {}) {
       }
     }
 
-    const label = item.querySelector(":scope > .decomp-node > .decomp-label");
+    const label = item.querySelector(":scope > .esm-workspace-node > .esm-workspace-label");
     if (label) {
-      const partsForRender = decompParsePathParts(item.dataset.pathParts);
-      decompRenderLabelChips(label, partsForRender, doHighlight ? term : "", highlightPattern, {
+      const partsForRender = esmWorkspaceParsePathParts(item.dataset.pathParts);
+      esmWorkspaceRenderLabelChips(label, partsForRender, doHighlight ? term : "", highlightPattern, {
         onSegmentClick: (segmentPathParts) => {
-          const endpoint = decompResolveEndpointByPathParts(decompState, segmentPathParts);
+          const endpoint = esmWorkspaceResolveEndpointByPathParts(esmWorkspaceState, segmentPathParts);
           if (!endpoint) {
             return;
           }
-          void decompRunEndpointFromUi(decompState, endpoint, options.requestToken || decompState?.requestToken || 0, "tree");
+          void esmWorkspaceRunEndpointFromUi(esmWorkspaceState, endpoint, options.requestToken || esmWorkspaceState?.requestToken || 0, "tree");
         },
       });
       const pathHay = String(item.dataset.pathHay || "");
       const segMatch = Boolean(term && pathHay.includes(term));
       const colOnlyMatch = Boolean(term && termPass && !segMatch);
-      label.classList.toggle("decomp-col-match", colOnlyMatch);
+      label.classList.toggle("esm-workspace-col-match", colOnlyMatch);
     }
   });
 
-  decompRenderTreemap(decompState, visibleEndpointIndexes, {
+  esmWorkspaceRenderTreemap(esmWorkspaceState, visibleEndpointIndexes, {
     zoomFilter,
     onlyRunnable: filteredMode,
-    requestToken: options.requestToken || decompState?.requestToken || state.premiumPanelRequestToken || 0,
+    requestToken: options.requestToken || esmWorkspaceState?.requestToken || state.premiumPanelRequestToken || 0,
   });
-  decompSyncTreeToggleButton(decompState);
+  esmWorkspaceSyncTreeToggleButton(esmWorkspaceState);
   return { visibleEndpointCount: visibleEndpointIndexes.length };
 }
 
-function decompBuildTree(decompState, requestToken) {
-  const treeRoot = decompState?.treeRootElement;
+function esmWorkspaceBuildTree(esmWorkspaceState, requestToken) {
+  const treeRoot = esmWorkspaceState?.treeRootElement;
   if (!treeRoot) {
     return;
   }
 
-  const catalog = Array.isArray(decompState.catalog) ? decompState.catalog : [];
+  const catalog = Array.isArray(esmWorkspaceState.catalog) ? esmWorkspaceState.catalog : [];
   const sortedEntries = catalog
     .map((endpoint, endpointIndex) => {
-      const pathParts = decompNormalizeEndpointSegments(endpoint?.segs);
+      const pathParts = esmWorkspaceNormalizeEndpointSegments(endpoint?.segs);
       return {
         endpoint,
         endpointIndex,
@@ -9554,7 +10336,7 @@ function decompBuildTree(decompState, requestToken) {
       if (lengthDelta !== 0) {
         return lengthDelta;
       }
-      const pathDelta = decompComparePathParts(left.pathParts, right.pathParts);
+      const pathDelta = esmWorkspaceComparePathParts(left.pathParts, right.pathParts);
       if (pathDelta !== 0) {
         return pathDelta;
       }
@@ -9563,18 +10345,18 @@ function decompBuildTree(decompState, requestToken) {
       });
     });
 
-  decompState.endpointIndexByPathKey = new Map();
+  esmWorkspaceState.endpointIndexByPathKey = new Map();
   sortedEntries.forEach(({ endpointIndex, pathParts }) => {
-    const key = decompPathPartsToKey(pathParts);
-    if (!key || decompState.endpointIndexByPathKey.has(key)) {
+    const key = esmWorkspacePathPartsToKey(pathParts);
+    if (!key || esmWorkspaceState.endpointIndexByPathKey.has(key)) {
       return;
     }
-    decompState.endpointIndexByPathKey.set(key, endpointIndex);
+    esmWorkspaceState.endpointIndexByPathKey.set(key, endpointIndex);
   });
 
   treeRoot.innerHTML = "";
   const rootList = document.createElement("ul");
-  rootList.className = "decomp-root";
+  rootList.className = "esm-workspace-root";
 
   sortedEntries.forEach(({ endpoint, endpointIndex, pathParts, searchHay }) => {
     const item = document.createElement("li");
@@ -9587,24 +10369,24 @@ function decompBuildTree(decompState, requestToken) {
     item.dataset.pathHay = pathParts.join(" ").toLowerCase().replace(/\s+/g, "");
 
     const nodeRow = document.createElement("div");
-    nodeRow.className = "decomp-node";
+    nodeRow.className = "esm-workspace-node";
 
     const label = document.createElement("span");
-    label.className = "decomp-label";
+    label.className = "esm-workspace-label";
     label.title = String(endpoint?.url || "");
-    decompRenderLabelChips(label, pathParts, "", null, {
+    esmWorkspaceRenderLabelChips(label, pathParts, "", null, {
       onSegmentClick: (segmentPathParts) => {
-        const segmentEndpoint = decompResolveEndpointByPathParts(decompState, segmentPathParts);
+        const segmentEndpoint = esmWorkspaceResolveEndpointByPathParts(esmWorkspaceState, segmentPathParts);
         if (!segmentEndpoint) {
           return;
         }
-        void decompRunEndpointFromUi(decompState, segmentEndpoint, requestToken, "tree");
+        void esmWorkspaceRunEndpointFromUi(esmWorkspaceState, segmentEndpoint, requestToken, "tree");
       },
     });
     label.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      void decompRunEndpointFromUi(decompState, endpoint, requestToken, "tree");
+      void esmWorkspaceRunEndpointFromUi(esmWorkspaceState, endpoint, requestToken, "tree");
     });
     nodeRow.appendChild(label);
 
@@ -9613,105 +10395,105 @@ function decompBuildTree(decompState, requestToken) {
   });
 
   treeRoot.appendChild(rootList);
-  decompState.treeModel = null;
-  decompApplyTreeFilters(decompState, { highlight: false });
+  esmWorkspaceState.treeModel = null;
+  esmWorkspaceApplyTreeFilters(esmWorkspaceState, { highlight: false });
 }
 
-function wireDecompInteractions(decompState, requestToken) {
-  if (!decompState?.contentElement) {
+function wireEsmWorkspaceInteractions(esmWorkspaceState, requestToken) {
+  if (!esmWorkspaceState?.contentElement) {
     return;
   }
 
   const toggleTreePanel = () => {
     const expanded = String(
-      decompState.treeHeadElement?.getAttribute("aria-expanded") || (decompState.treeScrollElement?.hidden ? "false" : "true")
+      esmWorkspaceState.treeHeadElement?.getAttribute("aria-expanded") || (esmWorkspaceState.treeScrollElement?.hidden ? "false" : "true")
     ) !== "false";
-    decompSetTreeCollapsed(decompState, expanded);
+    esmWorkspaceSetTreeCollapsed(esmWorkspaceState, expanded);
   };
 
   const toggleTreemapPanel = () => {
     const expanded = String(
-      decompState.treemapHeadElement?.getAttribute("aria-expanded") || (decompState.treemapScrollElement?.hidden ? "false" : "true")
+      esmWorkspaceState.treemapHeadElement?.getAttribute("aria-expanded") || (esmWorkspaceState.treemapScrollElement?.hidden ? "false" : "true")
     ) !== "false";
-    decompSetTreemapCollapsed(decompState, expanded);
+    esmWorkspaceSetTreemapCollapsed(esmWorkspaceState, expanded);
   };
 
-  const applyDecompSearchFilters = ({ highlight = false, normalizeInput = false } = {}) => {
-    const normalizedTerm = clickEsmNormalizeSearchTerm(decompState.searchInput?.value || "");
-    const normalizedZoomFilter = String(decompState.zoomFilterSelect?.value || "").trim().toUpperCase();
-    if (decompState.searchInput && normalizeInput) {
-      decompState.searchInput.value = normalizedTerm;
+  const applyEsmWorkspaceSearchFilters = ({ highlight = false, normalizeInput = false } = {}) => {
+    const normalizedTerm = clickEsmNormalizeSearchTerm(esmWorkspaceState.searchInput?.value || "");
+    const normalizedZoomFilter = String(esmWorkspaceState.zoomFilterSelect?.value || "").trim().toUpperCase();
+    if (esmWorkspaceState.searchInput && normalizeInput) {
+      esmWorkspaceState.searchInput.value = normalizedTerm;
     }
-    const filterResult = decompApplyTreeFilters(decompState, {
+    const filterResult = esmWorkspaceApplyTreeFilters(esmWorkspaceState, {
       zoomFilter: normalizedZoomFilter,
       term: normalizedTerm,
       highlight: Boolean(highlight && normalizedTerm),
     });
     // Keep JellyBeans visibly open whenever ZM/search controls are actively filtering.
     if ((normalizedTerm || normalizedZoomFilter) && Number(filterResult?.visibleEndpointCount || 0) >= 0) {
-      decompSetTreeCollapsed(decompState, false);
+      esmWorkspaceSetTreeCollapsed(esmWorkspaceState, false);
     }
   };
 
-  decompState.recordingToggleButton?.addEventListener("click", (event) => {
+  esmWorkspaceState.recordingToggleButton?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (state.decompStopping) {
+    if (state.esmWorkspaceStopping) {
       return;
     }
-    if (getActiveDecompDebugFlowId()) {
-      void stopDecompEsmRecording(decompState);
+    if (getActiveEsmWorkspaceDebugFlowId()) {
+      void stopEsmWorkspaceEsmRecording(esmWorkspaceState);
       return;
     }
-    void startDecompEsmRecording(decompState, requestToken);
+    void startEsmWorkspaceEsmRecording(esmWorkspaceState, requestToken);
   });
 
-  decompState.resetButton?.addEventListener("click", () => {
-    if (decompState.searchInput) {
-      decompState.searchInput.value = "";
+  esmWorkspaceState.resetButton?.addEventListener("click", () => {
+    if (esmWorkspaceState.searchInput) {
+      esmWorkspaceState.searchInput.value = "";
     }
-    if (decompState.zoomFilterSelect) {
-      decompState.zoomFilterSelect.value = "";
+    if (esmWorkspaceState.zoomFilterSelect) {
+      esmWorkspaceState.zoomFilterSelect.value = "";
     }
-    applyDecompSearchFilters({ highlight: false, normalizeInput: true });
+    applyEsmWorkspaceSearchFilters({ highlight: false, normalizeInput: true });
   });
 
-  decompState.makeClickEsmButton?.addEventListener("click", (event) => {
+  esmWorkspaceState.makeClickEsmButton?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    void decompMakeClickEsmFromUi(decompState, requestToken, "sidepanel");
+    void esmWorkspaceMakeClickEsmFromUi(esmWorkspaceState, requestToken, "sidepanel");
   });
 
-  decompState.zoomFilterSelect?.addEventListener("change", () => {
-    applyDecompSearchFilters({ highlight: true });
+  esmWorkspaceState.zoomFilterSelect?.addEventListener("change", () => {
+    applyEsmWorkspaceSearchFilters({ highlight: true });
   });
 
-  decompState.searchInput?.addEventListener("input", () => {
-    applyDecompSearchFilters({ highlight: true });
+  esmWorkspaceState.searchInput?.addEventListener("input", () => {
+    applyEsmWorkspaceSearchFilters({ highlight: true });
   });
 
-  decompState.searchInput?.addEventListener("change", () => {
-    applyDecompSearchFilters({ highlight: true });
+  esmWorkspaceState.searchInput?.addEventListener("change", () => {
+    applyEsmWorkspaceSearchFilters({ highlight: true });
   });
 
-  decompState.searchInput?.addEventListener("keydown", (event) => {
+  esmWorkspaceState.searchInput?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    applyDecompSearchFilters({ highlight: true, normalizeInput: true });
+    applyEsmWorkspaceSearchFilters({ highlight: true, normalizeInput: true });
   });
 
-  decompState.treeHeadElement?.addEventListener("click", () => {
+  esmWorkspaceState.treeHeadElement?.addEventListener("click", () => {
     toggleTreePanel();
   });
 
-  decompState.treemapHeadElement?.addEventListener("click", () => {
+  esmWorkspaceState.treemapHeadElement?.addEventListener("click", () => {
     toggleTreemapPanel();
   });
 
-  decompState.treeHeadElement?.addEventListener("keydown", (event) => {
+  esmWorkspaceState.treeHeadElement?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") {
       return;
     }
@@ -9719,7 +10501,7 @@ function wireDecompInteractions(decompState, requestToken) {
     toggleTreePanel();
   });
 
-  decompState.treemapHeadElement?.addEventListener("keydown", (event) => {
+  esmWorkspaceState.treemapHeadElement?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter" && event.key !== " ") {
       return;
     }
@@ -9729,65 +10511,65 @@ function wireDecompInteractions(decompState, requestToken) {
 
 }
 
-function getActiveDecompState() {
-  const sections = document.querySelectorAll(".premium-service-section.service-esm-decomp");
+function getActiveEsmWorkspaceState() {
+  const sections = document.querySelectorAll(".premium-service-section.service-esm");
   for (const section of sections) {
-    const decompState = section?.__underparDecompState || null;
-    if (decompState?.section?.isConnected) {
-      return decompState;
+    const esmWorkspaceState = section?.__underparEsmWorkspaceState || null;
+    if (esmWorkspaceState?.section?.isConnected) {
+      return esmWorkspaceState;
     }
   }
   return null;
 }
 
-async function handleDecompWorkspaceAction(message, sender = null) {
+async function handleEsmWorkspaceWorkspaceAction(message, sender = null) {
   const action = String(message?.action || "").trim().toLowerCase();
-  const decompState = getActiveDecompState();
+  const esmWorkspaceState = getActiveEsmWorkspaceState();
   const senderWindowId = Number(sender?.tab?.windowId || 0);
   const senderTabId = Number(sender?.tab?.id || 0);
-  const controllerWindowId = decompState
-    ? Number(decompState.controllerWindowId || state.decompWorkspaceWindowId || 0)
+  const controllerWindowId = esmWorkspaceState
+    ? Number(esmWorkspaceState.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0)
     : 0;
   const mappedSenderTabId =
-    senderWindowId > 0 ? Number(state.decompWorkspaceTabIdByWindowId.get(senderWindowId) || 0) : 0;
+    senderWindowId > 0 ? Number(state.esmWorkspaceWorkspaceTabIdByWindowId.get(senderWindowId) || 0) : 0;
 
   if (senderWindowId > 0 && controllerWindowId > 0 && senderWindowId !== controllerWindowId) {
-    return { ok: false, error: "decomp controller is attached to a different window." };
+    return { ok: false, error: "ESM controller is attached to a different window." };
   }
   if (senderWindowId > 0 && senderTabId > 0 && mappedSenderTabId > 0 && senderTabId !== mappedSenderTabId) {
-    return { ok: false, error: "This is not the bound decomp workspace tab for the window." };
+    return { ok: false, error: "This is not the bound ESM Workspace tab for the window." };
   }
   if (senderWindowId > 0 && senderTabId > 0 && (!mappedSenderTabId || mappedSenderTabId <= 0)) {
-    decompBindWorkspaceTab(senderWindowId, senderTabId);
+    esmWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
   }
-  if (decompState && senderWindowId > 0 && Number(decompState.controllerWindowId || 0) <= 0) {
-    decompState.controllerWindowId = senderWindowId;
+  if (esmWorkspaceState && senderWindowId > 0 && Number(esmWorkspaceState.controllerWindowId || 0) <= 0) {
+    esmWorkspaceState.controllerWindowId = senderWindowId;
   }
 
   if (action === "workspace-ready") {
-    emitDecompDebugEvent(getActiveDecompDebugFlowId(), {
+    emitEsmWorkspaceDebugEvent(getActiveEsmWorkspaceDebugFlowId(), {
       phase: "workspace-ready",
       source: "workspace",
       windowId: senderWindowId,
       tabId: senderTabId,
     });
-    if (decompState) {
+    if (esmWorkspaceState) {
       if (senderWindowId > 0) {
-        decompBindWorkspaceTab(senderWindowId, senderTabId);
+        esmWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
       }
-      decompBroadcastControllerState(decompState, senderWindowId);
+      esmWorkspaceBroadcastControllerState(esmWorkspaceState, senderWindowId);
     } else {
       const selectedProgrammer = resolveSelectedProgrammer();
       const selectedServices = selectedProgrammer?.programmerId
         ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
         : null;
-      decompBroadcastSelectedControllerState(selectedProgrammer, selectedServices, senderWindowId);
+      esmWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices, senderWindowId);
     }
-    return { ok: true, controllerOnline: Boolean(decompState) };
+    return { ok: true, controllerOnline: Boolean(esmWorkspaceState) };
   }
 
   if (action === "make-clickesm") {
-    const context = await resolveClickEsmDownloadContext(decompState);
+    const context = await resolveClickEsmDownloadContext(esmWorkspaceState);
     if (!context) {
       return { ok: false, error: "Select a media company with ESM access to generate clickESM." };
     }
@@ -9801,7 +10583,7 @@ async function handleDecompWorkspaceAction(message, sender = null) {
   }
 
   if (action === "resolve-clickesmws-auth") {
-    const context = await resolveClickEsmDownloadContext(decompState);
+    const context = await resolveClickEsmDownloadContext(esmWorkspaceState);
     if (!context) {
       return { ok: false, error: "Select a media company with ESM access to generate clickESM workspace tearsheet." };
     }
@@ -9820,26 +10602,26 @@ async function handleDecompWorkspaceAction(message, sender = null) {
     };
   }
 
-  if (!decompState) {
-    return { ok: false, error: "Open decomp in the UnderPAR side panel to run reports." };
+  if (!esmWorkspaceState) {
+    return { ok: false, error: "Open ESM in the UnderPAR side panel to run reports." };
   }
 
   const requestToken = Number(state.premiumPanelRequestToken || 0);
-  if (!isEsmServiceRequestActive(decompState.section, requestToken, decompState.programmer?.programmerId)) {
-    return { ok: false, error: "decomp controller is no longer active for the selected media company." };
+  if (!isEsmServiceRequestActive(esmWorkspaceState.section, requestToken, esmWorkspaceState.programmer?.programmerId)) {
+    return { ok: false, error: "ESM controller is no longer active for the selected media company." };
   }
-  const activeFlowId = getActiveDecompDebugFlowId();
+  const activeFlowId = getActiveEsmWorkspaceDebugFlowId();
 
   if (action === "open-workspace") {
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "workspace-action",
       action: "open-workspace",
       source: "workspace",
-      windowId: senderWindowId || Number(decompState.controllerWindowId || 0),
+      windowId: senderWindowId || Number(esmWorkspaceState.controllerWindowId || 0),
     });
-    const targetWindowId = senderWindowId || Number(decompState.controllerWindowId || 0);
-    await decompEnsureWorkspaceTab({ activate: true, windowId: targetWindowId });
-    decompBroadcastControllerState(decompState, targetWindowId);
+    const targetWindowId = senderWindowId || Number(esmWorkspaceState.controllerWindowId || 0);
+    await esmWorkspaceEnsureWorkspaceTab({ activate: true, windowId: targetWindowId });
+    esmWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId);
     return { ok: true };
   }
 
@@ -9849,7 +10631,7 @@ async function handleDecompWorkspaceAction(message, sender = null) {
     const requestSource = requestSourceRaw || "workspace";
     const allowRequestOverride = requestSource === "workspace-path-link" || requestSource === "workspace-path-node";
     const requestUrlOverride = allowRequestOverride ? String(card?.requestUrl || "") : "";
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "workspace-action",
       action: "run-card",
       source: "workspace",
@@ -9857,14 +10639,15 @@ async function handleDecompWorkspaceAction(message, sender = null) {
       endpointUrl: String(card?.endpointUrl || ""),
       requestSource,
     });
-    const endpoint = decompFindEndpointByUrl(decompState, card.endpointUrl, card);
+    const endpoint = esmWorkspaceFindEndpointByUrl(esmWorkspaceState, card.endpointUrl, card);
     if (!endpoint) {
       return { ok: false, error: "Endpoint URL is required." };
     }
-    await decompRunEndpointToWorkspace(decompState, endpoint, String(card.cardId || generateRequestId()), requestToken, {
+    await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, String(card.cardId || generateRequestId()), requestToken, {
       emitStart: true,
       requestSource,
       requestUrlOverride,
+      localColumnFilters: card?.localColumnFilters,
     });
     return { ok: true };
   }
@@ -9873,58 +10656,60 @@ async function handleDecompWorkspaceAction(message, sender = null) {
     const cards = Array.isArray(message?.cards) ? message.cards : [];
     const reason = String(message?.reason || "").trim().toLowerCase();
     const requestSourceForRerun = reason === "programmer-switch" ? "workspace-programmer-switch" : "workspace";
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "workspace-action",
       action: "rerun-all",
       source: "workspace",
       cardCount: cards.length,
     });
-    void decompSendWorkspaceMessage("batch-start", {
+    void esmWorkspaceSendWorkspaceMessage("batch-start", {
       total: cards.length,
       reason,
       startedAt: Date.now(),
     }, {
-      targetWindowId: senderWindowId || Number(decompState.controllerWindowId || 0),
+      targetWindowId: senderWindowId || Number(esmWorkspaceState.controllerWindowId || 0),
     });
     for (const card of cards) {
-      const endpoint = decompFindEndpointByUrl(decompState, card?.endpointUrl, card || {});
+      const endpoint = esmWorkspaceFindEndpointByUrl(esmWorkspaceState, card?.endpointUrl, card || {});
       if (!endpoint) {
         continue;
       }
-      await decompRunEndpointToWorkspace(decompState, endpoint, String(card?.cardId || generateRequestId()), requestToken, {
+      await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, String(card?.cardId || generateRequestId()), requestToken, {
         emitStart: true,
         requestSource: requestSourceForRerun,
+        localColumnFilters: card?.localColumnFilters,
       });
     }
-    void decompSendWorkspaceMessage("batch-end", {
+    void esmWorkspaceSendWorkspaceMessage("batch-end", {
       total: cards.length,
       reason,
       completedAt: Date.now(),
     }, {
-      targetWindowId: senderWindowId || Number(decompState.controllerWindowId || 0),
+      targetWindowId: senderWindowId || Number(esmWorkspaceState.controllerWindowId || 0),
     });
     return { ok: true };
   }
 
   if (action === "download-csv") {
     const card = message?.card && typeof message.card === "object" ? message.card : {};
-    emitDecompDebugEvent(activeFlowId, {
+    emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "workspace-action",
       action: "download-csv",
       source: "workspace",
       cardId: String(card?.cardId || ""),
       endpointUrl: String(card?.endpointUrl || ""),
     });
-    const endpoint = decompFindEndpointByUrl(decompState, card.endpointUrl, card);
+    const endpoint = esmWorkspaceFindEndpointByUrl(esmWorkspaceState, card.endpointUrl, card);
     if (!endpoint) {
       return { ok: false, error: "Endpoint URL is required." };
     }
-    await decompDownloadCsvForCard(
-      decompState,
+    await esmWorkspaceDownloadCsvForCard(
+      esmWorkspaceState,
       endpoint,
-      decompNormalizeSortRule(message?.sortRule),
+      esmWorkspaceNormalizeSortRule(message?.sortRule),
       requestToken,
-      String(card.cardId || "")
+      String(card.cardId || ""),
+      card?.localColumnFilters
     );
     return { ok: true };
   }
@@ -9932,16 +10717,16 @@ async function handleDecompWorkspaceAction(message, sender = null) {
   return { ok: false, error: `Unsupported workspace action: ${action}` };
 }
 
-function ensureDecompRuntimeListener() {
-  if (state.decompRuntimeListenerBound) {
+function ensureEsmWorkspaceRuntimeListener() {
+  if (state.esmWorkspaceRuntimeListenerBound) {
     return;
   }
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!DECOMP_MESSAGE_TYPES.has(String(message?.type || "")) || message?.channel !== "workspace-action") {
+    if (!ESM_WORKSPACE_MESSAGE_TYPES.has(String(message?.type || "")) || message?.channel !== "workspace-action") {
       return false;
     }
 
-    void handleDecompWorkspaceAction(message, sender)
+    void handleEsmWorkspaceWorkspaceAction(message, sender)
       .then((result) => {
         sendResponse(result && typeof result === "object" ? result : { ok: true });
       })
@@ -9950,11 +10735,11 @@ function ensureDecompRuntimeListener() {
       });
     return true;
   });
-  state.decompRuntimeListenerBound = true;
+  state.esmWorkspaceRuntimeListenerBound = true;
 }
 
-function ensureDecompWorkspaceTabWatcher() {
-  if (state.decompWorkspaceTabWatcherBound) {
+function ensureEsmWorkspaceWorkspaceTabWatcher() {
+  if (state.esmWorkspaceWorkspaceTabWatcherBound) {
     return;
   }
 
@@ -9962,42 +10747,42 @@ function ensureDecompWorkspaceTabWatcher() {
     const removedTabId = Number(tabId || 0);
     if (removedTabId > 0) {
       const isBoundWorkspaceTab =
-        removedTabId === Number(state.decompWorkspaceTabId || 0) ||
-        [...state.decompWorkspaceTabIdByWindowId.values()].some((mappedTabId) => Number(mappedTabId || 0) === removedTabId);
+        removedTabId === Number(state.esmWorkspaceWorkspaceTabId || 0) ||
+        [...state.esmWorkspaceWorkspaceTabIdByWindowId.values()].some((mappedTabId) => Number(mappedTabId || 0) === removedTabId);
       if (isBoundWorkspaceTab) {
-        emitDecompDebugEvent(getActiveDecompDebugFlowId(), {
+        emitEsmWorkspaceDebugEvent(getActiveEsmWorkspaceDebugFlowId(), {
           phase: "workspace-tab-closed",
           tabId: removedTabId,
         });
       }
     }
-    decompUnbindWorkspaceTab(tabId);
+    esmWorkspaceUnbindWorkspaceTab(tabId);
   });
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     const normalizedTabId = Number(tabId || 0);
     if (!normalizedTabId || !changeInfo?.url) {
       return;
     }
-    if (decompIsWorkspaceTab(tab)) {
-      decompBindWorkspaceTab(tab?.windowId, normalizedTabId);
+    if (esmWorkspaceIsWorkspaceTab(tab)) {
+      esmWorkspaceBindWorkspaceTab(tab?.windowId, normalizedTabId);
       return;
     }
-    const boundTabId = Number(state.decompWorkspaceTabId || 0);
+    const boundTabId = Number(state.esmWorkspaceWorkspaceTabId || 0);
     let isMappedTab = false;
-    for (const mappedTabId of state.decompWorkspaceTabIdByWindowId.values()) {
+    for (const mappedTabId of state.esmWorkspaceWorkspaceTabIdByWindowId.values()) {
       if (Number(mappedTabId || 0) === normalizedTabId) {
         isMappedTab = true;
         break;
       }
     }
     if (isMappedTab || normalizedTabId === boundTabId) {
-      decompUnbindWorkspaceTab(normalizedTabId);
+      esmWorkspaceUnbindWorkspaceTab(normalizedTabId);
     }
   });
-  state.decompWorkspaceTabWatcherBound = true;
+  state.esmWorkspaceWorkspaceTabWatcherBound = true;
 }
 
-async function loadDecompService(programmer, appInfo, section, contentElement, requestToken) {
+async function loadEsmWorkspaceService(programmer, appInfo, section, contentElement, requestToken) {
   if (!contentElement) {
     return;
   }
@@ -10006,20 +10791,20 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
     return;
   }
 
-  section.__underparDecompState = null;
+  section.__underparEsmWorkspaceState = null;
   if (
-    state.decompRecordingActive &&
-    state.decompRecordingContext &&
-    String(state.decompRecordingContext.programmerId || "") &&
-    String(state.decompRecordingContext.programmerId || "") !== String(programmer.programmerId || "")
+    state.esmWorkspaceRecordingActive &&
+    state.esmWorkspaceRecordingContext &&
+    String(state.esmWorkspaceRecordingContext.programmerId || "") &&
+    String(state.esmWorkspaceRecordingContext.programmerId || "") !== String(programmer.programmerId || "")
   ) {
-    clearDecompRecordingState("programmer-change");
+    clearEsmWorkspaceRecordingState("programmer-change");
   }
 
-  contentElement.innerHTML = '<div class="loading">Loading decomp...</div>';
+  contentElement.innerHTML = '<div class="loading">Loading ESM...</div>';
 
   try {
-    const controllerWindowId = await decompGetCurrentWindowId();
+    const controllerWindowId = await esmWorkspaceGetCurrentWindowId();
     const endpoints = await loadClickEsmEndpoints();
     if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
       return;
@@ -10029,7 +10814,7 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
       return;
     }
 
-    const catalog = decompBuildCatalog(endpoints);
+    const catalog = esmWorkspaceBuildCatalog(endpoints);
     const endpointByUrl = new Map();
     catalog.forEach((item) => {
       endpointByUrl.set(item.url, {
@@ -10039,9 +10824,9 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
       });
     });
 
-    contentElement.innerHTML = decompBuildShellHtml();
-    const decompState = {
-      serviceType: "decompTree",
+    contentElement.innerHTML = esmWorkspaceBuildShellHtml();
+    const esmWorkspaceState = {
+      serviceType: "esmWorkspace",
       controllerWindowId: Number(controllerWindowId || 0),
       section,
       contentElement,
@@ -10053,45 +10838,45 @@ async function loadDecompService(programmer, appInfo, section, contentElement, r
       treeModel: null,
       netInFlight: 0,
       requestToken,
-      zoomFilterSelect: contentElement.querySelector(".decomp-zoom-filter"),
-      searchInput: contentElement.querySelector(".decomp-search"),
-      resetButton: contentElement.querySelector(".decomp-reset-btn"),
-      makeClickEsmButton: contentElement.querySelector(".decomp-make-clickesm-btn"),
-      treeHeadElement: contentElement.querySelector(".decomp-tree-head"),
-      treeScrollElement: contentElement.querySelector(".decomp-tree-scroll"),
-      treeRootElement: contentElement.querySelector(".decomp-tree-root"),
-      treemapHeadElement: contentElement.querySelector(".decomp-treemap-head"),
-      treemapRootElement: contentElement.querySelector(".decomp-treemap-root"),
-      treemapScrollElement: contentElement.querySelector(".decomp-treemap-scroll"),
-      recordingStatusElement: contentElement.querySelector(".decomp-recording-status"),
-      recordingToggleButton: contentElement.querySelector(".decomp-record-toggle-btn"),
+      zoomFilterSelect: contentElement.querySelector(".esm-workspace-zoom-filter"),
+      searchInput: contentElement.querySelector(".esm-workspace-search"),
+      resetButton: contentElement.querySelector(".esm-workspace-reset-btn"),
+      makeClickEsmButton: contentElement.querySelector(".esm-workspace-make-clickesm-btn"),
+      treeHeadElement: contentElement.querySelector(".esm-workspace-tree-head"),
+      treeScrollElement: contentElement.querySelector(".esm-workspace-tree-scroll"),
+      treeRootElement: contentElement.querySelector(".esm-workspace-tree-root"),
+      treemapHeadElement: contentElement.querySelector(".esm-workspace-treemap-head"),
+      treemapRootElement: contentElement.querySelector(".esm-workspace-treemap-root"),
+      treemapScrollElement: contentElement.querySelector(".esm-workspace-treemap-scroll"),
+      recordingStatusElement: contentElement.querySelector(".esm-workspace-recording-status"),
+      recordingToggleButton: contentElement.querySelector(".esm-workspace-record-toggle-btn"),
     };
 
-    if (decompState.treeHeadElement) {
-      decompState.treeHeadElement.setAttribute("role", "button");
-      decompState.treeHeadElement.setAttribute("tabindex", "0");
-      decompState.treeHeadElement.setAttribute("aria-expanded", "false");
-      decompState.treeHeadElement.setAttribute("aria-label", "Toggle JellyBeans");
+    if (esmWorkspaceState.treeHeadElement) {
+      esmWorkspaceState.treeHeadElement.setAttribute("role", "button");
+      esmWorkspaceState.treeHeadElement.setAttribute("tabindex", "0");
+      esmWorkspaceState.treeHeadElement.setAttribute("aria-expanded", "false");
+      esmWorkspaceState.treeHeadElement.setAttribute("aria-label", "Toggle JellyBeans");
     }
 
-    if (decompState.treemapHeadElement) {
-      decompState.treemapHeadElement.setAttribute("role", "button");
-      decompState.treemapHeadElement.setAttribute("tabindex", "0");
-      decompState.treemapHeadElement.setAttribute("aria-expanded", "false");
-      decompState.treemapHeadElement.setAttribute("aria-label", "Toggle TreeMap");
+    if (esmWorkspaceState.treemapHeadElement) {
+      esmWorkspaceState.treemapHeadElement.setAttribute("role", "button");
+      esmWorkspaceState.treemapHeadElement.setAttribute("tabindex", "0");
+      esmWorkspaceState.treemapHeadElement.setAttribute("aria-expanded", "false");
+      esmWorkspaceState.treemapHeadElement.setAttribute("aria-label", "Toggle TreeMap");
     }
 
-    section.__underparDecompState = decompState;
-    wireDecompInteractions(decompState, requestToken);
-    decompSetTreeCollapsed(decompState, true);
-    decompSetTreemapCollapsed(decompState, true);
-    syncDecompRecordingControls(decompState);
-    decompBuildTree(decompState, requestToken);
-    syncDecompRecordingControls(decompState);
+    section.__underparEsmWorkspaceState = esmWorkspaceState;
+    wireEsmWorkspaceInteractions(esmWorkspaceState, requestToken);
+    esmWorkspaceSetTreeCollapsed(esmWorkspaceState, true);
+    esmWorkspaceSetTreemapCollapsed(esmWorkspaceState, true);
+    syncEsmWorkspaceRecordingControls(esmWorkspaceState);
+    esmWorkspaceBuildTree(esmWorkspaceState, requestToken);
+    syncEsmWorkspaceRecordingControls(esmWorkspaceState);
 
-    ensureDecompRuntimeListener();
-    ensureDecompWorkspaceTabWatcher();
-    decompBroadcastControllerState(decompState);
+    ensureEsmWorkspaceRuntimeListener();
+    ensureEsmWorkspaceWorkspaceTabWatcher();
+    esmWorkspaceBroadcastControllerState(esmWorkspaceState);
   } catch (error) {
     if (!isEsmServiceRequestActive(section, requestToken, programmer.programmerId)) {
       return;
@@ -10137,6 +10922,9 @@ function cmBindWorkspaceTab(windowId, tabId) {
 
 function cmUnbindWorkspaceTab(tabId) {
   const normalizedTabId = Number(tabId || 0);
+  if (normalizedTabId > 0 && Number(state.cmWorkspaceActivityDebugTargetTabId || 0) === normalizedTabId) {
+    state.cmWorkspaceActivityDebugTargetTabId = 0;
+  }
   if (normalizedTabId > 0) {
     for (const [windowId, mappedTabId] of state.cmWorkspaceTabIdByWindowId.entries()) {
       if (Number(mappedTabId || 0) === normalizedTabId) {
@@ -10268,7 +11056,7 @@ function cmBroadcastControllerState(cmState, targetWindowId = 0) {
 async function cmEnsureWorkspaceTab(options = {}) {
   const shouldActivate = options.activate !== false;
   const requestedWindowId = Number(options.windowId || 0);
-  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await decompGetCurrentWindowId();
+  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await esmWorkspaceGetCurrentWindowId();
   const useWindowFilter = targetWindowId > 0;
   let workspaceTab = null;
 
@@ -10313,6 +11101,170 @@ async function cmEnsureWorkspaceTab(options = {}) {
 
   cmBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
   return workspaceTab;
+}
+
+function getActiveCmWorkspaceActivityDebugFlowId() {
+  return String(state.cmWorkspaceActivityDebugFlowId || "").trim();
+}
+
+function buildCmWorkspaceDebugContext(cmState = null) {
+  const selections = getGlobalRequestorMvpdSelections();
+  const activeCmState = cmState || getActiveCmState() || null;
+  const programmer = activeCmState?.programmer || resolveSelectedProgrammer() || null;
+  return {
+    serviceType: "cm",
+    programmerId: String(programmer?.programmerId || ""),
+    programmerName: String(programmer?.programmerName || ""),
+    requestorId: String(selections.requestorIds[0] || ""),
+    mvpd: String(selections.mvpdIds[0] || ""),
+    requestorIds: selections.requestorIds.slice(0, 24),
+    mvpdIds: selections.mvpdIds.slice(0, 24),
+  };
+}
+
+async function resolveCmWorkspaceDebugTargetTabId(options = {}) {
+  const preferredWindowId = Number(options.preferredWindowId || 0);
+  const fallbackTabId = Number(options.fallbackTabId || 0);
+
+  const candidateTabIds = [];
+  const pushCandidateTabId = (tabId) => {
+    const normalizedTabId = Number(tabId || 0);
+    if (!Number.isFinite(normalizedTabId) || normalizedTabId <= 0) {
+      return;
+    }
+    if (!candidateTabIds.includes(normalizedTabId)) {
+      candidateTabIds.push(normalizedTabId);
+    }
+  };
+
+  pushCandidateTabId(state.cmWorkspaceActivityDebugTargetTabId);
+  pushCandidateTabId(fallbackTabId);
+  pushCandidateTabId(cmGetBoundWorkspaceTabId(preferredWindowId));
+  pushCandidateTabId(state.cmWorkspaceTabId);
+  pushCandidateTabId(state.restV2LastLaunchTabId);
+
+  const preferredWindowTab = await getEsmWorkspaceActiveTabForWindow(preferredWindowId);
+  if (preferredWindowTab) {
+    pushCandidateTabId(preferredWindowTab.id);
+  }
+
+  const activeTab = await getCurrentActiveTab();
+  if (activeTab) {
+    pushCandidateTabId(activeTab.id);
+  }
+
+  for (const candidateTabId of candidateTabIds) {
+    const tab = await getEsmWorkspaceDebuggableTabById(candidateTabId);
+    if (tab) {
+      state.cmWorkspaceActivityDebugTargetTabId = Number(tab.id || 0);
+      return Number(tab.id || 0);
+    }
+  }
+
+  state.cmWorkspaceActivityDebugTargetTabId = 0;
+  return 0;
+}
+
+async function ensureCmWorkspaceActivityDebugFlow(options = {}) {
+  const activePremiumFlowId = String(getActivePremiumDebugFlowId() || "").trim();
+  if (activePremiumFlowId) {
+    return activePremiumFlowId;
+  }
+
+  const preferredWindowId = Number(options.preferredWindowId || 0);
+  const fallbackTabId = Number(options.fallbackTabId || 0);
+  const existingFlowId = getActiveCmWorkspaceActivityDebugFlowId();
+
+  if (existingFlowId) {
+    const previousTargetTabId = Number(state.cmWorkspaceActivityDebugTargetTabId || 0);
+    const targetTabId = await resolveCmWorkspaceDebugTargetTabId({
+      preferredWindowId,
+      fallbackTabId,
+    });
+    if (targetTabId > 0 && targetTabId !== previousTargetTabId) {
+      const context = buildCmWorkspaceDebugContext(getActiveCmState());
+      const bound = await bindRestV2DebugFlowToTab(existingFlowId, targetTabId, {
+        requestorId: context.requestorId,
+        mvpd: context.mvpd,
+        serviceType: "cm",
+        eventsOnly: true,
+        captureNetwork: false,
+      });
+      if (bound) {
+        state.cmWorkspaceActivityDebugTargetTabId = targetTabId;
+      }
+    }
+    return existingFlowId;
+  }
+
+  if (state.cmWorkspaceActivityDebugFlowPromise) {
+    return state.cmWorkspaceActivityDebugFlowPromise;
+  }
+
+  const createPromise = (async () => {
+    const context = buildCmWorkspaceDebugContext(getActiveCmState());
+    if (!context.programmerId) {
+      return "";
+    }
+
+    const flowId = await startRestV2DebugFlow(context, "cm-activity");
+    if (!flowId) {
+      return "";
+    }
+
+    state.cmWorkspaceActivityDebugFlowId = flowId;
+
+    const targetTabId = await resolveCmWorkspaceDebugTargetTabId({
+      preferredWindowId,
+      fallbackTabId,
+    });
+    if (targetTabId > 0) {
+      const bound = await bindRestV2DebugFlowToTab(flowId, targetTabId, {
+        requestorId: context.requestorId,
+        mvpd: context.mvpd,
+        serviceType: "cm",
+        eventsOnly: true,
+        captureNetwork: false,
+      });
+      if (bound) {
+        state.cmWorkspaceActivityDebugTargetTabId = targetTabId;
+      }
+    }
+
+    emitRestV2DebugEvent(flowId, {
+      source: "extension",
+      service: "cm",
+      phase: "activity-flow-start",
+      trigger: String(options.reason || "cm-activity"),
+      programmerId: context.programmerId,
+      requestorId: context.requestorId,
+      mvpd: context.mvpd,
+      tabId: Number(state.cmWorkspaceActivityDebugTargetTabId || 0),
+    });
+
+    return flowId;
+  })()
+    .catch(() => "")
+    .finally(() => {
+      state.cmWorkspaceActivityDebugFlowPromise = null;
+    });
+
+  state.cmWorkspaceActivityDebugFlowPromise = createPromise;
+  return createPromise;
+}
+
+function clearCmWorkspaceActivityDebugFlow(reason = "state-reset", options = {}) {
+  const normalizedReason = String(reason || "state-reset").trim() || "state-reset";
+  const flowId = getActiveCmWorkspaceActivityDebugFlowId();
+  const shouldStopFlow = options?.stopFlow === true;
+
+  if (flowId && shouldStopFlow) {
+    void stopRestV2DebugFlowAndSnapshot(flowId, normalizedReason);
+  }
+
+  state.cmWorkspaceActivityDebugFlowId = "";
+  state.cmWorkspaceActivityDebugFlowPromise = null;
+  state.cmWorkspaceActivityDebugTargetTabId = 0;
 }
 
 function cmBuildRecordId(kind, tenantId, entityId, index = 0) {
@@ -10746,6 +11698,35 @@ function cmBuildWorkspaceRecordsFromBundles(bundles) {
     seen.add(record.cardId);
     output.push(record);
   };
+  const buildCmApplicationDetailUrl = (tenantId = "", entityId = "") => {
+    const normalizedTenantId = String(tenantId || "").trim();
+    const normalizedEntityId = String(entityId || "").trim();
+    if (!normalizedTenantId || !normalizedEntityId) {
+      return "";
+    }
+    return normalizeCmUrl(
+      `${CM_CONFIG_BASE_URL}/maitai/policy/${encodeURIComponent(normalizedEntityId)}?orgId=${encodeURIComponent(normalizedTenantId)}`
+    );
+  };
+  const resolvePrimaryGroupRecordUrl = (groupKind, row, tenantId, entityId, fallbackUrl) => {
+    const links = (Array.isArray(row?.links) ? row.links : []).map((value) => normalizeCmUrl(value)).filter(Boolean);
+    const normalizedKind = String(groupKind || "").trim().toLowerCase();
+    if (normalizedKind === "applications") {
+      const detailUrl = buildCmApplicationDetailUrl(tenantId, entityId);
+      if (detailUrl) {
+        return detailUrl;
+      }
+      const policyLink = links.find((value) => /\/maitai\/policy\/[^/?#]+/i.test(String(value || "")));
+      if (policyLink) {
+        return policyLink;
+      }
+    }
+    return firstNonEmptyString([
+      links[0],
+      row?.sourceUrl,
+      fallbackUrl,
+    ]);
+  };
 
   (Array.isArray(bundles) ? bundles : []).forEach((bundle, bundleIndex) => {
     const tenant = bundle?.tenant || {};
@@ -10792,7 +11773,7 @@ function cmBuildWorkspaceRecordsFromBundles(bundles) {
         const entityId = String(row?.entityId || row?.name || `${group.kind}-${rowIndex + 1}`);
         const isUsageRecord = group.kind === "usage";
         const payload = isUsageRecord ? null : row?.raw && typeof row.raw === "object" ? row.raw : row;
-        const primaryUrl = String(row?.links?.[0] || row?.sourceUrl || group.fallbackUrl || "");
+        const primaryUrl = String(resolvePrimaryGroupRecordUrl(group.kind, row, tenantId, entityId, group.fallbackUrl) || "");
         pushRecord({
           cardId: cmBuildRecordId(group.kind, tenantId, entityId, rowIndex),
           kind: group.kind,
@@ -10909,6 +11890,430 @@ function cmBuildGroupListHtml(groupLabel, records, groupRecordId = "") {
       <ul class="cm-group-list">${items}</ul>
     </section>
   `;
+}
+
+function cmuUsageExtractPathParts(endpointUrl) {
+  const rawUrl = String(endpointUrl || "").trim();
+  if (!rawUrl) {
+    return [];
+  }
+  let pathname = "";
+  try {
+    pathname = String(new URL(rawUrl).pathname || "");
+  } catch {
+    pathname = rawUrl.replace(/^https?:\/\/[^/]+/i, "").split("?")[0];
+  }
+  const parts = pathname
+    .split("/")
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  if (parts.length === 0) {
+    return [];
+  }
+  const v2Index = parts.findIndex((part) => String(part || "").toLowerCase() === "v2");
+  if (v2Index >= 0) {
+    return parts.slice(v2Index + 1).map((value) => String(value || "").trim()).filter(Boolean);
+  }
+  const cmuIndex = parts.findIndex((part) => String(part || "").toLowerCase() === "cmu");
+  if (cmuIndex >= 0) {
+    return parts
+      .slice(cmuIndex + 1)
+      .map((value) => String(value || "").trim())
+      .filter((value) => value && String(value).toLowerCase() !== "v2");
+  }
+  return parts;
+}
+
+function cmuUsageGetZoomKey(pathParts, endpointUrl = "") {
+  const normalizedParts = Array.isArray(pathParts)
+    ? pathParts.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
+    : [];
+  const normalizedPath = `/${normalizedParts.join("/")}`;
+  const normalizedUrl = String(endpointUrl || "").trim().toLowerCase();
+  const haystack = `${normalizedPath} ${normalizedUrl}`;
+  if (haystack.includes("/minute")) {
+    return "MIN";
+  }
+  if (haystack.includes("/hour")) {
+    return "HR";
+  }
+  if (haystack.includes("/day")) {
+    return "DAY";
+  }
+  if (haystack.includes("/month")) {
+    return "MO";
+  }
+  if (haystack.includes("/year")) {
+    return "YR";
+  }
+  return "";
+}
+
+function cmuUsagePathPartsToKey(pathParts) {
+  return (Array.isArray(pathParts) ? pathParts : [])
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+    .join("/");
+}
+
+function cmuUsageBuildCatalog(usageRecords) {
+  const recordsByPathKey = new Map();
+  const catalog = [];
+  (Array.isArray(usageRecords) ? usageRecords : []).forEach((record) => {
+    const endpointUrl = String(record?.requestUrl || record?.endpointUrl || "").trim();
+    const pathParts = cmuUsageExtractPathParts(endpointUrl);
+    if (!endpointUrl || pathParts.length === 0) {
+      return;
+    }
+    const pathKey = cmuUsagePathPartsToKey(pathParts);
+    if (!pathKey) {
+      return;
+    }
+    const queue = Array.isArray(recordsByPathKey.get(pathKey)) ? recordsByPathKey.get(pathKey) : [];
+    queue.push(record);
+    recordsByPathKey.set(pathKey, queue);
+    if (queue.length > 1) {
+      return;
+    }
+    const zoomKey = cmuUsageGetZoomKey(pathParts, endpointUrl);
+    const columns = Array.isArray(record?.columns) ? record.columns.map((value) => String(value || "").trim()).filter(Boolean) : [];
+    const searchHay = `${pathParts.join(" ")} ${columns.join(" ")}`.toLowerCase().replace(/\s+/g, "");
+    catalog.push({
+      key: pathKey,
+      pathParts,
+      pathHay: pathParts.join(" ").toLowerCase().replace(/\s+/g, ""),
+      zoomKey,
+      columns,
+      endpointUrl,
+      searchHay,
+    });
+  });
+
+  catalog.sort((left, right) => {
+    const lengthDelta = left.pathParts.length - right.pathParts.length;
+    if (lengthDelta !== 0) {
+      return lengthDelta;
+    }
+    return esmWorkspaceComparePathParts(left.pathParts, right.pathParts);
+  });
+
+  return {
+    catalog,
+    recordsByPathKey,
+  };
+}
+
+function cmuUsageBuildShellHtml() {
+  const zoomOptions = CLICK_ESM_ZOOM_OPTIONS.filter((key) => key !== "MIN" && key !== "YR").map((key) => {
+    const value = escapeHtml(key);
+    const label = key ? escapeHtml(key) : "";
+    return `<option value="${value}">${label}</option>`;
+  }).join("");
+
+  return `
+    <div class="cmu-jelly-shell">
+      <div class="esm-workspace-toolbar cmu-jelly-toolbar">
+        <select class="esm-workspace-zoom-filter cmu-jelly-zoom-filter" title="Zoom Level">${zoomOptions}</select>
+        <input type="text" class="esm-workspace-search cmu-jelly-search" placeholder="CMU Column search..." />
+        <button type="button" class="esm-workspace-reset-btn cmu-jelly-reset-btn">RESET</button>
+      </div>
+      <div class="esm-workspace-tree-panel cmu-jelly-tree-panel">
+        <div class="esm-workspace-tree-head cmu-jelly-tree-head">
+          <div class="esm-workspace-tree-title">CMU JellyBeans</div>
+        </div>
+        <div class="esm-workspace-tree-scroll cmu-jelly-tree-scroll" hidden>
+          <div class="esm-workspace-tree-root cmu-jelly-tree-root"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function cmuUsageNormalizeRecordUrl(record) {
+  return normalizeCmUrl(String(record?.requestUrl || record?.endpointUrl || "").trim());
+}
+
+function cmuUsageDeduplicateRecords(records = []) {
+  const deduped = [];
+  const seen = new Set();
+  (Array.isArray(records) ? records : []).forEach((record) => {
+    if (!record || typeof record !== "object") {
+      return;
+    }
+    const endpointUrl = cmuUsageNormalizeRecordUrl(record);
+    const key = endpointUrl || String(record?.cardId || "").trim();
+    if (!key || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    deduped.push(record);
+  });
+  return deduped;
+}
+
+function cmuUsageResolveRecordsByPath(cmuUsageState, pathParts) {
+  const map = cmuUsageState?.recordsByPathKey instanceof Map ? cmuUsageState.recordsByPathKey : null;
+  if (!map) {
+    return [];
+  }
+  const normalizedParts = esmWorkspaceNormalizeEndpointSegments(pathParts);
+  for (let size = normalizedParts.length; size >= 1; size -= 1) {
+    const key = cmuUsagePathPartsToKey(normalizedParts.slice(0, size));
+    if (!key) {
+      continue;
+    }
+    const records = map.get(key);
+    if (Array.isArray(records) && records.length > 0) {
+      const deduped = cmuUsageDeduplicateRecords(records);
+      if (deduped.length > 0) {
+        // CMU JellyBeans should add one table card per click.
+        return [deduped[0]];
+      }
+    }
+  }
+  return [];
+}
+
+async function cmuUsageRunRecordsFromUi(cmState, cmuUsageState, records, requestToken, source = "cmu-jelly") {
+  const queue = cmuUsageDeduplicateRecords(records).slice(0, 1);
+  if (!cmState || !cmuUsageState || queue.length === 0) {
+    return;
+  }
+  try {
+    const requestSource = String(source || "").trim();
+    emitCmDebugEvent(
+      {
+        phase: "cmu-jelly-open",
+        source: requestSource || "cmu-jelly",
+        recordCount: queue.length,
+        endpoints: queue.map((record) => String(record?.requestUrl || record?.endpointUrl || "").trim()).filter(Boolean),
+      },
+      {
+        context: {
+          programmerId: String(cmState?.programmer?.programmerId || ""),
+          requestorId: String(state.selectedRequestorId || ""),
+          mvpd: String(state.selectedMvpdId || ""),
+          workspaceKey: "cmu-workspace",
+          workspaceOrigin: "CMU Workspace",
+        },
+      }
+    );
+    await cmOpenRecordsInWorkspace(cmState, queue, requestToken, {
+      activate: true,
+      emitStart: true,
+      forceRefetch: true,
+    });
+  } catch (error) {
+    setStatus(`Unable to open CM Usage report: ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
+}
+
+function cmuUsageApplyFilters(cmState, cmuUsageState, requestToken, options = {}) {
+  const root = cmuUsageState?.treeRootElement;
+  if (!root) {
+    return { visibleEndpointCount: 0 };
+  }
+
+  const zoomFilter = String(options.zoomFilter ?? cmuUsageState.zoomFilterSelect?.value ?? "")
+    .trim()
+    .toUpperCase();
+  const term = clickEsmNormalizeSearchTerm(options.term ?? cmuUsageState.searchInput?.value ?? "");
+  const doHighlight = Boolean(options.highlight && term);
+  const highlightPattern = doHighlight ? new RegExp(clickEsmEscapeRegExp(term), "gi") : null;
+  const visibleEndpointIndexes = [];
+
+  const endpointItems = root.querySelectorAll("ul.esm-workspace-root > li[data-endpoint-index]");
+  endpointItems.forEach((item) => {
+    const endpointZoom = String(item.dataset.zoomKey || "").trim().toUpperCase();
+    const haystack = String(item.dataset.hay || "").toLowerCase();
+    const zoomPass = !zoomFilter || endpointZoom === zoomFilter;
+    const termPass = !term || haystack.includes(term);
+    const isVisible = zoomPass && termPass;
+
+    item.style.display = isVisible ? "" : "none";
+    if (isVisible) {
+      const endpointIndex = Number(item.dataset.endpointIndex || -1);
+      if (Number.isInteger(endpointIndex) && endpointIndex >= 0) {
+        visibleEndpointIndexes.push(endpointIndex);
+      }
+    }
+
+    const label = item.querySelector(":scope > .esm-workspace-node > .esm-workspace-label");
+    if (label) {
+      const pathParts = esmWorkspaceParsePathParts(item.dataset.pathParts);
+      esmWorkspaceRenderLabelChips(label, pathParts, doHighlight ? term : "", highlightPattern, {
+        onSegmentClick: (segmentPathParts) => {
+          const records = cmuUsageResolveRecordsByPath(cmuUsageState, segmentPathParts);
+          void cmuUsageRunRecordsFromUi(cmState, cmuUsageState, records, requestToken, "cmu-jelly-segment");
+        },
+      });
+      const pathHay = String(item.dataset.pathHay || "");
+      const segMatch = Boolean(term && pathHay.includes(term));
+      const colOnlyMatch = Boolean(term && termPass && !segMatch);
+      label.classList.toggle("esm-workspace-col-match", colOnlyMatch);
+    }
+  });
+
+  return { visibleEndpointCount: visibleEndpointIndexes.length };
+}
+
+function cmuUsageBuildTree(cmState, cmuUsageState, requestToken) {
+  const treeRoot = cmuUsageState?.treeRootElement;
+  if (!treeRoot) {
+    return;
+  }
+  const catalog = Array.isArray(cmuUsageState.catalog) ? cmuUsageState.catalog : [];
+  treeRoot.innerHTML = "";
+  const rootList = document.createElement("ul");
+  rootList.className = "esm-workspace-root";
+
+  cmuUsageState.endpointIndexByPathKey = new Map();
+  catalog.forEach((entry, entryIndex) => {
+    const pathKey = cmuUsagePathPartsToKey(entry.pathParts);
+    if (pathKey && !cmuUsageState.endpointIndexByPathKey.has(pathKey)) {
+      cmuUsageState.endpointIndexByPathKey.set(pathKey, entryIndex);
+    }
+
+    const item = document.createElement("li");
+    item.dataset.endpointIndex = String(entryIndex);
+    item.dataset.zoomKey = String(entry.zoomKey || "");
+    item.dataset.hay = String(entry.searchHay || "");
+    item.dataset.pathParts = JSON.stringify(entry.pathParts);
+    item.dataset.pathHay = String(entry.pathHay || "");
+
+    const nodeRow = document.createElement("div");
+    nodeRow.className = "esm-workspace-node";
+
+    const label = document.createElement("span");
+    label.className = "esm-workspace-label";
+    label.title = String(entry.endpointUrl || "");
+    esmWorkspaceRenderLabelChips(label, entry.pathParts, "", null, {
+      onSegmentClick: (segmentPathParts) => {
+        const records = cmuUsageResolveRecordsByPath(cmuUsageState, segmentPathParts);
+        void cmuUsageRunRecordsFromUi(cmState, cmuUsageState, records, requestToken, "cmu-jelly-segment");
+      },
+    });
+    label.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const records = cmuUsageResolveRecordsByPath(cmuUsageState, entry.pathParts);
+      void cmuUsageRunRecordsFromUi(cmState, cmuUsageState, records, requestToken, "cmu-jelly-pill");
+    });
+    nodeRow.appendChild(label);
+    item.appendChild(nodeRow);
+    rootList.appendChild(item);
+  });
+
+  treeRoot.appendChild(rootList);
+  cmuUsageApplyFilters(cmState, cmuUsageState, requestToken, { highlight: false });
+}
+
+function cmuUsageWireInteractions(cmState, cmuUsageState, requestToken) {
+  if (!cmState || !cmuUsageState) {
+    return;
+  }
+  const applyFilters = ({ highlight = false, normalizeInput = false } = {}) => {
+    const normalizedTerm = clickEsmNormalizeSearchTerm(cmuUsageState.searchInput?.value || "");
+    const normalizedZoomFilter = String(cmuUsageState.zoomFilterSelect?.value || "").trim().toUpperCase();
+    if (cmuUsageState.searchInput && normalizeInput) {
+      cmuUsageState.searchInput.value = normalizedTerm;
+    }
+    const result = cmuUsageApplyFilters(cmState, cmuUsageState, requestToken, {
+      zoomFilter: normalizedZoomFilter,
+      term: normalizedTerm,
+      highlight: Boolean(highlight && normalizedTerm),
+    });
+    if ((normalizedTerm || normalizedZoomFilter) && Number(result?.visibleEndpointCount || 0) >= 0) {
+      esmWorkspaceSetTreeCollapsed(cmuUsageState, false);
+    }
+  };
+
+  cmuUsageState.resetButton?.addEventListener("click", () => {
+    if (cmuUsageState.searchInput) {
+      cmuUsageState.searchInput.value = "";
+    }
+    if (cmuUsageState.zoomFilterSelect) {
+      cmuUsageState.zoomFilterSelect.value = "";
+    }
+    applyFilters({ highlight: false, normalizeInput: true });
+  });
+
+  cmuUsageState.zoomFilterSelect?.addEventListener("change", () => {
+    applyFilters({ highlight: true });
+  });
+  cmuUsageState.searchInput?.addEventListener("input", () => {
+    applyFilters({ highlight: true });
+  });
+  cmuUsageState.searchInput?.addEventListener("change", () => {
+    applyFilters({ highlight: true });
+  });
+  cmuUsageState.searchInput?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    applyFilters({ highlight: true, normalizeInput: true });
+  });
+
+  const toggleTree = () => {
+    const expanded = String(
+      cmuUsageState.treeHeadElement?.getAttribute("aria-expanded") || (cmuUsageState.treeScrollElement?.hidden ? "false" : "true")
+    ) !== "false";
+    esmWorkspaceSetTreeCollapsed(cmuUsageState, expanded);
+  };
+
+  cmuUsageState.treeHeadElement?.addEventListener("click", () => {
+    toggleTree();
+  });
+  cmuUsageState.treeHeadElement?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    toggleTree();
+  });
+}
+
+function cmMountUsageJellyBeans(cmState, usageRecords, requestToken) {
+  const host = cmState?.contentElement?.querySelector(".cmu-jelly-host");
+  if (!host) {
+    return;
+  }
+  const usageCatalog = cmuUsageBuildCatalog(usageRecords);
+  if (!Array.isArray(usageCatalog.catalog) || usageCatalog.catalog.length === 0) {
+    host.innerHTML = `
+      <div class="cmu-jelly-shell">
+        <div class="cmu-jelly-empty">No CM Usage endpoints available for JellyBeans.</div>
+      </div>
+    `;
+    return;
+  }
+
+  host.innerHTML = cmuUsageBuildShellHtml();
+  const cmuUsageState = {
+    catalog: usageCatalog.catalog,
+    recordsByPathKey: usageCatalog.recordsByPathKey,
+    endpointIndexByPathKey: new Map(),
+    requestToken,
+    treeHeadElement: host.querySelector(".cmu-jelly-tree-head"),
+    treeScrollElement: host.querySelector(".cmu-jelly-tree-scroll"),
+    treeRootElement: host.querySelector(".cmu-jelly-tree-root"),
+    zoomFilterSelect: host.querySelector(".cmu-jelly-zoom-filter"),
+    searchInput: host.querySelector(".cmu-jelly-search"),
+    resetButton: host.querySelector(".cmu-jelly-reset-btn"),
+  };
+
+  cmState.cmuUsageState = cmuUsageState;
+  if (cmuUsageState.treeHeadElement) {
+    cmuUsageState.treeHeadElement.setAttribute("role", "button");
+    cmuUsageState.treeHeadElement.setAttribute("tabindex", "0");
+    cmuUsageState.treeHeadElement.setAttribute("aria-expanded", "false");
+    cmuUsageState.treeHeadElement.setAttribute("aria-label", "Toggle CMU JellyBeans");
+  }
+  cmuUsageWireInteractions(cmState, cmuUsageState, requestToken);
+  cmuUsageBuildTree(cmState, cmuUsageState, requestToken);
+  esmWorkspaceSetTreeCollapsed(cmuUsageState, true);
 }
 
 function getActiveCmState() {
@@ -11172,6 +12577,13 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
   const cardId = String(options.cardId || record.cardId || generateRequestId());
   const targetWindowId =
     Number(options.targetWindowId || 0) || Number(cmState.controllerWindowId || 0) || Number(state.cmWorkspaceWindowId || 0);
+  const cmWorkspaceDebugContext = {
+    programmerId: String(cmState?.programmer?.programmerId || ""),
+    requestorId: String(state.selectedRequestorId || ""),
+    mvpd: String(state.selectedMvpdId || ""),
+    workspaceKey: "cmu-workspace",
+    workspaceOrigin: "CMU Workspace",
+  };
   const formValues = cmNormalizeOperationFormValues(record, options.formValues || {});
   if (record.payload && typeof record.payload === "object") {
     record.payload.formDefaults = { ...formValues };
@@ -11225,11 +12637,7 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
         authMode: detectCmAuthMode(request.headers),
       },
       {
-        context: {
-          programmerId: String(cmState?.programmer?.programmerId || ""),
-          requestorId: String(state.selectedRequestorId || ""),
-          mvpd: String(state.selectedMvpdId || ""),
-        },
+        context: cmWorkspaceDebugContext,
       }
     );
     const response = await fetch(request.url, {
@@ -11254,11 +12662,7 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
         responsePreview: truncateDebugText(text, 1600),
       },
       {
-        context: {
-          programmerId: String(cmState?.programmer?.programmerId || ""),
-          requestorId: String(state.selectedRequestorId || ""),
-          mvpd: String(state.selectedMvpdId || ""),
-        },
+        context: cmWorkspaceDebugContext,
       }
     );
     const parsed = parseJsonText(text, null);
@@ -11291,11 +12695,7 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
           error: errorDetails,
         },
         {
-          context: {
-            programmerId: String(cmState?.programmer?.programmerId || ""),
-            requestorId: String(state.selectedRequestorId || ""),
-            mvpd: String(state.selectedMvpdId || ""),
-          },
+          context: cmWorkspaceDebugContext,
         }
       );
       throw new Error(`CM V2 ${request.method} ${request.url} failed (${response.status}): ${errorDetails}`);
@@ -11331,11 +12731,7 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
         error: error instanceof Error ? error.message : String(error),
       },
       {
-        context: {
-          programmerId: String(cmState?.programmer?.programmerId || ""),
-          requestorId: String(state.selectedRequestorId || ""),
-          mvpd: String(state.selectedMvpdId || ""),
-        },
+        context: cmWorkspaceDebugContext,
       }
     );
     void cmSendWorkspaceMessage(
@@ -11350,6 +12746,34 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
       { targetWindowId }
     );
   }
+}
+
+function cmResolveApplicationDetailUrl(record, fallbackUrl = "") {
+  const fallback = String(fallbackUrl || "").trim();
+  const normalizedKind = String(record?.kind || "").trim().toLowerCase();
+  if (normalizedKind !== "applications") {
+    return fallback;
+  }
+  if (/\/maitai\/policy\/[^/?#]+/i.test(fallback)) {
+    return fallback;
+  }
+  const tenantId = String(record?.tenantId || "").trim();
+  const payload = record?.payload && typeof record.payload === "object" ? record.payload : null;
+  const entityId = firstNonEmptyString([
+    payload?.id,
+    payload?.policyId,
+    payload?.policy_id,
+    payload?.applicationId,
+    payload?.application_id,
+    payload?.name,
+    record?.title,
+  ]);
+  if (!tenantId || !entityId) {
+    return fallback;
+  }
+  return normalizeCmUrl(
+    `${CM_CONFIG_BASE_URL}/maitai/policy/${encodeURIComponent(String(entityId || "").trim())}?orgId=${encodeURIComponent(tenantId)}`
+  );
 }
 
 async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {}) {
@@ -11373,7 +12797,12 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
 
   const cardId = String(options.cardId || record.cardId || generateRequestId());
   const endpointUrl = String(record.endpointUrl || record.requestUrl || "").trim();
-  const requestUrl = String(record.requestUrl || endpointUrl).trim();
+  const baseRequestUrl = String(options.baseRequestUrl || record.requestUrl || endpointUrl).trim();
+  const requestUrlOverride = String(options.requestUrlOverride || "").trim();
+  let requestUrl = requestUrlOverride || baseRequestUrl;
+  requestUrl = cmResolveApplicationDetailUrl(record, requestUrl);
+  const normalizedLocalColumnFilters =
+    options.localColumnFilters && typeof options.localColumnFilters === "object" ? { ...options.localColumnFilters } : {};
   const targetWindowId =
     Number(options.targetWindowId || 0) || Number(cmState.controllerWindowId || 0) || Number(state.cmWorkspaceWindowId || 0);
   if (options.emitStart !== false) {
@@ -11383,8 +12812,10 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
         cardId,
         endpointUrl,
         requestUrl,
+        baseRequestUrl,
         zoomKey: String(record.kind || "").toUpperCase(),
         columns: Array.isArray(record.columns) ? record.columns : [],
+        localColumnFilters: normalizedLocalColumnFilters,
       },
       { targetWindowId }
     );
@@ -11392,7 +12823,13 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
 
   let payload = record.payload;
   let lastModified = String(record.lastModified || "");
-  const shouldRefetch = options.forceRefetch === true || payload == null;
+  const hasUrlOverrideDiffersFromRecord =
+    Boolean(requestUrlOverride) && requestUrlOverride !== String(record.requestUrl || endpointUrl || "").trim();
+  const shouldRefetchForRecordKind = String(record?.kind || "").trim().toLowerCase() === "applications";
+  const shouldRefetch =
+    options.forceRefetch === true || shouldRefetchForRecordKind || payload == null || hasUrlOverrideDiffersFromRecord;
+  const allowPayloadFallbackOnFetchError =
+    payload != null && !shouldRefetchForRecordKind && !hasUrlOverrideDiffersFromRecord && options.forceRefetch !== true;
   if (requestUrl && shouldRefetch) {
     try {
       const response = await fetchCmJsonWithAuthVariants([requestUrl], `CM ${record.kind || "item"} report`, {
@@ -11403,14 +12840,18 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
           programmerId: String(cmState?.programmer?.programmerId || ""),
           requestorId: String(state.selectedRequestorId || ""),
           mvpd: String(state.selectedMvpdId || ""),
+          workspaceKey: "cmu-workspace",
+          workspaceOrigin: "CMU Workspace",
         },
       });
       payload = response.parsed;
       lastModified = response.lastModified || lastModified;
-      record.payload = payload;
-      record.lastModified = lastModified;
+      if (!hasUrlOverrideDiffersFromRecord) {
+        record.payload = payload;
+        record.lastModified = lastModified;
+      }
     } catch (error) {
-      if (payload == null) {
+      if (!allowPayloadFallbackOnFetchError) {
         void cmSendWorkspaceMessage(
           "report-result",
           {
@@ -11418,6 +12859,8 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
             cardId,
             endpointUrl,
             requestUrl,
+            baseRequestUrl,
+            localColumnFilters: normalizedLocalColumnFilters,
             error: error instanceof Error ? error.message : String(error),
           },
           { targetWindowId }
@@ -11437,10 +12880,12 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
       cardId,
       endpointUrl,
       requestUrl,
+      baseRequestUrl,
       zoomKey: String(record.kind || "").toUpperCase(),
       columns,
       rows,
       lastModified,
+      localColumnFilters: normalizedLocalColumnFilters,
     },
     { targetWindowId }
   );
@@ -11469,6 +12914,11 @@ async function handleCmWorkspaceAction(message, sender = null) {
 
   if (action === "workspace-ready") {
     if (cmState) {
+      void ensureCmWorkspaceActivityDebugFlow({
+        reason: "cm-workspace-ready",
+        preferredWindowId: senderWindowId || Number(cmState.controllerWindowId || state.cmWorkspaceWindowId || 0),
+        fallbackTabId: senderTabId || mappedSenderTabId || cmGetBoundWorkspaceTabId(senderWindowId || 0),
+      });
       if (senderWindowId > 0) {
         cmBindWorkspaceTab(senderWindowId, senderTabId);
       }
@@ -11491,6 +12941,11 @@ async function handleCmWorkspaceAction(message, sender = null) {
   if (!isCmServiceRequestActive(cmState.section, requestToken, cmState.programmer?.programmerId)) {
     return { ok: false, error: "CM controller is no longer active for the selected media company." };
   }
+  void ensureCmWorkspaceActivityDebugFlow({
+    reason: `cm-workspace-${action || "action"}`,
+    preferredWindowId: senderWindowId || Number(cmState.controllerWindowId || state.cmWorkspaceWindowId || 0),
+    fallbackTabId: senderTabId || mappedSenderTabId || cmGetBoundWorkspaceTabId(senderWindowId || 0),
+  });
 
   if (action === "open-workspace") {
     const targetWindowId = senderWindowId || Number(cmState.controllerWindowId || 0);
@@ -11502,6 +12957,9 @@ async function handleCmWorkspaceAction(message, sender = null) {
   if (action === "run-card") {
     const card = message?.card && typeof message.card === "object" ? message.card : {};
     const shouldForceRefetch = message?.forceRefetch !== false;
+    const requestUrlOverride = String(card?.requestUrl || "").trim();
+    const baseRequestUrl = String(card?.baseRequestUrl || card?.endpointUrl || requestUrlOverride || "").trim();
+    const localColumnFilters = card?.localColumnFilters && typeof card.localColumnFilters === "object" ? card.localColumnFilters : {};
     const matchedRecord = cmFindRecordByCard(cmState, card);
     if (!matchedRecord) {
       const fallbackUrl = String(card?.requestUrl || card?.endpointUrl || "").trim();
@@ -11527,6 +12985,9 @@ async function handleCmWorkspaceAction(message, sender = null) {
           forceRefetch: shouldForceRefetch,
           cardId: String(card.cardId || generateRequestId()),
           targetWindowId: senderWindowId || Number(cmState.controllerWindowId || 0),
+          requestUrlOverride: requestUrlOverride || fallbackUrl,
+          baseRequestUrl: baseRequestUrl || fallbackUrl,
+          localColumnFilters,
         }
       );
       return { ok: true };
@@ -11537,6 +12998,9 @@ async function handleCmWorkspaceAction(message, sender = null) {
       forceRefetch: shouldForceRefetch,
       cardId: String(card?.cardId || matchedRecord.cardId || generateRequestId()),
       targetWindowId: senderWindowId || Number(cmState.controllerWindowId || 0),
+      requestUrlOverride,
+      baseRequestUrl: baseRequestUrl || String(matchedRecord.requestUrl || matchedRecord.endpointUrl || ""),
+      localColumnFilters,
     });
     return { ok: true };
   }
@@ -11575,7 +13039,7 @@ async function handleCmWorkspaceAction(message, sender = null) {
 
   if (action === "download-csv") {
     const card = message?.card && typeof message.card === "object" ? message.card : {};
-    const sortRule = decompNormalizeSortRule(message?.sortRule);
+    const sortRule = esmWorkspaceNormalizeSortRule(message?.sortRule);
     const matchedRecord = cmFindRecordByCard(cmState, card);
     const fallbackUrl = String(card?.requestUrl || card?.endpointUrl || "").trim();
     const fallbackRecord = {
@@ -11634,6 +13098,9 @@ async function handleCmWorkspaceAction(message, sender = null) {
         forceRefetch: true,
         cardId: String(card?.cardId || record.cardId || generateRequestId()),
         targetWindowId,
+        requestUrlOverride: String(card?.requestUrl || "").trim(),
+        baseRequestUrl: String(card?.baseRequestUrl || card?.requestUrl || record.requestUrl || record.endpointUrl || "").trim(),
+        localColumnFilters: card?.localColumnFilters && typeof card.localColumnFilters === "object" ? card.localColumnFilters : {},
       });
     }
     void cmSendWorkspaceMessage(
@@ -11701,6 +13168,1346 @@ function ensureCmWorkspaceTabWatcher() {
   state.cmWorkspaceTabWatcherBound = true;
 }
 
+function mvpdWorkspaceGetWorkspaceUrl() {
+  return chrome.runtime.getURL(MVPD_WORKSPACE_PATH);
+}
+
+function mvpdWorkspaceIsWorkspaceTab(tabLike) {
+  return String(tabLike?.url || "").startsWith(mvpdWorkspaceGetWorkspaceUrl());
+}
+
+function mvpdWorkspaceBindWorkspaceTab(windowId, tabId) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId > 0 && normalizedTabId > 0) {
+    state.mvpdWorkspaceTabIdByWindowId.set(normalizedWindowId, normalizedTabId);
+  }
+  if (normalizedWindowId > 0) {
+    state.mvpdWorkspaceWindowId = normalizedWindowId;
+  }
+  if (normalizedTabId > 0) {
+    state.mvpdWorkspaceTabId = normalizedTabId;
+  }
+}
+
+function mvpdWorkspaceUnbindWorkspaceTab(tabId) {
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedTabId > 0) {
+    for (const [windowId, mappedTabId] of state.mvpdWorkspaceTabIdByWindowId.entries()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        state.mvpdWorkspaceTabIdByWindowId.delete(windowId);
+      }
+    }
+  }
+  if (!normalizedTabId || Number(state.mvpdWorkspaceTabId || 0) === normalizedTabId) {
+    state.mvpdWorkspaceTabId = 0;
+    state.mvpdWorkspaceWindowId = 0;
+  }
+}
+
+function mvpdWorkspaceGetBoundWorkspaceTabId(windowId) {
+  const normalizedWindowId = Number(windowId || 0);
+  if (normalizedWindowId > 0) {
+    const mapped = Number(state.mvpdWorkspaceTabIdByWindowId.get(normalizedWindowId) || 0);
+    if (mapped > 0) {
+      return mapped;
+    }
+  }
+  return Number(state.mvpdWorkspaceTabId || 0);
+}
+
+function mvpdWorkspaceGetSelectionContext(programmer = null, services = null) {
+  const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  let resolvedServices = services;
+  if (!resolvedServices && resolvedProgrammer?.programmerId) {
+    resolvedServices = state.premiumAppsByProgrammerId.get(resolvedProgrammer.programmerId) || null;
+  }
+  const requestorId = String(state.selectedRequestorId || "").trim();
+  const mvpdId = String(state.selectedMvpdId || "").trim();
+  const hasRestV2Service = Boolean(String(resolvedServices?.restV2?.guid || "").trim());
+  return {
+    programmer: resolvedProgrammer,
+    services: resolvedServices,
+    programmerId: String(resolvedProgrammer?.programmerId || "").trim(),
+    programmerName: String(resolvedProgrammer?.programmerName || "").trim(),
+    requestorId,
+    mvpdId,
+    hasRestV2Service,
+    isReady: Boolean(String(resolvedProgrammer?.programmerId || "").trim() && requestorId && mvpdId),
+  };
+}
+
+function mvpdWorkspaceGetSelectedControllerStatePayload(programmer = null, services = null) {
+  const context = mvpdWorkspaceGetSelectionContext(programmer, services);
+  return {
+    controllerOnline: false,
+    mvpdReady: context.isReady,
+    hasRestV2Service: context.hasRestV2Service,
+    programmerId: context.programmerId,
+    programmerName: context.programmerName,
+    requestorIds: context.requestorId ? [context.requestorId] : [],
+    mvpdIds: context.mvpdId ? [context.mvpdId] : [],
+    updatedAt: Date.now(),
+  };
+}
+
+async function mvpdWorkspaceSendWorkspaceMessage(event, payload = {}, options = {}) {
+  const targetWindowId = Number(options.targetWindowId || 0);
+  try {
+    const message = {
+      type: MVPD_WORKSPACE_MESSAGE_TYPE,
+      channel: "workspace-event",
+      event: String(event || ""),
+      payload,
+    };
+    if (targetWindowId > 0) {
+      message.targetWindowId = targetWindowId;
+    }
+    await chrome.runtime.sendMessage(message);
+  } catch {
+    // Ignore when workspace listener is inactive.
+  }
+}
+
+function mvpdWorkspaceBroadcastSelectedControllerState(programmer = null, services = null, targetWindowId = 0) {
+  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.mvpdWorkspaceWindowId || 0);
+  void mvpdWorkspaceSendWorkspaceMessage(
+    "controller-state",
+    mvpdWorkspaceGetSelectedControllerStatePayload(programmer, services),
+    {
+      targetWindowId: resolvedWindowId,
+    }
+  );
+}
+
+async function mvpdWorkspaceEnsureWorkspaceTab(options = {}) {
+  const shouldActivate = options.activate !== false;
+  const requestedWindowId = Number(options.windowId || 0);
+  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await esmWorkspaceGetCurrentWindowId();
+  const useWindowFilter = targetWindowId > 0;
+  let workspaceTab = null;
+
+  const boundTabId = mvpdWorkspaceGetBoundWorkspaceTabId(targetWindowId);
+  if (boundTabId > 0) {
+    try {
+      const existing = await chrome.tabs.get(boundTabId);
+      if (mvpdWorkspaceIsWorkspaceTab(existing) && (!useWindowFilter || Number(existing.windowId || 0) === targetWindowId)) {
+        workspaceTab = existing;
+      }
+    } catch {
+      mvpdWorkspaceUnbindWorkspaceTab(boundTabId);
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    try {
+      const allTabs = await chrome.tabs.query(useWindowFilter ? { windowId: targetWindowId } : { currentWindow: true });
+      workspaceTab = allTabs.find((tab) => mvpdWorkspaceIsWorkspaceTab(tab)) || null;
+    } catch {
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    workspaceTab = await chrome.tabs.create({
+      url: mvpdWorkspaceGetWorkspaceUrl(),
+      active: shouldActivate,
+      ...(useWindowFilter ? { windowId: targetWindowId } : {}),
+    });
+  } else if (shouldActivate && workspaceTab.id) {
+    try {
+      workspaceTab = await chrome.tabs.update(workspaceTab.id, { active: true });
+      if (Number(workspaceTab?.windowId || 0) > 0) {
+        await chrome.windows.update(Number(workspaceTab.windowId), { focused: true });
+      }
+    } catch {
+      // Ignore activation failures.
+    }
+  }
+
+  mvpdWorkspaceBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+  return workspaceTab;
+}
+
+function mvpdWorkspaceNormalizeFlatValue(value) {
+  const normalized = redactSensitiveTokenValues(String(value || ""))
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) {
+    return "";
+  }
+  if (normalized.length > 260) {
+    return `${normalized.slice(0, 257)}...`;
+  }
+  return normalized;
+}
+
+function mvpdWorkspaceCollectFlatEntries(sourceKey, value, options = {}) {
+  const maxEntries = Math.max(50, Number(options.maxEntries || 1200));
+  const maxDepth = Math.max(2, Number(options.maxDepth || 6));
+  const flattened = [];
+  flattenPrimitiveFields(value, "", flattened, {
+    depth: 0,
+    maxDepth,
+    maxEntries,
+    seen: new WeakSet(),
+  });
+  return flattened
+    .map((entry) => {
+      const path = String(entry?.key || "").trim();
+      const entryValue = mvpdWorkspaceNormalizeFlatValue(entry?.value);
+      if (!path || !entryValue) {
+        return null;
+      }
+      return {
+        source: String(sourceKey || ""),
+        path,
+        value: entryValue,
+      };
+    })
+    .filter(Boolean);
+}
+
+function mvpdWorkspaceExtractConfigurationVersion(payload = null, fallback = 0) {
+  if (payload == null) {
+    return Number(fallback || 0);
+  }
+  if (typeof payload === "number") {
+    return Number.isFinite(payload) ? payload : Number(fallback || 0);
+  }
+  if (typeof payload === "string") {
+    const match = payload.match(/\\d+/);
+    return match ? Number(match[0]) : Number(fallback || 0);
+  }
+  if (Array.isArray(payload)) {
+    for (const item of payload) {
+      const nested = mvpdWorkspaceExtractConfigurationVersion(item, 0);
+      if (nested > 0) {
+        return nested;
+      }
+    }
+    return Number(fallback || 0);
+  }
+  if (typeof payload === "object") {
+    const direct = Number(
+      payload.configurationVersion ||
+        payload.latestActivatedConsoleConfigurationVersion ||
+        payload.version ||
+        payload.value ||
+        0
+    );
+    if (Number.isFinite(direct) && direct > 0) {
+      return direct;
+    }
+    for (const nestedValue of Object.values(payload)) {
+      const nested = mvpdWorkspaceExtractConfigurationVersion(nestedValue, 0);
+      if (nested > 0) {
+        return nested;
+      }
+    }
+  }
+  return Number(fallback || 0);
+}
+
+function mvpdWorkspaceCollectSectionEntries(entries = [], pattern, maxEntries = 200) {
+  if (!(pattern instanceof RegExp)) {
+    return [];
+  }
+  const output = [];
+  const seen = new Set();
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    if (output.length >= maxEntries) {
+      return;
+    }
+    const path = String(entry?.path || "").trim();
+    const value = String(entry?.value || "").trim();
+    const hay = `${path} ${value}`;
+    if (!pattern.test(hay)) {
+      return;
+    }
+    const key = `${entry?.source || ""}|${path}|${value}`.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    output.push({
+      source: String(entry?.source || "").trim(),
+      path,
+      value,
+    });
+  });
+  return output;
+}
+
+function mvpdWorkspaceCollectChipValues(entries = [], pathRegex, valueRegex = null, maxValues = 120) {
+  const output = [];
+  const seen = new Set();
+  const pushValue = (value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) {
+      return;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    output.push(normalized);
+  };
+
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    if (output.length >= maxValues) {
+      return;
+    }
+    const path = String(entry?.path || "").trim();
+    const value = String(entry?.value || "").trim();
+    if (!path || !value) {
+      return;
+    }
+    const pathMatches = pathRegex instanceof RegExp ? pathRegex.test(path) : false;
+    const valueMatches = valueRegex instanceof RegExp ? valueRegex.test(value) : false;
+    if (!pathMatches && !valueMatches) {
+      return;
+    }
+    const parts = value.split(/[\\n,;|]+/g).map((part) => part.trim()).filter(Boolean);
+    if (parts.length > 1) {
+      parts.forEach((part) => {
+        if (output.length < maxValues) {
+          pushValue(part);
+        }
+      });
+    } else {
+      pushValue(value);
+    }
+  });
+
+  return output.slice(0, maxValues);
+}
+
+function mvpdWorkspaceNormalizeEntityRef(value) {
+  const normalized = String(value || "").trim();
+  return normalized.startsWith("@") ? normalized.slice(1) : normalized;
+}
+
+function mvpdWorkspaceSplitEntityRef(value) {
+  const normalized = mvpdWorkspaceNormalizeEntityRef(value);
+  if (!normalized) {
+    return { ref: "", type: "", id: "" };
+  }
+  const separatorIndex = normalized.indexOf(":");
+  if (separatorIndex <= 0) {
+    return { ref: normalized, type: "", id: normalized };
+  }
+  return {
+    ref: normalized,
+    type: normalized.slice(0, separatorIndex),
+    id: normalized.slice(separatorIndex + 1),
+  };
+}
+
+function mvpdWorkspaceExtractEntityList(payload = null) {
+  if (Array.isArray(payload?.entities)) {
+    return payload.entities.filter((entry) => entry && typeof entry === "object");
+  }
+  if (Array.isArray(payload)) {
+    return payload.filter((entry) => entry && typeof entry === "object");
+  }
+  if (payload && typeof payload === "object" && (payload.key || payload.entityData)) {
+    return [payload];
+  }
+  return [];
+}
+
+function mvpdWorkspaceFindEntityById(payload = null, targetId = "", typePrefix = "") {
+  const normalizedId = String(targetId || "").trim().toLowerCase();
+  if (!normalizedId) {
+    return null;
+  }
+  const normalizedType = String(typePrefix || "").trim().toLowerCase();
+  const entities = mvpdWorkspaceExtractEntityList(payload);
+  for (const entity of entities) {
+    const key = String(entity?.key || "").trim();
+    const keyLower = key.toLowerCase();
+    const keyType = keyLower.includes(":") ? keyLower.split(":")[0] : "";
+    if (normalizedType && keyType && keyType !== normalizedType) {
+      continue;
+    }
+    const entityId = firstNonEmptyString([
+      entity?.entityData?.id,
+      key.includes(":") ? key.split(":").slice(1).join(":") : "",
+      entity?.id,
+    ]);
+    const entityIdLower = String(entityId || "").trim().toLowerCase();
+    if (entityIdLower && entityIdLower === normalizedId) {
+      return entity;
+    }
+    if (keyLower.endsWith(`:${normalizedId}`) && (!normalizedType || keyType === normalizedType)) {
+      return entity;
+    }
+  }
+  return null;
+}
+
+function mvpdWorkspaceFindServiceProviderEntity(payload = null, requestorId = "") {
+  return mvpdWorkspaceFindEntityById(payload, requestorId, "serviceprovider");
+}
+
+function mvpdWorkspaceFindIntegrationRefFromServiceProvider(serviceProviderEntity = null, mvpdId = "") {
+  const normalizedMvpd = String(mvpdId || "").trim().toLowerCase();
+  const integrations = serviceProviderEntity?.entityData?.integrations;
+  if (!normalizedMvpd || !integrations || typeof integrations !== "object") {
+    return "";
+  }
+  let fallback = "";
+  for (const [ownerKey, integrationRef] of Object.entries(integrations)) {
+    const normalizedOwner = mvpdWorkspaceNormalizeEntityRef(ownerKey).toLowerCase();
+    const normalizedRef = mvpdWorkspaceNormalizeEntityRef(integrationRef);
+    if (!normalizedRef) {
+      continue;
+    }
+    if (normalizedOwner === `mvpd:${normalizedMvpd}` || normalizedOwner === `mvpdproxy:${normalizedMvpd}`) {
+      return normalizedRef;
+    }
+    if (!fallback && normalizedOwner.endsWith(`:${normalizedMvpd}`)) {
+      fallback = normalizedRef;
+    }
+  }
+  return fallback;
+}
+
+function mvpdWorkspaceFindIntegrationEntity(payload = null, context = null, integrationRef = "", serviceProviderEntity = null) {
+  const entities = mvpdWorkspaceExtractEntityList(payload);
+  if (entities.length === 0) {
+    return null;
+  }
+
+  const normalizedRef = mvpdWorkspaceNormalizeEntityRef(integrationRef).toLowerCase();
+  if (normalizedRef) {
+    const { id: refId } = mvpdWorkspaceSplitEntityRef(normalizedRef);
+    const directMatch = entities.find((entity) => {
+      const keyLower = String(entity?.key || "").trim().toLowerCase();
+      const idLower = String(entity?.entityData?.id || "").trim().toLowerCase();
+      return keyLower === normalizedRef || (refId && idLower === refId);
+    });
+    if (directMatch) {
+      return directMatch;
+    }
+  }
+
+  const normalizedRequestor = String(context?.requestorId || "").trim().toLowerCase();
+  const normalizedMvpd = String(context?.mvpdId || "").trim().toLowerCase();
+  const guessedId = normalizedRequestor && normalizedMvpd ? `${normalizedRequestor}_${normalizedMvpd}` : "";
+  let fallback = null;
+  for (const entity of entities) {
+    const entityData = entity?.entityData || {};
+    const entityId = String(entityData?.id || "").trim().toLowerCase();
+    if (guessedId && entityId === guessedId) {
+      return entity;
+    }
+    const owner = mvpdWorkspaceNormalizeEntityRef(entityData?.owner).toLowerCase();
+    const serviceProvider = mvpdWorkspaceNormalizeEntityRef(entityData?.serviceProvider).toLowerCase();
+    const ownerMatch = normalizedMvpd ? owner.endsWith(`:${normalizedMvpd}`) : false;
+    const serviceMatch = normalizedRequestor ? serviceProvider.endsWith(`:${normalizedRequestor}`) : true;
+    if (ownerMatch && serviceMatch) {
+      if (
+        serviceProviderEntity &&
+        serviceProvider &&
+        serviceProvider === `serviceprovider:${normalizedRequestor}`
+      ) {
+        return entity;
+      }
+      fallback = fallback || entity;
+    }
+  }
+  return fallback;
+}
+
+function mvpdWorkspaceCollectEntityRefs(value, outputSet = new Set(), options = {}) {
+  const maxRefs = Math.max(20, Number(options.maxRefs || 180));
+  const maxDepth = Math.max(2, Number(options.maxDepth || 5));
+  const seenObjects = options.seenObjects instanceof WeakSet ? options.seenObjects : new WeakSet();
+
+  const walk = (current, depth) => {
+    if (outputSet.size >= maxRefs || current == null || depth > maxDepth) {
+      return;
+    }
+    if (typeof current === "string") {
+      const normalized = mvpdWorkspaceNormalizeEntityRef(current).replace(/[),.;]+$/g, "");
+      if (/^[A-Z][A-Za-z0-9]+:[^\s]+$/.test(normalized)) {
+        outputSet.add(normalized);
+      }
+      return;
+    }
+    if (Array.isArray(current)) {
+      for (const entry of current) {
+        if (outputSet.size >= maxRefs) {
+          break;
+        }
+        walk(entry, depth + 1);
+      }
+      return;
+    }
+    if (typeof current === "object") {
+      if (seenObjects.has(current)) {
+        return;
+      }
+      seenObjects.add(current);
+      const values = Object.values(current);
+      for (const valueEntry of values) {
+        if (outputSet.size >= maxRefs) {
+          break;
+        }
+        walk(valueEntry, depth + 1);
+      }
+    }
+  };
+
+  walk(value, 0);
+  return outputSet;
+}
+
+async function mvpdWorkspaceFetchCall(key, label, urlCandidates, requestInit = null, debugContext = null) {
+  const startedAt = Date.now();
+  const method = String(requestInit?.method || "GET")
+    .trim()
+    .toUpperCase();
+  const requestUrl = firstNonEmptyString(urlCandidates);
+  const requestBodyPreview =
+    typeof requestInit?.body === "string"
+      ? truncateDebugText(requestInit.body, 1600)
+      : requestInit?.body != null
+        ? "[non-string body]"
+        : "";
+  emitMvpdWorkspaceDebugEvent(
+    {
+      phase: "mvpd-workspace-request",
+      key: String(key || ""),
+      contextLabel: String(label || key || ""),
+      method,
+      url: requestUrl,
+      requestBodyPreview,
+    },
+    {
+      context: debugContext || {},
+    }
+  );
+  try {
+    const payload = await fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, label, requestInit);
+    const durationMs = Date.now() - startedAt;
+    emitMvpdWorkspaceDebugEvent(
+      {
+        phase: "mvpd-workspace-response",
+        key: String(key || ""),
+        contextLabel: String(label || key || ""),
+        method,
+        url: String(payload?.url || requestUrl || ""),
+        status: Number(payload?.status || 0),
+        durationMs,
+        responsePreview: truncateDebugText(String(payload?.text || ""), 1600),
+      },
+      {
+        context: debugContext || {},
+      }
+    );
+    return {
+      key,
+      label,
+      ok: true,
+      status: Number(payload?.status || 0),
+      url: String(payload?.url || ""),
+      durationMs,
+      parsed: payload?.parsed,
+      text: String(payload?.text || ""),
+      error: "",
+    };
+  } catch (error) {
+    const durationMs = Date.now() - startedAt;
+    const message = error instanceof Error ? error.message : String(error);
+    emitMvpdWorkspaceDebugEvent(
+      {
+        phase: "mvpd-workspace-request-error",
+        key: String(key || ""),
+        contextLabel: String(label || key || ""),
+        method,
+        url: requestUrl,
+        durationMs,
+        error: message,
+      },
+      {
+        context: debugContext || {},
+      }
+    );
+    return {
+      key,
+      label,
+      ok: false,
+      status: 0,
+      url: firstNonEmptyString(urlCandidates),
+      durationMs,
+      parsed: null,
+      text: "",
+      error: message,
+    };
+  }
+}
+
+async function mvpdWorkspaceResolveSnapshot(selectionContext) {
+  const context = selectionContext && typeof selectionContext === "object" ? selectionContext : mvpdWorkspaceGetSelectionContext();
+  if (!context.isReady) {
+    throw new Error("Select Requestor + MVPD to load MVPD Workspace details.");
+  }
+  const mvpdDebugContext = {
+    programmerId: String(context?.programmerId || ""),
+    requestorId: String(context?.requestorId || ""),
+    mvpdId: String(context?.mvpdId || ""),
+    mvpd: String(context?.mvpdId || ""),
+    workspaceKey: "mvpd-workspace",
+    workspaceOrigin: "MVPD Workspace",
+  };
+
+  const versionCall = await mvpdWorkspaceFetchCall(
+    "latestActivatedConsoleConfigurationVersion",
+    "Latest Activated Configuration Version",
+    [`${ADOBE_CONSOLE_BASE}/rest/api/config/latestActivatedConsoleConfigurationVersion`],
+    null,
+    mvpdDebugContext
+  );
+  const configurationVersion = mvpdWorkspaceExtractConfigurationVersion(versionCall?.parsed, 0);
+  const versionQuery = configurationVersion > 0 ? `configurationVersion=${encodeURIComponent(String(configurationVersion))}` : "";
+  const withVersion = (path) =>
+    versionQuery && !path.includes("?") ? `${path}?${versionQuery}` : versionQuery ? `${path}&${versionQuery}` : path;
+
+  const phaseOneCallSpecs = [
+    {
+      key: "localConfiguration",
+      label: "Local Configuration",
+      urls: [
+        `${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/entity/LocalConfiguration")}`,
+        `${ADOBE_CONSOLE_BASE}/rest/api/entity/LocalConfiguration`,
+      ],
+    },
+    {
+      key: "clientDataKeys",
+      label: "Client Data Keys",
+      urls: [`${ADOBE_CONSOLE_BASE}/rest/api/entity/enum/ClientDataKeys`],
+    },
+    {
+      key: "extendedProfile",
+      label: "Extended Profile",
+      urls: [`${ADOBE_CONSOLE_BASE}/rest/api/user/extendedProfile`],
+    },
+    {
+      key: "maintenanceStatus",
+      label: "Maintenance Status",
+      urls: [`${ADOBE_CONSOLE_BASE}/rest/api/admin/maintenance/status`],
+    },
+    {
+      key: "tooltips",
+      label: "Tooltips",
+      urls: [
+        `${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/config/tooltips")}`,
+        `${ADOBE_CONSOLE_BASE}/rest/api/config/tooltips`,
+      ],
+    },
+    {
+      key: "propertyNameMappings",
+      label: "Property Name Mappings",
+      urls: [`${ADOBE_CONSOLE_BASE}/rest/api/config/propertyNameMappings`],
+    },
+    {
+      key: "manglers",
+      label: "Manglers",
+      urls: [
+        `${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/config/manglers")}`,
+        `${ADOBE_CONSOLE_BASE}/rest/api/config/manglers`,
+      ],
+    },
+    {
+      key: "mvpdCatalog",
+      label: "MVPD Catalog",
+      urls: [
+        `${ADOBE_CONSOLE_BASE}/rest/api/entity/Mvpd/${encodeURIComponent(context.mvpdId)}${
+          versionQuery ? `?${versionQuery}` : ""
+        }`,
+        `${ADOBE_CONSOLE_BASE}/rest/api/entity/MVPD/${encodeURIComponent(context.mvpdId)}${
+          versionQuery ? `?${versionQuery}` : ""
+        }`,
+        `${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/entity/Mvpd")}`,
+        `${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/entity/MVPD")}`,
+      ],
+    },
+    {
+      key: "mvpdProxyCatalog",
+      label: "MVPD Proxy Catalog",
+      urls: [`${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/entity/MvpdProxy")}`],
+    },
+    {
+      key: "serviceProviderCatalog",
+      label: "Service Provider Catalog",
+      urls: [`${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/entity/ServiceProvider")}`],
+    },
+    {
+      key: "programmerCatalog",
+      label: "Programmer Catalog",
+      urls: [`${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/entity/Programmer")}`],
+    },
+    {
+      key: "integrationConfigurationCatalog",
+      label: "Integration Configuration Catalog",
+      urls: [`${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/entity/IntegrationConfiguration")}`],
+    },
+    {
+      key: "tmsIdMapRoot",
+      label: "TMSID Root List",
+      urls: [`${ADOBE_CONSOLE_BASE}/${withVersion("rest/api/entity/RootEntityList/TMSIdMap")}`],
+    },
+  ];
+
+  const phaseOneCalls = await Promise.all(
+    phaseOneCallSpecs.map((spec) =>
+      mvpdWorkspaceFetchCall(spec.key, spec.label, spec.urls, spec.requestInit || null, mvpdDebugContext)
+    )
+  );
+  const phaseOneCallByKey = new Map(phaseOneCalls.map((call) => [call.key, call]));
+  const catalogMvpdPayload = phaseOneCallByKey.get("mvpdCatalog")?.parsed || null;
+  const catalogMvpdProxyPayload = phaseOneCallByKey.get("mvpdProxyCatalog")?.parsed || null;
+  const catalogServiceProviderPayload = phaseOneCallByKey.get("serviceProviderCatalog")?.parsed || null;
+  const catalogProgrammerPayload = phaseOneCallByKey.get("programmerCatalog")?.parsed || null;
+  const catalogIntegrationPayload = phaseOneCallByKey.get("integrationConfigurationCatalog")?.parsed || null;
+  const tmsRootPayload = phaseOneCallByKey.get("tmsIdMapRoot")?.parsed || null;
+
+  const selectedMvpdEntity =
+    mvpdWorkspaceFindEntityById(catalogMvpdPayload, context.mvpdId, "mvpd") ||
+    mvpdWorkspaceFindEntityById(catalogMvpdPayload, context.mvpdId);
+  const selectedMvpdProxyEntity =
+    mvpdWorkspaceFindEntityById(catalogMvpdProxyPayload, context.mvpdId, "mvpdproxy") ||
+    mvpdWorkspaceFindEntityById(catalogMvpdProxyPayload, context.mvpdId);
+  const selectedServiceProviderEntity =
+    mvpdWorkspaceFindServiceProviderEntity(catalogServiceProviderPayload, context.requestorId) ||
+    mvpdWorkspaceFindEntityById(catalogServiceProviderPayload, context.requestorId);
+  const selectedProgrammerEntity =
+    mvpdWorkspaceFindEntityById(catalogProgrammerPayload, context.programmerId, "programmer") ||
+    mvpdWorkspaceFindEntityById(catalogProgrammerPayload, context.programmerId);
+
+  const selectedIntegrationRef = mvpdWorkspaceFindIntegrationRefFromServiceProvider(selectedServiceProviderEntity, context.mvpdId);
+  const selectedIntegrationRefSplit = mvpdWorkspaceSplitEntityRef(selectedIntegrationRef);
+  let selectedIntegrationEntity =
+    mvpdWorkspaceFindIntegrationEntity(
+      catalogIntegrationPayload,
+      context,
+      selectedIntegrationRef,
+      selectedServiceProviderEntity
+    ) || null;
+
+  const phaseTwoCallSpecs = [];
+  if (selectedIntegrationRefSplit.type && selectedIntegrationRefSplit.id) {
+    phaseTwoCallSpecs.push({
+      key: "integrationConfigurationEntity",
+      label: "Integration Configuration (Selected)",
+      urls: [
+        `${ADOBE_CONSOLE_BASE}/${withVersion(
+          `rest/api/entity/${selectedIntegrationRefSplit.type}/${encodeURIComponent(selectedIntegrationRefSplit.id)}`
+        )}`,
+      ],
+    });
+  }
+
+  const tmsEntityIds = new Set();
+  const rootEntityIds = Array.isArray(tmsRootPayload?.entityData?.rootEntityIds)
+    ? tmsRootPayload.entityData.rootEntityIds
+    : [];
+  rootEntityIds.forEach((entityId) => {
+    const normalized = mvpdWorkspaceNormalizeEntityRef(entityId);
+    if (normalized) {
+      tmsEntityIds.add(normalized);
+    }
+  });
+  if (context.mvpdId) {
+    tmsEntityIds.add(`TMSIdMap:${context.mvpdId}`);
+  }
+  tmsEntityIds.add("TMSIdMap:default");
+  const tmsKeySeen = new Set();
+  [...tmsEntityIds].forEach((entityId) => {
+    const split = mvpdWorkspaceSplitEntityRef(entityId);
+    if (String(split.type || "").toLowerCase() !== "tmsidmap" || !split.id) {
+      return;
+    }
+    const safeId = String(split.id || "default")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    const key = `tmsIdMap_${safeId || "default"}`;
+    if (tmsKeySeen.has(key)) {
+      return;
+    }
+    tmsKeySeen.add(key);
+    phaseTwoCallSpecs.push({
+      key,
+      label: `TMSID Map (${split.id})`,
+      urls: [
+        `${ADOBE_CONSOLE_BASE}/${withVersion(`rest/api/entity/TMSIdMap/${encodeURIComponent(split.id)}`)}`,
+      ],
+    });
+  });
+
+  const bulkEntityRefs = new Set();
+  mvpdWorkspaceCollectEntityRefs(selectedMvpdEntity?.entityData || null, bulkEntityRefs, {
+    maxRefs: 240,
+    maxDepth: 6,
+  });
+  mvpdWorkspaceCollectEntityRefs(selectedMvpdProxyEntity?.entityData || null, bulkEntityRefs, {
+    maxRefs: 240,
+    maxDepth: 6,
+  });
+  mvpdWorkspaceCollectEntityRefs(selectedIntegrationEntity?.entityData || null, bulkEntityRefs, {
+    maxRefs: 240,
+    maxDepth: 6,
+  });
+  if (selectedIntegrationRef) {
+    bulkEntityRefs.add(mvpdWorkspaceNormalizeEntityRef(selectedIntegrationRef));
+  }
+  const bulkEntities = [...bulkEntityRefs]
+    .map((entry) => mvpdWorkspaceNormalizeEntityRef(entry))
+    .filter((entry) => /^[A-Z][A-Za-z0-9]+:[^\s]+$/.test(entry))
+    .slice(0, 320);
+  if (bulkEntities.length > 0) {
+    const payload = {
+      entities: bulkEntities,
+      ...(configurationVersion > 0 ? { configVersion: configurationVersion } : {}),
+    };
+    phaseTwoCallSpecs.push({
+      key: "bulkRetrieveSelected",
+      label: "Bulk Retrieve (Selected MVPD References)",
+      urls: [`${ADOBE_CONSOLE_BASE}/rest/api/entity/bulkRetrieve`],
+      requestInit: {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      },
+    });
+  }
+
+  const phaseTwoCalls =
+    phaseTwoCallSpecs.length > 0
+      ? await Promise.all(
+          phaseTwoCallSpecs.map((spec) =>
+            mvpdWorkspaceFetchCall(spec.key, spec.label, spec.urls, spec.requestInit || null, mvpdDebugContext)
+          )
+        )
+      : [];
+
+  const integrationEntityCall = phaseTwoCalls.find((call) => call.key === "integrationConfigurationEntity");
+  if (integrationEntityCall?.ok && integrationEntityCall?.parsed) {
+    selectedIntegrationEntity =
+      mvpdWorkspaceFindIntegrationEntity(
+        integrationEntityCall.parsed,
+        context,
+        selectedIntegrationRef,
+        selectedServiceProviderEntity
+      ) ||
+      mvpdWorkspaceFindEntityById(
+        integrationEntityCall.parsed,
+        selectedIntegrationRefSplit.id,
+        selectedIntegrationRefSplit.type
+      ) ||
+      selectedIntegrationEntity;
+  }
+
+  const allCalls = [versionCall, ...phaseOneCalls, ...phaseTwoCalls];
+  const allEntries = [];
+  const sourceSamples = [];
+
+  const addSourceEntries = (sourceKey, label, payload, maxEntries = 800, maxDepth = 6) => {
+    if (payload == null) {
+      return;
+    }
+    const sourceEntries = mvpdWorkspaceCollectFlatEntries(sourceKey, payload, {
+      maxEntries,
+      maxDepth,
+    });
+    if (sourceEntries.length === 0) {
+      return;
+    }
+    allEntries.push(...sourceEntries);
+    sourceSamples.push({
+      key: sourceKey,
+      label,
+      entries: sourceEntries.slice(0, 80),
+    });
+  };
+
+  allCalls
+    .filter((call) => call?.ok)
+    .forEach((call) => {
+      const callKey = String(call?.key || "").trim();
+      const maxEntries = callKey === "bulkRetrieveSelected" ? 1400 : callKey.startsWith("tmsIdMap_") ? 1100 : 900;
+      addSourceEntries(callKey, call.label, call.parsed, maxEntries, 6);
+    });
+
+  addSourceEntries("selectedProgrammer", "Selected Programmer Entity", selectedProgrammerEntity, 320, 6);
+  addSourceEntries("selectedServiceProvider", "Selected Service Provider Entity", selectedServiceProviderEntity, 500, 7);
+  addSourceEntries("selectedMvpd", "Selected MVPD Entity", selectedMvpdEntity, 700, 8);
+  addSourceEntries("selectedMvpdProxy", "Selected MVPD Proxy Entity", selectedMvpdProxyEntity, 700, 8);
+  addSourceEntries("selectedIntegration", "Selected Integration Configuration", selectedIntegrationEntity, 700, 8);
+
+  const mvpdNeedle = context.mvpdId.toLowerCase();
+  const mvpdMatches = mvpdWorkspaceCollectSectionEntries(
+    allEntries.filter((entry) => `${entry.path} ${entry.value}`.toLowerCase().includes(mvpdNeedle)),
+    /./,
+    220
+  );
+  const generalEntries = mvpdWorkspaceCollectSectionEntries(
+    allEntries,
+    /(general|display|branding|idp|mvpd|clientdata|key|provider|settings)/i,
+    180
+  );
+  const authenticationEntries = mvpdWorkspaceCollectSectionEntries(
+    allEntries,
+    /(authentication|authn|token|session|login|sso)/i,
+    180
+  );
+  const authorizationEntries = mvpdWorkspaceCollectSectionEntries(
+    allEntries,
+    /(authorization|authz|entitlement|resource|decision|preauthorize|authorize)/i,
+    220
+  );
+  const logoutEntries = mvpdWorkspaceCollectSectionEntries(
+    allEntries,
+    /(logout|logoff|signout)/i,
+    120
+  );
+  const samlEntries = mvpdWorkspaceCollectSectionEntries(
+    allEntries,
+    /(saml|metadata|assertion|certificate|acs)/i,
+    200
+  );
+  const resourceIds = mvpdWorkspaceCollectChipValues(allEntries, /resource([._-]?ids?)?/i, /resource/i, 120);
+  const tmsIdsFromNames = mvpdWorkspaceCollectChipValues(allEntries, /tms([._-]?ids?)?/i, /tms/i, 240);
+  const tmsIdsFromMaps = allEntries
+    .filter((entry) => {
+      const source = String(entry?.source || "").toLowerCase();
+      const path = String(entry?.path || "");
+      return source.includes("tmsidmap") && /(^|[.])mapping[.]/i.test(path);
+    })
+    .map((entry) => String(entry?.value || "").trim())
+    .filter(Boolean)
+    .slice(0, 240);
+  const tmsIds = [...new Set([...tmsIdsFromNames, ...tmsIdsFromMaps])].slice(0, 240);
+
+  const completedCalls = allCalls.filter((call) => call?.ok).length;
+  const failedCalls = allCalls.length - completedCalls;
+  const resolvedIntegration = firstNonEmptyString([
+    mvpdWorkspaceNormalizeEntityRef(selectedIntegrationRef),
+    mvpdWorkspaceNormalizeEntityRef(selectedIntegrationEntity?.key),
+    selectedIntegrationEntity?.entityData?.id
+      ? `IntegrationConfiguration:${selectedIntegrationEntity.entityData.id}`
+      : "",
+  ]);
+  const loadedTmsMapIds = [...new Set(
+    allCalls
+      .filter((call) => call?.ok && String(call?.key || "").startsWith("tmsIdMap_"))
+      .map((call) => {
+        const labelMatch = String(call?.label || "")
+          .trim()
+          .match(/^TMSID Map \((.+)\)$/i);
+        if (labelMatch && labelMatch[1]) {
+          return String(labelMatch[1]).trim();
+        }
+        const urlMatch = String(call?.url || "")
+          .trim()
+          .match(/\/TMSIdMap\/([^/?#]+)/i);
+        return urlMatch && urlMatch[1] ? decodeURIComponent(urlMatch[1]) : "";
+      })
+      .filter(Boolean)
+  )];
+  const sections = [
+    { id: "mvpd-match", title: "Selected MVPD Matches", entries: mvpdMatches },
+    { id: "general", title: "General Settings", entries: generalEntries },
+    { id: "authentication", title: "Authentication", entries: authenticationEntries },
+    { id: "authorization", title: "Authorization Settings", entries: authorizationEntries },
+    { id: "logout", title: "Logout", entries: logoutEntries },
+    { id: "saml", title: "SAML Metadata Settings", entries: samlEntries },
+  ].filter((section) => Array.isArray(section.entries) && section.entries.length > 0);
+
+  return {
+    programmerId: context.programmerId,
+    programmerName: context.programmerName,
+    requestorId: context.requestorId,
+    mvpdId: context.mvpdId,
+    configurationVersion,
+    resolvedIntegration,
+    loadedTmsMapIds,
+    callsCompleted: completedCalls,
+    callsFailed: failedCalls,
+    fetchedAt: Date.now(),
+    overview: [
+      { label: "Media Company", value: context.programmerName || context.programmerId || "N/A" },
+      { label: "Media Company ID", value: context.programmerId || "N/A" },
+      { label: "RequestorId", value: context.requestorId || "N/A" },
+      { label: "MVPD", value: context.mvpdId || "N/A" },
+      { label: "Configuration Version", value: configurationVersion > 0 ? String(configurationVersion) : "N/A" },
+      { label: "Resolved Integration", value: resolvedIntegration || "N/A" },
+      { label: "Calls Completed", value: `${completedCalls}/${allCalls.length}` },
+      { label: "Calls Failed", value: String(failedCalls) },
+      { label: "Flattened Values", value: String(allEntries.length) },
+    ],
+    calls: allCalls.map((call) => ({
+      key: call.key,
+      label: call.label,
+      ok: call.ok,
+      status: call.status,
+      url: call.url,
+      durationMs: call.durationMs,
+      error: call.error,
+      errorPayload: !call.ok ? cloneJsonLikeValue(call.parsed, null) : null,
+      errorBody: !call.ok ? truncateDebugText(String(call.text || ""), 3000) : "",
+    })),
+    resourceIds,
+    tmsIds,
+    sections,
+    sourceSamples,
+  };
+}
+
+function mvpdWorkspaceGetSnapshotCacheKey(context) {
+  return [context?.programmerId, context?.requestorId, context?.mvpdId].map((value) => String(value || "").trim()).join("|");
+}
+
+async function mvpdWorkspaceEnsureSnapshot(selectionContext, options = {}) {
+  const context = selectionContext && typeof selectionContext === "object" ? selectionContext : mvpdWorkspaceGetSelectionContext();
+  const cacheKey = mvpdWorkspaceGetSnapshotCacheKey(context);
+  if (!cacheKey) {
+    throw new Error("Select Requestor + MVPD to load MVPD Workspace details.");
+  }
+  const forceRefresh = options.forceRefresh === true;
+  if (!forceRefresh && state.mvpdWorkspaceSnapshotCacheBySelectionKey.has(cacheKey)) {
+    return state.mvpdWorkspaceSnapshotCacheBySelectionKey.get(cacheKey);
+  }
+  if (!forceRefresh && state.mvpdWorkspaceSnapshotPromiseBySelectionKey.has(cacheKey)) {
+    return state.mvpdWorkspaceSnapshotPromiseBySelectionKey.get(cacheKey);
+  }
+  const loadPromise = mvpdWorkspaceResolveSnapshot(context)
+    .then((snapshot) => {
+      state.mvpdWorkspaceSnapshotCacheBySelectionKey.set(cacheKey, snapshot);
+      return snapshot;
+    })
+    .finally(() => {
+      if (state.mvpdWorkspaceSnapshotPromiseBySelectionKey.get(cacheKey) === loadPromise) {
+        state.mvpdWorkspaceSnapshotPromiseBySelectionKey.delete(cacheKey);
+      }
+    });
+  state.mvpdWorkspaceSnapshotPromiseBySelectionKey.set(cacheKey, loadPromise);
+  return loadPromise;
+}
+
+function mvpdWorkspaceHasOpenTab() {
+  return Number(state.mvpdWorkspaceTabId || 0) > 0 || state.mvpdWorkspaceTabIdByWindowId.size > 0;
+}
+
+async function mvpdWorkspaceRefreshSelectedSnapshot(options = {}) {
+  const context = mvpdWorkspaceGetSelectionContext(options.programmer || null, options.services || null);
+  const targetWindowId = Number(options.targetWindowId || state.mvpdWorkspaceWindowId || 0);
+  const onlyIfWorkspaceOpen = options.onlyIfWorkspaceOpen === true;
+  const debugContext = {
+    programmerId: String(context?.programmerId || ""),
+    requestorId: String(context?.requestorId || ""),
+    mvpdId: String(context?.mvpdId || ""),
+    mvpd: String(context?.mvpdId || ""),
+  };
+  if (onlyIfWorkspaceOpen && !mvpdWorkspaceHasOpenTab()) {
+    return { ok: false, skipped: true };
+  }
+  if (!context.isReady) {
+    void mvpdWorkspaceSendWorkspaceMessage("workspace-clear", {}, { targetWindowId });
+    if (options.surfaceMissingSelectionError === true) {
+      const error = "Select Requestor + MVPD in UnderPAR first.";
+      void mvpdWorkspaceSendWorkspaceMessage(
+        "snapshot-result",
+        {
+          ok: false,
+          error,
+          requestorId: context.requestorId,
+          mvpdId: context.mvpdId,
+        },
+        { targetWindowId }
+      );
+      emitMvpdWorkspaceDebugEvent(
+        {
+          phase: "mvpd-workspace-snapshot",
+          status: "error",
+          reason: "selection-missing",
+          error,
+        },
+        {
+          context: debugContext,
+          preferredWindowId: targetWindowId,
+        }
+      );
+      return { ok: false, error };
+    }
+    return { ok: false, skipped: true };
+  }
+
+  void mvpdWorkspaceSendWorkspaceMessage(
+    "snapshot-start",
+    {
+      requestorId: context.requestorId,
+      mvpdId: context.mvpdId,
+      programmerId: context.programmerId,
+      startedAt: Date.now(),
+    },
+    { targetWindowId }
+  );
+
+  try {
+    const snapshot = await mvpdWorkspaceEnsureSnapshot(context, {
+      forceRefresh: options.forceRefresh === true,
+    });
+    void mvpdWorkspaceSendWorkspaceMessage(
+      "snapshot-result",
+      {
+        ok: true,
+        requestorId: context.requestorId,
+        mvpdId: context.mvpdId,
+        snapshot,
+      },
+      { targetWindowId }
+    );
+    emitMvpdWorkspaceDebugEvent(
+      {
+        phase: "mvpd-workspace-snapshot",
+        status: "ok",
+        resolvedIntegration: String(snapshot?.resolvedIntegration || ""),
+        loadedTmsMapIds: Array.isArray(snapshot?.loadedTmsMapIds) ? snapshot.loadedTmsMapIds.slice(0, 16) : [],
+        tmsMapsLoaded: Number(Array.isArray(snapshot?.loadedTmsMapIds) ? snapshot.loadedTmsMapIds.length : 0),
+        callsCompleted: Number(snapshot?.callsCompleted || 0),
+        callsFailed: Number(snapshot?.callsFailed || 0),
+      },
+      {
+        context: debugContext,
+        preferredWindowId: targetWindowId,
+      }
+    );
+    return { ok: true, snapshot };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    void mvpdWorkspaceSendWorkspaceMessage(
+      "snapshot-result",
+      {
+        ok: false,
+        requestorId: context.requestorId,
+        mvpdId: context.mvpdId,
+        error: message,
+      },
+      { targetWindowId }
+    );
+    emitMvpdWorkspaceDebugEvent(
+      {
+        phase: "mvpd-workspace-snapshot",
+        status: "error",
+        error: message,
+      },
+      {
+        context: debugContext,
+        preferredWindowId: targetWindowId,
+      }
+    );
+    return { ok: false, error: message };
+  }
+}
+
+async function handleMvpdWorkspaceAction(message, sender = null) {
+  const action = String(message?.action || "").trim().toLowerCase();
+  const senderWindowId = Number(sender?.tab?.windowId || 0);
+  const senderTabId = Number(sender?.tab?.id || 0);
+  const mappedSenderTabId = senderWindowId > 0 ? Number(state.mvpdWorkspaceTabIdByWindowId.get(senderWindowId) || 0) : 0;
+  if (senderWindowId > 0 && senderTabId > 0 && mappedSenderTabId > 0 && senderTabId !== mappedSenderTabId) {
+    return { ok: false, error: "This is not the bound MVPD workspace tab for the window." };
+  }
+  if (senderWindowId > 0 && senderTabId > 0 && (!mappedSenderTabId || mappedSenderTabId <= 0)) {
+    mvpdWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
+  }
+
+  if (action === "workspace-ready") {
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    if (senderWindowId > 0) {
+      mvpdWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
+    }
+    mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices, senderWindowId);
+    void mvpdWorkspaceRefreshSelectedSnapshot({
+      programmer: selectedProgrammer,
+      services: selectedServices,
+      forceRefresh: false,
+      targetWindowId: senderWindowId,
+      onlyIfWorkspaceOpen: false,
+      surfaceMissingSelectionError: false,
+    });
+    return { ok: true };
+  }
+
+  if (action === "open-workspace") {
+    const workspaceTab = await mvpdWorkspaceEnsureWorkspaceTab({
+      activate: true,
+      windowId: senderWindowId || undefined,
+    });
+    const targetWindowId = Number(workspaceTab?.windowId || senderWindowId || state.mvpdWorkspaceWindowId || 0);
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices, targetWindowId);
+    await mvpdWorkspaceRefreshSelectedSnapshot({
+      programmer: selectedProgrammer,
+      services: selectedServices,
+      forceRefresh: false,
+      targetWindowId,
+      surfaceMissingSelectionError: false,
+    });
+    return { ok: true };
+  }
+
+  if (action === "refresh-selected") {
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    const refreshResult = await mvpdWorkspaceRefreshSelectedSnapshot({
+      programmer: selectedProgrammer,
+      services: selectedServices,
+      forceRefresh: message?.forceRefresh !== false,
+      targetWindowId: senderWindowId,
+      surfaceMissingSelectionError: true,
+    });
+    return refreshResult?.ok ? { ok: true } : { ok: false, error: refreshResult?.error || "Unable to refresh MVPD details." };
+  }
+
+  if (action === "clear-all") {
+    const targetWindowId = Number(senderWindowId || state.mvpdWorkspaceWindowId || 0);
+    void mvpdWorkspaceSendWorkspaceMessage("workspace-clear", {}, { targetWindowId });
+    return { ok: true };
+  }
+
+  return { ok: false, error: `Unsupported MVPD workspace action: ${action}` };
+}
+
+function ensureMvpdWorkspaceRuntimeListener() {
+  if (state.mvpdWorkspaceRuntimeListenerBound) {
+    return;
+  }
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!MVPD_WORKSPACE_MESSAGE_TYPES.has(String(message?.type || "")) || message?.channel !== "workspace-action") {
+      return false;
+    }
+    void handleMvpdWorkspaceAction(message, sender)
+      .then((result) => {
+        sendResponse(result && typeof result === "object" ? result : { ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+    return true;
+  });
+  state.mvpdWorkspaceRuntimeListenerBound = true;
+}
+
+function ensureMvpdWorkspaceTabWatcher() {
+  if (state.mvpdWorkspaceTabWatcherBound) {
+    return;
+  }
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    mvpdWorkspaceUnbindWorkspaceTab(tabId);
+  });
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const normalizedTabId = Number(tabId || 0);
+    if (!normalizedTabId || !changeInfo?.url) {
+      return;
+    }
+    if (mvpdWorkspaceIsWorkspaceTab(tab)) {
+      mvpdWorkspaceBindWorkspaceTab(tab?.windowId, normalizedTabId);
+      return;
+    }
+    const boundTabId = Number(state.mvpdWorkspaceTabId || 0);
+    let isMappedTab = false;
+    for (const mappedTabId of state.mvpdWorkspaceTabIdByWindowId.values()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        isMappedTab = true;
+        break;
+      }
+    }
+    if (isMappedTab || normalizedTabId === boundTabId) {
+      mvpdWorkspaceUnbindWorkspaceTab(normalizedTabId);
+    }
+  });
+  state.mvpdWorkspaceTabWatcherBound = true;
+}
+
+function syncMvpdWorkspaceToolForSection(section, programmer = null, services = null) {
+  if (!section) {
+    return;
+  }
+  const button = section.querySelector(".mvpd-open-workspace-btn");
+  const summary = section.querySelector(".mvpd-workspace-summary");
+  if (!button && !summary) {
+    return;
+  }
+  const context = mvpdWorkspaceGetSelectionContext(programmer, services);
+  if (button) {
+    button.disabled = !context.isReady;
+  }
+  if (summary) {
+    if (!context.programmerId) {
+      summary.textContent = "Select a Media Company first.";
+    } else if (!context.requestorId || !context.mvpdId) {
+      summary.textContent = "Select Requestor + MVPD, then open MVPD Workspace.";
+    } else {
+      summary.textContent = `Ready: ${context.requestorId} x ${context.mvpdId}`;
+    }
+  }
+}
+
+function refreshMvpdWorkspaceTools() {
+  const selectedProgrammer = resolveSelectedProgrammer();
+  const selectedServices = selectedProgrammer?.programmerId
+    ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+    : null;
+  const sections = document.querySelectorAll(".premium-service-section.service-rest-v2");
+  sections.forEach((section) => {
+    syncMvpdWorkspaceToolForSection(section, selectedProgrammer, selectedServices);
+  });
+}
+
+async function mvpdWorkspaceOpenFromRestV2(programmer = null, services = null, options = {}) {
+  const resolvedProgrammer =
+    programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  const resolvedServices =
+    services && typeof services === "object"
+      ? services
+      : resolvedProgrammer?.programmerId
+        ? state.premiumAppsByProgrammerId.get(resolvedProgrammer.programmerId) || null
+        : null;
+  const workspaceTab = await mvpdWorkspaceEnsureWorkspaceTab({
+    activate: options.activate !== false,
+    windowId: options.windowId || undefined,
+  });
+  const targetWindowId = Number(workspaceTab?.windowId || state.mvpdWorkspaceWindowId || 0);
+  mvpdWorkspaceBroadcastSelectedControllerState(resolvedProgrammer, resolvedServices, targetWindowId);
+  await mvpdWorkspaceRefreshSelectedSnapshot({
+    programmer: resolvedProgrammer,
+    services: resolvedServices,
+    forceRefresh: options.forceRefresh !== false,
+    targetWindowId,
+    surfaceMissingSelectionError: true,
+  });
+  return workspaceTab;
+}
+
 async function cmOpenRecordInWorkspace(cmState, record, requestToken, options = {}) {
   if (!cmState || !record) {
     return;
@@ -11711,6 +14518,11 @@ async function cmOpenRecordInWorkspace(cmState, record, requestToken, options = 
   });
   cmBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
   const targetWindowId = Number(workspaceTab?.windowId || cmState.controllerWindowId || 0);
+  void ensureCmWorkspaceActivityDebugFlow({
+    reason: "cm-open-record",
+    preferredWindowId: targetWindowId,
+    fallbackTabId: Number(workspaceTab?.id || 0),
+  });
   cmBroadcastControllerState(cmState, targetWindowId);
   await cmRunRecordToWorkspace(cmState, record, requestToken, {
     emitStart: options.emitStart !== false,
@@ -11731,6 +14543,11 @@ async function cmOpenRecordsInWorkspace(cmState, records, requestToken, options 
   });
   cmBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
   const targetWindowId = Number(workspaceTab?.windowId || cmState.controllerWindowId || 0);
+  void ensureCmWorkspaceActivityDebugFlow({
+    reason: "cm-open-records",
+    preferredWindowId: targetWindowId,
+    fallbackTabId: Number(workspaceTab?.id || 0),
+  });
   cmBroadcastControllerState(cmState, targetWindowId);
 
   let openedCount = 0;
@@ -11770,7 +14587,7 @@ async function loadCmService(programmer, cmService, section, contentElement, req
   contentElement.innerHTML = '<div class="loading">Loading Concurrency Monitoring...</div>';
 
   try {
-    const controllerWindowId = await decompGetCurrentWindowId();
+    const controllerWindowId = await esmWorkspaceGetCurrentWindowId();
     const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
     const bundles = await Promise.all(matchedTenants.map((tenant) => loadCmTenantBundle(tenant, { profileHarvest })));
     if (!isCmServiceRequestActive(section, requestToken, programmer.programmerId)) {
@@ -11795,6 +14612,11 @@ async function loadCmService(programmer, cmService, section, contentElement, req
         records: correlationCardRecords,
       },
       {
+        key: "usage",
+        label: "CM Usage (CMU)",
+        records: usageRecords,
+      },
+      {
         key: "tenants",
         label: "CM Tenants",
         records: tenantRecords,
@@ -11813,11 +14635,6 @@ async function loadCmService(programmer, cmService, section, contentElement, req
         key: "policies",
         label: "CM Policies",
         records: policyRecords,
-      },
-      {
-        key: "usage",
-        label: "CM Usage (CMU)",
-        records: usageRecords,
       },
     ];
     // Keep tenant groups in internal records for fast CM mapping/debug workflows,
@@ -11838,11 +14655,16 @@ async function loadCmService(programmer, cmService, section, contentElement, req
     });
     const recordsById = new Map(records.map((record) => [record.cardId, record]));
     const sourceLabel = String(cmService?.sourceUrl || "").trim() || "CM API discovery";
+    const cmuJellyMarkup = `<section class="cmu-jelly-host"></section>`;
     const groupMarkup = groupDefinitions
       .filter((group) => !hiddenCmGroupKeys.has(group.key))
       .map((group) => {
         const groupRecord = groupRecordsByKey.get(group.key);
-        return cmBuildGroupListHtml(group.label, group.records, groupRecord?.cardId || "");
+        const groupHtml = cmBuildGroupListHtml(group.label, group.records, groupRecord?.cardId || "");
+        if (group.key === "usage") {
+          return `${cmuJellyMarkup}${groupHtml}`;
+        }
+        return groupHtml;
       })
       .join("");
 
@@ -11871,6 +14693,7 @@ async function loadCmService(programmer, cmService, section, contentElement, req
       controllerWindowId,
     };
     section.__underparCmState = cmState;
+    cmMountUsageJellyBeans(cmState, usageRecords, requestToken);
 
     const openWorkspaceButton = contentElement.querySelector(".cm-open-workspace-btn");
     if (openWorkspaceButton) {
@@ -12161,18 +14984,18 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       ? state.premiumAppsByProgrammerId.get(programmer.programmerId)
       : null;
   const serviceScopedAppByKey = {
-    decompTree: servicesForProgrammer?.esm || null,
+    esmWorkspace: servicesForProgrammer?.esm || null,
     degradation: servicesForProgrammer?.degradation || null,
     restV2: servicesForProgrammer?.restV2 || null,
   };
   const resolvedServiceApp =
-    (serviceKey === "decompTree" ? appInfo || serviceScopedAppByKey.decompTree : appInfo || serviceScopedAppByKey[serviceKey]) ||
+    (serviceKey === "esmWorkspace" ? appInfo || serviceScopedAppByKey.esmWorkspace : appInfo || serviceScopedAppByKey[serviceKey]) ||
     null;
   const resolvedRegisteredApp = String(resolvedServiceApp?.appName || resolvedServiceApp?.guid || "").trim();
   const registeredAppLabel = resolvedRegisteredApp || "No registered application selected";
   const hoverServiceLabelByKey = {
     restV2: "REST",
-    decompTree: "ESM",
+    esmWorkspace: "ESM",
     degradation: "DEGRADATION",
   };
   const serviceHoverMessage = hoverServiceLabelByKey[serviceKey]
@@ -12181,7 +15004,7 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const serviceClassByKey = {
     cm: "service-cm",
     degradation: "service-degradation",
-    decompTree: "service-esm-decomp",
+    esmWorkspace: "service-esm",
     restV2: "service-rest-v2",
   };
 
@@ -12236,11 +15059,20 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
           <p class="rest-v2-entitlement-status"></p>
           <div class="rest-v2-entitlement-summary" hidden></div>
         </section>
+        <section class="mvpd-workspace-tool">
+          <div class="rest-v2-tool-head">
+            <p class="rest-v2-tool-title">MVPD Workspace</p>
+            <div class="rest-v2-tool-head-actions">
+              <button type="button" class="mvpd-open-workspace-btn">Open Workspace</button>
+            </div>
+          </div>
+          <p class="mvpd-workspace-summary">Select Requestor + MVPD to open details.</p>
+        </section>
         `
       : "";
   const serviceBodyHtml =
-    serviceKey === "decompTree"
-      ? '<div class="loading">Loading decomp...</div>'
+    serviceKey === "esmWorkspace"
+      ? '<div class="loading">Loading ESM...</div>'
       : serviceKey === "cm"
         ? '<div class="loading">Loading Concurrency Monitoring...</div>'
         : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
@@ -12271,20 +15103,20 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     if (!collapsed && typeof section.__underparRunAutoRefreshCheck === "function") {
       void section.__underparRunAutoRefreshCheck();
     }
-    if (!collapsed && serviceKey === "decompTree" && typeof section.__underparRefreshDecomp === "function") {
-      void section.__underparRefreshDecomp();
+    if (!collapsed && serviceKey === "esmWorkspace" && typeof section.__underparRefreshEsmWorkspace === "function") {
+      void section.__underparRefreshEsmWorkspace();
     }
     if (!collapsed && serviceKey === "cm" && typeof section.__underparRefreshCm === "function") {
       void section.__underparRefreshCm();
     }
   });
 
-  if (serviceKey === "decompTree") {
-    section.__underparRefreshDecomp = () => {
+  if (serviceKey === "esmWorkspace") {
+    section.__underparRefreshEsmWorkspace = () => {
       const requestToken = state.premiumPanelRequestToken;
-      return loadDecompService(programmer, appInfo, section, contentElement, requestToken);
+      return loadEsmWorkspaceService(programmer, appInfo, section, contentElement, requestToken);
     };
-    void section.__underparRefreshDecomp();
+    void section.__underparRefreshEsmWorkspace();
   } else if (serviceKey === "cm") {
     section.__underparRefreshCm = () => {
       const requestToken = state.premiumPanelRequestToken;
@@ -12296,6 +15128,7 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   if (serviceKey === "restV2") {
     const testLoginButton = section.querySelector(".rest-v2-test-login-btn");
     const closeLoginButton = section.querySelector(".rest-v2-close-login-btn");
+    const openMvpdWorkspaceButton = section.querySelector(".mvpd-open-workspace-btn");
     if (testLoginButton) {
       testLoginButton.addEventListener("click", async (event) => {
         event.stopPropagation();
@@ -12308,9 +15141,26 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
         await stopRestV2MvpdRecording(section, programmer, appInfo);
       });
     }
+    if (openMvpdWorkspaceButton) {
+      openMvpdWorkspaceButton.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        const servicesForProgrammer = programmer?.programmerId
+          ? state.premiumAppsByProgrammerId.get(programmer.programmerId) || null
+          : null;
+        try {
+          await mvpdWorkspaceOpenFromRestV2(programmer, servicesForProgrammer, {
+            activate: true,
+            forceRefresh: true,
+          });
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : String(error), "error");
+        }
+      });
+    }
 
     wireRestV2ProfileAndEntitlementHandlers(section, programmer, appInfo);
     syncRestV2LoginPanel(section, programmer, appInfo);
+    syncMvpdWorkspaceToolForSection(section, programmer, servicesForProgrammer);
   }
 
   const runAutoRefreshCheck = async () => {
@@ -12339,8 +15189,9 @@ function renderPremiumServicesLoading(programmer, options = {}) {
   }
   clearPremiumServiceAutoRefreshTimers();
   const controllerReason = String(options?.controllerReason || "").trim();
-  decompBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
+  esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
   cmBroadcastSelectedControllerState(programmer, null);
+  mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
 
   const label = programmer?.programmerName
     ? `Loading premium services for ${programmer.programmerName}...`
@@ -12354,8 +15205,9 @@ function renderPremiumServicesError(error, options = {}) {
   }
   clearPremiumServiceAutoRefreshTimers();
   const controllerReason = String(options?.controllerReason || "").trim();
-  decompBroadcastSelectedControllerState(resolveSelectedProgrammer(), null, 0, { controllerReason });
+  esmWorkspaceBroadcastSelectedControllerState(resolveSelectedProgrammer(), null, 0, { controllerReason });
   cmBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
+  mvpdWorkspaceBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
   const reason = error instanceof Error ? error.message : String(error);
   els.premiumServicesContainer.innerHTML = `<p class="metadata-empty service-error">${escapeHtml(reason)}</p>`;
 }
@@ -12377,17 +15229,19 @@ function renderPremiumServices(services, programmer = null, options = {}) {
   const controllerReason = String(options?.controllerReason || "").trim();
 
   if (!services) {
-    decompBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
+    esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
     cmBroadcastSelectedControllerState(programmer, null);
+    mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
     els.premiumServicesContainer.innerHTML =
       '<p class="metadata-empty">No premium scoped applications loaded yet.</p>';
     return;
   }
-  decompBroadcastSelectedControllerState(programmer, services, 0, { controllerReason });
+  esmWorkspaceBroadcastSelectedControllerState(programmer, services, 0, { controllerReason });
   cmBroadcastSelectedControllerState(programmer, services);
+  mvpdWorkspaceBroadcastSelectedControllerState(programmer, services);
 
   const availableKeys = PREMIUM_SERVICE_DISPLAY_ORDER.filter((serviceKey) => {
-    if (serviceKey === "decompTree") {
+    if (serviceKey === "esmWorkspace") {
       return hasEsmScopedApp(services);
     }
     if (serviceKey === "cm") {
@@ -12403,10 +15257,11 @@ function renderPremiumServices(services, programmer = null, options = {}) {
 
   els.premiumServicesContainer.innerHTML = "";
   for (const serviceKey of availableKeys) {
-    const appInfo = serviceKey === "decompTree" ? services.esm : services[serviceKey];
+    const appInfo = serviceKey === "esmWorkspace" ? services.esm : services[serviceKey];
     const section = createPremiumServiceSection(programmer, serviceKey, appInfo);
     els.premiumServicesContainer.appendChild(section);
   }
+  refreshMvpdWorkspaceTools();
   refreshRestV2LoginPanels();
 }
 
@@ -12424,6 +15279,8 @@ function resetWorkflowForLoggedOut() {
   state.cmServiceLoadPromiseByProgrammerId.clear();
   state.cmTenantsCatalog = null;
   state.cmTenantsCatalogPromise = null;
+  state.cmConsoleBootstrapSummary = null;
+  state.cmConsoleBootstrapPromise = null;
   state.cmAuthBootstrapPromise = null;
   state.cmAuthBootstrapLastAttemptAt = 0;
   state.cmTenantBundleByTenantKey.clear();
@@ -12431,6 +15288,11 @@ function resetWorkflowForLoggedOut() {
   state.cmWorkspaceTabId = 0;
   state.cmWorkspaceWindowId = 0;
   state.cmWorkspaceTabIdByWindowId.clear();
+  state.mvpdWorkspaceTabId = 0;
+  state.mvpdWorkspaceWindowId = 0;
+  state.mvpdWorkspaceTabIdByWindowId.clear();
+  state.mvpdWorkspaceSnapshotCacheBySelectionKey.clear();
+  state.mvpdWorkspaceSnapshotPromiseBySelectionKey.clear();
   state.premiumSectionCollapsedByKey.clear();
   state.premiumAutoRefreshMetaByKey.clear();
   state.premiumPanelRequestToken = 0;
@@ -12439,13 +15301,15 @@ function resetWorkflowForLoggedOut() {
   state.restV2AuthContextByRequestor.clear();
   state.restV2PrewarmedAppsByProgrammerId.clear();
   clearRestV2PreparedLoginState();
-  clearDecompRecordingState("logout-reset");
+  clearEsmWorkspaceRecordingState("logout-reset");
+  clearEsmWorkspaceActivityDebugFlow("logout-reset", { stopFlow: true });
+  clearCmWorkspaceActivityDebugFlow("logout-reset", { stopFlow: true });
   state.consoleContextReady = false;
-  state.decompWorkspaceTabId = 0;
-  state.decompWorkspaceWindowId = 0;
-  state.decompWorkspaceTabIdByWindowId.clear();
+  state.esmWorkspaceWorkspaceTabId = 0;
+  state.esmWorkspaceWorkspaceWindowId = 0;
+  state.esmWorkspaceWorkspaceTabIdByWindowId.clear();
 
-  void decompSendWorkspaceMessage("controller-state", {
+  void esmWorkspaceSendWorkspaceMessage("controller-state", {
     controllerOnline: false,
     esmAvailable: null,
     programmerId: "",
@@ -12467,6 +15331,17 @@ function resetWorkflowForLoggedOut() {
     profileHarvestList: [],
     updatedAt: Date.now(),
   });
+  void mvpdWorkspaceSendWorkspaceMessage("controller-state", {
+    controllerOnline: false,
+    mvpdReady: false,
+    hasRestV2Service: false,
+    programmerId: "",
+    programmerName: "",
+    requestorIds: [],
+    mvpdIds: [],
+    updatedAt: Date.now(),
+  });
+  void mvpdWorkspaceSendWorkspaceMessage("workspace-clear", {});
 
   els.mediaCompanySelect.disabled = true;
   els.mediaCompanySelect.innerHTML = '<option value="">-- Please login first --</option>';
@@ -17725,6 +20600,10 @@ async function attemptSilentBootstrapLogin() {
       profile_filter: EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER,
     },
     {
+      client_id: "cm-console-ui",
+      profile_filter: EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER,
+    },
+    {
       client_id: "AdobePass1",
     },
   ];
@@ -17849,6 +20728,7 @@ function populateMediaCompanySelect() {
   els.mvpdSelect.innerHTML = '<option value="">-- Select Requestor first --</option>';
   renderPremiumServices(null);
   refreshRestV2LoginPanels();
+  refreshMvpdWorkspaceTools();
 }
 
 function getRequestorsForSelectedMediaCompany() {
@@ -17882,6 +20762,7 @@ function populateRequestorSelect() {
   els.mvpdSelect.disabled = true;
   els.mvpdSelect.innerHTML = '<option value="">-- Select Requestor first --</option>';
   refreshRestV2LoginPanels();
+  refreshMvpdWorkspaceTools();
 }
 
 async function refreshProgrammerPanels(options = {}) {
@@ -17898,8 +20779,9 @@ async function refreshProgrammerPanels(options = {}) {
     renderPremiumServices(null, null, { controllerReason });
     return;
   }
-  decompBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
+  esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
   cmBroadcastSelectedControllerState(programmer, null);
+  mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
 
   const cachedServices = state.premiumAppsByProgrammerId.get(programmer.programmerId) || null;
   const cachedIncludesCm = Boolean(cachedServices && Object.prototype.hasOwnProperty.call(cachedServices, "cm"));
@@ -18291,13 +21173,27 @@ function isAdobeConsoleTokenExpiredResponse(status, parsed, text = "") {
   );
 }
 
-async function fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, contextLabel) {
+async function fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, contextLabel, requestOptions = null) {
   const urls = Array.isArray(urlCandidates)
     ? [...new Set(urlCandidates.filter((item) => typeof item === "string" && item.trim()))]
     : [];
   if (urls.length === 0) {
     throw new Error(`${contextLabel} failed: no URL candidates.`);
   }
+
+  const options = requestOptions && typeof requestOptions === "object" ? requestOptions : {};
+  const method = String(options.method || "GET")
+    .trim()
+    .toUpperCase();
+  const customHeaders = options.headers && typeof options.headers === "object" ? options.headers : {};
+  const body =
+    Object.prototype.hasOwnProperty.call(options, "body") && options.body != null
+      ? typeof options.body === "string"
+        ? options.body
+        : JSON.stringify(options.body)
+      : undefined;
+  const credentials = String(options.credentials || "include");
+  const mode = String(options.mode || "cors");
 
   const getHeaderVariants = () => {
     const variants = [getAdobeConsoleRequestHeaders("")];
@@ -18318,11 +21214,16 @@ async function fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, contextLabel
       const headers = headerVariants[headerIndex];
       for (let round = 0; round < 2; round += 1) {
         try {
+          const requestHeaders = {
+            ...headers,
+            ...customHeaders,
+          };
           const response = await fetch(url, {
-            method: "GET",
-            credentials: "include",
-            mode: "cors",
-            headers,
+            method,
+            credentials,
+            mode,
+            headers: requestHeaders,
+            ...(body != null ? { body } : {}),
           });
 
           const text = await response.text().catch(() => "");
@@ -18472,21 +21373,75 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
     return {};
   }
 
+  const resolvedProgrammer =
+    state.programmers.find((item) => String(item?.programmerId || "") === String(programmerId || "")) || null;
   const forceRefresh = options.forceRefresh === true;
   if (forceRefresh) {
     state.applicationsByProgrammerId.delete(programmerId);
   }
 
   if (!forceRefresh && state.applicationsByProgrammerId.has(programmerId)) {
+    emitPremiumDecisionDebugEvent(
+      {
+        phase: "premium-applications-cache-hit",
+        programmerId: String(programmerId || ""),
+      },
+      {
+        programmer: resolvedProgrammer,
+      }
+    );
     return state.applicationsByProgrammerId.get(programmerId);
   }
 
-  const payload = await fetchAdobeConsoleJsonWithAuthVariants(
-    [
-      `${ADOBE_CONSOLE_BASE}/rest/api/applications?programmer=${encodeURIComponent(programmerId)}&configurationVersion=3522`,
-      `${ADOBE_CONSOLE_BASE}/rest/api/applications?programmer=${encodeURIComponent(programmerId)}`,
-    ],
-    "Applications load"
+  const urlCandidates = [
+    `${ADOBE_CONSOLE_BASE}/rest/api/applications?programmer=${encodeURIComponent(programmerId)}&configurationVersion=3522`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/applications?programmer=${encodeURIComponent(programmerId)}`,
+  ];
+
+  emitPremiumDecisionDebugEvent(
+    {
+      phase: "premium-applications-request",
+      method: "GET",
+      programmerId: String(programmerId || ""),
+      lookupUrls: urlCandidates.slice(0, 6),
+      forceRefresh,
+    },
+    {
+      programmer: resolvedProgrammer,
+    }
+  );
+
+  let payload = null;
+  try {
+    payload = await fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, "Applications load");
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    emitPremiumDecisionDebugEvent(
+      {
+        phase: "premium-applications-error",
+        programmerId: String(programmerId || ""),
+        method: "GET",
+        lookupUrls: urlCandidates.slice(0, 6),
+        error: reason,
+      },
+      {
+        programmer: resolvedProgrammer,
+      }
+    );
+    throw error;
+  }
+
+  emitPremiumDecisionDebugEvent(
+    {
+      phase: "premium-applications-response",
+      programmerId: String(programmerId || ""),
+      method: "GET",
+      status: Number(payload?.status || 0),
+      url: String(payload?.url || ""),
+    },
+    {
+      programmer: resolvedProgrammer,
+    }
   );
   const items = normalizeApplicationsResponse(payload?.parsed || payload);
   const byGuid = {};
@@ -18499,6 +21454,16 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
   }
 
   state.applicationsByProgrammerId.set(programmerId, byGuid);
+  emitPremiumDecisionDebugEvent(
+    {
+      phase: "premium-applications-normalized",
+      programmerId: String(programmerId || ""),
+      applicationCount: Object.keys(byGuid).length,
+    },
+    {
+      programmer: resolvedProgrammer,
+    }
+  );
   return byGuid;
 }
 
@@ -19166,6 +22131,8 @@ async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false,
 
 async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, retryStage = "refresh", debugMeta = null) {
   const debugFlowId = String(debugMeta?.flowId || "").trim();
+  const workspaceKey = normalizeWorkspaceDebugKey(debugMeta?.workspaceKey || debugMeta?.workspaceOrigin || "");
+  const workspaceOrigin = firstNonEmptyString([debugMeta?.workspaceOrigin, getWorkspaceDebugLabel(workspaceKey)]);
   const token = await ensureDcrAccessToken(programmerId, appInfo, false, debugMeta);
   const headers = new Headers(options.headers || {});
   headers.set("Authorization", `Bearer ${token}`);
@@ -19195,6 +22162,8 @@ async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, re
     service: String(debugMeta?.service || ""),
     endpointUrl: String(debugMeta?.endpointUrl || ""),
     cardId: String(debugMeta?.cardId || ""),
+    workspaceKey,
+    workspaceOrigin,
   });
 
   const response = await fetchWithRateLimitRetry(
@@ -19242,6 +22211,8 @@ async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, re
     service: String(debugMeta?.service || ""),
     endpointUrl: String(debugMeta?.endpointUrl || ""),
     cardId: String(debugMeta?.cardId || ""),
+    workspaceKey,
+    workspaceOrigin,
   });
 
   if (response.status === 401 && retryStage === "refresh") {
@@ -19258,6 +22229,8 @@ async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, re
       responsePreview: truncateDebugText(bodyText, 1200),
       service: String(debugMeta?.service || ""),
       requestScope: String(debugMeta?.scope || ""),
+      workspaceKey,
+      workspaceOrigin,
     });
     await ensureDcrAccessToken(programmerId, appInfo, true, debugMeta);
     return fetchWithPremiumAuth(programmerId, appInfo, url, options, "reprovision", debugMeta);
@@ -19277,6 +22250,8 @@ async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, re
       responsePreview: truncateDebugText(bodyText, 1200),
       service: String(debugMeta?.service || ""),
       requestScope: String(debugMeta?.scope || ""),
+      workspaceKey,
+      workspaceOrigin,
     });
     clearDcrCache(programmerId, appInfo.guid);
     await ensureDcrAccessToken(programmerId, appInfo, true, debugMeta);
@@ -19320,6 +22295,15 @@ async function ensurePremiumAppsForProgrammer(programmer, options = {}) {
 
   const existing = state.premiumAppsByProgrammerId.get(programmer.programmerId);
   if (!forceRefresh && existing) {
+    emitPremiumDecisionDebugEvent(
+      {
+        phase: "premium-service-cache-hit",
+        programmerId: String(programmer.programmerId || ""),
+      },
+      {
+        programmer,
+      }
+    );
     return existing;
   }
 
@@ -19330,6 +22314,19 @@ async function ensurePremiumAppsForProgrammer(programmer, options = {}) {
   const loadPromise = (async () => {
     const applicationsData = await fetchApplicationsForProgrammer(programmer.programmerId, { forceRefresh });
     const premiumApps = findPremiumServiceApplications(programmer.applications || [], applicationsData || {});
+    emitPremiumDecisionDebugEvent(
+      {
+        phase: "premium-service-decision",
+        programmerId: String(programmer.programmerId || ""),
+        hasDegradation: Boolean(premiumApps?.degradation?.guid),
+        hasEsm: Boolean(premiumApps?.esm?.guid),
+        hasRestV2: Boolean(premiumApps?.restV2?.guid),
+        restV2AppCount: Array.isArray(premiumApps?.restV2Apps) ? premiumApps.restV2Apps.length : 0,
+      },
+      {
+        programmer,
+      }
+    );
     void enrichPremiumAppsWithSoftwareStatements(premiumApps).catch((error) => {
       log("Premium app enrichment skipped", {
         programmerId: programmer.programmerId,
@@ -19779,7 +22776,7 @@ function normalizeCmEntityRecord(kind, item, index = 0, tenant = null, fallbackU
     .concat(payload ? collectCmUrlsFromValue(payload) : [])
     .concat(fallbackUrl ? [fallbackUrl] : []);
   const tenantId = String(tenant?.tenantId || "").trim();
-  if (kindValue === "policies" && tenantId && entityId) {
+  if ((kindValue === "policies" || kindValue === "applications") && tenantId && entityId) {
     linkCandidates.push(
       `${CM_CONFIG_BASE_URL}/maitai/policy/${encodeURIComponent(String(entityId || "").trim())}?orgId=${encodeURIComponent(
         tenantId
@@ -19801,6 +22798,20 @@ function normalizeCmEntityRecord(kind, item, index = 0, tenant = null, fallbackU
 }
 
 function normalizeCmTenantsFromPayload(payload, sourceUrl = "") {
+  const pushUniqueTenant = (target, seen, item, index = 0) => {
+    const record = normalizeCmTenantRecord(item, index, sourceUrl);
+    if (!record) {
+      return false;
+    }
+    const key = normalizeCmMatchText(`${record.tenantId}|${record.tenantName}`);
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    target.push(record);
+    return true;
+  };
+
   const collections = collectCmCollections(payload, {
     preferredKeys: ["tenants", "tenant", "items", "results", "data"],
     maxDepth: 5,
@@ -19809,18 +22820,59 @@ function normalizeCmTenantsFromPayload(payload, sourceUrl = "") {
   const seen = new Set();
   collections.forEach((collection) => {
     collection.values.forEach((item, index) => {
-      const record = normalizeCmTenantRecord(item, index, sourceUrl);
-      if (!record) {
-        return;
-      }
-      const key = normalizeCmMatchText(`${record.tenantId}|${record.tenantName}`);
-      if (seen.has(key)) {
-        return;
-      }
-      seen.add(key);
-      tenants.push(record);
+      pushUniqueTenant(tenants, seen, item, index);
     });
   });
+
+  // Defensive fallback: some CM endpoints return object maps instead of arrays.
+  if (tenants.length === 0) {
+    const objectPayload = payload && typeof payload === "object" ? payload : null;
+    if (Array.isArray(payload)) {
+      payload.forEach((item, index) => {
+        pushUniqueTenant(tenants, seen, item, index);
+      });
+    } else if (objectPayload) {
+      const preferredKeys = new Set(["tenants", "tenant", "items", "results", "data"]);
+      const candidateContainers = [];
+      Object.entries(objectPayload).forEach(([key, value]) => {
+        const normalizedKey = String(key || "").trim().toLowerCase();
+        if (!normalizedKey) {
+          return;
+        }
+        if ([...preferredKeys].some((preferredKey) => normalizedKey === preferredKey || normalizedKey.includes(preferredKey))) {
+          candidateContainers.push(value);
+        }
+      });
+      if (candidateContainers.length === 0) {
+        candidateContainers.push(objectPayload);
+      }
+
+      candidateContainers.forEach((container, containerIndex) => {
+        if (Array.isArray(container)) {
+          container.forEach((item, index) => {
+            pushUniqueTenant(tenants, seen, item, index);
+          });
+          return;
+        }
+        if (!container || typeof container !== "object") {
+          return;
+        }
+        let pushedChild = false;
+        Object.values(container).forEach((child, index) => {
+          if (!child || typeof child !== "object") {
+            return;
+          }
+          if (pushUniqueTenant(tenants, seen, child, index)) {
+            pushedChild = true;
+          }
+        });
+        if (!pushedChild) {
+          pushUniqueTenant(tenants, seen, container, containerIndex);
+        }
+      });
+    }
+  }
+
   return tenants;
 }
 
@@ -19915,43 +22967,115 @@ function scoreCmTenantMatch(programmer, tenant) {
   return score;
 }
 
+function normalizeCmConsoleKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function collectCmProgrammerConsoleKeys(programmer) {
+  const baseCandidates = uniqueSorted([
+    programmer?.mediaCompanyName,
+    programmer?.programmerName,
+    programmer?.programmerId,
+  ]);
+  const keys = new Set();
+  baseCandidates.forEach((value) => {
+    const raw = String(value || "").trim();
+    if (!raw) {
+      return;
+    }
+    const fullKey = normalizeCmConsoleKey(raw);
+    if (fullKey) {
+      keys.add(fullKey);
+    }
+    raw
+      .split(/[\s\-_/|:]+/g)
+      .map((token) => normalizeCmConsoleKey(token))
+      .filter(Boolean)
+      .forEach((tokenKey) => {
+        keys.add(tokenKey);
+      });
+  });
+
+  // Business exception: Fox media company maps to two CM tenants.
+  if (keys.has("fox")) {
+    keys.add("foxsports");
+  }
+
+  return [...keys];
+}
+
+function collectCmTenantConsoleKeys(tenant) {
+  const values = uniqueSorted([
+    tenant?.raw?.consoleId,
+    tenant?.tenantId,
+    tenant?.tenantName,
+    tenant?.raw?.payload?.name,
+    ...(Array.isArray(tenant?.aliases) ? tenant.aliases : []),
+  ]);
+  const keys = new Set(
+    values
+      .map((value) => normalizeCmConsoleKey(value))
+      .filter(Boolean)
+  );
+  return [...keys];
+}
+
 function isCmDirectTenantMatch(programmer, tenant) {
-  const programmerCandidates = uniqueSorted([programmer?.mediaCompanyName, programmer?.programmerName, programmer?.programmerId]);
-  const tenantCandidates = uniqueSorted([tenant?.tenantName, tenant?.tenantId, ...(tenant?.aliases || [])]);
-  const programmerVariants = collectCmMatchVariants(programmerCandidates).filter((value) => String(value || "").length >= 2);
-  const tenantVariants = new Set(collectCmMatchVariants(tenantCandidates).filter((value) => String(value || "").length >= 2));
-  if (programmerVariants.length === 0 || tenantVariants.size === 0) {
+  const programmerKeys = collectCmProgrammerConsoleKeys(programmer);
+  const tenantKeys = new Set(collectCmTenantConsoleKeys(tenant));
+  if (programmerKeys.length === 0 || tenantKeys.size === 0) {
     return false;
   }
-  return programmerVariants.some((value) => tenantVariants.has(value));
+  return programmerKeys.some((value) => tenantKeys.has(value));
 }
 
 function findCmTenantMatchesForProgrammer(programmer, tenants) {
-  const scored = (Array.isArray(tenants) ? tenants : [])
-    .map((tenant) => ({
-      tenant,
-      score: scoreCmTenantMatch(programmer, tenant),
-    }))
-    .filter((entry) => entry.score >= 26)
-    .sort((left, right) => right.score - left.score || left.tenant.tenantName.localeCompare(right.tenant.tenantName));
-  if (scored.length === 0) {
+  const matches = (Array.isArray(tenants) ? tenants : [])
+    .filter((tenant) => isCmDirectTenantMatch(programmer, tenant));
+  if (matches.length === 0) {
     return [];
   }
-  const directMatches = scored.filter((entry) => isCmDirectTenantMatch(programmer, entry.tenant)).map((entry) => entry.tenant);
-  if (directMatches.length > 0) {
-    const seen = new Set();
-    return directMatches.filter((tenant) => {
-      const key = `${tenant?.tenantId || ""}|${tenant?.tenantName || ""}`;
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
-  }
-  const bestScore = scored[0].score;
-  const floor = Math.max(26, bestScore >= 90 ? bestScore - 34 : bestScore - 22);
-  return scored.filter((entry) => entry.score >= floor).map((entry) => entry.tenant);
+  const seen = new Set();
+  return matches.filter((tenant) => {
+    const key = `${tenant?.tenantId || ""}|${tenant?.tenantName || ""}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function emitCmTenantMatchDebugLine(programmer, catalog, matchedTenants, options = {}) {
+  const resolvedMatches = Array.isArray(matchedTenants) ? matchedTenants : [];
+  const normalizedMediaCompanyKeys = collectCmProgrammerConsoleKeys(programmer).slice(0, 16);
+  const normalizedMediaCompanyKey = String(normalizedMediaCompanyKeys[0] || "").trim();
+  const matchedTenantConsoleIds = resolvedMatches
+    .map((tenant) => String(tenant?.raw?.consoleId || tenant?.tenantId || tenant?.tenantName || "").trim())
+    .filter(Boolean)
+    .slice(0, 16);
+  const matchedTenantConsoleIdsText = matchedTenantConsoleIds.join(", ");
+  const selectedMediaCompany = String(programmer?.mediaCompanyName || programmer?.programmerName || programmer?.programmerId || "");
+  const cmDecisionSummary = {
+    selectedMediaCompany,
+    normalizedMediaCompanyKey,
+    normalizedMediaCompanyKeys,
+    matchedTenantConsoleIds,
+    matchedTenantConsoleKeys: matchedTenantConsoleIds.map((value) => normalizeCmConsoleKey(value)).filter(Boolean),
+    tenantCatalogSourceUrl: String(catalog?.sourceUrl || ""),
+    tenantCatalogCount: Number(catalog?.tenants?.length || 0),
+    matchedTenantCount: resolvedMatches.length,
+    cacheState: String(options?.cacheState || "live"),
+    traceLine: `CM detect | media-company="${selectedMediaCompany || "unknown"}" | normalized-key="${normalizedMediaCompanyKey || "none"}" | matched-consoleIds="${matchedTenantConsoleIdsText || "none"}"`,
+  };
+  log("CM tenant match decision", cmDecisionSummary);
+  emitCmDebugEvent({
+    phase: "cm-tenant-match-decision",
+    ...cmDecisionSummary,
+  });
+  return cmDecisionSummary;
 }
 
 function cmGetTenantCacheKey(tenant) {
@@ -19962,21 +23086,25 @@ function cmGetTenantCacheKey(tenant) {
 }
 
 function buildCmTenantEndpointCandidates() {
-  const orgHints = uniqueSorted(
-    [
-      CM_DEFAULT_TENANT_ORG_HINT,
-      ADOBEPASS_ORG_KEYWORD,
-      state.loginData?.adobePassOrg?.name,
-      state.loginData?.adobePassOrg?.orgId,
-      state.loginData?.profile?.currentOrg?.name,
-      state.loginData?.profile?.currentOrg?.id,
-    ]
-      .map((value) => String(value || "").trim().replace(/^@+/, "").replace(/^\/+|\/+$/g, ""))
-      .map((value) => value.toLowerCase())
-      .filter(Boolean)
-  );
-  const dynamicUrls = orgHints.map((orgId) => `${CM_CONFIG_BASE_URL}/core/tenants?orgId=${encodeURIComponent(orgId)}`);
-  return uniqueSorted([...CM_TENANT_ENDPOINT_CANDIDATES, ...dynamicUrls].map((url) => normalizeCmUrl(url)).filter(Boolean));
+  // Primary source remains the global CM console tenant catalog.
+  // Keep additional candidates as a resiliency fallback across org partitions.
+  const orderedCandidates = [
+    `${CM_CONFIG_BASE_URL}/core/tenants?orgId=${encodeURIComponent(CM_DEFAULT_TENANT_ORG_HINT)}`,
+    ...CM_TENANT_ENDPOINT_CANDIDATES,
+  ]
+    .map((value) => normalizeCmUrl(value))
+    .filter(Boolean);
+  const seen = new Set();
+  const uniqueCandidates = [];
+  orderedCandidates.forEach((value) => {
+    const key = String(value || "").trim();
+    if (!key || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    uniqueCandidates.push(key);
+  });
+  return uniqueCandidates;
 }
 
 function normalizeBearerTokenValue(value) {
@@ -20037,6 +23165,31 @@ function isAccessTokenFreshEnough(accessToken = "", skewMs = 0) {
   return expiresAt > Date.now() + Math.max(0, Number(skewMs) || 0);
 }
 
+function tokenizeScopeSet(scopeValue = "") {
+  return String(scopeValue || "")
+    .split(/[\s,]+/g)
+    .map((scope) => String(scope || "").trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function tokenSupportsCmTenantCatalog(accessToken = "") {
+  const token = normalizeBearerTokenValue(accessToken);
+  if (!token || !isProbablyJwt(token)) {
+    return false;
+  }
+
+  const claims = parseJwtPayload(token) || {};
+  const clientId = String(firstNonEmptyString([claims.client_id, claims.clientId]) || "")
+    .trim()
+    .toLowerCase();
+  if (clientId === "cm-console-ui") {
+    return true;
+  }
+
+  const scopes = new Set(tokenizeScopeSet(firstNonEmptyString([claims.scope])));
+  return scopes.has("read_organizations") || scopes.has("dma_group_mapping");
+}
+
 function resolveCmImsTokenHints(seedToken = "") {
   const tokenClaims = parseJwtPayload(seedToken) || parseJwtPayload(state.loginData?.accessToken || "") || {};
   const profile = resolveLoginProfile(state.loginData) || {};
@@ -20044,6 +23197,7 @@ function resolveCmImsTokenHints(seedToken = "") {
     tokenClaims.user_id,
     tokenClaims.userId,
     state.loginData?.imsSession?.userId,
+    state.loginData?.sessionKeys?.userId,
     state.loginData?.adobePassOrg?.userId,
     profile?.userId,
     profile?.user_id,
@@ -20200,9 +23354,8 @@ async function requestCmTokenViaImsCheck(seedToken = "", options = {}) {
         userId,
       });
       try {
-        const response = await fetch(requestUrl, {
+        const response = await relayImsFetch(requestUrl, {
           method: "POST",
-          mode: "cors",
           credentials: "include",
           headers: {
             Accept: "application/json, text/plain, */*",
@@ -20324,7 +23477,8 @@ async function ensureCmApiAccessToken(options = {}) {
   const existingExpiresAt = Number(state.loginData?.expiresAt || 0);
   const hasKnownExpiry = Number.isFinite(existingExpiresAt) && existingExpiresAt > 0;
   const tokenLooksFresh = hasKnownExpiry && existingExpiresAt > Date.now() + tokenFreshLeewayMs;
-  if (existingToken && !forceRefresh && (!hasKnownExpiry || tokenLooksFresh)) {
+  const tokenSupportsCatalog = tokenSupportsCmTenantCatalog(existingToken);
+  if (existingToken && !forceRefresh && (!hasKnownExpiry || tokenLooksFresh) && tokenSupportsCatalog) {
     return existingToken;
   }
 
@@ -20334,7 +23488,7 @@ async function ensureCmApiAccessToken(options = {}) {
 
   const now = Date.now();
   const lastAttempt = Number(state.cmAuthBootstrapLastAttemptAt || 0);
-  const canApplyBackoff = existingToken && (!hasKnownExpiry || existingExpiresAt > now + 5000);
+  const canApplyBackoff = existingToken && tokenSupportsCatalog && (!hasKnownExpiry || existingExpiresAt > now + 5000);
   if (!forceRefresh && canApplyBackoff && lastAttempt > 0 && now - lastAttempt < CM_AUTH_BOOTSTRAP_RETRY_MS) {
     return existingToken;
   }
@@ -20346,11 +23500,11 @@ async function ensureCmApiAccessToken(options = {}) {
       const seedToken = normalizeBearerTokenValue(firstNonEmptyString([current?.accessToken, existingToken]));
       if (seedToken && isProbablyJwt(seedToken)) {
         const refreshedFromIms = await tryRefreshCmTokenFromIms(seedToken, {
-          requireFresh: forceRefresh || !tokenLooksFresh,
+          requireFresh: forceRefresh || !tokenLooksFresh || !tokenSupportsCatalog,
         });
         if (refreshedFromIms?.accessToken) {
           const persistedRefreshedToken = await persistCmTokenBootstrapResult(refreshedFromIms, {});
-          if (persistedRefreshedToken) {
+          if (persistedRefreshedToken && tokenSupportsCmTenantCatalog(persistedRefreshedToken)) {
             return persistedRefreshedToken;
           }
         }
@@ -20359,7 +23513,8 @@ async function ensureCmApiAccessToken(options = {}) {
       const silent = await attemptSilentBootstrapLogin();
       const accessToken = String(silent?.accessToken || "").trim();
       if (!accessToken) {
-        return forceRefresh ? "" : seedToken || existingToken;
+        const fallbackToken = String(seedToken || existingToken || "").trim();
+        return !forceRefresh && tokenSupportsCmTenantCatalog(fallbackToken) ? fallbackToken : "";
       }
 
       const persistedSilentToken = await persistCmTokenBootstrapResult(
@@ -20383,7 +23538,8 @@ async function ensureCmApiAccessToken(options = {}) {
       log("CM token bootstrap skipped", {
         error: error instanceof Error ? error.message : String(error),
       });
-      return forceRefresh ? "" : existingToken;
+      const fallbackToken = String(existingToken || "").trim();
+      return !forceRefresh && tokenSupportsCmTenantCatalog(fallbackToken) ? fallbackToken : "";
     }
   })();
 
@@ -20421,6 +23577,14 @@ function shouldRetryCachedCmService(cmService) {
   if (matchedTenants.length > 0) {
     return false;
   }
+  const emptyFetchedAt = Number(cmService.fetchedAt || 0);
+  if (!emptyFetchedAt) {
+    return true;
+  }
+  // Empty CM matches should be periodically retried; tenant payload shape and auth context can drift.
+  if (Date.now() - emptyFetchedAt >= 2 * 60 * 1000) {
+    return true;
+  }
 
   const cachedFingerprint = String(cmService.tokenFingerprint || "").trim();
   if (!cachedFingerprint) {
@@ -20439,23 +23603,135 @@ function prefetchCmTenantsCatalogInBackground(reason = "background") {
   if (state.restricted || state.programmers.length === 0) {
     return;
   }
-  if (state.cmTenantsCatalogPromise) {
+  if (state.cmTenantsCatalogPromise || state.cmConsoleBootstrapPromise) {
     return;
   }
-  const cached = state.cmTenantsCatalog;
-  if (cached && Array.isArray(cached.tenants) && cached.tenants.length > 0) {
+  const cachedCatalog = state.cmTenantsCatalog;
+  const cachedSummary = state.cmConsoleBootstrapSummary;
+  const summaryFresh =
+    cachedSummary &&
+    typeof cachedSummary === "object" &&
+    Number(cachedSummary.fetchedAt || 0) > 0 &&
+    Date.now() - Number(cachedSummary.fetchedAt || 0) <= CM_BOOTSTRAP_CACHE_MAX_AGE_MS;
+  if (cachedCatalog && Array.isArray(cachedCatalog.tenants) && cachedCatalog.tenants.length > 0 && summaryFresh) {
     return;
   }
-  void ensureCmTenantsCatalog()
-    .then(() => {
-      // Background prefetch intentionally silent to avoid UI noise.
+  void ensureCmConsoleBootstrapSummary({ forceRefresh: false })
+    .then((summary) => {
+      if (!summary || typeof summary !== "object") {
+        return;
+      }
+      emitCmDebugEvent({
+        phase: "cm-bootstrap-background-complete",
+        reason: String(reason || ""),
+        tenantCount: Number(summary.tenantCount || 0),
+        applicationCount: Number(summary.applicationCount || 0),
+        policyCount: Number(summary.policyCount || 0),
+      });
     })
     .catch((error) => {
-      log("CM tenant prefetch failed", {
+      log("CM bootstrap prefetch failed", {
         reason,
         error: error instanceof Error ? error.message : String(error),
       });
     });
+}
+
+async function ensureCmConsoleBootstrapSummary(options = {}) {
+  const forceRefresh = options?.forceRefresh === true;
+  const cachedSummary = state.cmConsoleBootstrapSummary;
+  if (!forceRefresh && cachedSummary && typeof cachedSummary === "object") {
+    const fetchedAt = Number(cachedSummary.fetchedAt || 0);
+    if (fetchedAt > 0 && Date.now() - fetchedAt <= CM_BOOTSTRAP_CACHE_MAX_AGE_MS) {
+      return cachedSummary;
+    }
+  }
+
+  if (!forceRefresh && state.cmConsoleBootstrapPromise) {
+    return state.cmConsoleBootstrapPromise;
+  }
+
+  const loadPromise = (async () => {
+    const catalog = await ensureCmTenantsCatalog({ forceRefresh });
+    const tenants = Array.isArray(catalog?.tenants) ? catalog.tenants : [];
+    if (tenants.length === 0) {
+      const emptySummary = {
+        tenantCount: 0,
+        applicationCount: 0,
+        policyCount: 0,
+        sourceUrl: String(catalog?.sourceUrl || ""),
+        fetchedAt: Date.now(),
+      };
+      state.cmConsoleBootstrapSummary = emptySummary;
+      return emptySummary;
+    }
+
+    let applicationCount = 0;
+    let policyCount = 0;
+    const errors = [];
+    const concurrency = Math.max(1, Number(CM_BOOTSTRAP_PARALLELISM) || 1);
+
+    for (let index = 0; index < tenants.length; index += concurrency) {
+      const batch = tenants.slice(index, index + concurrency);
+      const results = await Promise.all(
+        batch.map(async (tenant) => {
+          const [applicationsResult, policiesResult] = await Promise.all([
+            fetchCmTenantResource("applications", tenant),
+            fetchCmTenantResource("policies", tenant),
+          ]);
+          return {
+            tenantId: String(tenant?.tenantId || ""),
+            applicationsResult,
+            policiesResult,
+          };
+        })
+      );
+
+      results.forEach((result) => {
+        const applicationRows = Array.isArray(result?.applicationsResult?.rows) ? result.applicationsResult.rows : [];
+        const policyRows = Array.isArray(result?.policiesResult?.rows) ? result.policiesResult.rows : [];
+        applicationCount += applicationRows.length;
+        policyCount += policyRows.length;
+
+        if (String(result?.applicationsResult?.error || "").trim()) {
+          errors.push(
+            `${String(result?.tenantId || "tenant")}: applications: ${String(result?.applicationsResult?.error || "").trim()}`
+          );
+        }
+        if (String(result?.policiesResult?.error || "").trim()) {
+          errors.push(`${String(result?.tenantId || "tenant")}: policies: ${String(result?.policiesResult?.error || "").trim()}`);
+        }
+      });
+    }
+
+    const summary = {
+      tenantCount: tenants.length,
+      applicationCount,
+      policyCount,
+      sourceUrl: String(catalog?.sourceUrl || ""),
+      fetchedAt: Date.now(),
+      errors: errors.slice(0, 8),
+    };
+    state.cmConsoleBootstrapSummary = summary;
+    emitCmDebugEvent({
+      phase: "cm-bootstrap-summary",
+      tenantCount: Number(summary.tenantCount || 0),
+      applicationCount: Number(summary.applicationCount || 0),
+      policyCount: Number(summary.policyCount || 0),
+      sourceUrl: String(summary.sourceUrl || ""),
+      errorCount: Number(errors.length || 0),
+    });
+    return summary;
+  })();
+
+  state.cmConsoleBootstrapPromise = loadPromise;
+  try {
+    return await loadPromise;
+  } finally {
+    if (state.cmConsoleBootstrapPromise === loadPromise) {
+      state.cmConsoleBootstrapPromise = null;
+    }
+  }
 }
 
 function buildCmTemplateUrls(tenantId, templates) {
@@ -20720,14 +23996,22 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
         }
       );
       try {
-        const response = await fetch(url, {
+        const requestInit = {
           method,
-          mode: options.mode || "cors",
           credentials: options.credentials ?? "include",
-          referrerPolicy: options.referrerPolicy || "no-referrer",
           headers,
           ...(options.body != null ? { body: options.body } : {}),
-        });
+        };
+        const response = isCmRelayEligibleUrl(url)
+          ? await relayCmFetch(url, requestInit)
+          : await fetch(url, {
+              method,
+              mode: options.mode || "cors",
+              credentials: options.credentials ?? "include",
+              referrerPolicy: options.referrerPolicy || "no-referrer",
+              headers,
+              ...(options.body != null ? { body: options.body } : {}),
+            });
 
         const text = await response.text().catch(() => "");
         const parsed = parseJsonText(text, null);
@@ -20824,14 +24108,17 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
 }
 
 async function ensureCmTenantsCatalog(options = {}) {
-  const forceRefresh = options.forceRefresh === true;
+  const forceRefresh = options?.forceRefresh === true;
   const cachedCatalog =
     state.cmTenantsCatalog && Array.isArray(state.cmTenantsCatalog.tenants) ? state.cmTenantsCatalog : null;
-  if (forceRefresh) {
-    state.cmTenantsCatalog = null;
-  }
 
+  // Global CM tenant catalog should be loaded once per UnderPAR launch and reused.
   if (!forceRefresh && cachedCatalog) {
+    emitCmDebugEvent({
+      phase: "cm-tenant-catalog-cache-hit",
+      sourceUrl: String(cachedCatalog.sourceUrl || ""),
+      tenantCount: Number(cachedCatalog.tenants?.length || 0),
+    });
     return cachedCatalog;
   }
 
@@ -20842,28 +24129,37 @@ async function ensureCmTenantsCatalog(options = {}) {
   const loadPromise = (async () => {
     await ensureCmApiAccessToken();
 
-    const queue = buildCmTenantEndpointCandidates();
-    const attempted = new Set();
+    const tenantCatalogUrls = buildCmTenantEndpointCandidates();
+    if (tenantCatalogUrls.length === 0) {
+      throw new Error("CM tenants load failed: tenant catalog URL is missing.");
+    }
+
+    log("CM tenant catalog lookup", {
+      urls: tenantCatalogUrls,
+    });
+    emitCmDebugEvent({
+      phase: "cm-tenant-catalog-request",
+      method: "GET",
+      url: tenantCatalogUrls[0],
+      urls: tenantCatalogUrls,
+    });
+
     let lastError = null;
-
-    while (queue.length > 0) {
-      const candidate = normalizeCmUrl(queue.shift());
-      if (!candidate || attempted.has(candidate)) {
-        continue;
-      }
-      attempted.add(candidate);
-
-      try {
-        const response = await fetchCmJsonWithAuthVariants([candidate], "CM tenants load", {
-          debugMeta: {
-            scope: "tenant-catalog",
-            endpointUrl: candidate,
-            requestorId: String(state.selectedRequestorId || ""),
-            mvpd: String(state.selectedMvpdId || ""),
-          },
-        });
-        const tenants = normalizeCmTenantsFromPayload(response.parsed, response.url);
-        if (tenants.length > 0) {
+    try {
+      for (const tenantCatalogUrl of tenantCatalogUrls) {
+        try {
+          const response = await fetchCmJsonWithAuthVariants([tenantCatalogUrl], "CM tenants load", {
+            debugMeta: {
+              scope: "tenant-catalog",
+              endpointUrl: tenantCatalogUrl,
+              requestorId: String(state.selectedRequestorId || ""),
+              mvpd: String(state.selectedMvpdId || ""),
+            },
+          });
+          const tenants = normalizeCmTenantsFromPayload(response.parsed, response.url);
+          if (tenants.length === 0) {
+            throw new Error(`CM tenants load failed: tenant catalog returned no tenants (${tenantCatalogUrl}).`);
+          }
           const catalog = {
             tenants,
             sourceUrl: response.url,
@@ -20874,30 +24170,48 @@ async function ensureCmTenantsCatalog(options = {}) {
             sourceUrl: response.url,
             tenantCount: tenants.length,
           });
-          return catalog;
-        }
-
-        collectCmUrlsFromValue(response.parsed, { maxDepth: 5 })
-          .filter((url) => /tenant/i.test(String(url || "")))
-          .forEach((url) => {
-            const normalized = normalizeCmUrl(url);
-            if (normalized && !attempted.has(normalized)) {
-              queue.push(normalized);
-            }
+          emitCmDebugEvent({
+            phase: "cm-tenant-catalog-loaded",
+            status: Number(response.status || 0),
+            url: String(response.url || tenantCatalogUrl),
+            sourceUrl: String(response.url || ""),
+            tenantCount: tenants.length,
           });
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
+          return catalog;
+        } catch (candidateError) {
+          lastError = candidateError instanceof Error ? candidateError : new Error(String(candidateError));
+          emitCmDebugEvent({
+            phase: "cm-tenant-catalog-candidate-failed",
+            method: "GET",
+            url: tenantCatalogUrl,
+            error: lastError.message,
+          });
+        }
       }
-    }
-
-    if (cachedCatalog && Array.isArray(cachedCatalog.tenants) && cachedCatalog.tenants.length > 0) {
-      log("Using stale CM tenant catalog cache after refresh failure", {
-        error: lastError instanceof Error ? lastError.message : String(lastError),
+      throw lastError || new Error("CM tenants load failed: all tenant catalog candidates were exhausted.");
+    } catch (error) {
+      const lastError = error instanceof Error ? error : new Error(String(error));
+      if (cachedCatalog && Array.isArray(cachedCatalog.tenants) && cachedCatalog.tenants.length > 0) {
+        log("Using stale CM tenant catalog cache after refresh failure", {
+          error: lastError instanceof Error ? lastError.message : String(lastError),
+        });
+        emitCmDebugEvent({
+          phase: "cm-tenant-catalog-stale-cache",
+          error: lastError.message,
+          sourceUrl: String(cachedCatalog.sourceUrl || ""),
+          tenantCount: Number(cachedCatalog.tenants?.length || 0),
+        });
+        return cachedCatalog;
+      }
+      emitCmDebugEvent({
+        phase: "cm-tenant-catalog-error",
+        method: "GET",
+        url: tenantCatalogUrls[0] || "",
+        urls: tenantCatalogUrls,
+        error: lastError.message,
       });
-      return cachedCatalog;
+      throw lastError;
     }
-
-    throw lastError || new Error("Unable to load CM tenant catalog.");
   })();
 
   state.cmTenantsCatalogPromise = loadPromise;
@@ -20918,7 +24232,6 @@ async function ensureCmServiceForProgrammer(programmer, options = {}) {
   const forceRefresh = options.forceRefresh === true;
   if (forceRefresh) {
     state.cmServiceByProgrammerId.delete(programmer.programmerId);
-    state.cmTenantsCatalog = null;
     state.cmTenantBundleByTenantKey.clear();
     state.cmTenantBundlePromiseByTenantKey.clear();
   }
@@ -20940,11 +24253,25 @@ async function ensureCmServiceForProgrammer(programmer, options = {}) {
             tokenFingerprint: getCmAuthFingerprint(),
           };
           state.cmServiceByProgrammerId.set(programmer.programmerId, refreshedService);
+          emitCmTenantMatchDebugLine(programmer, catalog, rematchedTenants, {
+            cacheState: "cache-rematch",
+          });
           return refreshedService;
         }
       }
     }
     if (!shouldRetryCachedCmService(cachedService)) {
+      emitCmTenantMatchDebugLine(
+        programmer,
+        {
+          sourceUrl: String(cachedService?.sourceUrl || ""),
+          tenants: Array.isArray(cachedService?.matchedTenants) ? cachedService.matchedTenants : [],
+        },
+        Array.isArray(cachedService?.matchedTenants) ? cachedService.matchedTenants : [],
+        {
+          cacheState: "cache-hit",
+        }
+      );
       return cachedService;
     }
   }
@@ -20976,6 +24303,10 @@ async function ensureCmServiceForProgrammer(programmer, options = {}) {
     }
 
     const matchedTenants = findCmTenantMatchesForProgrammer(programmer, catalog?.tenants || []);
+    emitCmTenantMatchDebugLine(programmer, catalog, matchedTenants, {
+      cacheState: forceRefresh ? "force-refresh" : "live",
+    });
+
     const tokenFingerprint = getCmAuthFingerprint();
     if (matchedTenants.length === 0) {
       const topCandidates = (Array.isArray(catalog?.tenants) ? catalog.tenants : [])
@@ -21225,6 +24556,15 @@ async function loadCmTenantBundle(tenant, options = {}) {
   }
 }
 
+const CM_ROW_FLATTEN_MAX_DEPTH = 4;
+const CM_ROW_ARRAY_FIELD_LIMIT = 8;
+const CM_ROW_PREVIEW_LIMIT = 6;
+const CM_ROW_VALUE_CHAR_LIMIT = 1400;
+
+function cmIsPrimitiveRowValue(value) {
+  return value == null || typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
 function cmNormalizeRowValue(value) {
   if (value == null) {
     return "";
@@ -21233,15 +24573,203 @@ function cmNormalizeRowValue(value) {
     return value;
   }
   if (Array.isArray(value)) {
-    if (value.every((item) => item == null || typeof item === "string" || typeof item === "number" || typeof item === "boolean")) {
-      return value.map((item) => String(item ?? "")).join(", ");
+    if (value.every((item) => cmIsPrimitiveRowValue(item))) {
+      return truncateDebugText(
+        value
+          .map((item) => (item == null ? "" : String(item)))
+          .filter((item) => String(item).trim() !== "")
+          .join(", "),
+        CM_ROW_VALUE_CHAR_LIMIT
+      );
     }
-    return truncateDebugText(JSON.stringify(value), 1800);
+    return cmSummarizeArrayForRow(value);
   }
   if (typeof value === "object") {
-    return truncateDebugText(JSON.stringify(value), 1800);
+    return cmSummarizeObjectForRow(value);
   }
-  return String(value);
+  return truncateDebugText(String(value), CM_ROW_VALUE_CHAR_LIMIT);
+}
+
+function cmExtractEntityLabel(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return "";
+  }
+  return String(
+    firstNonEmptyString([
+      value.name,
+      value.displayName,
+      value.display_name,
+      value.title,
+      value.label,
+      value.consoleId,
+      value.consoleOwnerId,
+      value.id,
+      value.tenantId,
+      value.tenant_id,
+      value.applicationId,
+      value.application_id,
+      value.policyId,
+      value.policy_id,
+      value.ruleId,
+      value.rule_id,
+      value.type,
+      value.key,
+    ]) || ""
+  ).trim();
+}
+
+function cmSummarizeObjectForRow(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return cmNormalizeRowValue(value);
+  }
+  const keys = Object.keys(value).map((key) => String(key || "").trim()).filter(Boolean);
+  if (keys.length === 0) {
+    return "(empty object)";
+  }
+  const label = cmExtractEntityLabel(value);
+  const preview = keys.slice(0, 4).join(", ");
+  const more = keys.length > 4 ? ` (+${keys.length - 4} more)` : "";
+  return truncateDebugText(label ? `${label} | ${preview}${more}` : `${preview}${more}`, CM_ROW_VALUE_CHAR_LIMIT);
+}
+
+function cmSummarizeArrayForRow(value) {
+  if (!Array.isArray(value)) {
+    return cmNormalizeRowValue(value);
+  }
+  if (value.length === 0) {
+    return "";
+  }
+  if (value.every((item) => cmIsPrimitiveRowValue(item))) {
+    return truncateDebugText(
+      value
+        .map((item) => (item == null ? "" : String(item)))
+        .filter((item) => String(item).trim() !== "")
+        .join(", "),
+      CM_ROW_VALUE_CHAR_LIMIT
+    );
+  }
+  const labels = [];
+  value.forEach((item) => {
+    if (labels.length >= CM_ROW_PREVIEW_LIMIT) {
+      return;
+    }
+    if (cmIsPrimitiveRowValue(item)) {
+      const normalized = String(item == null ? "" : item).trim();
+      if (normalized) {
+        labels.push(normalized);
+      }
+      return;
+    }
+    if (Array.isArray(item)) {
+      labels.push(`${item.length} item${item.length === 1 ? "" : "s"}`);
+      return;
+    }
+    if (item && typeof item === "object") {
+      const label = cmExtractEntityLabel(item);
+      if (label) {
+        labels.push(label);
+        return;
+      }
+      const keyPreview = Object.keys(item)
+        .map((key) => String(key || "").trim())
+        .filter(Boolean)
+        .slice(0, 2)
+        .join("/");
+      if (keyPreview) {
+        labels.push(keyPreview);
+      }
+    }
+  });
+  const labelPrefix = labels.length > 0 ? `: ${labels.join(", ")}` : "";
+  const overflow = value.length > CM_ROW_PREVIEW_LIMIT ? ` (+${value.length - CM_ROW_PREVIEW_LIMIT} more)` : "";
+  return truncateDebugText(`${value.length} item${value.length === 1 ? "" : "s"}${labelPrefix}${overflow}`, CM_ROW_VALUE_CHAR_LIMIT);
+}
+
+function cmCollectArrayObjectFields(values) {
+  const fields = [];
+  const seen = new Set();
+  values.slice(0, CM_ROW_PREVIEW_LIMIT).forEach((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      return;
+    }
+    Object.keys(entry).forEach((rawKey) => {
+      const key = String(rawKey || "").trim();
+      if (!key || seen.has(key)) {
+        return;
+      }
+      seen.add(key);
+      fields.push(key);
+    });
+  });
+  return fields.slice(0, CM_ROW_ARRAY_FIELD_LIMIT);
+}
+
+function cmFlattenValueToRow(row, keyPrefix, value, depth = 0, seen = null) {
+  const key = String(keyPrefix || "value").trim() || "value";
+  const seenRefs = seen instanceof Set ? seen : new Set();
+
+  if (cmIsPrimitiveRowValue(value)) {
+    row[key] = cmNormalizeRowValue(value);
+    return;
+  }
+
+  if (depth >= CM_ROW_FLATTEN_MAX_DEPTH) {
+    row[key] = cmNormalizeRowValue(value);
+    return;
+  }
+
+  if (typeof value === "object") {
+    if (seenRefs.has(value)) {
+      row[key] = "(circular reference)";
+      return;
+    }
+    seenRefs.add(value);
+  }
+
+  if (Array.isArray(value)) {
+    row[`${key}.count`] = value.length;
+    row[key] = cmSummarizeArrayForRow(value);
+    if (value.every((item) => item && typeof item === "object" && !Array.isArray(item))) {
+      const fields = cmCollectArrayObjectFields(value);
+      fields.forEach((field) => {
+        const valuesByField = [];
+        const valueSeen = new Set();
+        value.forEach((entry) => {
+          const normalizedValue = cmNormalizeRowValue(entry?.[field]);
+          const normalizedText = String(normalizedValue == null ? "" : normalizedValue).trim();
+          if (!normalizedText || valueSeen.has(normalizedText)) {
+            return;
+          }
+          valueSeen.add(normalizedText);
+          valuesByField.push(normalizedText);
+        });
+        if (valuesByField.length > 0) {
+          const preview = valuesByField.slice(0, CM_ROW_PREVIEW_LIMIT).join(", ");
+          const overflow = valuesByField.length > CM_ROW_PREVIEW_LIMIT ? ` (+${valuesByField.length - CM_ROW_PREVIEW_LIMIT} more)` : "";
+          row[`${key}.${field}`] = truncateDebugText(`${preview}${overflow}`, CM_ROW_VALUE_CHAR_LIMIT);
+        }
+      });
+    }
+    return;
+  }
+
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value);
+    if (entries.length === 0) {
+      row[key] = "(empty object)";
+      return;
+    }
+    entries.forEach(([nestedKey, nestedValue]) => {
+      const childKey = String(nestedKey || "").trim();
+      if (!childKey) {
+        return;
+      }
+      cmFlattenValueToRow(row, `${key}.${childKey}`, nestedValue, depth + 1, seenRefs);
+    });
+    return;
+  }
+
+  row[key] = cmNormalizeRowValue(value);
 }
 
 function cmFlattenObjectToRow(value) {
@@ -21249,9 +24777,17 @@ function cmFlattenObjectToRow(value) {
     return { value: cmNormalizeRowValue(value) };
   }
   const row = {};
+  const seenRefs = new Set();
   Object.entries(value).forEach(([key, nested]) => {
-    row[String(key || "")] = cmNormalizeRowValue(nested);
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey) {
+      return;
+    }
+    cmFlattenValueToRow(row, normalizedKey, nested, 0, seenRefs);
   });
+  if (Object.keys(row).length === 0) {
+    row.value = cmSummarizeObjectForRow(value);
+  }
   return row;
 }
 
@@ -21299,11 +24835,7 @@ function cmColumnsFromPayload(payload) {
   if (rows.length === 0) {
     return [];
   }
-  return uniqueSorted(
-    Object.keys(rows[0] || {})
-      .map((key) => String(key || "").trim())
-      .filter((key) => key && !key.startsWith("__"))
-  );
+  return cmColumnsFromRows(rows);
 }
 
 function cmColumnsFromRows(rows, preferredColumns = []) {
@@ -21347,6 +24879,34 @@ function cmNormalizeCsvCellValue(value) {
 }
 
 function cmGetSortableValue(row, column) {
+  const normalizedColumn = String(column || "").trim().toLowerCase();
+  if (normalizedColumn === "date") {
+    const sourceUtcOffsetMinutes = -8 * 60;
+    const year = Number(row?.year);
+    const month = Number(row?.month);
+    const day = Number(row?.day);
+    const hour = Number(row?.hour);
+    const minute = Number(row?.minute);
+    if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
+      return Date.UTC(
+        year,
+        Math.max(0, month - 1),
+        day,
+        Number.isFinite(hour) ? hour : 0,
+        Number.isFinite(minute) ? minute : 0
+      ) - sourceUtcOffsetMinutes * 60 * 1000;
+    }
+    const tsCandidate = row?.timestamp ?? row?.date ?? row?.time;
+    if (tsCandidate != null && tsCandidate !== "") {
+      const parsed = new Date(tsCandidate);
+      const ms = parsed.getTime();
+      if (Number.isFinite(ms)) {
+        return ms;
+      }
+    }
+    return Number.NEGATIVE_INFINITY;
+  }
+
   const value = row?.[column];
   if (typeof value === "number") {
     return value;
@@ -21362,7 +24922,7 @@ function cmGetSortableValue(row, column) {
 }
 
 function cmSortRowsForCsv(rows, sortRule = null, columns = []) {
-  const normalizedSort = decompNormalizeSortRule(sortRule);
+  const normalizedSort = esmWorkspaceNormalizeSortRule(sortRule);
   const fallbackColumn = Array.isArray(columns) && columns.length > 0 ? String(columns[0] || "").trim() : "";
   const sortColumn = String(normalizedSort?.col || fallbackColumn || "").trim();
   if (!sortColumn) {
@@ -21423,7 +24983,10 @@ function cmDownloadRowsAsCsv(rows, options = {}) {
 
 async function cmDownloadCsvForCard(cmState, record, card, sortRule, requestToken) {
   const normalizedCard = card && typeof card === "object" ? card : {};
-  let rows = Array.isArray(normalizedCard.rows) ? normalizedCard.rows : [];
+  const requestUrlOverride = String(normalizedCard.requestUrl || normalizedCard.endpointUrl || "").trim();
+  const hasUrlOverrideDiffersFromRecord =
+    Boolean(requestUrlOverride) && requestUrlOverride !== String(record?.requestUrl || record?.endpointUrl || "").trim();
+  let rows = hasUrlOverrideDiffersFromRecord ? [] : Array.isArray(normalizedCard.rows) ? normalizedCard.rows : [];
   let columns = Array.isArray(normalizedCard.columns) ? normalizedCard.columns : [];
 
   if (rows.length === 0 && record?.payload != null) {
@@ -21432,7 +24995,7 @@ async function cmDownloadCsvForCard(cmState, record, card, sortRule, requestToke
   }
 
   if (rows.length === 0 && record && String(record?.kind || "").toLowerCase() !== "cmv2-op") {
-    const requestUrl = String(record.requestUrl || record.endpointUrl || "").trim();
+    const requestUrl = requestUrlOverride || String(record.requestUrl || record.endpointUrl || "").trim();
     if (requestUrl) {
       const response = await fetchCmJsonWithAuthVariants([requestUrl], `CM ${record.kind || "report"} CSV`, {
         debugMeta: {
@@ -21442,16 +25005,21 @@ async function cmDownloadCsvForCard(cmState, record, card, sortRule, requestToke
           programmerId: String(cmState?.programmer?.programmerId || ""),
           requestorId: String(state.selectedRequestorId || ""),
           mvpd: String(state.selectedMvpdId || ""),
+          workspaceKey: "cmu-workspace",
+          workspaceOrigin: "CMU Workspace",
         },
       });
       if (!isCmServiceRequestActive(cmState.section, requestToken, cmState.programmer?.programmerId)) {
         return { ok: false, skipped: true, error: "CM controller is no longer active for the selected media company." };
       }
-      record.payload = response.parsed;
-      record.lastModified = String(response.lastModified || record.lastModified || "");
-      rows = cmRowsFromPayload(record.payload);
-      columns = cmColumnsFromPayload(record.payload);
-      record.columns = columns;
+      const responsePayload = response.parsed;
+      rows = cmRowsFromPayload(responsePayload);
+      columns = cmColumnsFromPayload(responsePayload);
+      if (!hasUrlOverrideDiffersFromRecord) {
+        record.payload = responsePayload;
+        record.lastModified = String(response.lastModified || record.lastModified || "");
+        record.columns = columns;
+      }
     }
   }
 
@@ -21934,6 +25502,19 @@ async function populateMvpdSelectForRequestor(requestorId) {
     els.mvpdSelect.innerHTML = '<option value="">-- Select Requestor first --</option>';
     state.selectedMvpdId = "";
     refreshRestV2LoginPanels();
+    refreshMvpdWorkspaceTools();
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices);
+    void mvpdWorkspaceRefreshSelectedSnapshot({
+      programmer: selectedProgrammer,
+      services: selectedServices,
+      forceRefresh: false,
+      onlyIfWorkspaceOpen: true,
+      surfaceMissingSelectionError: false,
+    });
     return;
   }
 
@@ -21979,6 +25560,19 @@ async function populateMvpdSelectForRequestor(requestorId) {
     state.selectedMvpdId = "";
     els.mvpdSelect.value = "";
     refreshRestV2LoginPanels();
+    refreshMvpdWorkspaceTools();
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices);
+    void mvpdWorkspaceRefreshSelectedSnapshot({
+      programmer: selectedProgrammer,
+      services: selectedServices,
+      forceRefresh: false,
+      onlyIfWorkspaceOpen: true,
+      surfaceMissingSelectionError: false,
+    });
     setStatus("", "info");
   } catch (error) {
     if (String(state.selectedRequestorId || "") !== expectedRequestorId) {
@@ -21988,6 +25582,19 @@ async function populateMvpdSelectForRequestor(requestorId) {
     els.mvpdSelect.innerHTML = '<option value="">-- MVPD config unavailable --</option>';
     state.selectedMvpdId = "";
     refreshRestV2LoginPanels();
+    refreshMvpdWorkspaceTools();
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices);
+    void mvpdWorkspaceRefreshSelectedSnapshot({
+      programmer: selectedProgrammer,
+      services: selectedServices,
+      forceRefresh: false,
+      onlyIfWorkspaceOpen: true,
+      surfaceMissingSelectionError: false,
+    });
     if (isRestV2ScopedAppMappingMissingError(error)) {
       setStatus("", "info");
     } else {
@@ -22194,6 +25801,8 @@ function applyProgrammerEntities(entities) {
   state.cmServiceLoadPromiseByProgrammerId.clear();
   state.cmTenantsCatalog = null;
   state.cmTenantsCatalogPromise = null;
+  state.cmConsoleBootstrapSummary = null;
+  state.cmConsoleBootstrapPromise = null;
   state.cmAuthBootstrapPromise = null;
   state.cmAuthBootstrapLastAttemptAt = 0;
   state.cmTenantBundleByTenantKey.clear();
@@ -22203,6 +25812,7 @@ function applyProgrammerEntities(entities) {
   state.premiumPanelRequestToken = 0;
   state.restV2PrewarmedAppsByProgrammerId.clear();
   clearRestV2PreparedLoginState();
+  clearCmWorkspaceActivityDebugFlow("programmer-entities-reset", { stopFlow: true });
   populateMediaCompanySelect();
   prefetchCmTenantsCatalogInBackground("programmer-entities");
 }
@@ -22813,6 +26423,16 @@ function registerEventHandlers() {
     state.selectedRequestorId = "";
     state.selectedMvpdId = "";
     populateRequestorSelect();
+    const selectedProgrammer = resolveSelectedProgrammer();
+    mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, null);
+    refreshMvpdWorkspaceTools();
+    void mvpdWorkspaceRefreshSelectedSnapshot({
+      programmer: selectedProgrammer,
+      services: null,
+      forceRefresh: false,
+      onlyIfWorkspaceOpen: true,
+      surfaceMissingSelectionError: false,
+    });
     void refreshProgrammerPanels({ controllerReason: "media-company-change" });
   });
 
@@ -22821,29 +26441,67 @@ function registerEventHandlers() {
     state.selectedMvpdId = "";
     void refreshProgrammerPanels();
     void populateMvpdSelectForRequestor(state.selectedRequestorId);
-    const decompState = getActiveDecompState();
-    if (decompState) {
-      decompBroadcastControllerState(decompState);
-      syncDecompRecordingControls(decompState);
+    const esmWorkspaceState = getActiveEsmWorkspaceState();
+    if (esmWorkspaceState) {
+      esmWorkspaceBroadcastControllerState(esmWorkspaceState);
+      syncEsmWorkspaceRecordingControls(esmWorkspaceState);
     }
     const cmState = getActiveCmState();
     if (cmState) {
       cmBroadcastControllerState(cmState);
     }
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices);
+    refreshMvpdWorkspaceTools();
+    void mvpdWorkspaceRefreshSelectedSnapshot({
+      programmer: selectedProgrammer,
+      services: selectedServices,
+      forceRefresh: true,
+      onlyIfWorkspaceOpen: false,
+      surfaceMissingSelectionError: false,
+    });
   });
 
   els.mvpdSelect.addEventListener("change", (event) => {
     state.selectedMvpdId = String(event.target.value || "");
     refreshRestV2LoginPanels();
-    const decompState = getActiveDecompState();
-    if (decompState) {
-      decompBroadcastControllerState(decompState);
-      syncDecompRecordingControls(decompState);
+    const esmWorkspaceState = getActiveEsmWorkspaceState();
+    if (esmWorkspaceState) {
+      esmWorkspaceBroadcastControllerState(esmWorkspaceState);
+      syncEsmWorkspaceRecordingControls(esmWorkspaceState);
     }
     const cmState = getActiveCmState();
     if (cmState) {
       cmBroadcastControllerState(cmState);
     }
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices);
+    refreshMvpdWorkspaceTools();
+    if (state.selectedMvpdId) {
+      void mvpdWorkspaceOpenFromRestV2(selectedProgrammer, selectedServices, {
+        activate: true,
+        forceRefresh: true,
+      }).catch((error) => {
+        setStatus(
+          `Unable to open MVPD Workspace: ${error instanceof Error ? error.message : String(error)}`,
+          "error"
+        );
+      });
+      return;
+    }
+    void mvpdWorkspaceRefreshSelectedSnapshot({
+      programmer: selectedProgrammer,
+      services: selectedServices,
+      forceRefresh: false,
+      onlyIfWorkspaceOpen: true,
+      surfaceMissingSelectionError: false,
+    });
   });
 
   document.addEventListener("click", (event) => {
@@ -22889,10 +26547,12 @@ function registerEventHandlers() {
 }
 
 function init() {
-  ensureDecompRuntimeListener();
-  ensureDecompWorkspaceTabWatcher();
+  ensureEsmWorkspaceRuntimeListener();
+  ensureEsmWorkspaceWorkspaceTabWatcher();
   ensureCmRuntimeListener();
   ensureCmWorkspaceTabWatcher();
+  ensureMvpdWorkspaceRuntimeListener();
+  ensureMvpdWorkspaceTabWatcher();
   void renderBuildInfo();
   resetWorkflowForLoggedOut();
   registerEventHandlers();

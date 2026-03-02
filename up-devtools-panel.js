@@ -33,14 +33,20 @@ let flow = null;
 let events = [];
 let selectedSeq = 0;
 let showExtensionEvents =
-  querySource === "esm-decomp-recording" || querySource === "cm-recording" || querySource === "test-mvpd-login";
+  querySource === "esm-recording" || querySource === "cm-recording" || querySource === "test-mvpd-login";
 let flowListKeyboardActive = false;
 const eventRowsBySeq = new Map();
 const EVENT_SERVICE_LABELS = Object.freeze({
   "rest-v2": "REST V2",
   esm: "ESM",
   cm: "CM",
+  mvpd: "MVPD",
   degradation: "DEGRADATION",
+});
+const EVENT_WORKSPACE_LABELS = Object.freeze({
+  "esm-workspace": "ESM Workspace",
+  "cmu-workspace": "CMU Workspace",
+  "mvpd-workspace": "MVPD Workspace",
 });
 
 const port = chrome.runtime.connect({ name: "underpardebug-devtools" });
@@ -92,6 +98,9 @@ function normalizeEventServiceKey(value) {
   if (!raw) {
     return "";
   }
+  if (raw === "mvpd" || raw.includes("mvpd")) {
+    return "mvpd";
+  }
   if (raw === "cm" || raw.includes("cm")) {
     return "cm";
   }
@@ -120,6 +129,9 @@ function classifyEventService(event) {
   if (requestScope.includes("cm")) {
     return "cm";
   }
+  if (requestScope.includes("mvpd")) {
+    return "mvpd";
+  }
   if (requestScope.includes("esm")) {
     return "esm";
   }
@@ -131,7 +143,10 @@ function classifyEventService(event) {
   if (phase.startsWith("cm-") || phase.includes("cmu")) {
     return "cm";
   }
-  if (phase.includes("esm") || phase.includes("decomp") || phase.includes("clickesm")) {
+  if (phase.includes("mvpd")) {
+    return "mvpd";
+  }
+  if (phase.includes("esm") || phase.includes("clickesm")) {
     return "esm";
   }
   if (phase.includes("degrad")) {
@@ -153,6 +168,55 @@ function classifyEventService(event) {
   }
 
   return "unknown";
+}
+
+function normalizeWorkspaceKey(value) {
+  const raw = String(value || "").trim().toLowerCase();
+  if (!raw) {
+    return "";
+  }
+  if (raw.includes("mvpd")) {
+    return "mvpd-workspace";
+  }
+  if (raw.includes("cmu") || raw.includes("cm-workspace") || raw === "cm") {
+    return "cmu-workspace";
+  }
+  if (raw.includes("esm")) {
+    return "esm-workspace";
+  }
+  return "";
+}
+
+function classifyEventWorkspace(event) {
+  const direct = normalizeWorkspaceKey(firstNonEmptyString([event?.workspaceKey, event?.workspaceOrigin]));
+  if (direct) {
+    return direct;
+  }
+
+  const requestScope = String(event?.requestScope || "").trim().toLowerCase();
+  if (requestScope.includes("mvpd")) {
+    return "mvpd-workspace";
+  }
+  if (requestScope.includes("cmu")) {
+    return "cmu-workspace";
+  }
+  if (requestScope.includes("esm-workspace")) {
+    return "esm-workspace";
+  }
+
+  const phase = String(event?.phase || "").trim().toLowerCase();
+  if (phase.includes("mvpd-workspace")) {
+    return "mvpd-workspace";
+  }
+  if (phase.includes("cmu") || phase.includes("cm-v2")) {
+    return "cmu-workspace";
+  }
+  if (phase.includes("report-") || phase.includes("csv-download")) {
+    if (classifyEventService(event) === "esm") {
+      return "esm-workspace";
+    }
+  }
+  return "";
 }
 
 function setFlowSummary(currentFlow = flow) {
@@ -534,6 +598,7 @@ function renderEventRow(event) {
   row.className = "event-row";
   row.dataset.seq = String(event.seq || "");
   row.dataset.service = classifyEventService(event);
+  row.dataset.workspace = classifyEventWorkspace(event);
   if (event.seq === selectedSeq) {
     row.classList.add("selected");
   }
@@ -549,6 +614,12 @@ function renderEventRow(event) {
   const serviceLabel = EVENT_SERVICE_LABELS[serviceKey] || "";
   if (serviceLabel) {
     const badge = createElementWithClass("span", `event-service-badge service-${serviceKey}`, serviceLabel);
+    source.appendChild(badge);
+  }
+  const workspaceKey = String(row.dataset.workspace || "");
+  const workspaceLabel = EVENT_WORKSPACE_LABELS[workspaceKey] || "";
+  if (workspaceLabel) {
+    const badge = createElementWithClass("span", `event-workspace-badge workspace-${workspaceKey}`, workspaceLabel);
     source.appendChild(badge);
   }
   const phase = createElementWithClass("span", "event-col-phase", String(event.phase || ""));

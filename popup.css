@@ -554,7 +554,7 @@ select:disabled {
   --service-open-bg-glow: rgba(100, 119, 142, 0.24);
 }
 
-.premium-service-section.service-esm-decomp {
+.premium-service-section.service-esm {
   --service-accent: var(--service-esm-accent);
   --service-accent-ink: var(--service-esm-ink);
   --service-accent-soft: var(--service-esm-soft);
@@ -689,10 +689,80 @@ select:disabled {
   cursor: default;
 }
 
+.mvpd-workspace-tool {
+  border: 1px solid var(--service-accent-soft);
+  border-radius: 10px;
+  background: var(--legacy-panel);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mvpd-open-workspace-btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--service-accent);
+  border-radius: 999px;
+  background: var(--service-accent);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.mvpd-open-workspace-btn:hover:not(:disabled) {
+  background: var(--service-accent-ink);
+  border-color: var(--service-accent-ink);
+}
+
+.mvpd-open-workspace-btn:disabled {
+  opacity: 0.68;
+  cursor: default;
+}
+
+.mvpd-workspace-summary {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--legacy-muted);
+}
+
 .cm-sidepanel {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.cmu-jelly-host {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cmu-jelly-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cmu-jelly-empty {
+  margin: 0;
+  border: 1px solid var(--service-accent-soft);
+  border-radius: 10px;
+  background: var(--legacy-panel);
+  color: var(--legacy-muted);
+  padding: 10px;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.service-cm .cmu-jelly-shell .esm-workspace-tree-panel {
+  border-color: var(--service-accent-soft);
+}
+
+.service-cm .cmu-jelly-shell .esm-workspace-tree-title {
+  color: var(--service-accent-ink);
 }
 
 .cm-group {
@@ -828,55 +898,55 @@ select:disabled {
   }
 }
 
-.service-esm-decomp .decomp-tree-panel,
-.service-esm-decomp .decomp-treemap-panel {
+.service-esm .esm-workspace-tree-panel,
+.service-esm .esm-workspace-treemap-panel {
   border-color: var(--service-accent-soft);
 }
 
-.service-esm-decomp .decomp-tree-title,
-.service-esm-decomp .decomp-treemap-title {
+.service-esm .esm-workspace-tree-title,
+.service-esm .esm-workspace-treemap-title {
   color: var(--service-accent-ink);
 }
 
-.service-esm-decomp .decomp-run {
+.service-esm .esm-workspace-run {
   background: var(--service-accent);
   border-color: var(--service-accent);
 }
 
-.service-esm-decomp .decomp-run:hover {
+.service-esm .esm-workspace-run:hover {
   background: var(--service-accent-ink);
   border-color: var(--service-accent-ink);
 }
 
-.decomp-shell {
+.esm-workspace-shell {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.decomp-tree-panel,
-.decomp-treemap-panel {
+.esm-workspace-tree-panel,
+.esm-workspace-treemap-panel {
   border: 1px solid var(--legacy-border);
   border-radius: 12px;
   overflow: hidden;
   background: var(--legacy-panel);
 }
 
-.decomp-toolbar {
+.esm-workspace-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: nowrap;
 }
 
-.decomp-zoom-filter {
+.esm-workspace-zoom-filter {
   width: 72px;
   height: 30px;
   padding: 0 8px;
   flex: 0 0 auto;
 }
 
-.decomp-search {
+.esm-workspace-search {
   flex: 1 1 auto;
   min-width: 72px;
   height: 30px;
@@ -887,7 +957,7 @@ select:disabled {
   width: 100%;
 }
 
-.decomp-reset-btn {
+.esm-workspace-reset-btn {
   height: 30px;
   padding: 0 10px;
   border-radius: 8px;
@@ -900,12 +970,12 @@ select:disabled {
   flex: 0 0 auto;
 }
 
-.decomp-reset-btn {
+.esm-workspace-reset-btn {
   border-color: #3730a3;
   background: #4338ca;
 }
 
-.decomp-toolbar-icon-btn {
+.esm-workspace-toolbar-icon-btn {
   appearance: none;
   width: 40px;
   height: 40px;
@@ -922,13 +992,13 @@ select:disabled {
   transition: transform 120ms ease, background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
 }
 
-.decomp-toolbar-icon-btn--tearsheet {
+.esm-workspace-toolbar-icon-btn--tearsheet {
   border-color: var(--s2-action-border-accent);
   background: var(--s2-action-bg-accent);
   color: var(--s2-action-text-accent);
 }
 
-.decomp-toolbar-icon {
+.esm-workspace-toolbar-icon {
   width: 20px;
   height: 20px;
   display: inline-flex;
@@ -937,7 +1007,7 @@ select:disabled {
   pointer-events: none;
 }
 
-.decomp-toolbar-icon svg {
+.esm-workspace-toolbar-icon svg {
   width: 100%;
   height: 100%;
   fill: none;
@@ -947,27 +1017,27 @@ select:disabled {
   stroke-linejoin: round;
 }
 
-.decomp-reset-btn:hover:not(:disabled) {
+.esm-workspace-reset-btn:hover:not(:disabled) {
   background: #4f46e5;
   border-color: #4338ca;
 }
 
-.decomp-toolbar-icon-btn:hover:not(:disabled) {
+.esm-workspace-toolbar-icon-btn:hover:not(:disabled) {
   background: var(--s2-action-bg-hover);
   transform: translateY(-1px);
 }
 
-.decomp-toolbar-icon-btn--tearsheet:hover:not(:disabled) {
+.esm-workspace-toolbar-icon-btn--tearsheet:hover:not(:disabled) {
   background: var(--s2-action-bg-accent-hover);
   border-color: var(--s2-action-bg-accent-hover);
 }
 
-.decomp-toolbar-icon-btn:focus-visible {
+.esm-workspace-toolbar-icon-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px var(--s2-action-focus-ring);
 }
 
-.decomp-net-indicator {
+.esm-workspace-net-indicator {
   width: 14px;
   height: 14px;
   border-radius: 999px;
@@ -977,11 +1047,11 @@ select:disabled {
   flex: 0 0 auto;
 }
 
-.decomp-shell.net-busy {
+.esm-workspace-shell.net-busy {
   cursor: progress;
 }
 
-.decomp-tree-head {
+.esm-workspace-tree-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -998,7 +1068,7 @@ select:disabled {
   cursor: pointer;
 }
 
-.decomp-treemap-head {
+.esm-workspace-treemap-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1013,47 +1083,47 @@ select:disabled {
   cursor: pointer;
 }
 
-.decomp-tree-head:focus-visible,
-.decomp-treemap-head:focus-visible {
+.esm-workspace-tree-head:focus-visible,
+.esm-workspace-treemap-head:focus-visible {
   outline: 2px solid var(--s2-action-focus-ring);
   outline-offset: -2px;
 }
 
-.decomp-recording-tool {
+.esm-workspace-recording-tool {
   border: 1px solid var(--legacy-border);
   border-radius: 10px;
   background: var(--legacy-panel);
   padding: 8px 10px;
 }
 
-.decomp-recording-status {
+.esm-workspace-recording-status {
   margin: 0;
   font-size: 12px;
   color: var(--legacy-muted);
   line-height: 1.35;
 }
 
-.decomp-recording-status.success {
+.esm-workspace-recording-status.success {
   color: #166534;
 }
 
-.decomp-recording-status.error {
+.esm-workspace-recording-status.error {
   color: #b91c1c;
 }
 
-.decomp-recording-actions {
+.esm-workspace-recording-actions {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
 }
 
-.decomp-toolbar-recording-actions {
+.esm-workspace-toolbar-recording-actions {
   align-items: center;
   flex: 0 0 auto;
   flex-wrap: nowrap;
 }
 
-.decomp-record-toggle-btn {
+.esm-workspace-record-toggle-btn {
   height: 32px;
   min-width: 88px;
   padding: 0 12px;
@@ -1075,43 +1145,43 @@ select:disabled {
   white-space: nowrap;
 }
 
-.decomp-record-toggle-btn:hover:not(:disabled) {
+.esm-workspace-record-toggle-btn:hover:not(:disabled) {
   background: #047857;
   border-color: #047857;
 }
 
-.decomp-record-toggle-btn.is-recording {
+.esm-workspace-record-toggle-btn.is-recording {
   border-color: #b91c1c;
   background: #b91c1c;
 }
 
-.decomp-record-toggle-btn.is-recording:hover:not(:disabled) {
+.esm-workspace-record-toggle-btn.is-recording:hover:not(:disabled) {
   background: #991b1b;
   border-color: #991b1b;
 }
 
-.decomp-record-toggle-btn.is-stopping {
+.esm-workspace-record-toggle-btn.is-stopping {
   box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.22);
 }
 
-.decomp-record-toggle-btn:disabled {
+.esm-workspace-record-toggle-btn:disabled {
   opacity: 0.68;
   cursor: default;
 }
 
-.decomp-record-btn-label {
+.esm-workspace-record-btn-label {
   line-height: 1;
   letter-spacing: 0.03em;
 }
 
-.decomp-record-btn-icon {
+.esm-workspace-record-btn-icon {
   display: inline-flex;
   flex: 0 0 auto;
   align-items: center;
   justify-content: center;
 }
 
-.decomp-record-btn-icon--record {
+.esm-workspace-record-btn-icon--record {
   width: 12px;
   height: 12px;
   border-radius: 999px;
@@ -1121,7 +1191,7 @@ select:disabled {
     0 0 0 4px rgba(244, 63, 94, 0.24);
 }
 
-.decomp-record-btn-icon--stop {
+.esm-workspace-record-btn-icon--stop {
   width: 12px;
   height: 12px;
   border-radius: 3px;
@@ -1131,24 +1201,24 @@ select:disabled {
     0 0 0 4px rgba(248, 113, 113, 0.32);
 }
 
-.decomp-make-clickesm-btn:disabled {
+.esm-workspace-make-clickesm-btn:disabled {
   opacity: 0.68;
   cursor: default;
 }
 
-.decomp-tree-title {
+.esm-workspace-tree-title {
   font-size: 13px;
   font-weight: 700;
   color: var(--legacy-text);
 }
 
-.decomp-treemap-title {
+.esm-workspace-treemap-title {
   font-size: 13px;
   font-weight: 700;
   color: var(--legacy-text);
 }
 
-.decomp-tree-scroll {
+.esm-workspace-tree-scroll {
   max-height: 18em;
   overflow: auto;
   border: 0;
@@ -1156,27 +1226,27 @@ select:disabled {
   padding: 10px;
 }
 
-.decomp-treemap-scroll {
+.esm-workspace-treemap-scroll {
   max-height: 34em;
   overflow: auto;
   background: var(--legacy-panel);
   padding: 10px;
 }
 
-.decomp-treemap-root {
+.esm-workspace-treemap-root {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.decomp-map-depth-band {
+.esm-workspace-map-depth-band {
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.75);
   padding: 8px;
 }
 
-.decomp-map-depth-head {
+.esm-workspace-map-depth-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1184,7 +1254,7 @@ select:disabled {
   margin-bottom: 8px;
 }
 
-.decomp-map-depth-label {
+.esm-workspace-map-depth-label {
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.04em;
@@ -1192,18 +1262,18 @@ select:disabled {
   text-transform: uppercase;
 }
 
-.decomp-map-depth-count {
+.esm-workspace-map-depth-count {
   font-size: 10px;
   color: rgba(15, 23, 42, 0.62);
 }
 
-.decomp-map-grid {
+.esm-workspace-map-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 8px;
 }
 
-.decomp-treemap-empty {
+.esm-workspace-treemap-empty {
   border: 1px dashed rgba(0, 0, 0, 0.16);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.65);
@@ -1213,7 +1283,7 @@ select:disabled {
   font-size: 12px;
 }
 
-.decomp-map-tile {
+.esm-workspace-map-tile {
   --tile-rgb: 106, 106, 106;
   display: flex;
   align-items: center;
@@ -1234,18 +1304,18 @@ select:disabled {
   transition: transform 140ms ease, box-shadow 140ms ease;
 }
 
-.decomp-map-tile:hover {
+.esm-workspace-map-tile:hover {
   transform: translateY(-1px);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.52),
     0 8px 18px rgba(15, 23, 42, 0.12);
 }
 
-.decomp-map-tile.decomp-map-leaf {
+.esm-workspace-map-tile.esm-workspace-map-leaf {
   cursor: pointer;
 }
 
-.decomp-map-content {
+.esm-workspace-map-content {
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1253,7 +1323,7 @@ select:disabled {
   flex: 1 1 auto;
 }
 
-.decomp-map-name {
+.esm-workspace-map-name {
   font-size: 12px;
   font-weight: 800;
   color: rgba(15, 23, 42, 0.9);
@@ -1263,7 +1333,7 @@ select:disabled {
   letter-spacing: 0.02em;
 }
 
-.decomp-map-parent {
+.esm-workspace-map-parent {
   font-size: 10px;
   color: rgba(15, 23, 42, 0.65);
   white-space: nowrap;
@@ -1271,75 +1341,58 @@ select:disabled {
   text-overflow: ellipsis;
 }
 
-.decomp-map-meta {
+.esm-workspace-map-meta {
   font-size: 10px;
   color: rgba(15, 23, 42, 0.66);
   letter-spacing: 0.03em;
 }
 
-.decomp-map-run-link {
-  flex: 0 0 auto;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: rgba(15, 23, 42, 0.8);
-  text-decoration: underline;
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-  padding: 0;
-}
-
-.decomp-map-run-link:hover {
-  color: rgba(15, 23, 42, 0.98);
-}
-.decomp-tree-root {
+.esm-workspace-tree-root {
   font-size: 13px;
   line-height: 1.25;
   width: 100%;
 }
 
-.decomp-tree-root ul {
+.esm-workspace-tree-root ul {
   list-style: none;
   margin: 0;
   padding: 0;
   border: 0;
 }
 
-.decomp-tree-root ul.decomp-root {
+.esm-workspace-tree-root ul.esm-workspace-root {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.decomp-tree-root li {
+.esm-workspace-tree-root li {
   margin: 0;
   padding: 0;
 }
 
-.decomp-tree-root.decomp-search-mode ul {
+.esm-workspace-tree-root.esm-workspace-search-mode ul {
   padding-left: 0;
   border-left: none;
 }
 
-.decomp-tree-root.decomp-search-mode li.decomp-search-parent {
+.esm-workspace-tree-root.esm-workspace-search-mode li.esm-workspace-search-parent {
   margin: 0;
   padding: 0;
 }
 
-.decomp-tree-root.decomp-search-mode li.decomp-search-parent > .decomp-node {
+.esm-workspace-tree-root.esm-workspace-search-mode li.esm-workspace-search-parent > .esm-workspace-node {
   display: none;
 }
 
-.decomp-node {
+.esm-workspace-node {
   display: flex;
   align-items: stretch;
   gap: 8px;
   width: 100%;
 }
 
-.decomp-twisty {
+.esm-workspace-twisty {
   width: 16px;
   height: 16px;
   border: 1px solid var(--legacy-border);
@@ -1353,11 +1406,11 @@ select:disabled {
   flex: 0 0 auto;
 }
 
-.decomp-twisty.hidden {
+.esm-workspace-twisty.hidden {
   visibility: hidden;
 }
 
-.decomp-label {
+.esm-workspace-label {
   display: flex;
   align-items: stretch;
   align-content: flex-start;
@@ -1378,7 +1431,7 @@ select:disabled {
   min-height: 34px;
 }
 
-.decomp-label:hover {
+.esm-workspace-label:hover {
   border-color: rgba(26, 66, 126, 0.42);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.9),
@@ -1386,8 +1439,8 @@ select:disabled {
     0 6px 14px rgba(15, 23, 42, 0.12);
 }
 
-.decomp-chip {
-  --decomp-seg-rgb: 106, 106, 106;
+.esm-workspace-chip {
+  --esm-workspace-seg-rgb: 106, 106, 106;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
@@ -1410,20 +1463,20 @@ select:disabled {
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
-.decomp-chip.decomp-chip-clickable {
+.esm-workspace-chip.esm-workspace-chip-clickable {
   cursor: pointer;
 }
 
-.decomp-chip.decomp-chip-clickable:hover {
+.esm-workspace-chip.esm-workspace-chip-clickable:hover {
   filter: saturate(1.08) brightness(1.03);
 }
 
-.decomp-chip.decomp-chip-clickable:focus-visible {
+.esm-workspace-chip.esm-workspace-chip-clickable:focus-visible {
   outline: none;
   box-shadow: inset 0 0 0 2px rgba(16, 24, 40, 0.42);
 }
 
-.decomp-chip::after {
+.esm-workspace-chip::after {
   content: "";
   position: absolute;
   inset: 0;
@@ -1431,31 +1484,31 @@ select:disabled {
   pointer-events: none;
 }
 
-.decomp-chip:first-child {
+.esm-workspace-chip:first-child {
   border-top-left-radius: 999px;
   border-bottom-left-radius: 999px;
 }
 
-.decomp-chip:last-child {
+.esm-workspace-chip:last-child {
   border-top-right-radius: 999px;
   border-bottom-right-radius: 999px;
 }
 
-.decomp-chip mark {
+.esm-workspace-chip mark {
   background: rgba(232, 196, 0, 0.86);
   color: #101010;
   border-radius: 4px;
   padding: 0 2px;
 }
 
-.decomp-meta {
+.esm-workspace-meta {
   color: var(--legacy-muted);
   font-size: 11px;
   white-space: nowrap;
   flex: 0 0 auto;
 }
 
-.decomp-run {
+.esm-workspace-run {
   flex: 0 0 auto;
   width: 44px;
   height: 34px;
@@ -1470,15 +1523,15 @@ select:disabled {
   cursor: pointer;
 }
 
-.decomp-run:hover {
+.esm-workspace-run:hover {
   transform: translateY(-1px);
 }
 
-.decomp-run:active {
+.esm-workspace-run:active {
   transform: translateY(0);
 }
 
-.decomp-badge {
+.esm-workspace-badge {
   display: inline-flex;
   align-items: center;
   padding: 1px 6px;
@@ -1490,7 +1543,7 @@ select:disabled {
   line-height: 16px;
 }
 
-.decomp-label.decomp-col-match {
+.esm-workspace-label.esm-workspace-col-match {
   border-color: rgba(255, 200, 0, 0.64);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.88),
@@ -1498,12 +1551,21 @@ select:disabled {
     0 0 0 2px rgba(255, 200, 0, 0.22);
 }
 
-.decomp-footer {
+.esm-workspace-footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
-.decomp-footer-actions {
+.esm-workspace-footer-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 40px;
+}
+
+.esm-workspace-footer-actions {
   display: flex;
   justify-content: flex-end;
 }
