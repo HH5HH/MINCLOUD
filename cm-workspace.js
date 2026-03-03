@@ -312,11 +312,68 @@ function shiftInstantToPstCalendar(dateValue) {
   return new Date(new Date(dateValue).getTime() + (CM_SOURCE_UTC_OFFSET_MINUTES * 60 * 1000));
 }
 
+function normalizeCmuZoomFromValue(value = "") {
+  const normalized = String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+  if (!normalized) {
+    return "";
+  }
+  if (normalized === "YR" || normalized === "YEAR" || normalized === "YEARLY") {
+    return "YR";
+  }
+  if (normalized === "MO" || normalized === "MON" || normalized === "MONTH" || normalized === "MONTHLY") {
+    return "MO";
+  }
+  if (normalized === "DAY" || normalized === "DAILY" || normalized === "D") {
+    return "DAY";
+  }
+  if (normalized === "HR" || normalized === "HOUR" || normalized === "HOURLY" || normalized === "H") {
+    return "HR";
+  }
+  if (normalized === "MIN" || normalized === "MINUTE" || normalized === "MINUTELY" || normalized === "M") {
+    return "MIN";
+  }
+  return "";
+}
+
 function getCmuZoomKeyFromUrl(urlValue = "") {
   const raw = String(urlValue || "").trim();
   if (!raw) {
     return "";
   }
+  try {
+    const parsed = new URL(raw);
+    const queryZoom = normalizeCmuZoomFromValue(
+      firstNonEmptyString([
+        parsed.searchParams.get("zm"),
+        parsed.searchParams.get("zoom"),
+        parsed.searchParams.get("zoomLevel"),
+        parsed.searchParams.get("zoom_level"),
+        parsed.searchParams.get("zoom-level"),
+      ])
+    );
+    if (queryZoom) {
+      return queryZoom;
+    }
+  } catch {
+    const queryMatch = raw.match(/[?&](?:zm|zoom(?:[_-]?level)?)=([^&#]+)/i);
+    if (queryMatch?.[1]) {
+      try {
+        const decodedZoom = normalizeCmuZoomFromValue(decodeURIComponent(queryMatch[1]));
+        if (decodedZoom) {
+          return decodedZoom;
+        }
+      } catch {
+        const rawZoom = normalizeCmuZoomFromValue(queryMatch[1]);
+        if (rawZoom) {
+          return rawZoom;
+        }
+      }
+    }
+  }
+
   let pathText = "";
   try {
     pathText = String(new URL(raw).pathname || "").toLowerCase();

@@ -534,7 +534,67 @@
           return new Date(new Date(dateValue).getTime() + (CMU_SOURCE_UTC_OFFSET_MINUTES * 60 * 1000));
         }
 
+        function normalizeUsageZoomValue(value = "") {
+          const normalized = String(value || "")
+            .trim()
+            .toUpperCase()
+            .replace(/[^A-Z]/g, "");
+          if (!normalized) {
+            return "";
+          }
+          if (normalized === "YR" || normalized === "YEAR" || normalized === "YEARLY") {
+            return "YR";
+          }
+          if (normalized === "MO" || normalized === "MON" || normalized === "MONTH" || normalized === "MONTHLY") {
+            return "MO";
+          }
+          if (normalized === "DAY" || normalized === "DAILY" || normalized === "D") {
+            return "DAY";
+          }
+          if (normalized === "HR" || normalized === "HOUR" || normalized === "HOURLY" || normalized === "H") {
+            return "HR";
+          }
+          if (normalized === "MIN" || normalized === "MINUTE" || normalized === "MINUTELY" || normalized === "M") {
+            return "MIN";
+          }
+          return "";
+        }
+
         function getUsageZoomKey(pathValue = "", fallbackUrl = "") {
+          const rawUrl = String(fallbackUrl || pathValue || "").trim();
+          if (rawUrl) {
+            try {
+              const parsed = new URL(rawUrl, CM_REPORTS_BASE_URL);
+              const queryZoom = normalizeUsageZoomValue(
+                firstNonEmptyString([
+                  parsed.searchParams.get("zm"),
+                  parsed.searchParams.get("zoom"),
+                  parsed.searchParams.get("zoomLevel"),
+                  parsed.searchParams.get("zoom_level"),
+                  parsed.searchParams.get("zoom-level"),
+                ])
+              );
+              if (queryZoom) {
+                return queryZoom;
+              }
+            } catch {
+              const queryMatch = rawUrl.match(/[?&](?:zm|zoom(?:[_-]?level)?)=([^&#]+)/i);
+              if (queryMatch?.[1]) {
+                try {
+                  const decodedZoom = normalizeUsageZoomValue(decodeURIComponent(queryMatch[1]));
+                  if (decodedZoom) {
+                    return decodedZoom;
+                  }
+                } catch {
+                  const rawZoom = normalizeUsageZoomValue(queryMatch[1]);
+                  if (rawZoom) {
+                    return rawZoom;
+                  }
+                }
+              }
+            }
+          }
+
           const haystack = `${String(pathValue || "").toLowerCase()} ${String(fallbackUrl || "").toLowerCase()}`;
           if (haystack.includes("/minute")) {
             return "MIN";

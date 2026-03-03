@@ -1139,6 +1139,39 @@ function createSplunkCsvDownload(profile = null, rows = [], report = null) {
   };
 }
 
+function buildSplunkRowUniqueKey(row = null) {
+  if (!row || typeof row !== "object") {
+    return "";
+  }
+  const rowTime = firstNonEmptyString([row?._time, row?.time, row?.timestamp]);
+  const rowRaw = firstNonEmptyString([row?._raw, row?.raw, row?.value, row?.message]);
+  if (rowTime || rowRaw) {
+    return `${String(rowTime || "").trim()}|${String(rowRaw || "").trim()}`;
+  }
+  try {
+    return JSON.stringify(row);
+  } catch {
+    return "";
+  }
+}
+
+function dedupeSplunkReportRows(rows = []) {
+  const list = Array.isArray(rows) ? rows : [];
+  const output = [];
+  const seen = new Set();
+  list.forEach((row) => {
+    const key = buildSplunkRowUniqueKey(row);
+    if (key && seen.has(key)) {
+      return;
+    }
+    if (key) {
+      seen.add(key);
+    }
+    output.push(row);
+  });
+  return output;
+}
+
 function renderSplunkPanel(profile = null) {
   if (!els.splunkCard || !els.splunkCardBody || !els.splunkSummary || !els.splunkStatus) {
     return;
@@ -1177,8 +1210,9 @@ function renderSplunkPanel(profile = null) {
 
   const checkedAt = formatDateTime(report?.checkedAt);
   const sid = String(report?.sid || "").trim();
-  const displayedRows = Number(report?.displayedRows || 0);
-  const totalRows = Number(report?.totalRows || 0);
+  const allRows = dedupeSplunkReportRows(Array.isArray(report?.rows) ? report.rows : []);
+  const totalRows = allRows.length;
+  const displayedRows = Math.min(totalRows, SPLUNK_PREVIEW_MAX_ROWS);
   const rowSummary =
     totalRows > displayedRows
       ? `${displayedRows} shown of ${totalRows}`
@@ -1207,7 +1241,6 @@ function renderSplunkPanel(profile = null) {
     return;
   }
 
-  const allRows = Array.isArray(report?.rows) ? report.rows : [];
   const rows = allRows.slice(0, SPLUNK_PREVIEW_MAX_ROWS);
   const csvDownload = createSplunkCsvDownload(profile, allRows, report);
   const actionsMarkup = csvDownload.url
@@ -1563,7 +1596,7 @@ async function deleteProfile(harvestKey = "") {
     }
     state.resourceInputByHarvestKey.delete(normalized);
     state.splunkResultByHarvestKey.delete(normalized);
-    setStatus("Removed MVPD profile.");
+    setStatus(String(response?.message || "Removed MVPD profile."));
   }
   render();
 }

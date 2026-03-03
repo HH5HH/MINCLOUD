@@ -4956,6 +4956,46 @@ function normalizeSplunkRows(results = [], columns = []) {
   });
 }
 
+function buildSplunkRowDedupeKey(row = null, columns = []) {
+  if (!row || typeof row !== "object") {
+    return "";
+  }
+  const eventTime = firstNonEmptyString([row?._time, row?.time, row?.timestamp]);
+  const rawPayload = firstNonEmptyString([row?._raw, row?.raw, row?.value, row?.message]);
+  if (eventTime || rawPayload) {
+    return `${normalizeSplunkCellValue(eventTime)}|${normalizeSplunkCellValue(rawPayload)}`;
+  }
+
+  const keyColumns = Array.isArray(columns) && columns.length > 0 ? columns : Object.keys(row);
+  return keyColumns.map((column) => `${String(column || "").trim()}:${normalizeSplunkCellValue(row?.[column])}`).join("|");
+}
+
+function dedupeSplunkRows(results = [], columns = []) {
+  const rows = Array.isArray(results) ? results : [];
+  const output = [];
+  const seen = new Set();
+  rows.forEach((row) => {
+    const key = buildSplunkRowDedupeKey(row, columns);
+    const fallbackKey =
+      key ||
+      (() => {
+        try {
+          return JSON.stringify(row || {});
+        } catch {
+          return "";
+        }
+      })();
+    if (fallbackKey && seen.has(fallbackKey)) {
+      return;
+    }
+    if (fallbackKey) {
+      seen.add(fallbackKey);
+    }
+    output.push(row);
+  });
+  return output;
+}
+
 function buildSplunkAuthErrorReport(queryContext = null, networkEvents = [], options = {}) {
   return {
     ok: false,
@@ -4983,10 +5023,10 @@ function buildSplunkReportPayloadFromEvents(queryContext = null, sid = "", event
   const fields = Array.isArray(eventsResponse?.parsed?.fields) ? eventsResponse.parsed.fields : [];
   const rawRows = Array.isArray(eventsResponse?.parsed?.results) ? eventsResponse.parsed.results : [];
   const columns = collectSplunkColumnOrder(rawRows, fields);
-  const normalizedRows = normalizeSplunkRows(rawRows, columns);
+  const uniqueRawRows = dedupeSplunkRows(rawRows, columns);
+  const normalizedRows = normalizeSplunkRows(uniqueRawRows, columns);
   const displayedRows = normalizedRows.slice(0, SPLUNK_EVENT_RENDER_LIMIT);
-  const totalRowsFromMeta = Number(options.totalRowsFromMeta || 0);
-  const totalRows = Math.max(totalRowsFromMeta, normalizedRows.length);
+  const totalRows = normalizedRows.length;
   return {
     ok: true,
     selectionKey: String(queryContext?.selectionKey || "").trim(),
@@ -6072,7 +6112,7 @@ function wireRestV2ProfileAndEntitlementHandlers(section, programmer, appInfo) {
 
   const listElement = section.querySelector(".rest-v2-profile-list");
   if (listElement) {
-    listElement.addEventListener("click", (event) => {
+    listElement.addEventListener("click", async (event) => {
       const deleteButton = event.target instanceof Element ? event.target.closest(".rest-v2-profile-delete-btn") : null;
       if (deleteButton) {
         event.preventDefault();
@@ -6086,8 +6126,14 @@ function wireRestV2ProfileAndEntitlementHandlers(section, programmer, appInfo) {
         if (!programmerId || !harvestKey) {
           return;
         }
-        const removed = removeRestV2ProfileHarvestByRecordKey(programmerId, harvestKey);
-        if (!removed) {
+        setStatus("Running REST V2 logout and deleting MVPD profile...");
+        const deleteResult = await deleteRestV2ProfileHarvestWithLogout(programmerId, harvestKey, {
+          source: "profile-picker-delete",
+        });
+        if (!deleteResult?.ok) {
+          setStatus(String(deleteResult?.error || "Unable to remove the selected MVPD profile."), "error");
+          syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
+          refreshBobtoolsWorkspaceTools();
           return;
         }
         if (sectionState.selectedHarvestKey === harvestKey) {
@@ -6100,7 +6146,7 @@ function wireRestV2ProfileAndEntitlementHandlers(section, programmer, appInfo) {
           sectionState.expandedHarvestKey = "";
         }
         sectionState.hasProfileExpansionChoice = false;
-        setStatus("Removed captured MVPD login profile.", "info");
+        setStatus(String(deleteResult?.message || "Removed captured MVPD login profile."), "info");
         syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
         refreshBobtoolsWorkspaceTools();
         return;
@@ -8267,47 +8313,204 @@ function getRestV2ProfileSummary(profile, profileKey = "", context = null) {
   };
 }
 
-function findRestV2PreferredProfileSummary(profileSummaries = [], preferredMvpd = "") {
+function restV2ValueHasSsoMarker(value = "") {
+  return String(value || "").trim().toLowerCase().includes("sso");
+}
+
+function restV2ProfileSummaryHasSsoMarker(summary = null) {
+  if (!summary || typeof summary !== "object") {
+    return false;
+  }
+  const candidates = dedupeRestV2CandidateStrings([
+    String(summary?.profileKey || "").trim(),
+    String(summary?.mvpd || "").trim(),
+    ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
+  ]);
+  return candidates.some((candidate) => restV2ValueHasSsoMarker(candidate));
+}
+
+function restV2HarvestHasSsoMarker(harvest = null, mvpdCandidates = []) {
+  if (!harvest || typeof harvest !== "object") {
+    return false;
+  }
+  const candidates = dedupeRestV2CandidateStrings([
+    ...(Array.isArray(mvpdCandidates) ? mvpdCandidates : []),
+    String(harvest?.mvpd || "").trim(),
+    ...(Array.isArray(harvest?.idpCandidates) ? harvest.idpCandidates : []),
+    ...(Array.isArray(harvest?.allIdpCandidates) ? harvest.allIdpCandidates : []),
+    String(harvest?.sessionAction || "").trim(),
+    String(harvest?.sessionPartner || "").trim(),
+  ]);
+  return candidates.some((candidate) => restV2ValueHasSsoMarker(candidate));
+}
+
+function scoreRestV2MvpdCandidateMatch(candidate = "", target = "", options = {}) {
+  const candidateValue = String(candidate || "").trim();
+  const targetValue = String(target || "").trim();
+  if (!candidateValue || !targetValue) {
+    return -1;
+  }
+
+  const allowSsoAlias = options?.allowSsoAlias === true;
+  const candidateLower = candidateValue.toLowerCase();
+  const targetLower = targetValue.toLowerCase();
+  const candidateCompact = normalizeRestV2MvpdMatchToken(candidateValue);
+  const targetCompact = normalizeRestV2MvpdMatchToken(targetValue);
+  let score = -1;
+
+  if (candidateLower === targetLower) {
+    score = Math.max(score, 180);
+  }
+  if (candidateCompact && targetCompact && candidateCompact === targetCompact) {
+    score = Math.max(score, 165);
+  }
+  if (isRestV2MvpdMatch(candidateValue, targetValue, { allowSsoAlias: false })) {
+    score = Math.max(score, 140);
+  }
+  if (allowSsoAlias && isRestV2MvpdMatch(candidateValue, targetValue, { allowSsoAlias: true })) {
+    score = Math.max(score, 90);
+  }
+  if (score < 0) {
+    return -1;
+  }
+
+  const candidateHasSso = restV2ValueHasSsoMarker(candidateValue);
+  const targetHasSso = restV2ValueHasSsoMarker(targetValue);
+  if (candidateHasSso === targetHasSso) {
+    score += 12;
+  } else if (targetHasSso && !candidateHasSso) {
+    score -= 18;
+  }
+  return score;
+}
+
+function collectRestV2IdentityHintsFromHarvest(harvest = null) {
+  if (!harvest || typeof harvest !== "object") {
+    return {
+      subjectHints: [],
+      sessionHints: [],
+    };
+  }
+  return {
+    subjectHints: dedupeRestV2CandidateStrings([
+      String(harvest?.subject || "").trim(),
+      String(harvest?.upstreamUserId || "").trim(),
+      String(harvest?.userId || "").trim(),
+      ...(Array.isArray(harvest?.subjectCandidates) ? harvest.subjectCandidates : []),
+      ...(Array.isArray(harvest?.allSubjectCandidates) ? harvest.allSubjectCandidates : []),
+    ]),
+    sessionHints: dedupeRestV2CandidateStrings([
+      String(harvest?.sessionId || "").trim(),
+      ...(Array.isArray(harvest?.sessionCandidates) ? harvest.sessionCandidates : []),
+      ...(Array.isArray(harvest?.allSessionCandidates) ? harvest.allSessionCandidates : []),
+    ]),
+  };
+}
+
+function hasRestV2SummaryIdentityOverlap(summary = null, identityHints = null) {
+  if (!summary || typeof summary !== "object" || !identityHints || typeof identityHints !== "object") {
+    return false;
+  }
+  const subjectHintSet = new Set(
+    (Array.isArray(identityHints.subjectHints) ? identityHints.subjectHints : [])
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  const sessionHintSet = new Set(
+    (Array.isArray(identityHints.sessionHints) ? identityHints.sessionHints : [])
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+
+  const subjectValues = dedupeRestV2CandidateStrings([
+    String(summary?.subject || "").trim(),
+    String(summary?.upstreamUserId || "").trim(),
+    String(summary?.userId || "").trim(),
+    ...(Array.isArray(summary?.subjectCandidates) ? summary.subjectCandidates : []),
+  ]).map((value) => String(value || "").trim().toLowerCase());
+  if (subjectValues.some((value) => value && subjectHintSet.has(value))) {
+    return true;
+  }
+
+  const sessionValues = dedupeRestV2CandidateStrings([
+    String(summary?.sessionId || "").trim(),
+    ...(Array.isArray(summary?.sessionCandidates) ? summary.sessionCandidates : []),
+  ]).map((value) => String(value || "").trim().toLowerCase());
+  return sessionValues.some((value) => value && sessionHintSet.has(value));
+}
+
+function findRestV2PreferredProfileSummary(profileSummaries = [], preferredMvpd = "", options = {}) {
   const summaries = Array.isArray(profileSummaries) ? profileSummaries : [];
   if (summaries.length === 0) {
     return null;
   }
 
-  const preferred = String(preferredMvpd || "").trim().toLowerCase();
-  if (preferred) {
-    const direct = summaries.find((summary) => String(summary?.profileKey || "").trim().toLowerCase() === preferred);
-    if (direct) {
-      return direct;
-    }
-
-    const exactCandidateMatch = summaries.find((summary) => {
-      const candidates = [
-        String(summary?.mvpd || "").trim(),
-        ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
-      ];
-      return candidates.some((candidate) => String(candidate || "").trim().toLowerCase() === preferred);
-    });
-    if (exactCandidateMatch) {
-      return exactCandidateMatch;
-    }
-
-    const aliasCandidateMatch = summaries.find((summary) => {
-      const candidates = [
-        String(summary?.profileKey || "").trim(),
-        String(summary?.mvpd || "").trim(),
-        ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
-      ];
-      return candidates.some((candidate) =>
-        isRestV2MvpdMatch(candidate, preferredMvpd, {
-          allowSsoAlias: true,
-        })
-      );
-    });
-    if (aliasCandidateMatch) {
-      return aliasCandidateMatch;
-    }
+  const preferred = String(preferredMvpd || "").trim();
+  const preferredAliases = dedupeRestV2CandidateStrings([
+    preferred,
+    ...(Array.isArray(options?.preferredAliases) ? options.preferredAliases : []),
+  ]);
+  if (preferredAliases.length === 0) {
+    return summaries[0] || null;
   }
-  return summaries[0] || null;
+
+  const allowSsoAlias = options?.allowSsoAlias === true;
+  const identityHints = options?.identityHints && typeof options.identityHints === "object" ? options.identityHints : null;
+  let bestSummary = null;
+  let bestScore = -1;
+  let bestExpiry = 0;
+
+  summaries.forEach((summary) => {
+    const candidates = dedupeRestV2CandidateStrings([
+      String(summary?.profileKey || "").trim(),
+      String(summary?.mvpd || "").trim(),
+      ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
+    ]);
+    if (candidates.length === 0) {
+      return;
+    }
+    const matchScore = candidates.reduce(
+      (maxScore, candidate) =>
+        Math.max(
+          maxScore,
+          ...preferredAliases.map((alias) =>
+            scoreRestV2MvpdCandidateMatch(candidate, alias, {
+              allowSsoAlias,
+            })
+          )
+        ),
+      -1
+    );
+    if (matchScore < 0) {
+      return;
+    }
+
+    let score = matchScore;
+    const summaryHasSso = candidates.some((candidate) => restV2ValueHasSsoMarker(candidate));
+    const preferredHasSso = preferredAliases.some((alias) => restV2ValueHasSsoMarker(alias));
+    if (summaryHasSso === preferredHasSso) {
+      score += 8;
+    } else if (preferredHasSso && !summaryHasSso) {
+      score -= 12;
+    }
+
+    if (identityHints) {
+      if (hasRestV2SummaryIdentityOverlap(summary, identityHints)) {
+        score += 30;
+      } else if (preferredHasSso && !summaryHasSso) {
+        score -= 20;
+      }
+    }
+
+    const expiryMs = Number(summary?.notAfterMs || 0);
+    if (!bestSummary || score > bestScore || (score === bestScore && expiryMs > bestExpiry)) {
+      bestSummary = summary;
+      bestScore = score;
+      bestExpiry = expiryMs;
+    }
+  });
+
+  return bestSummary || summaries[0] || null;
 }
 
 function buildRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
@@ -8323,7 +8526,45 @@ function buildRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
     payload && typeof payload === "object" && payload.profiles && typeof payload.profiles === "object" ? payload.profiles : {};
   const profileEntries = Object.entries(profiles).filter(([, value]) => value && typeof value === "object");
   const profileSummaries = profileEntries.map(([profileKey, profileValue]) => getRestV2ProfileSummary(profileValue, profileKey, context));
-  const selectedSummary = findRestV2PreferredProfileSummary(profileSummaries, context.mvpd);
+  const previousHarvestCandidate = getRestV2ProfileHarvestForContext(context);
+  const previousHarvest =
+    previousHarvestCandidate &&
+    isRestV2MvpdMatch(previousHarvestCandidate?.mvpd, context?.mvpd, {
+      allowSsoAlias: false,
+    })
+      ? previousHarvestCandidate
+      : null;
+  const identityHints = collectRestV2IdentityHintsFromHarvest(previousHarvest);
+  const cachedMvpdMeta =
+    String(context?.requestorId || "").trim() && String(context?.mvpd || "").trim()
+      ? state.mvpdCacheByRequestor.get(String(context.requestorId || "").trim())?.get(String(context.mvpd || "").trim()) || null
+      : null;
+  const likelySsoContext = isRestV2LikelyPartnerSsoContext(context);
+  const preferredSummaryOptions = {
+    allowSsoAlias: likelySsoContext,
+    identityHints,
+    preferredAliases: dedupeRestV2CandidateStrings([
+      String(context?.mvpd || "").trim(),
+      String(context?.mvpdMeta?.name || "").trim(),
+      String(context?.mvpdMeta?.displayName || "").trim(),
+      String(cachedMvpdMeta?.name || "").trim(),
+      String(cachedMvpdMeta?.displayName || "").trim(),
+    ]),
+  };
+  let selectedSummary = findRestV2PreferredProfileSummary(profileSummaries, context.mvpd, preferredSummaryOptions);
+  if (likelySsoContext && selectedSummary && !restV2ProfileSummaryHasSsoMarker(selectedSummary)) {
+    const explicitSsoSummaries = profileSummaries.filter((summary) => restV2ProfileSummaryHasSsoMarker(summary));
+    if (explicitSsoSummaries.length > 0) {
+      const explicitSsoSelection = findRestV2PreferredProfileSummary(
+        explicitSsoSummaries,
+        context.mvpd,
+        preferredSummaryOptions
+      );
+      if (explicitSsoSelection) {
+        selectedSummary = explicitSsoSelection;
+      }
+    }
+  }
 
   const profileCount = profileSummaries.length;
   const profileKeys = profileSummaries.map((summary) => String(summary?.profileKey || "").trim()).filter(Boolean);
@@ -8335,10 +8576,17 @@ function buildRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
     ...(selectedSummary?.subjectCandidates || []),
     ...(selectedSummary?.upstreamUserId ? [selectedSummary.upstreamUserId] : []),
     ...(selectedSummary?.userId ? [selectedSummary.userId] : []),
-    ...allSubjectCandidates,
+    ...(Array.isArray(identityHints?.subjectHints) ? identityHints.subjectHints : []),
   ]);
-  const sessionCandidates = dedupeRestV2CandidateStrings([...(selectedSummary?.sessionCandidates || []), ...allSessionCandidates]);
-  const idpCandidates = dedupeRestV2CandidateStrings([...(selectedSummary?.idpCandidates || []), ...allIdpCandidates, context.mvpd]);
+  const sessionCandidates = dedupeRestV2CandidateStrings([
+    ...(selectedSummary?.sessionCandidates || []),
+    ...(Array.isArray(identityHints?.sessionHints) ? identityHints.sessionHints : []),
+  ]);
+  const idpCandidates = dedupeRestV2CandidateStrings([
+    ...(selectedSummary?.idpCandidates || []),
+    ...(Array.isArray(previousHarvest?.idpCandidates) ? previousHarvest.idpCandidates : []),
+    context.mvpd,
+  ]);
 
   const upstreamUserId = firstNonEmptyString([selectedSummary?.upstreamUserId, selectedSummary?.userId, ...subjectCandidates]);
   const userId = firstNonEmptyString([selectedSummary?.userId, selectedSummary?.upstreamUserId, ...subjectCandidates]);
@@ -8600,6 +8848,127 @@ function removeRestV2ProfileHarvestByRecordKey(programmer = null, harvestKey = "
 
   recomputeRestV2ProfileHarvestLast();
   return true;
+}
+
+async function deleteRestV2ProfileHarvestWithLogout(programmer = null, harvestKey = "", options = {}) {
+  const programmerId =
+    programmer && typeof programmer === "object" ? String(programmer.programmerId || "").trim() : String(programmer || "").trim();
+  const normalizedHarvestKey = String(harvestKey || "").trim();
+  if (!programmerId || !normalizedHarvestKey) {
+    return {
+      ok: false,
+      error: "Missing MVPD profile key.",
+    };
+  }
+
+  const harvest = getRestV2HarvestByRecordKey(normalizedHarvestKey, programmerId);
+  if (!harvest) {
+    return {
+      ok: false,
+      error: "Selected MVPD profile was not found.",
+    };
+  }
+
+  const context = buildRestV2ContextFromHarvest(harvest);
+  if (!context?.ok) {
+    return {
+      ok: false,
+      error: "Selected MVPD profile is missing REST V2 logout context. Re-run LOGIN and retry.",
+    };
+  }
+  const requestorMvpdLabel = formatRestV2RequestorMvpdDisplay(context.requestorId, context.mvpd, context.mvpdMeta, {
+    separator: " x ",
+  });
+  const flowId = String(options?.flowId || "").trim() || resolveRestV2DebugFlowIdForHarvest(harvest);
+  const logoutResult = await executeRestV2LogoutFlow(context, flowId);
+  if (logoutResult?.attempted !== true || logoutResult?.performed !== true) {
+    const reason = firstNonEmptyString([
+      String(logoutResult?.error || "").trim(),
+      logoutResult?.attempted !== true ? "REST V2 logout was not attempted." : "REST V2 logout did not fully complete.",
+    ]);
+    return {
+      ok: false,
+      error: `${requestorMvpdLabel} logout failed: ${reason}`,
+      context,
+      harvest,
+      flowId,
+      logoutResult,
+    };
+  }
+
+  const verifyResult = await verifyPostLogoutProfilesCleared(context, flowId);
+  if (verifyResult?.ok !== true) {
+    const reason = firstNonEmptyString([
+      String(verifyResult?.error || "").trim(),
+      `${Number(verifyResult?.profileCount || 0)} active profile(s) still returned`,
+    ]);
+    return {
+      ok: false,
+      error: `${requestorMvpdLabel} logout verification failed: ${reason}`,
+      context,
+      harvest,
+      flowId,
+      logoutResult,
+      verifyResult,
+    };
+  }
+
+  clearRestV2ProfileHarvestForContext(context);
+  const removedByKey = removeRestV2ProfileHarvestByRecordKey(programmerId, normalizedHarvestKey);
+  state.bobtoolsWorkspaceLastResultByHarvestKey.delete(normalizedHarvestKey);
+
+  const hydration = await ensureRestV2ProfilesHydratedForBobtools(context, {
+    force: true,
+    source: String(options?.source || "profile-delete-logout").trim() || "profile-delete-logout",
+  });
+  const hydrationOk = hydration?.ok === true || hydration?.skipped === true;
+  if (!hydrationOk) {
+    return {
+      ok: false,
+      error: `${requestorMvpdLabel} logout completed but Profiles (all MVPD) refresh failed: ${String(
+        hydration?.error || "unable to confirm profile removal"
+      ).trim()}`,
+      context,
+      harvest,
+      flowId,
+      logoutResult,
+      verifyResult,
+      hydration,
+      removedByKey,
+    };
+  }
+
+  const refreshedBucket = getRestV2ProfileHarvestBucketForProgrammer(programmerId);
+  const remainingHarvest = findRestV2HarvestByRequestorAndMvpd(refreshedBucket, context.requestorId, context.mvpd, {
+    allowSsoAlias: isRestV2LikelyPartnerSsoContext(context),
+  });
+  if (isUsableRestV2ProfileHarvest(remainingHarvest)) {
+    return {
+      ok: false,
+      error: `${requestorMvpdLabel} profile still appears after logout refresh. Retry delete, then re-run LOGIN if needed.`,
+      context,
+      harvest,
+      flowId,
+      logoutResult,
+      verifyResult,
+      hydration,
+      removedByKey,
+      remainingHarvest,
+    };
+  }
+
+  const removed = removedByKey || !getRestV2HarvestByRecordKey(normalizedHarvestKey, programmerId);
+  return {
+    ok: true,
+    removed,
+    message: `Removed ${requestorMvpdLabel} MVPD profile after REST V2 logout and profile refresh.`,
+    context,
+    harvest,
+    flowId,
+    logoutResult,
+    verifyResult,
+    hydration,
+  };
 }
 
 function upsertRestV2ProfileHarvestBucketEntry(harvest = null) {
@@ -8887,31 +9256,17 @@ function buildRestV2ProfileCheckEndpointCandidates(context = null) {
     url: `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/profiles/code/${encodeURIComponent(sessionCode)}`,
   }));
 
-  if (isRestV2LikelyPartnerSsoContext(context) && sessionCodeEndpoints.length > 0) {
-    sessionCodeEndpoints.forEach((item) => {
-      pushEndpoint("profiles-code", item.url, {
-        endpointLabel: "profiles/code",
-        sessionCode: item.sessionCode,
-      });
-    });
-    if (mvpdProfilesUrl) {
-      pushEndpoint("profiles-mvpd", mvpdProfilesUrl, {
-        endpointLabel: "profiles/{mvpd}",
-      });
-    }
-  } else {
-    if (mvpdProfilesUrl) {
-      pushEndpoint("profiles-mvpd", mvpdProfilesUrl, {
-        endpointLabel: "profiles/{mvpd}",
-      });
-    }
-    sessionCodeEndpoints.forEach((item) => {
-      pushEndpoint("profiles-code", item.url, {
-        endpointLabel: "profiles/code",
-        sessionCode: item.sessionCode,
-      });
+  if (mvpdProfilesUrl) {
+    pushEndpoint("profiles-mvpd", mvpdProfilesUrl, {
+      endpointLabel: "profiles/{mvpd}",
     });
   }
+  sessionCodeEndpoints.forEach((item) => {
+    pushEndpoint("profiles-code", item.url, {
+      endpointLabel: "profiles/code",
+      sessionCode: item.sessionCode,
+    });
+  });
 
   pushEndpoint("profiles-all", allProfilesUrl, {
     endpointLabel: "profiles",
@@ -9066,8 +9421,20 @@ async function fetchRestV2ProfileCheckResultFromEndpoint(context, flowId, scope 
     const endpointKey = String(endpoint?.endpointKey || "").trim();
     const allowSsoAliasMatch = isRestV2LikelyPartnerSsoContext(context);
     if (endpointKey === "profiles-all" && selectedMvpd) {
+      const cachedMvpdMeta =
+        String(context?.requestorId || "").trim() && selectedMvpd
+          ? state.mvpdCacheByRequestor.get(String(context.requestorId || "").trim())?.get(selectedMvpd) || null
+          : null;
+      const selectedAliases = dedupeRestV2CandidateStrings([
+        selectedMvpd,
+        String(context?.mvpdMeta?.name || "").trim(),
+        String(context?.mvpdMeta?.displayName || "").trim(),
+        String(cachedMvpdMeta?.name || "").trim(),
+        String(cachedMvpdMeta?.displayName || "").trim(),
+      ]);
       const strictFilteredProfiles = {};
       const aliasFilteredProfiles = {};
+      const selectedHasSso = selectedAliases.some((alias) => restV2ValueHasSsoMarker(alias));
       for (const [profileKey, profileValue] of Object.entries(rawProfiles)) {
         if (!profileValue || typeof profileValue !== "object") {
           continue;
@@ -9079,9 +9446,11 @@ async function fetchRestV2ProfileCheckResultFromEndpoint(context, flowId, scope 
           ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
         ]);
         const strictMvpdMatch = candidateMvpds.some((candidate) =>
-          isRestV2MvpdMatch(candidate, selectedMvpd, {
-            allowSsoAlias: false,
-          })
+          selectedAliases.some((alias) =>
+            isRestV2MvpdMatch(candidate, alias, {
+              allowSsoAlias: false,
+            })
+          )
         );
         if (strictMvpdMatch) {
           strictFilteredProfiles[profileKey] = profileValue;
@@ -9089,20 +9458,68 @@ async function fetchRestV2ProfileCheckResultFromEndpoint(context, flowId, scope 
         }
         if (allowSsoAliasMatch) {
           const aliasMvpdMatch = candidateMvpds.some((candidate) =>
-            isRestV2MvpdMatch(candidate, selectedMvpd, {
-              allowSsoAlias: true,
-            })
+            selectedAliases.some((alias) =>
+              isRestV2MvpdMatch(candidate, alias, {
+                allowSsoAlias: true,
+              })
+            )
           );
           if (aliasMvpdMatch) {
             aliasFilteredProfiles[profileKey] = profileValue;
           }
         }
       }
-      if (Object.keys(strictFilteredProfiles).length > 0) {
+      const strictEntries = Object.entries(strictFilteredProfiles);
+      const strictFilteredBySsoParity = {};
+      strictEntries.forEach(([profileKey, profileValue]) => {
+        if (!profileValue || typeof profileValue !== "object") {
+          return;
+        }
+        const summary = getRestV2ProfileSummary(profileValue, profileKey, context);
+        const candidateMvpds = dedupeRestV2CandidateStrings([
+          String(profileKey || "").trim(),
+          String(summary?.mvpd || "").trim(),
+          ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
+        ]);
+        if (candidateMvpds.some((candidate) => restV2ValueHasSsoMarker(candidate) === selectedHasSso)) {
+          strictFilteredBySsoParity[profileKey] = profileValue;
+        }
+      });
+      const aliasEntries = Object.entries(aliasFilteredProfiles);
+      const aliasFilteredBySsoParity = {};
+      aliasEntries.forEach(([profileKey, profileValue]) => {
+        if (!profileValue || typeof profileValue !== "object") {
+          return;
+        }
+        const summary = getRestV2ProfileSummary(profileValue, profileKey, context);
+        const candidateMvpds = dedupeRestV2CandidateStrings([
+          String(profileKey || "").trim(),
+          String(summary?.mvpd || "").trim(),
+          ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
+        ]);
+        if (
+          candidateMvpds.some((candidate) => restV2ValueHasSsoMarker(candidate) === selectedHasSso)
+        ) {
+          aliasFilteredBySsoParity[profileKey] = profileValue;
+        }
+      });
+      if (Object.keys(strictFilteredBySsoParity).length > 0) {
+        effectiveProfiles = strictFilteredBySsoParity;
+        effectivePayload = {
+          ...effectivePayload,
+          profiles: strictFilteredBySsoParity,
+        };
+      } else if (Object.keys(strictFilteredProfiles).length > 0) {
         effectiveProfiles = strictFilteredProfiles;
         effectivePayload = {
           ...effectivePayload,
           profiles: strictFilteredProfiles,
+        };
+      } else if (Object.keys(aliasFilteredBySsoParity).length > 0) {
+        effectiveProfiles = aliasFilteredBySsoParity;
+        effectivePayload = {
+          ...effectivePayload,
+          profiles: aliasFilteredBySsoParity,
         };
       } else if (Object.keys(aliasFilteredProfiles).length > 0) {
         effectiveProfiles = aliasFilteredProfiles;
@@ -9111,10 +9528,67 @@ async function fetchRestV2ProfileCheckResultFromEndpoint(context, flowId, scope 
           profiles: aliasFilteredProfiles,
         };
       } else if (rawProfileCount > 0 && allowSsoAliasMatch) {
-        effectiveProfiles = rawProfiles;
+        const scoredProfiles = {};
+        const scoredEntries = [];
+        for (const [profileKey, profileValue] of Object.entries(rawProfiles)) {
+          if (!profileValue || typeof profileValue !== "object") {
+            continue;
+          }
+          const summary = getRestV2ProfileSummary(profileValue, profileKey, context);
+          const candidateMvpds = dedupeRestV2CandidateStrings([
+            String(profileKey || "").trim(),
+            String(summary?.mvpd || "").trim(),
+            ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
+          ]);
+          if (candidateMvpds.length === 0) {
+            continue;
+          }
+          const candidateHasSso = candidateMvpds.some((candidate) => restV2ValueHasSsoMarker(candidate));
+          const bestAliasScore = candidateMvpds.reduce(
+            (maxScore, candidate) =>
+              Math.max(
+                maxScore,
+                ...selectedAliases.map((alias) =>
+                  scoreRestV2MvpdCandidateMatch(candidate, alias, {
+                    allowSsoAlias: true,
+                  })
+                )
+              ),
+            -1
+          );
+          scoredEntries.push({
+            profileKey,
+            profileValue,
+            bestAliasScore,
+            candidateHasSso,
+          });
+        }
+        const topScore = scoredEntries.reduce((maxScore, entry) => Math.max(maxScore, Number(entry?.bestAliasScore || -1)), -1);
+        if (topScore >= 0) {
+          scoredEntries
+            .filter((entry) => Number(entry?.bestAliasScore || -1) === topScore)
+            .forEach((entry) => {
+              scoredProfiles[entry.profileKey] = entry.profileValue;
+            });
+        }
+        const parityProfiles = {};
+        if (Object.keys(scoredProfiles).length === 0) {
+          scoredEntries
+            .filter((entry) => entry.candidateHasSso === selectedHasSso)
+            .forEach((entry) => {
+              parityProfiles[entry.profileKey] = entry.profileValue;
+            });
+        }
+        const fallbackProfiles =
+          Object.keys(scoredProfiles).length > 0
+            ? scoredProfiles
+            : Object.keys(parityProfiles).length > 0
+              ? parityProfiles
+              : rawProfiles;
+        effectiveProfiles = fallbackProfiles;
         effectivePayload = {
           ...effectivePayload,
-          profiles: rawProfiles,
+          profiles: fallbackProfiles,
         };
       } else {
         effectiveProfiles = strictFilteredProfiles;
@@ -11917,7 +12391,7 @@ function ensureCmUsageEndpointFormat(url, options = {}) {
       parsed.searchParams.set("format", "json");
     }
     if (isCanonicalCmuUsagePath(parsed.pathname)) {
-      const zoomKey = cmuUsageGetZoomKey(cmuUsageExtractPathParts(parsed.pathname), parsed.pathname);
+      const zoomKey = cmuUsageGetZoomKey(cmuUsageExtractPathParts(parsed.pathname), parsed.toString());
       const timeWindow = clickEsmComputeTimeWindow(zoomKey);
       parsed.searchParams.set("start", String(timeWindow?.start || clickEsmIso(new Date())));
       parsed.searchParams.set("end", String(timeWindow?.end || clickEsmIso(new Date())));
@@ -12674,9 +13148,71 @@ body[data-theme="dark"]{
     return new Date(date.getTime() + (${ESM_SOURCE_UTC_OFFSET_MINUTES} * 60 * 1000));
   }
 
+  function normalizeCmuZoomToken(value = "") {
+    const normalized = String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z]/g, "");
+    if (!normalized) {
+      return "";
+    }
+    if (normalized === "YR" || normalized === "YEAR" || normalized === "YEARLY") {
+      return "YR";
+    }
+    if (normalized === "MO" || normalized === "MON" || normalized === "MONTH" || normalized === "MONTHLY") {
+      return "MO";
+    }
+    if (normalized === "DAY" || normalized === "DAILY" || normalized === "D") {
+      return "DAY";
+    }
+    if (normalized === "HR" || normalized === "HOUR" || normalized === "HOURLY" || normalized === "H") {
+      return "HR";
+    }
+    if (normalized === "MIN" || normalized === "MINUTE" || normalized === "MINUTELY" || normalized === "M") {
+      return "MIN";
+    }
+    return "";
+  }
+
   function getCmuZoomKeyFromPath(pathValue = "", fallbackUrl = "") {
-    const pathText = String(pathValue || "").trim().toLowerCase();
-    const fallbackText = String(fallbackUrl || "").trim().toLowerCase();
+    const fallbackTextRaw = String(fallbackUrl || "").trim();
+    const pathTextRaw = String(pathValue || "").trim();
+    const urlCandidate = fallbackTextRaw || pathTextRaw;
+    if (urlCandidate) {
+      try {
+        const parsed = new URL(urlCandidate, CM_REPORTS_BASE_URL);
+        const queryZoom = normalizeCmuZoomToken(
+          firstNonEmptyString([
+            parsed.searchParams.get("zm"),
+            parsed.searchParams.get("zoom"),
+            parsed.searchParams.get("zoomLevel"),
+            parsed.searchParams.get("zoom_level"),
+            parsed.searchParams.get("zoom-level"),
+          ])
+        );
+        if (queryZoom) {
+          return queryZoom;
+        }
+      } catch {
+        const queryMatch = urlCandidate.match(/[?&](?:zm|zoom(?:[_-]?level)?)=([^&#]+)/i);
+        if (queryMatch && queryMatch[1]) {
+          try {
+            const decodedZoom = normalizeCmuZoomToken(decodeURIComponent(queryMatch[1]));
+            if (decodedZoom) {
+              return decodedZoom;
+            }
+          } catch {
+            const rawZoom = normalizeCmuZoomToken(queryMatch[1]);
+            if (rawZoom) {
+              return rawZoom;
+            }
+          }
+        }
+      }
+    }
+
+    const pathText = pathTextRaw.toLowerCase();
+    const fallbackText = fallbackTextRaw.toLowerCase();
     const haystack = pathText + " " + fallbackText;
     if (haystack.includes("/minute")) {
       return "MIN";
@@ -17717,6 +18253,66 @@ function cmuUsageExtractPathParts(endpointUrl) {
 }
 
 function cmuUsageGetZoomKey(pathParts, endpointUrl = "") {
+  const normalizeZoomValue = (value = "") => {
+    const normalized = String(value || "")
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z]/g, "");
+    if (!normalized) {
+      return "";
+    }
+    if (normalized === "YR" || normalized === "YEAR" || normalized === "YEARLY") {
+      return "YR";
+    }
+    if (normalized === "MO" || normalized === "MON" || normalized === "MONTH" || normalized === "MONTHLY") {
+      return "MO";
+    }
+    if (normalized === "DAY" || normalized === "DAILY" || normalized === "D") {
+      return "DAY";
+    }
+    if (normalized === "HR" || normalized === "HOUR" || normalized === "HOURLY" || normalized === "H") {
+      return "HR";
+    }
+    if (normalized === "MIN" || normalized === "MINUTE" || normalized === "MINUTELY" || normalized === "M") {
+      return "MIN";
+    }
+    return "";
+  };
+
+  const rawEndpointUrl = String(endpointUrl || "").trim();
+  if (rawEndpointUrl) {
+    try {
+      const parsed = new URL(rawEndpointUrl, CM_REPORTS_BASE_URL);
+      const queryZoom = normalizeZoomValue(
+        firstNonEmptyString([
+          parsed.searchParams.get("zm"),
+          parsed.searchParams.get("zoom"),
+          parsed.searchParams.get("zoomLevel"),
+          parsed.searchParams.get("zoom_level"),
+          parsed.searchParams.get("zoom-level"),
+        ])
+      );
+      if (queryZoom) {
+        return queryZoom;
+      }
+    } catch {
+      const queryMatch = rawEndpointUrl.match(/[?&](?:zm|zoom(?:[_-]?level)?)=([^&#]+)/i);
+      if (queryMatch?.[1]) {
+        try {
+          const parsedZoom = normalizeZoomValue(decodeURIComponent(queryMatch[1]));
+          if (parsedZoom) {
+            return parsedZoom;
+          }
+        } catch {
+          const rawZoom = normalizeZoomValue(queryMatch[1]);
+          if (rawZoom) {
+            return rawZoom;
+          }
+        }
+      }
+    }
+  }
+
   const normalizedParts = Array.isArray(pathParts)
     ? pathParts.map((value) => String(value || "").trim().toLowerCase()).filter(Boolean)
     : [];
@@ -21089,33 +21685,75 @@ function findRestV2HarvestByRequestorAndMvpd(harvestList = [], requestorId = "",
 
   const matchesRequestor = (harvest = null) =>
     String(harvest?.requestorId || harvest?.serviceProviderId || "").trim() === normalizedRequestorId;
+  const allowSsoAlias = options?.allowSsoAlias === true;
+  const selectedMvpdMeta =
+    normalizedRequestorId && normalizedMvpd
+      ? state.mvpdCacheByRequestor.get(normalizedRequestorId)?.get(normalizedMvpd) || null
+      : null;
+  const targetAliases = dedupeRestV2CandidateStrings([
+    normalizedMvpd,
+    String(selectedMvpdMeta?.name || "").trim(),
+    String(selectedMvpdMeta?.displayName || "").trim(),
+  ]);
+  const targetHasSso = targetAliases.some((alias) => restV2ValueHasSsoMarker(alias));
+  const scoredMatches = [];
 
-  const strictMatch =
-    list.find((item) => {
-      if (!matchesRequestor(item)) {
-        return false;
-      }
-      return isRestV2MvpdMatch(item?.mvpd, normalizedMvpd, {
-        allowSsoAlias: false,
-      });
-    }) || null;
-  if (strictMatch) {
-    return strictMatch;
-  }
+  list.forEach((item) => {
+    if (!matchesRequestor(item)) {
+      return;
+    }
+    const mvpdCandidates = dedupeRestV2CandidateStrings([
+      String(item?.mvpd || "").trim(),
+      ...(Array.isArray(item?.idpCandidates) ? item.idpCandidates : []),
+      ...(Array.isArray(item?.allIdpCandidates) ? item.allIdpCandidates : []),
+    ]);
+    if (mvpdCandidates.length === 0) {
+      return;
+    }
+    const score = mvpdCandidates.reduce(
+      (maxScore, candidate) =>
+        Math.max(
+          maxScore,
+          ...targetAliases.map((alias) =>
+            scoreRestV2MvpdCandidateMatch(candidate, alias, {
+              allowSsoAlias,
+            })
+          )
+        ),
+      -1
+    );
+    if (score < 0) {
+      return;
+    }
+    const candidateHasSso = restV2HarvestHasSsoMarker(item, mvpdCandidates);
+    scoredMatches.push({
+      harvest: item,
+      adjustedScore: score + (targetHasSso === candidateHasSso ? 6 : targetHasSso && !candidateHasSso ? -8 : 0),
+      recency: Number(item?.harvestedAt || 0),
+      candidateHasSso,
+    });
+  });
 
-  if (options?.allowSsoAlias !== true) {
+  if (scoredMatches.length === 0) {
     return null;
   }
-  return (
-    list.find((item) => {
-      if (!matchesRequestor(item)) {
-        return false;
-      }
-      return isRestV2MvpdMatch(item?.mvpd, normalizedMvpd, {
-        allowSsoAlias: true,
-      });
-    }) || null
-  );
+  const parityMatches = scoredMatches.filter((entry) => entry.candidateHasSso === targetHasSso);
+  const candidatePool = parityMatches.length > 0 ? parityMatches : scoredMatches;
+  let bestMatch = candidatePool[0];
+  candidatePool.forEach((entry) => {
+    if (!entry) {
+      return;
+    }
+    if (
+      !bestMatch ||
+      Number(entry.adjustedScore || -1) > Number(bestMatch.adjustedScore || -1) ||
+      (Number(entry.adjustedScore || -1) === Number(bestMatch.adjustedScore || -1) &&
+        Number(entry.recency || 0) > Number(bestMatch.recency || 0))
+    ) {
+      bestMatch = entry;
+    }
+  });
+  return bestMatch?.harvest || null;
 }
 
 function restWorkspaceGetSelectionContextFromCurrentSelection(programmer = null) {
@@ -22684,14 +23322,20 @@ async function handleBobtoolsWorkspaceAction(message, sender = null) {
     if (!programmerId) {
       return { ok: false, error: "Missing media company context." };
     }
-    const removed = removeRestV2ProfileHarvestByRecordKey(programmerId, harvestKey);
-    if (!removed) {
-      return { ok: false, error: "Unable to remove the selected MVPD profile." };
+    const deleteResult = await deleteRestV2ProfileHarvestWithLogout(programmerId, harvestKey, {
+      source: "bobtools-workspace-delete",
+    });
+    if (!deleteResult?.ok) {
+      return { ok: false, error: String(deleteResult?.error || "Unable to remove the selected MVPD profile.") };
     }
     state.bobtoolsWorkspaceLastResultByHarvestKey.delete(harvestKey);
     bobtoolsWorkspaceBroadcastProfiles(selectedProgrammer, { targetWindowId: senderWindowId });
     refreshRestV2LoginPanels();
-    return { ok: true };
+    return {
+      ok: true,
+      message: String(deleteResult?.message || "Removed MVPD profile."),
+      removed: deleteResult?.removed === true,
+    };
   }
 
   if (action === "refresh-selected") {
