@@ -2884,6 +2884,18 @@ function buildRestV2ContextFromHarvest(harvest = null) {
   const requestorId = String(harvest.requestorId || harvest.serviceProviderId || "").trim();
   const serviceProviderId = String(harvest.serviceProviderId || harvest.requestorId || "").trim();
   const mvpd = String(harvest.mvpd || "").trim();
+  const sessionUrl = normalizeAdobeNavigationUrl(String(harvest.sessionUrl || "").trim());
+  const loginUrl = normalizeAdobeNavigationUrl(String(harvest.loginUrl || "").trim());
+  const sessionCodeCandidates = collectRestV2SessionCodeCandidates(
+    [
+      harvest.sessionCode,
+      ...(Array.isArray(harvest.sessionCodeCandidates) ? harvest.sessionCodeCandidates : []),
+      sessionUrl,
+      loginUrl,
+    ],
+    serviceProviderId
+  );
+  const sessionCode = firstNonEmptyString([String(harvest.sessionCode || "").trim(), sessionCodeCandidates[0]]);
   const harvestMvpdName = String(harvest.mvpdName || "").trim();
   const cachedMvpdMeta =
     requestorId && state.mvpdCacheByRequestor.has(requestorId) ? state.mvpdCacheByRequestor.get(requestorId)?.get(mvpd) || null : null;
@@ -2900,6 +2912,12 @@ function buildRestV2ContextFromHarvest(harvest = null) {
     serviceProviderId,
     mvpd,
     mvpdMeta,
+    sessionCode,
+    sessionCodeCandidates,
+    sessionAction: String(harvest.sessionAction || "").trim(),
+    sessionPartner: String(harvest.sessionPartner || "").trim(),
+    sessionUrl,
+    loginUrl,
     appInfo,
     restV2AppCandidates: [appInfo],
   };
@@ -7151,12 +7169,13 @@ function toRestV2RecordingContext(context, appInfoOverride = null, options = {})
   const serviceProviderId = String(context.serviceProviderId || context.requestorId || "").trim();
   const redirectUrl = normalizeAdobeNavigationUrl(firstNonEmptyString([options?.redirectUrl, context?.redirectUrl]));
   const sessionUrl = normalizeAdobeNavigationUrl(firstNonEmptyString([options?.sessionUrl]));
+  const loginUrl = normalizeAdobeNavigationUrl(firstNonEmptyString([options?.loginUrl]));
   const sessionCodeCandidates = collectRestV2SessionCodeCandidates(
     [
       options?.sessionCode,
       ...(Array.isArray(options?.sessionCodeCandidates) ? options.sessionCodeCandidates : []),
       sessionUrl,
-      options?.loginUrl,
+      loginUrl,
     ],
     serviceProviderId
   );
@@ -7184,6 +7203,7 @@ function toRestV2RecordingContext(context, appInfoOverride = null, options = {})
     sessionAction: String(options?.sessionAction || "").trim(),
     sessionPartner: String(options?.sessionPartner || "").trim(),
     sessionUrl,
+    loginUrl,
     startedAt: Date.now(),
   };
 }
@@ -8303,6 +8323,19 @@ function buildRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
       : profileCount > 0
         ? "success"
         : "empty";
+  const contextServiceProviderId = String(context?.serviceProviderId || context?.requestorId || "").trim();
+  const sessionUrl = normalizeAdobeNavigationUrl(String(context?.sessionUrl || "").trim());
+  const loginUrl = normalizeAdobeNavigationUrl(String(context?.loginUrl || "").trim());
+  const sessionCodeCandidates = collectRestV2SessionCodeCandidates(
+    [
+      context?.sessionCode,
+      ...(Array.isArray(context?.sessionCodeCandidates) ? context.sessionCodeCandidates : []),
+      sessionUrl,
+      loginUrl,
+    ],
+    contextServiceProviderId
+  );
+  const sessionCode = firstNonEmptyString([String(context?.sessionCode || "").trim(), sessionCodeCandidates[0]]);
 
   return {
     harvestedAt,
@@ -8311,6 +8344,13 @@ function buildRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
     requestorId: String(context.requestorId || "").trim(),
     serviceProviderId: String(context.serviceProviderId || "").trim(),
     appGuid: String(context.appInfo?.guid || "").trim(),
+    appName: String(context.appInfo?.appName || context.appInfo?.guid || "").trim(),
+    sessionCode,
+    sessionCodeCandidates,
+    sessionAction: String(context?.sessionAction || "").trim(),
+    sessionPartner: String(context?.sessionPartner || "").trim(),
+    sessionUrl,
+    loginUrl,
     profileUrl: String(profileCheckResult.url || "").trim(),
     profileCheckOutcome,
     profileCheck: {
@@ -21268,6 +21308,7 @@ function buildRestV2SelectionContextFromRecordingContext(recordingContext = null
     sessionAction: String(recordingContext.sessionAction || "").trim(),
     sessionPartner: String(recordingContext.sessionPartner || "").trim(),
     sessionUrl: normalizeAdobeNavigationUrl(String(recordingContext.sessionUrl || "").trim()),
+    loginUrl: normalizeAdobeNavigationUrl(String(recordingContext.loginUrl || "").trim()),
     appInfo: {
       guid: appGuid,
       appName: String(recordingContext?.appInfo?.appName || appGuid).trim(),
@@ -21283,15 +21324,33 @@ function buildRestV2ProfilesHydrationSeedHarvest(context = null) {
   if (existingHarvest && typeof existingHarvest === "object") {
     return existingHarvest;
   }
+  const serviceProviderId = String(context.serviceProviderId || context.requestorId || "").trim();
+  const sessionUrl = normalizeAdobeNavigationUrl(String(context.sessionUrl || "").trim());
+  const loginUrl = normalizeAdobeNavigationUrl(String(context.loginUrl || "").trim());
+  const sessionCodeCandidates = collectRestV2SessionCodeCandidates(
+    [
+      context.sessionCode,
+      ...(Array.isArray(context.sessionCodeCandidates) ? context.sessionCodeCandidates : []),
+      sessionUrl,
+      loginUrl,
+    ],
+    serviceProviderId
+  );
   return {
     programmerId: String(context.programmerId || "").trim(),
     programmerName: String(context.programmerName || "").trim(),
     requestorId: String(context.requestorId || "").trim(),
-    serviceProviderId: String(context.serviceProviderId || context.requestorId || "").trim(),
+    serviceProviderId,
     mvpd: String(context.mvpd || "").trim(),
     mvpdName: String(context?.mvpdMeta?.name || "").trim(),
     appGuid: String(context?.appInfo?.guid || "").trim(),
     appName: String(context?.appInfo?.appName || context?.appInfo?.guid || "").trim(),
+    sessionCode: firstNonEmptyString([String(context.sessionCode || "").trim(), sessionCodeCandidates[0]]),
+    sessionCodeCandidates,
+    sessionAction: String(context.sessionAction || "").trim(),
+    sessionPartner: String(context.sessionPartner || "").trim(),
+    sessionUrl,
+    loginUrl,
     harvestedAt: Date.now(),
     profileCount: 0,
     profileCheckOutcome: "seed",
@@ -21407,6 +21466,142 @@ function ingestRestV2ProfilesHydrationResult(context = null, profilesResult = nu
   };
 }
 
+function collectRestV2SsoHydrationContextsForBobtools(context = null) {
+  if (!context?.ok) {
+    return [];
+  }
+  const baseProgrammerId = String(context.programmerId || "").trim();
+  const baseServiceProviderId = String(context.serviceProviderId || context.requestorId || "").trim();
+  if (!baseProgrammerId || !baseServiceProviderId) {
+    return [];
+  }
+
+  const contexts = [];
+  const seen = new Set();
+  const pushContext = (candidate = null) => {
+    if (!candidate?.ok) {
+      return;
+    }
+    const candidateProgrammerId = String(candidate.programmerId || "").trim();
+    if (!candidateProgrammerId || candidateProgrammerId !== baseProgrammerId) {
+      return;
+    }
+    const candidateServiceProviderId = String(candidate.serviceProviderId || candidate.requestorId || "").trim();
+    if (!candidateServiceProviderId || candidateServiceProviderId !== baseServiceProviderId) {
+      return;
+    }
+    const candidateMvpd = String(candidate.mvpd || "").trim();
+    const likelySso =
+      isRestV2LikelyPartnerSsoContext(candidate) || String(candidateMvpd || "").trim().toLowerCase().includes("sso");
+    if (!likelySso) {
+      return;
+    }
+    const sessionCodeCandidates = collectRestV2SessionCodeCandidates(
+      [
+        candidate.sessionCode,
+        ...(Array.isArray(candidate.sessionCodeCandidates) ? candidate.sessionCodeCandidates : []),
+        candidate.sessionUrl,
+        candidate.loginUrl,
+      ],
+      candidateServiceProviderId
+    );
+    const sessionCode = firstNonEmptyString([String(candidate.sessionCode || "").trim(), sessionCodeCandidates[0]]);
+    const key = [
+      candidateProgrammerId.toLowerCase(),
+      String(candidate.requestorId || "").trim().toLowerCase(),
+      String(candidateMvpd || "").trim().toLowerCase(),
+      String(candidate.sessionPartner || "").trim().toLowerCase(),
+      String(candidate.sessionAction || "").trim().toLowerCase(),
+      String(sessionCode || "").trim().toLowerCase(),
+    ].join("|");
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    contexts.push({
+      ...candidate,
+      sessionCode,
+      sessionCodeCandidates,
+    });
+  };
+
+  pushContext(context);
+
+  const bucket = getRestV2ProfileHarvestBucketForProgrammer(baseProgrammerId);
+  bucket.forEach((harvest) => {
+    const harvestContext = buildRestV2ContextFromHarvest(harvest);
+    pushContext(harvestContext);
+  });
+
+  const recordingContext = buildRestV2SelectionContextFromRecordingContext(state.restV2RecordingContext);
+  pushContext(recordingContext);
+
+  return contexts;
+}
+
+async function hydrateRestV2SsoProfilesForBobtools(context = null, options = {}) {
+  const ssoContexts = collectRestV2SsoHydrationContextsForBobtools(context);
+  const flowId = String(options.flowId || "").trim();
+  const scopePrefix = String(options.scopePrefix || "profiles-bobtools-sso-hydration").trim();
+  if (ssoContexts.length === 0) {
+    return {
+      checkedContexts: 0,
+      activeContexts: 0,
+      storedCount: 0,
+      probes: [],
+    };
+  }
+
+  let activeContexts = 0;
+  let storedCount = 0;
+  const probes = [];
+  for (let index = 0; index < ssoContexts.length; index += 1) {
+    const ssoContext = ssoContexts[index];
+    const scope = `${scopePrefix}-${index + 1}`;
+    try {
+      const profileCheckResult = await fetchRestV2ProfileCheckResult(ssoContext, flowId, scope);
+      const isActive = isRestV2ProfileSessionActiveResult(profileCheckResult);
+      if (isActive) {
+        activeContexts += 1;
+      }
+      let stored = false;
+      if (profileCheckResult?.harvestedProfile && isUsableRestV2ProfileHarvest(profileCheckResult.harvestedProfile)) {
+        const storedHarvest = storeRestV2ProfileHarvest(ssoContext, profileCheckResult, flowId);
+        stored = isUsableRestV2ProfileHarvest(storedHarvest);
+        if (stored) {
+          storedCount += 1;
+        }
+      }
+      probes.push({
+        requestorId: String(ssoContext.requestorId || "").trim(),
+        mvpd: String(ssoContext.mvpd || "").trim(),
+        profileCount: Number(profileCheckResult?.profileCount || 0),
+        endpointLabel: String(profileCheckResult?.profileCheckEndpointLabel || profileCheckResult?.profileCheckEndpoint || "").trim(),
+        active: isActive,
+        stored,
+        error: String(profileCheckResult?.error || "").trim(),
+      });
+    } catch (error) {
+      probes.push({
+        requestorId: String(ssoContext.requestorId || "").trim(),
+        mvpd: String(ssoContext.mvpd || "").trim(),
+        profileCount: 0,
+        endpointLabel: "",
+        active: false,
+        stored: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    checkedContexts: ssoContexts.length,
+    activeContexts,
+    storedCount,
+    probes,
+  };
+}
+
 async function ensureRestV2ProfilesHydratedForBobtools(context = null, options = {}) {
   if (!context?.ok) {
     return { ok: false, skipped: true, error: "Missing REST V2 selection context for profile hydration." };
@@ -21435,30 +21630,43 @@ async function ensureRestV2ProfilesHydratedForBobtools(context = null, options =
     if (!harvestSeed) {
       return { ok: false, skipped: true, error: "Unable to build REST V2 profile hydration context." };
     }
+    const flowId = String(options.flowId || "").trim() || resolveRestV2DebugFlowIdForHarvest(harvestSeed);
+    let result = null;
+    let profilesAllError = "";
+    let ingest = {
+      storedCount: 0,
+      totalRows: 0,
+    };
     try {
-      const result = await fetchRestV2ProfilesForHarvest(harvestSeed, {
+      result = await fetchRestV2ProfilesForHarvest(harvestSeed, {
         apiAction: BOBTOOLS_REST_V2_ACTION_PROFILES_ALL,
       });
-      const ingest = ingestRestV2ProfilesHydrationResult(context, result, {
-        flowId: String(options.flowId || "").trim() || resolveRestV2DebugFlowIdForHarvest(harvestSeed),
+      ingest = ingestRestV2ProfilesHydrationResult(context, result, {
+        flowId,
       });
-      state.restV2ProfilesHydrationLastAtBySelectionKey.set(selectionKey, Date.now());
-      return {
-        ok: result?.ok === true,
-        skipped: false,
-        result,
-        storedCount: Number(ingest.storedCount || 0),
-        totalRows: Number(ingest.totalRows || 0),
-      };
     } catch (error) {
-      const underparResult = error?.underparResult && typeof error.underparResult === "object" ? error.underparResult : null;
-      return {
-        ok: false,
-        skipped: false,
-        error: error instanceof Error ? error.message : String(error),
-        result: underparResult,
-      };
+      result = error?.underparResult && typeof error.underparResult === "object" ? error.underparResult : null;
+      profilesAllError = error instanceof Error ? error.message : String(error);
     }
+
+    const ssoHydration = await hydrateRestV2SsoProfilesForBobtools(context, {
+      flowId,
+      scopePrefix: "profiles-bobtools-sso-hydration",
+    });
+    const ok = result?.ok === true || Number(ssoHydration?.activeContexts || 0) > 0 || Number(ssoHydration?.storedCount || 0) > 0;
+    if (ok) {
+      state.restV2ProfilesHydrationLastAtBySelectionKey.set(selectionKey, Date.now());
+    }
+    return {
+      ok,
+      skipped: false,
+      error: ok ? "" : profilesAllError || "REST V2 profile hydration did not return any profiles.",
+      warning: ok && profilesAllError ? profilesAllError : "",
+      result,
+      ssoHydration,
+      storedCount: Number(ingest.storedCount || 0) + Number(ssoHydration?.storedCount || 0),
+      totalRows: Number(ingest.totalRows || 0),
+    };
   })().finally(() => {
     if (state.restV2ProfilesHydrationPromiseBySelectionKey.get(selectionKey) === workPromise) {
       state.restV2ProfilesHydrationPromiseBySelectionKey.delete(selectionKey);
@@ -22125,11 +22333,20 @@ function refreshBobtoolsWorkspaceTools() {
   });
 }
 
+function resolveBobtoolsProfilesHydrationContext(programmer = null) {
+  const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  const selectionContext = buildBobtoolsWorkspaceSelectionContext(resolvedProgrammer);
+  const harvestContext = buildRestV2ContextFromHarvest(selectionContext?.selectedHarvest);
+  if (harvestContext?.ok) {
+    return harvestContext;
+  }
+  const liveContext = buildCurrentRestV2SelectionContext(resolvedProgrammer, null);
+  return liveContext?.ok ? liveContext : null;
+}
+
 async function bobtoolsWorkspaceOpenFromRestV2(programmer = null, options = {}) {
   const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
-  const liveContext = buildCurrentRestV2SelectionContext(resolvedProgrammer, null);
-  const fallbackSelection = buildBobtoolsWorkspaceSelectionContext(resolvedProgrammer);
-  const hydrationContext = liveContext?.ok ? liveContext : buildRestV2ContextFromHarvest(fallbackSelection.selectedHarvest);
+  const hydrationContext = resolveBobtoolsProfilesHydrationContext(resolvedProgrammer);
   if (hydrationContext?.ok) {
     await ensureRestV2ProfilesHydratedForBobtools(hydrationContext, {
       force: options.forceRefresh === true,
@@ -22171,9 +22388,7 @@ async function handleBobtoolsWorkspaceAction(message, sender = null) {
 
   if (action === "workspace-ready") {
     const selectedProgrammer = resolveSelectedProgrammer();
-    const liveContext = buildCurrentRestV2SelectionContext(selectedProgrammer, null);
-    const preliminarySelection = buildBobtoolsWorkspaceSelectionContext(selectedProgrammer);
-    const hydrationContext = liveContext?.ok ? liveContext : buildRestV2ContextFromHarvest(preliminarySelection.selectedHarvest);
+    const hydrationContext = resolveBobtoolsProfilesHydrationContext(selectedProgrammer);
     if (hydrationContext?.ok) {
       await ensureRestV2ProfilesHydratedForBobtools(hydrationContext, {
         force: false,
@@ -22295,9 +22510,7 @@ async function handleBobtoolsWorkspaceAction(message, sender = null) {
 
   if (action === "refresh-selected") {
     const selectedProgrammer = resolveSelectedProgrammer();
-    const liveContext = buildCurrentRestV2SelectionContext(selectedProgrammer, null);
-    const preliminarySelection = buildBobtoolsWorkspaceSelectionContext(selectedProgrammer);
-    const hydrationContext = liveContext?.ok ? liveContext : buildRestV2ContextFromHarvest(preliminarySelection.selectedHarvest);
+    const hydrationContext = resolveBobtoolsProfilesHydrationContext(selectedProgrammer);
     if (hydrationContext?.ok) {
       await ensureRestV2ProfilesHydratedForBobtools(hydrationContext, {
         force: false,
