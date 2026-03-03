@@ -8240,8 +8240,10 @@ function getRestV2ProfileSummary(profile, profileKey = "", context = null) {
   const idpCandidates = dedupeRestV2CandidateStrings([
     mvpd,
     readValue(["mvpd", "idp", "provider", "providerid", "provider_id"]),
-    String(context?.mvpd || "").trim(),
   ]);
+  if (idpCandidates.length === 0 && String(context?.mvpd || "").trim()) {
+    idpCandidates.push(String(context.mvpd || "").trim());
+  }
 
   const notBeforeMs = Number(normalizedProfile.notBefore || normalizedProfile.not_before || 0);
   const notAfterMs = Number(normalizedProfile.notAfter || normalizedProfile.not_after || 0);
@@ -8277,13 +8279,32 @@ function findRestV2PreferredProfileSummary(profileSummaries = [], preferredMvpd 
     if (direct) {
       return direct;
     }
-    const idpMatch = summaries.find((summary) =>
-      (Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []).some(
-        (candidate) => String(candidate || "").trim().toLowerCase() === preferred
-      )
-    );
-    if (idpMatch) {
-      return idpMatch;
+
+    const exactCandidateMatch = summaries.find((summary) => {
+      const candidates = [
+        String(summary?.mvpd || "").trim(),
+        ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
+      ];
+      return candidates.some((candidate) => String(candidate || "").trim().toLowerCase() === preferred);
+    });
+    if (exactCandidateMatch) {
+      return exactCandidateMatch;
+    }
+
+    const aliasCandidateMatch = summaries.find((summary) => {
+      const candidates = [
+        String(summary?.profileKey || "").trim(),
+        String(summary?.mvpd || "").trim(),
+        ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
+      ];
+      return candidates.some((candidate) =>
+        isRestV2MvpdMatch(candidate, preferredMvpd, {
+          allowSsoAlias: true,
+        })
+      );
+    });
+    if (aliasCandidateMatch) {
+      return aliasCandidateMatch;
     }
   }
   return summaries[0] || null;
@@ -9045,37 +9066,61 @@ async function fetchRestV2ProfileCheckResultFromEndpoint(context, flowId, scope 
     const endpointKey = String(endpoint?.endpointKey || "").trim();
     const allowSsoAliasMatch = isRestV2LikelyPartnerSsoContext(context);
     if (endpointKey === "profiles-all" && selectedMvpd) {
-      const filteredProfiles = {};
+      const strictFilteredProfiles = {};
+      const aliasFilteredProfiles = {};
       for (const [profileKey, profileValue] of Object.entries(rawProfiles)) {
         if (!profileValue || typeof profileValue !== "object") {
           continue;
         }
-        const summary = getRestV2ProfileSummary(profileValue, profileKey, context);
+        const summary = getRestV2ProfileSummary(profileValue, profileKey);
         const candidateMvpds = dedupeRestV2CandidateStrings([
           String(profileKey || "").trim(),
           String(summary?.mvpd || "").trim(),
           ...(Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []),
         ]);
-        const mvpdMatch = candidateMvpds.some((candidate) =>
+        const strictMvpdMatch = candidateMvpds.some((candidate) =>
           isRestV2MvpdMatch(candidate, selectedMvpd, {
-            allowSsoAlias: allowSsoAliasMatch,
+            allowSsoAlias: false,
           })
         );
-        if (mvpdMatch) {
-          filteredProfiles[profileKey] = profileValue;
+        if (strictMvpdMatch) {
+          strictFilteredProfiles[profileKey] = profileValue;
+          continue;
+        }
+        if (allowSsoAliasMatch) {
+          const aliasMvpdMatch = candidateMvpds.some((candidate) =>
+            isRestV2MvpdMatch(candidate, selectedMvpd, {
+              allowSsoAlias: true,
+            })
+          );
+          if (aliasMvpdMatch) {
+            aliasFilteredProfiles[profileKey] = profileValue;
+          }
         }
       }
-      if (Object.keys(filteredProfiles).length === 0 && rawProfileCount > 0 && allowSsoAliasMatch) {
+      if (Object.keys(strictFilteredProfiles).length > 0) {
+        effectiveProfiles = strictFilteredProfiles;
+        effectivePayload = {
+          ...effectivePayload,
+          profiles: strictFilteredProfiles,
+        };
+      } else if (Object.keys(aliasFilteredProfiles).length > 0) {
+        effectiveProfiles = aliasFilteredProfiles;
+        effectivePayload = {
+          ...effectivePayload,
+          profiles: aliasFilteredProfiles,
+        };
+      } else if (rawProfileCount > 0 && allowSsoAliasMatch) {
         effectiveProfiles = rawProfiles;
         effectivePayload = {
           ...effectivePayload,
           profiles: rawProfiles,
         };
       } else {
-        effectiveProfiles = filteredProfiles;
+        effectiveProfiles = strictFilteredProfiles;
         effectivePayload = {
           ...effectivePayload,
-          profiles: filteredProfiles,
+          profiles: strictFilteredProfiles,
         };
       }
     } else {
@@ -20939,6 +20984,45 @@ function buildRestWorkspaceSelectionContextFromHarvest(harvest = null, programme
   return selectionContext;
 }
 
+function findRestV2HarvestByRequestorAndMvpd(harvestList = [], requestorId = "", mvpd = "", options = {}) {
+  const list = Array.isArray(harvestList) ? harvestList : [];
+  const normalizedRequestorId = String(requestorId || "").trim();
+  const normalizedMvpd = String(mvpd || "").trim();
+  if (!normalizedRequestorId || !normalizedMvpd || list.length === 0) {
+    return null;
+  }
+
+  const matchesRequestor = (harvest = null) =>
+    String(harvest?.requestorId || harvest?.serviceProviderId || "").trim() === normalizedRequestorId;
+
+  const strictMatch =
+    list.find((item) => {
+      if (!matchesRequestor(item)) {
+        return false;
+      }
+      return isRestV2MvpdMatch(item?.mvpd, normalizedMvpd, {
+        allowSsoAlias: false,
+      });
+    }) || null;
+  if (strictMatch) {
+    return strictMatch;
+  }
+
+  if (options?.allowSsoAlias !== true) {
+    return null;
+  }
+  return (
+    list.find((item) => {
+      if (!matchesRequestor(item)) {
+        return false;
+      }
+      return isRestV2MvpdMatch(item?.mvpd, normalizedMvpd, {
+        allowSsoAlias: true,
+      });
+    }) || null
+  );
+}
+
 function restWorkspaceGetSelectionContextFromCurrentSelection(programmer = null) {
   const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
   const programmerId = String(resolvedProgrammer?.programmerId || "").trim();
@@ -20947,17 +21031,9 @@ function restWorkspaceGetSelectionContextFromCurrentSelection(programmer = null)
   const harvestList = programmerId ? getRestV2ProfileHarvestBucketForProgrammer(programmerId) : [];
   let selectedHarvest = null;
   if (requestorId && mvpd) {
-    selectedHarvest =
-      harvestList.find((item) => {
-        const harvestRequestorId = String(item?.requestorId || item?.serviceProviderId || "").trim();
-        const harvestMvpd = String(item?.mvpd || "").trim();
-        return (
-          harvestRequestorId === requestorId &&
-          isRestV2MvpdMatch(harvestMvpd, mvpd, {
-            allowSsoAlias: true,
-          })
-        );
-      }) || null;
+    selectedHarvest = findRestV2HarvestByRequestorAndMvpd(harvestList, requestorId, mvpd, {
+      allowSsoAlias: true,
+    });
   }
   if (!selectedHarvest && harvestList.length > 0) {
     selectedHarvest = harvestList[0];
@@ -21711,17 +21787,9 @@ function buildBobtoolsWorkspaceSelectionContext(programmer = null) {
   const selectedMvpd = String(state.selectedMvpdId || "").trim();
   let selectedHarvest = null;
   if (selectedRequestorId && selectedMvpd) {
-    selectedHarvest =
-      harvestList.find((item) => {
-        const harvestRequestorId = String(item?.requestorId || item?.serviceProviderId || "").trim();
-        const harvestMvpd = String(item?.mvpd || "").trim();
-        return (
-          harvestRequestorId === selectedRequestorId &&
-          isRestV2MvpdMatch(harvestMvpd, selectedMvpd, {
-            allowSsoAlias: true,
-          })
-        );
-      }) || null;
+    selectedHarvest = findRestV2HarvestByRequestorAndMvpd(harvestList, selectedRequestorId, selectedMvpd, {
+      allowSsoAlias: true,
+    });
   }
   if (!selectedHarvest && harvestList.length > 0) {
     selectedHarvest = harvestList[0];

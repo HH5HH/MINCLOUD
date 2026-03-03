@@ -188,6 +188,15 @@ function setStatus(message = "", type = "info") {
   }
 }
 
+function getSplunkButtonLabel(profile = null, options = {}) {
+  const upstreamUserId = String(profile?.upstreamUserId || "").trim();
+  if (!upstreamUserId) {
+    return options?.loading === true ? "SPLUNK..." : "SPLUNK";
+  }
+  const baseLabel = `SPLUNK "${upstreamUserId}"`;
+  return options?.loading === true ? `${baseLabel}...` : baseLabel;
+}
+
 function syncButtons() {
   const selectedProfile = getSelectedProfile();
   const hasProfile = Boolean(selectedProfile);
@@ -204,7 +213,7 @@ function syncButtons() {
   }
   if (els.splunkButton) {
     els.splunkButton.disabled = !hasProfile || !hasUpstreamUserId || networkBusy;
-    els.splunkButton.textContent = state.splunkRunning ? "SPLUNK..." : "SPLUNK";
+    els.splunkButton.textContent = getSplunkButtonLabel(selectedProfile, { loading: state.splunkRunning });
   }
   if (els.refreshButton) {
     els.refreshButton.disabled = networkBusy;
