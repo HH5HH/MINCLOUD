@@ -3120,9 +3120,10 @@ async function fetchRestV2DecisionCheck(harvest, resourceIds, mode = BOBTOOLS_RE
   const scopeKey = decisionMode === BOBTOOLS_REST_V2_ACTION_AUTHORIZE ? "decisions-authorize" : "decisions-preauthorize";
 
   const serviceProviderId = String(harvest?.serviceProviderId || harvest?.requestorId || "").trim();
-  const mvpd = String(harvest?.mvpd || "").trim();
+  const selectedMvpd = String(harvest?.mvpd || "").trim();
+  const endpointMvpd = String(resolveRestV2DecisionMvpd(harvest) || "").trim();
   const programmerId = String(harvest?.programmerId || "").trim();
-  if (!serviceProviderId || !mvpd) {
+  if (!serviceProviderId || !selectedMvpd || !endpointMvpd) {
     throw new Error("Missing service provider or MVPD from the selected MVPD profile.");
   }
   if (!programmerId) {
@@ -3136,7 +3137,7 @@ async function fetchRestV2DecisionCheck(harvest, resourceIds, mode = BOBTOOLS_RE
 
   const endpointUrl = `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/decisions/${encodeURIComponent(
     decisionMode
-  )}/${encodeURIComponent(mvpd)}`;
+  )}/${encodeURIComponent(endpointMvpd)}`;
   const requestHeaders = buildRestV2Headers(serviceProviderId, {
     Accept: "application/json",
     "Content-Type": "application/json",
@@ -3153,7 +3154,8 @@ async function fetchRestV2DecisionCheck(harvest, resourceIds, mode = BOBTOOLS_RE
     url: endpointUrl,
     scope: scopeKey,
     requestorId: String(harvest?.requestorId || ""),
-    mvpd,
+    mvpd: selectedMvpd,
+    decisionMvpd: endpointMvpd,
     programmerId,
     appGuid: String(appInfo?.guid || ""),
     appName: String(appInfo?.appName || appInfo?.guid || ""),
@@ -3175,7 +3177,7 @@ async function fetchRestV2DecisionCheck(harvest, resourceIds, mode = BOBTOOLS_RE
     {
       flowId,
       requestorId: String(harvest?.requestorId || serviceProviderId || ""),
-      mvpd,
+      mvpd: endpointMvpd,
       scope: scopeKey,
       service: "rest-v2-entitlements",
       endpointUrl,
@@ -3211,7 +3213,8 @@ async function fetchRestV2DecisionCheck(harvest, resourceIds, mode = BOBTOOLS_RE
     resultType: "decisions",
     serviceProviderId,
     requestorId: String(harvest?.requestorId || serviceProviderId || "").trim(),
-    mvpd,
+    mvpd: selectedMvpd,
+    decisionMvpd: endpointMvpd,
     harvestKey: getRestV2HarvestRecordKey(harvest),
     harvestCapturedAt: Number(harvest?.harvestedAt || 0),
     subject: String(harvest?.subject || "").trim(),
@@ -3240,6 +3243,7 @@ async function fetchRestV2DecisionCheck(harvest, resourceIds, mode = BOBTOOLS_RE
     statusText: result.statusText,
     requestorId: result.requestorId,
     mvpd: result.mvpd,
+    decisionMvpd: result.decisionMvpd,
     programmerId,
     appGuid: result.appGuid,
     appName: result.appName,
@@ -8592,6 +8596,13 @@ function buildRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
   const userId = firstNonEmptyString([selectedSummary?.userId, selectedSummary?.upstreamUserId, ...subjectCandidates]);
   const sessionId = firstNonEmptyString([selectedSummary?.sessionId, ...sessionCandidates]);
   const mvpd = firstNonEmptyString([context.mvpd, selectedSummary?.mvpd, ...idpCandidates]);
+  const profileMvpd = String(selectedSummary?.mvpd || "").trim();
+  const decisionMvpd = firstNonEmptyString([
+    likelySsoContext && profileMvpd && !restV2ValueHasSsoMarker(profileMvpd) ? profileMvpd : "",
+    ...idpCandidates.filter((candidate) => !restV2ValueHasSsoMarker(candidate)),
+    profileMvpd,
+    String(context?.mvpd || "").trim(),
+  ]);
   const cachedMvpdName =
     String(context?.requestorId || "").trim() && String(mvpd || "").trim()
       ? String(state.mvpdCacheByRequestor.get(String(context.requestorId || "").trim())?.get(String(mvpd || "").trim())?.name || "").trim()
@@ -8661,7 +8672,10 @@ function buildRestV2ProfileHarvest(context, profileCheckResult, flowId = "") {
     profileKeys,
     selectedProfileFound: Boolean(selectedSummary),
     profileKey: String(selectedSummary?.profileKey || "").trim(),
+    selectedMvpd: String(context?.mvpd || "").trim(),
     mvpd: String(mvpd || "").trim(),
+    profileMvpd: String(profileMvpd || "").trim(),
+    decisionMvpd: String(decisionMvpd || "").trim(),
     mvpdName: String(mvpdName || "").trim(),
     subject: String(subject || "").trim(),
     upstreamUserId: String(upstreamUserId || "").trim(),
@@ -8880,6 +8894,7 @@ async function deleteRestV2ProfileHarvestWithLogout(programmer = null, harvestKe
     separator: " x ",
   });
   const flowId = String(options?.flowId || "").trim() || resolveRestV2DebugFlowIdForHarvest(harvest);
+  const warnings = [];
   const logoutResult = await executeRestV2LogoutFlow(context, flowId, {
     skipUserAgentAction: true,
   });
@@ -8900,19 +8915,12 @@ async function deleteRestV2ProfileHarvestWithLogout(programmer = null, harvestKe
 
   const verifyResult = await verifyPostLogoutProfilesCleared(context, flowId);
   if (verifyResult?.ok !== true) {
-    const reason = firstNonEmptyString([
-      String(verifyResult?.error || "").trim(),
-      `${Number(verifyResult?.profileCount || 0)} active profile(s) still returned`,
-    ]);
-    return {
-      ok: false,
-      error: `${requestorMvpdLabel} logout verification failed: ${reason}`,
-      context,
-      harvest,
-      flowId,
-      logoutResult,
-      verifyResult,
-    };
+    warnings.push(
+      firstNonEmptyString([
+        String(verifyResult?.error || "").trim(),
+        `${Number(verifyResult?.profileCount || 0)} active profile(s) still returned`,
+      ]) || "profile state not yet fully cleared"
+    );
   }
 
   clearRestV2ProfileHarvestForContext(context);
@@ -8925,51 +8933,39 @@ async function deleteRestV2ProfileHarvestWithLogout(programmer = null, harvestKe
   });
   const hydrationOk = hydration?.ok === true || hydration?.skipped === true;
   if (!hydrationOk) {
-    return {
-      ok: false,
-      error: `${requestorMvpdLabel} logout completed but Profiles (all MVPD) refresh failed: ${String(
-        hydration?.error || "unable to confirm profile removal"
-      ).trim()}`,
-      context,
-      harvest,
-      flowId,
-      logoutResult,
-      verifyResult,
-      hydration,
-      removedByKey,
-    };
+    warnings.push(
+      firstNonEmptyString([
+        String(hydration?.error || "").trim(),
+        "Profiles (all MVPD) refresh did not confirm state",
+      ]) || "profile refresh did not confirm state"
+    );
   }
 
   const refreshedBucket = getRestV2ProfileHarvestBucketForProgrammer(programmerId);
   const remainingHarvest = findRestV2HarvestByRequestorAndMvpd(refreshedBucket, context.requestorId, context.mvpd, {
     allowSsoAlias: isRestV2LikelyPartnerSsoContext(context),
   });
+  const removed = removedByKey || !getRestV2HarvestByRecordKey(normalizedHarvestKey, programmerId);
   if (isUsableRestV2ProfileHarvest(remainingHarvest)) {
-    return {
-      ok: false,
-      error: `${requestorMvpdLabel} profile still appears after logout refresh. Retry delete, then re-run LOGIN if needed.`,
-      context,
-      harvest,
-      flowId,
-      logoutResult,
-      verifyResult,
-      hydration,
-      removedByKey,
-      remainingHarvest,
-    };
+    warnings.push("profile is still active upstream and remains available");
   }
 
-  const removed = removedByKey || !getRestV2HarvestByRecordKey(normalizedHarvestKey, programmerId);
+  const summaryMessage = warnings.length
+    ? `Requested logout for ${requestorMvpdLabel}; refreshed profile list (${warnings[0]}).`
+    : `Removed ${requestorMvpdLabel} MVPD profile after REST V2 logout and profile refresh.`;
   return {
     ok: true,
     removed,
-    message: `Removed ${requestorMvpdLabel} MVPD profile after REST V2 logout and profile refresh.`,
+    warning: warnings.length > 0,
+    warningMessage: warnings.join(" | "),
+    message: summaryMessage,
     context,
     harvest,
     flowId,
     logoutResult,
     verifyResult,
     hydration,
+    remainingHarvest,
   };
 }
 
@@ -22304,7 +22300,25 @@ function ingestRestV2ProfilesHydrationResult(context = null, profilesResult = nu
   const flowId = String(options.flowId || "").trim();
   let storedCount = 0;
   rows.forEach((row, index) => {
-    const rowMvpd = firstNonEmptyString([row?.mvpd, context.mvpd]);
+    const contextMvpd = String(context?.mvpd || "").trim();
+    const rowMvpdRaw = String(row?.mvpd || "").trim();
+    let rowMvpd = firstNonEmptyString([rowMvpdRaw, contextMvpd]);
+    const likelySsoContext = isRestV2LikelyPartnerSsoContext(context);
+    if (likelySsoContext && contextMvpd) {
+      const strictMatch = rowMvpdRaw
+        ? isRestV2MvpdMatch(rowMvpdRaw, contextMvpd, {
+            allowSsoAlias: false,
+          })
+        : false;
+      const aliasMatch = rowMvpdRaw
+        ? isRestV2MvpdMatch(rowMvpdRaw, contextMvpd, {
+            allowSsoAlias: true,
+          })
+        : false;
+      if (!rowMvpdRaw || strictMatch || aliasMatch || !restV2ValueHasSsoMarker(rowMvpdRaw)) {
+        rowMvpd = contextMvpd;
+      }
+    }
     if (!rowMvpd) {
       return;
     }
@@ -22956,6 +22970,42 @@ function buildRestV2BobtoolsActionErrorResult(harvest = null, apiAction = "", me
     responsePayload: cloneJsonLikeValue(options?.responsePayload, {}),
     error: String(message || "").trim() || "Unable to run REST V2 action.",
   };
+}
+
+function resolveRestV2DecisionMvpd(harvest = null) {
+  const selectedMvpd = String(harvest?.mvpd || "").trim();
+  const explicitDecisionMvpd = String(harvest?.decisionMvpd || "").trim();
+  const profileMvpd = String(harvest?.profileMvpd || "").trim();
+  const candidates = dedupeRestV2CandidateStrings([
+    explicitDecisionMvpd,
+    profileMvpd,
+    ...(Array.isArray(harvest?.idpCandidates) ? harvest.idpCandidates : []),
+    ...(Array.isArray(harvest?.allIdpCandidates) ? harvest.allIdpCandidates : []),
+  ]);
+  if (!selectedMvpd) {
+    return firstNonEmptyString(candidates);
+  }
+  if (!restV2ValueHasSsoMarker(selectedMvpd)) {
+    return selectedMvpd;
+  }
+  const strictMatch = candidates.find((candidate) =>
+    isRestV2MvpdMatch(candidate, selectedMvpd, {
+      allowSsoAlias: false,
+    })
+  );
+  if (strictMatch) {
+    return strictMatch;
+  }
+  const nonSsoCandidate = candidates.find((candidate) => !restV2ValueHasSsoMarker(candidate));
+  if (nonSsoCandidate) {
+    return nonSsoCandidate;
+  }
+  const aliasMatch = candidates.find((candidate) =>
+    isRestV2MvpdMatch(candidate, selectedMvpd, {
+      allowSsoAlias: true,
+    })
+  );
+  return aliasMatch || selectedMvpd;
 }
 
 async function runRestV2BobtoolsActionForHarvest(harvest, options = {}) {
