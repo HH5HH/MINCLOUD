@@ -4426,7 +4426,6 @@ async function runRestV2EntitlementCheck(section, programmer, appInfo) {
         error: preflightResult.error,
         source: "preauthorize-preflight",
       });
-      clearRestV2ProfileHarvestForContext(context);
       throw Object.assign(new Error(preflightResult.error), { underparResult: preflightResult });
     }
     setRestV2ActiveProfileWindowState(context, true, {
@@ -4478,7 +4477,6 @@ async function runRestV2EntitlementCheck(section, programmer, appInfo) {
           error: String(enrichedResult?.error || "").trim(),
           source: "preauthorize-authenticated-profile-missing",
         });
-        clearRestV2ProfileHarvestForContext(context);
       }
       sectionState.lastEntitlementResult = enrichedResult;
       storeRestV2PreauthorizeHistoryEntry(programmerId, enrichedResult);
@@ -4906,6 +4904,17 @@ function normalizeSplunkCellValue(value) {
   return String(value);
 }
 
+function hasSplunkOmittedLineMarkers(rows = []) {
+  const pattern = /\.\.\.\s*\d+\s+lines?\s+omitted\s*\.\.\./i;
+  return (Array.isArray(rows) ? rows : []).some((row) => {
+    if (!row || typeof row !== "object") {
+      return false;
+    }
+    const values = [row?._raw, row?.raw, row?.value, row?.message];
+    return values.some((value) => pattern.test(String(value ?? "")));
+  });
+}
+
 function collectSplunkColumnOrder(results = [], fields = []) {
   const preferred = ["_time", "event", "eventType", "requestor_id", "mvpd", "resource", "ResourceId", "uid", "subjectId", "plainUid"];
   const seen = new Set();
@@ -5072,14 +5081,19 @@ async function fetchSplunkReportBySid(queryContext = null, sid = "", networkEven
     const totalRowsFromMeta = Math.max(extractSplunkJobResultCount(jobMeta.parsed), Number(latestStatus.eventCount || 0));
     const relayFetchLimit = Number(relayOptions?.tabId || 0) > 0 ? Math.min(SPLUNK_EVENT_FETCH_LIMIT, 180) : SPLUNK_EVENT_FETCH_LIMIT;
     const fetchCount = Math.max(50, Math.min(relayFetchLimit, totalRowsFromMeta > 0 ? totalRowsFromMeta : relayFetchLimit));
+    const resultsParams = new URLSearchParams({
+      output_mode: "json",
+      offset: "0",
+      count: String(fetchCount),
+      field_list: "_raw,_time,*",
+    });
+    const resultsUrl = `${jobsBaseUrl}/${encodedSid}/results?${resultsParams.toString()}`;
     const eventsParams = new URLSearchParams({
       output_mode: "json",
       offset: "0",
       count: String(fetchCount),
-      segmentation: "full",
-      max_lines: "5",
+      segmentation: "none",
       field_list: "_raw,_time,*",
-      truncation_mode: "abstract",
     });
     const eventsUrl = `${jobsBaseUrl}/${encodedSid}/events?${eventsParams.toString()}`;
     const eventsResponse = await runSplunkRelayRequest(
@@ -5119,17 +5133,12 @@ async function fetchSplunkReportBySid(queryContext = null, sid = "", networkEven
 
     const eventRows = extractSplunkRowsFromResponsePayload(eventsResponse.parsed);
     const eventFields = extractSplunkFieldsFromResponsePayload(eventsResponse.parsed);
+    const omittedLineMarkersDetected = hasSplunkOmittedLineMarkers(eventRows);
     let fallbackResponse = null;
     let fallbackRows = [];
     let fallbackFields = [];
 
-    if (eventRows.length === 0 && (latestStatus.eventCount > 0 || totalRowsFromMeta > 0)) {
-      const resultsParams = new URLSearchParams({
-        output_mode: "json",
-        offset: "0",
-        count: String(fetchCount),
-      });
-      const resultsUrl = `${jobsBaseUrl}/${encodedSid}/results?${resultsParams.toString()}`;
+    if ((eventRows.length === 0 && (latestStatus.eventCount > 0 || totalRowsFromMeta > 0)) || omittedLineMarkersDetected) {
       fallbackResponse = await runSplunkRelayRequest(
         resultsUrl,
         {
@@ -6305,16 +6314,6 @@ async function ensureRestV2ActiveProfileWindowForContext(section, programmer, ap
   const workPromise = (async () => {
     const profileCheckResult = await fetchRestV2ProfileCheckResult(context, "", "profiles-ui-active-window");
     const hasActiveProfile = isRestV2ProfileSessionActiveResult(profileCheckResult);
-    if (!hasActiveProfile) {
-      const explicitNoActiveProfile = isRestV2NoActiveProfileSignal(profileCheckResult);
-      const checkedNoProfiles =
-        profileCheckResult?.checked === true &&
-        profileCheckResult?.ok === true &&
-        Number(profileCheckResult?.profileCount || 0) === 0;
-      if (explicitNoActiveProfile || checkedNoProfiles) {
-        clearRestV2ProfileHarvestForContext(context);
-      }
-    }
     return setRestV2ActiveProfileWindowState(context, hasActiveProfile, {
       checkedAt: Date.now(),
       profileCount: Number(profileCheckResult?.profileCount || 0),
@@ -22219,7 +22218,6 @@ async function runRestV2BobtoolsActionForHarvest(harvest, options = {}) {
         error: String(result.error || "").trim(),
         source: `${apiAction}-preflight`,
       });
-      clearRestV2ProfileHarvestForContext(context);
       return result;
     }
 
@@ -22320,7 +22318,6 @@ async function runRestV2BobtoolsActionForHarvest(harvest, options = {}) {
         error: String(enrichedError?.error || "").trim(),
         source: `${apiAction}-authenticated-profile-missing`,
       });
-      clearRestV2ProfileHarvestForContext(context);
     }
     state.bobtoolsWorkspaceLastResultByHarvestKey.set(
       String(enrichedError?.harvestKey || getRestV2HarvestRecordKey(harvest)).trim(),
