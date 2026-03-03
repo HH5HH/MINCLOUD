@@ -2529,12 +2529,14 @@ async function runCardFromPathNode(cardState, endpointUrl, sourceRequestUrl) {
   const currentEndpointKey = getWorkspaceEndpointKey(String(cardState?.endpointUrl || getCardEffectiveRequestUrl(cardState) || ""));
 
   if (targetEndpointKey && currentEndpointKey && targetEndpointKey === currentEndpointKey) {
+    const resolvedRequestUrl = inheritedRequestUrl || targetEndpointUrl;
     const result = await sendWorkspaceAction("run-card", {
       requestSource: "workspace-path-link",
       card: {
         ...getCardPayload(cardState),
         endpointUrl: targetEndpointUrl,
-        requestUrl: inheritedRequestUrl || targetEndpointUrl,
+        requestUrl: resolvedRequestUrl,
+        baseRequestUrl: resolvedRequestUrl,
       },
     });
     if (!result?.ok) {
@@ -2543,11 +2545,12 @@ async function runCardFromPathNode(cardState, endpointUrl, sourceRequestUrl) {
     return;
   }
 
+  const resolvedRequestUrl = inheritedRequestUrl || targetEndpointUrl;
   const nextCardPayload = {
     cardId: buildWorkspaceCardId("path"),
     endpointUrl: targetEndpointUrl,
-    requestUrl: inheritedRequestUrl || targetEndpointUrl,
-    baseRequestUrl: targetEndpointUrl,
+    requestUrl: resolvedRequestUrl,
+    baseRequestUrl: resolvedRequestUrl,
     zoomKey: String(cardState?.zoomKey || ""),
     columns: Array.isArray(cardState?.columns) ? cardState.columns.map((column) => String(column || "")).filter(Boolean) : [],
     tenantId: String(cardState?.tenantId || getSelectedMvpdId() || ""),
