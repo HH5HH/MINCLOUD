@@ -879,15 +879,13 @@ function downloadHtmlFile(htmlText, fileName) {
 
 function setStatus(message = "", type = "info") {
   const text = String(message || "").trim();
-  // Keep workspace status focused on actionable failures only.
-  if (type !== "error" && text) {
+  if (!els.status) {
     return;
   }
-  els.status.textContent = text;
-  els.status.classList.remove("error");
-  if (type === "error") {
-    els.status.classList.add("error");
-  }
+  const showError = type === "error" && Boolean(text);
+  els.status.textContent = showError ? text : "";
+  els.status.classList.toggle("error", showError);
+  els.status.hidden = !showError;
 }
 
 function setActionButtonsDisabled(disabled) {

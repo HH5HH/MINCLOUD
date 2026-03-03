@@ -1,7 +1,6 @@
 const queryParams = new URLSearchParams(window.location.search);
 const queryTabId = Number(queryParams.get("tabId") || 0);
 const queryFlowId = String(queryParams.get("flowId") || "").trim();
-const querySource = String(queryParams.get("source") || "").trim().toLowerCase();
 
 const inspectedTabId = (() => {
   try {
@@ -26,16 +25,14 @@ const detailsEl = document.getElementById("details");
 const clearButton = document.getElementById("clear-btn");
 const copyButton = document.getElementById("copy-btn");
 const autoscrollCheckbox = document.getElementById("autoscroll");
-const toggleExtensionCheckbox = document.getElementById("toggle-extension-checkbox");
 const keySortCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 let flow = null;
 let events = [];
 let selectedSeq = 0;
-let showExtensionEvents =
-  querySource === "esm-recording" || querySource === "cm-recording" || querySource === "test-mvpd-login";
 let flowListKeyboardActive = false;
 const eventRowsBySeq = new Map();
+const seenEventKeys = new Set();
 const EVENT_SERVICE_LABELS = Object.freeze({
   "rest-v2": "REST V2",
   esm: "ESM",
@@ -51,46 +48,36 @@ const EVENT_WORKSPACE_LABELS = Object.freeze({
 
 const port = chrome.runtime.connect({ name: "underpardebug-devtools" });
 
+function isPanelVisible() {
+  return document.visibilityState !== "hidden";
+}
+
+function notifyPanelVisibility() {
+  if (!tabId) {
+    return;
+  }
+  try {
+    port.postMessage({
+      type: "panel-visibility",
+      tabId,
+      visible: isPanelVisible(),
+    });
+  } catch {
+    // Ignore disconnected port errors.
+  }
+}
+
 function setStatus(text) {
   statusEl.textContent = String(text || "");
 }
 
-function isExtensionEvent(event) {
-  return String(event?.source || "")
-    .trim()
-    .toLowerCase() === "extension";
-}
-
-function getVisibleEvents() {
-  if (showExtensionEvents) {
-    return events;
+function buildEventDedupeKey(flowIdHint, event) {
+  const normalizedFlowId = String(flowIdHint || "").trim();
+  const seq = Number(event?.seq || 0);
+  if (!normalizedFlowId || !Number.isFinite(seq) || seq <= 0) {
+    return "";
   }
-  return events.filter((event) => !isExtensionEvent(event));
-}
-
-function getVisibleEventBySeq(seq) {
-  if (!seq) {
-    return null;
-  }
-  return getVisibleEvents().find((event) => event.seq === seq) || null;
-}
-
-function isHighValueExtensionEvent(event) {
-  if (!event || !isExtensionEvent(event)) {
-    return false;
-  }
-  const service = classifyEventService(event);
-  if (service === "cm") {
-    return true;
-  }
-  const phase = String(event?.phase || "").trim().toLowerCase();
-  return phase.startsWith("profiles-check") || phase === "profiles-harvested";
-}
-
-function flowHasCmExtensionEvents(items = []) {
-  return (Array.isArray(items) ? items : []).some((event) => {
-    return Boolean(isHighValueExtensionEvent(event));
-  });
+  return `${normalizedFlowId}:${seq}`;
 }
 
 function normalizeEventServiceKey(value) {
@@ -222,13 +209,7 @@ function classifyEventWorkspace(event) {
 function setFlowSummary(currentFlow = flow) {
   const resolvedFlowId = String(currentFlow?.flowId || queryFlowId || "").trim();
   const flowLabel = resolvedFlowId ? `Flow ${resolvedFlowId}` : "Flow";
-  const visibleCount = getVisibleEvents().length;
-  const totalCount = events.length;
-  if (visibleCount !== totalCount) {
-    leftTitleEl.textContent = `${flowLabel} • ${visibleCount} visible / ${totalCount} total`;
-    return;
-  }
-  leftTitleEl.textContent = `${flowLabel} • ${totalCount} event(s)`;
+  leftTitleEl.textContent = `${flowLabel} • ${events.length} event(s)`;
 }
 
 function formatTime(value) {
@@ -261,13 +242,6 @@ function findEventBySeq(seq) {
     return null;
   }
   return events.find((event) => event.seq === seq) || null;
-}
-
-function updateExtensionToggleUi() {
-  if (!toggleExtensionCheckbox) {
-    return;
-  }
-  toggleExtensionCheckbox.checked = showExtensionEvents;
 }
 
 function toTitleCaseKey(value) {
@@ -571,7 +545,7 @@ function updateDetailsFromSelection() {
 }
 
 function setSelectedEvent(seq) {
-  const visibleEvents = getVisibleEvents();
+  const visibleEvents = events;
   const normalizedSeq = Number(seq || 0);
   if (!normalizedSeq || !visibleEvents.some((event) => event.seq === normalizedSeq)) {
     if (selectedSeq && eventRowsBySeq.has(selectedSeq)) {
@@ -662,15 +636,12 @@ function appendEventRow(event) {
 }
 
 function renderEventListFromSnapshot() {
-  const visibleEvents = getVisibleEvents();
+  const visibleEvents = events;
   resetEventRows();
   if (!visibleEvents.length) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent =
-      events.length > 0
-        ? "No visible events. Use \"Show Extension Rows\" to include extension events."
-        : "No trace events yet. Click START RECORDING in the UnderPAR side panel to start capture.";
+    empty.textContent = "No trace events yet. Run ESM/CMU actions or click START RECORDING in the UnderPAR side panel.";
     eventsEl.appendChild(empty);
     renderSelectedEventDetails(null);
     return;
@@ -694,10 +665,16 @@ function renderEventListFromSnapshot() {
 function applySnapshot(nextFlow) {
   flow = nextFlow || null;
   events = Array.isArray(flow?.events) ? [...flow.events] : [];
-  if (!showExtensionEvents && flowHasCmExtensionEvents(events)) {
-    showExtensionEvents = true;
+  seenEventKeys.clear();
+  const snapshotFlowId = String(flow?.flowId || "").trim();
+  if (snapshotFlowId) {
+    events.forEach((event) => {
+      const key = buildEventDedupeKey(snapshotFlowId, event);
+      if (key) {
+        seenEventKeys.add(key);
+      }
+    });
   }
-  updateExtensionToggleUi();
   if (!findEventBySeq(selectedSeq)) {
     selectedSeq = 0;
   }
@@ -705,18 +682,22 @@ function applySnapshot(nextFlow) {
   renderEventListFromSnapshot();
 }
 
-function appendIncomingEvent(event) {
+function appendIncomingEvent(event, flowIdHint = "") {
   if (!event || typeof event !== "object") {
     return;
+  }
+
+  const key = buildEventDedupeKey(flowIdHint, event);
+  if (key && seenEventKeys.has(key)) {
+    return;
+  }
+  if (key) {
+    seenEventKeys.add(key);
   }
 
   events.push(event);
   if (events.length > 4000) {
     events.splice(0, events.length - 4000);
-  }
-  if (!showExtensionEvents && isHighValueExtensionEvent(event)) {
-    showExtensionEvents = true;
-    updateExtensionToggleUi();
   }
 
   setFlowSummary(flow);
@@ -734,7 +715,7 @@ function scrollSelectedRowIntoView() {
 }
 
 function moveSelectionBy(delta) {
-  const visibleEvents = getVisibleEvents();
+  const visibleEvents = events;
   if (!visibleEvents.length) {
     return;
   }
@@ -787,26 +768,11 @@ function handleFlowListMouseDown() {
   }
 }
 
-function setExtensionRowsVisible(nextVisible) {
-  showExtensionEvents = Boolean(nextVisible);
-  updateExtensionToggleUi();
-  setFlowSummary(flow);
-  renderEventListFromSnapshot();
-}
-
 eventsEl.setAttribute("tabindex", "0");
 eventsEl.addEventListener("keydown", handleFlowListKeyDown);
 eventsEl.addEventListener("focus", handleFlowListFocus);
 eventsEl.addEventListener("blur", handleFlowListBlur);
 eventsEl.addEventListener("mousedown", handleFlowListMouseDown);
-
-if (toggleExtensionCheckbox) {
-  toggleExtensionCheckbox.addEventListener("change", () => {
-    setExtensionRowsVisible(Boolean(toggleExtensionCheckbox.checked));
-  });
-}
-
-updateExtensionToggleUi();
 
 port.onMessage.addListener((message) => {
   if (!message || typeof message !== "object") {
@@ -819,10 +785,12 @@ port.onMessage.addListener((message) => {
   }
 
   if (message.type === "event") {
-    if (flow?.flowId && message.flowId && flow.flowId !== message.flowId) {
-      return;
-    }
-    appendIncomingEvent(message.event);
+    appendIncomingEvent(message.event, String(message.flowId || "").trim());
+    return;
+  }
+
+  if (message.type === "pass-event" || message.type === "cm-event") {
+    appendIncomingEvent(message.event, String(message.flowId || "").trim());
   }
 });
 
@@ -872,11 +840,16 @@ window.addEventListener("beforeunload", () => {
   }
 });
 
+document.addEventListener("visibilitychange", () => {
+  notifyPanelVisibility();
+});
+
 if (tabId > 0) {
   tabLabelEl.textContent = `Tab ${tabId}`;
   setFlowSummary();
   setStatus("Subscribing to UP trace stream...");
-  port.postMessage({ type: "subscribe", tabId });
+  port.postMessage({ type: "subscribe", tabId, visible: isPanelVisible() });
+  notifyPanelVisibility();
 } else {
   tabLabelEl.textContent = queryFlowId ? `Flow ${queryFlowId}` : "No tab binding";
   setFlowSummary();

@@ -42,12 +42,21 @@ const CM_METRIC_COLUMNS = new Set([
   "decision-media-tokens",
 ]);
 const CM_DATE_DIMENSION_KEYS = new Set(["year", "month", "day", "hour", "minute", "second", "date", "time", "timestamp"]);
-const CM_FILTER_BLOCKED_COLUMNS = new Set(["view", "activity-level", "activity_level"]);
+const CM_FILTER_BLOCKED_COLUMNS = new Set([
+  "tenant",
+  "tenant-id",
+  "tenant_id",
+  "view",
+  "activity-level",
+  "activity_level",
+]);
+const CM_TENANT_QUERY_PARAM_KEYS = ["tenant", "tenant_id", "tenant-id"];
 
 const state = {
   windowId: 0,
   controllerOnline: false,
   cmAvailable: null,
+  tenantScope: "",
   programmerId: "",
   programmerName: "",
   requestorIds: [],
@@ -295,7 +304,59 @@ function formatCmuDateQueryValue(dateValue) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}`;
 }
 
-function ensureCmuQueryDefaults(urlValue, limitValue = 1000) {
+function normalizeWorkspaceTenantScopeValue(value) {
+  return String(value || "").trim();
+}
+
+function applyWorkspaceTenantScopeToSearchParams(searchParams, tenantScope = "") {
+  if (!(searchParams instanceof URLSearchParams)) {
+    return;
+  }
+  CM_TENANT_QUERY_PARAM_KEYS.forEach((key) => searchParams.delete(key));
+  const normalizedTenantScope = normalizeWorkspaceTenantScopeValue(tenantScope);
+  if (normalizedTenantScope) {
+    searchParams.set("tenant", normalizedTenantScope);
+  }
+}
+
+function applyWorkspaceTenantScopeToUsageUrl(urlValue, tenantScope = "") {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return "";
+  }
+  const normalizedTenantScope = normalizeWorkspaceTenantScopeValue(tenantScope);
+  if (!normalizedTenantScope) {
+    return raw;
+  }
+  try {
+    const parsed = new URL(raw);
+    if (!isCmuUsageRequestUrl(parsed.toString())) {
+      return parsed.toString();
+    }
+    const existingTenantScope = normalizeWorkspaceTenantScopeValue(
+      parsed.searchParams.get("tenant") || parsed.searchParams.get("tenant_id") || parsed.searchParams.get("tenant-id")
+    );
+    applyWorkspaceTenantScopeToSearchParams(parsed.searchParams, existingTenantScope || normalizedTenantScope);
+    return parsed.toString();
+  } catch {
+    return raw;
+  }
+}
+
+function resolveWorkspaceTenantScope(cardState = null, cardPayload = null) {
+  return normalizeWorkspaceTenantScopeValue(
+    firstNonEmptyString([
+      cardPayload?.tenantId,
+      cardState?.tenantId,
+      state.tenantScope,
+      state.programmerId,
+      cardPayload?.tenantName,
+      cardState?.tenantName,
+    ])
+  );
+}
+
+function ensureCmuQueryDefaults(urlValue, limitValue = 1000, tenantScope = "") {
   const raw = String(urlValue || "").trim();
   if (!raw) {
     return "";
@@ -323,7 +384,7 @@ function ensureCmuQueryDefaults(urlValue, limitValue = 1000) {
     if (!parsed.searchParams.has("metrics") && (lowerPath.includes("/tenant") || lowerPath.includes("/hour"))) {
       parsed.searchParams.set("metrics", "users");
     }
-    return parsed.toString();
+    return applyWorkspaceTenantScopeToUsageUrl(parsed.toString(), tenantScope);
   } catch {
     return raw;
   }
@@ -618,16 +679,19 @@ function isCmuUsageRequestUrl(urlValue = "") {
   if (!path) {
     return false;
   }
-  if (path.includes("/cmu/")) {
-    return true;
+  const parts = String(path || "")
+    .split("/")
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+    .filter((value) => value !== "cmu" && value !== "v2");
+  if (
+    parts.length === 0 ||
+    !parts.includes("year") ||
+    !parts.includes("tenant")
+  ) {
+    return false;
   }
-  if (/\/v2\/year(?:\/|$)/i.test(path)) {
-    return true;
-  }
-  if (/\/v2\/year\/month(?:\/|$)/i.test(path)) {
-    return true;
-  }
-  return /\/v2\/.+/i.test(path) && /\/(?:usage|concurrency-level|occurrences|activity-level|duration)(?:\/|$)/i.test(path);
+  return true;
 }
 
 function isCmuUsageCard(cardState) {
@@ -1486,6 +1550,19 @@ function safeRate(numerator, denominator) {
   return Number.isFinite(rate) ? rate : null;
 }
 
+function parseCmuTimestampCandidate(row) {
+  const timestampCandidate =
+    getRowValueByColumn(row, "timestamp") ??
+    getRowValueByColumn(row, "date") ??
+    getRowValueByColumn(row, "time");
+  if (timestampCandidate == null || timestampCandidate === "") {
+    return Number.NaN;
+  }
+  const parsed = new Date(timestampCandidate);
+  const ms = parsed.getTime();
+  return Number.isFinite(ms) ? ms : Number.NaN;
+}
+
 function formatPercent(rate) {
   if (rate == null) {
     return "—";
@@ -1499,31 +1576,32 @@ function cmuPartsToUtcMs(row) {
   const rawDay = toNumber(getRowValueByColumn(row, "day"));
   const rawHour = toNumber(getRowValueByColumn(row, "hour"));
   const rawMinute = toNumber(getRowValueByColumn(row, "minute"));
-
-  const hasCalendarParts = rawYear != null && rawMonth != null && rawDay != null;
-  if (hasCalendarParts) {
-    return (
-      Date.UTC(
-        rawYear ?? 1970,
-        Math.max(0, (rawMonth ?? 1) - 1),
-        rawDay ?? 1,
-        rawHour ?? 0,
-        rawMinute ?? 0
-      ) -
-      CM_SOURCE_UTC_OFFSET_MINUTES * 60 * 1000
-    );
+  const hasAnyParts = [rawYear, rawMonth, rawDay, rawHour, rawMinute].some((value) => value != null);
+  if (!hasAnyParts) {
+    return parseCmuTimestampCandidate(row);
   }
 
-  const timestampCandidate =
-    getRowValueByColumn(row, "timestamp") ??
-    getRowValueByColumn(row, "date") ??
-    getRowValueByColumn(row, "time");
-  if (timestampCandidate == null || timestampCandidate === "") {
-    return Number.NaN;
+  const nowPst = new Date(Date.now() + CM_SOURCE_UTC_OFFSET_MINUTES * 60 * 1000);
+  const fallbackYear = nowPst.getUTCFullYear();
+  const year = rawYear ?? fallbackYear;
+  const month = rawMonth ?? 1;
+  const day = rawDay ?? 1;
+  const hour = rawHour ?? 0;
+  const minute = rawMinute ?? 0;
+
+  const ms =
+    Date.UTC(
+      Number.isFinite(year) ? year : fallbackYear,
+      Math.max(0, (Number.isFinite(month) ? month : 1) - 1),
+      Number.isFinite(day) ? day : 1,
+      Number.isFinite(hour) ? hour : 0,
+      Number.isFinite(minute) ? minute : 0
+    ) -
+    CM_SOURCE_UTC_OFFSET_MINUTES * 60 * 1000;
+  if (Number.isFinite(ms)) {
+    return ms;
   }
-  const parsed = new Date(timestampCandidate);
-  const ms = parsed.getTime();
-  return Number.isFinite(ms) ? ms : Number.NaN;
+  return parseCmuTimestampCandidate(row);
 }
 
 function hasCmuUsageDate(row) {
@@ -1745,6 +1823,8 @@ function getCardPayload(cardState) {
     localColumnFilters: serializeCmLocalColumnFilters(cardState?.localColumnFilters, cardState),
     operation: cardState.operation && typeof cardState.operation === "object" ? { ...cardState.operation } : null,
     formValues: cardState.formValues && typeof cardState.formValues === "object" ? { ...cardState.formValues } : {},
+    tenantId: String(cardState?.tenantId || state.programmerId || ""),
+    tenantName: String(cardState?.tenantName || state.programmerName || state.programmerId || ""),
   };
 }
 
@@ -1888,7 +1968,7 @@ function buildPathEndpointUrl(baseEndpointUrl, pathSegments, depth) {
   }
 }
 
-function buildInheritedRequestUrl(endpointUrl, sourceRequestUrl) {
+function buildInheritedRequestUrl(endpointUrl, sourceRequestUrl, tenantScope = "") {
   const endpointRaw = String(endpointUrl || "").trim();
   if (!endpointRaw) {
     return "";
@@ -1901,14 +1981,14 @@ function buildInheritedRequestUrl(endpointUrl, sourceRequestUrl) {
 
     const sourceRaw = String(sourceRequestUrl || "").trim();
     if (!sourceRaw) {
-      return endpointParsed.toString();
+      return applyWorkspaceTenantScopeToUsageUrl(endpointParsed.toString(), tenantScope);
     }
 
     const sourceParsed = new URL(sourceRaw);
     sourceParsed.searchParams.forEach((value, key) => {
       endpointParsed.searchParams.append(key, value);
     });
-    return endpointParsed.toString();
+    return applyWorkspaceTenantScopeToUsageUrl(endpointParsed.toString(), tenantScope);
   } catch (_error) {
     const endpointWithoutHash = endpointRaw.split("#", 1)[0];
     const endpointBase = endpointWithoutHash.split("?", 1)[0];
@@ -1920,9 +2000,9 @@ function buildInheritedRequestUrl(endpointUrl, sourceRequestUrl) {
     const sourceHashIndex = sourceRaw.indexOf("#", sourceQueryIndex + 1);
     const sourceQuery = sourceRaw.slice(sourceQueryIndex + 1, sourceHashIndex >= 0 ? sourceHashIndex : undefined).trim();
     if (!sourceQuery) {
-      return endpointBase;
+      return applyWorkspaceTenantScopeToUsageUrl(endpointBase, tenantScope);
     }
-    return `${endpointBase}?${sourceQuery}`;
+    return applyWorkspaceTenantScopeToUsageUrl(`${endpointBase}?${sourceQuery}`, tenantScope);
   }
 }
 
@@ -2396,7 +2476,12 @@ async function runCardFromPathNode(cardState, endpointUrl, sourceRequestUrl) {
   if (!targetEndpointUrl) {
     return;
   }
-  const inheritedRequestUrl = buildInheritedRequestUrl(targetEndpointUrl, sourceRequestUrl || getCardEffectiveRequestUrl(cardState));
+  const tenantScope = resolveWorkspaceTenantScope(cardState);
+  const inheritedRequestUrl = buildInheritedRequestUrl(
+    targetEndpointUrl,
+    sourceRequestUrl || getCardEffectiveRequestUrl(cardState),
+    tenantScope
+  );
   const targetEndpointKey = getWorkspaceEndpointKey(targetEndpointUrl);
   const currentEndpointKey = getWorkspaceEndpointKey(String(cardState?.endpointUrl || getCardEffectiveRequestUrl(cardState) || ""));
 
@@ -2422,6 +2507,8 @@ async function runCardFromPathNode(cardState, endpointUrl, sourceRequestUrl) {
     baseRequestUrl: targetEndpointUrl,
     zoomKey: String(cardState?.zoomKey || ""),
     columns: Array.isArray(cardState?.columns) ? cardState.columns.map((column) => String(column || "")).filter(Boolean) : [],
+    tenantId: String(cardState?.tenantId || state.programmerId || ""),
+    tenantName: String(cardState?.tenantName || state.programmerName || state.programmerId || ""),
   };
   const result = await sendWorkspaceAction("run-card", {
     requestSource: "workspace-path-link",
@@ -2740,6 +2827,12 @@ function ensureCard(cardMeta) {
     if (cardMeta?.zoomKey) {
       existing.zoomKey = String(cardMeta.zoomKey);
     }
+    if (cardMeta?.tenantId != null) {
+      existing.tenantId = String(cardMeta.tenantId || "");
+    }
+    if (cardMeta?.tenantName != null || cardMeta?.tenantId != null) {
+      existing.tenantName = String(cardMeta.tenantName || cardMeta.tenantId || existing.tenantName || "");
+    }
     if (Array.isArray(cardMeta?.columns)) {
       existing.columns = cardMeta.columns.map((column) => String(column || "")).filter(Boolean);
     }
@@ -2775,6 +2868,8 @@ function ensureCard(cardMeta) {
     baseRequestUrl: String(cardMeta?.baseRequestUrl || cardMeta?.requestUrl || cardMeta?.endpointUrl || ""),
     zoomKey: String(cardMeta?.zoomKey || ""),
     columns: Array.isArray(cardMeta?.columns) ? cardMeta.columns.map((column) => String(column || "")).filter(Boolean) : [],
+    tenantId: String(cardMeta?.tenantId || state.programmerId || ""),
+    tenantName: String(cardMeta?.tenantName || cardMeta?.tenantId || state.programmerName || state.programmerId || ""),
     rows: [],
     sourceRows: [],
     sortStack: [],
@@ -3186,6 +3281,7 @@ function applyControllerState(payload) {
   }
   state.programmerId = String(payload?.programmerId || "");
   state.programmerName = String(payload?.programmerName || "");
+  state.tenantScope = String(payload?.tenantScope || payload?.programmerId || "").trim();
   state.requestorIds = Array.isArray(payload?.requestorIds)
     ? payload.requestorIds.map((value) => String(value || "").trim()).filter(Boolean)
     : [];
@@ -3337,6 +3433,8 @@ function serializeCardForWorkspaceExport(cardState) {
     requestUrl: String(cardState.requestUrl || cardState.endpointUrl || ""),
     baseRequestUrl: String(cardState.baseRequestUrl || cardState.requestUrl || cardState.endpointUrl || ""),
     zoomKey: String(cardState.zoomKey || ""),
+    tenantId: String(cardState.tenantId || ""),
+    tenantName: String(cardState.tenantName || ""),
     columns: Array.isArray(cardState.columns) ? cardState.columns.map((column) => String(column || "")).filter(Boolean) : [],
     localColumnFilters: serializeCmLocalColumnFilters(cardState.localColumnFilters, cardState),
     operation: cardState.operation && typeof cardState.operation === "object" ? { ...cardState.operation } : null,
@@ -3593,7 +3691,7 @@ function buildCardRequestUrlForStandaloneRun(cardState, cardPayload = {}) {
     throw new Error("CM card request URL is missing.");
   }
   const filteredRequestUrl = appendCmLocalColumnFiltersToUrl(baseRequestUrl, cardState?.localColumnFilters, cardState);
-  return usageCard ? ensureCmuQueryDefaults(filteredRequestUrl, 1000) : filteredRequestUrl;
+  return usageCard ? ensureCmuQueryDefaults(filteredRequestUrl, 1000, resolveWorkspaceTenantScope(cardState, cardPayload)) : filteredRequestUrl;
 }
 
 function buildStandaloneOperationRequest(operation, formValues = {}) {

@@ -387,7 +387,7 @@
           <button id="refresh-token" class="secondary" type="button">Refresh IMS Token</button>
           <a
             class="link-btn"
-            href="https://experience.adobe.com/#/@adobepass/cm-console/cmu/year/month"
+            href="https://experience.adobe.com/#/@adobepass/cm-console/cmu/year/tenant"
             target="_blank"
             rel="noopener noreferrer"
             >Sign In to Adobe Pass Console</a
@@ -415,6 +415,7 @@
         const DEFAULT_SCOPE = "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
         const TOKEN_FRESH_SKEW_MS = 45 * 1000;
         const REQUEST_TIMEOUT_MS = 45 * 1000;
+        const TENANT_QUERY_KEYS = ["tenant", "tenant_id", "tenant-id"];
 
         const els = {
           title: document.getElementById("title"),
@@ -481,6 +482,79 @@
             .trim()
             .replace(/^Bearer\s+/i, "")
             .trim();
+        }
+
+        function resolveTenantScope() {
+          return String(els.programmerId?.value || "").trim();
+        }
+
+        function canonicalizeUsagePath(pathValue) {
+          const raw = String(pathValue || "").trim();
+          if (!raw) {
+            return "";
+          }
+          let pathname = raw;
+          try {
+            pathname = String(new URL(raw, CM_REPORTS_BASE_URL).pathname || "");
+          } catch {
+            pathname = String(raw || "").split("?")[0];
+          }
+          const parts = pathname
+            .split("/")
+            .map((value) => String(value || "").trim().toLowerCase())
+            .filter(Boolean)
+            .filter((value) => value !== "cmu" && value !== "v2");
+          if (parts.length === 0 || !parts.includes("year")) {
+            return "";
+          }
+          const rootParts = ["year", "tenant"];
+          const rootSet = new Set(rootParts);
+          const extras = [];
+          const seen = new Set();
+          parts.forEach((part) => {
+            if (rootSet.has(part) || seen.has(part)) {
+              return;
+            }
+            seen.add(part);
+            extras.push(part);
+          });
+          return `/${["v2", ...rootParts, ...extras].join("/")}`;
+        }
+
+        function isUsagePath(pathValue) {
+          return canonicalizeUsagePath(pathValue).startsWith("/v2/year/tenant");
+        }
+
+        function applyTenantScopeToSearchParams(searchParams, tenantScope = "") {
+          if (!(searchParams instanceof URLSearchParams)) {
+            return;
+          }
+          TENANT_QUERY_KEYS.forEach((key) => searchParams.delete(key));
+          const normalizedTenantScope = String(tenantScope || "").trim();
+          if (normalizedTenantScope) {
+            searchParams.set("tenant", normalizedTenantScope);
+          }
+        }
+
+        function applyTenantScopeToUrl(urlValue) {
+          const raw = String(urlValue || "").trim();
+          if (!raw) {
+            return "";
+          }
+          const tenantScope = resolveTenantScope();
+          if (!tenantScope) {
+            return raw;
+          }
+          try {
+            const parsed = new URL(raw, CM_REPORTS_BASE_URL);
+            if (!isUsagePath(parsed.pathname)) {
+              return parsed.toString();
+            }
+            applyTenantScopeToSearchParams(parsed.searchParams, tenantScope);
+            return parsed.toString();
+          } catch {
+            return raw;
+          }
         }
 
         function parseJwtPayload(token) {
@@ -714,12 +788,16 @@
           }
           try {
             const parsed = new URL(text, CM_REPORTS_BASE_URL);
+            const canonicalPath = canonicalizeUsagePath(parsed.pathname);
+            if (canonicalPath) {
+              parsed.pathname = canonicalPath;
+            }
             if (!parsed.searchParams.has("format")) {
               parsed.searchParams.set("format", "json");
             }
-            return parsed.toString();
+            return applyTenantScopeToUrl(parsed.toString());
           } catch {
-            return text;
+            return applyTenantScopeToUrl(text);
           }
         }
 
@@ -979,15 +1057,15 @@
 
             const sourceRaw = String(sourceRequestUrl || "").trim();
             if (!sourceRaw) {
-              return endpointParsed.toString();
+              return applyTenantScopeToUrl(endpointParsed.toString());
             }
             const sourceParsed = new URL(sourceRaw, CM_REPORTS_BASE_URL);
             sourceParsed.searchParams.forEach((value, key) => {
               endpointParsed.searchParams.append(key, value);
             });
-            return endpointParsed.toString();
+            return applyTenantScopeToUrl(endpointParsed.toString());
           } catch {
-            return endpointRaw;
+            return applyTenantScopeToUrl(endpointRaw);
           }
         }
 
@@ -1324,8 +1402,8 @@
             state.endpoints = normalizeEndpoints([
               {
                 id: "cmu-year-month",
-                label: "CMU Summary (Year/Month)",
-                url: `${CM_REPORTS_BASE_URL}/v2/year/month?format=json`,
+                label: "CMU Tenant Summary",
+                url: `${CM_REPORTS_BASE_URL}/v2/year/tenant?format=json`,
               },
             ]);
           }

@@ -7232,20 +7232,41 @@ function __shiftInstantToPstCalendar(d) {
 }
 
 function __esmPartsToUtcMs(row) {
-  const year = Number(row?.year ?? 1970);
-  const month = Number(row?.month ?? 1);
-  const day = Number(row?.day ?? 1);
-  const hour = Number(row?.hour ?? 0);
-  const minute = Number(row?.minute ?? 0);
+  const year = __toNumber(row?.year);
+  const month = __toNumber(row?.month);
+  const day = __toNumber(row?.day);
+  const hour = __toNumber(row?.hour);
+  const minute = __toNumber(row?.minute);
 
-  // Convert "PST wall clock" parts into true UTC epoch.
-  return Date.UTC(
-    Number.isFinite(year) ? year : 1970,
-    Number.isFinite(month) ? month - 1 : 0,
-    Number.isFinite(day) ? day : 1,
-    Number.isFinite(hour) ? hour : 0,
-    Number.isFinite(minute) ? minute : 0
+  const hasAnyParts = [year, month, day, hour, minute].some(v => v != null);
+  if (!hasAnyParts) {
+    const tsCandidate = row?.timestamp ?? row?.date ?? row?.time;
+    if (tsCandidate != null && tsCandidate !== '') {
+      const parsed = new Date(tsCandidate);
+      const ms = parsed.getTime();
+      if (Number.isFinite(ms)) return ms;
+    }
+    return Number.NaN;
+  }
+
+  const nowPst = __shiftInstantToPstCalendar(new Date());
+  const fallbackYear = nowPst.getUTCFullYear();
+  const utcMs = Date.UTC(
+    year != null ? year : fallbackYear,
+    Math.max(0, (month != null ? month : 1) - 1),
+    day != null ? day : 1,
+    hour != null ? hour : 0,
+    minute != null ? minute : 0
   ) - ESM_SOURCE_UTC_OFFSET_MINUTES * 60 * 1000;
+
+  if (Number.isFinite(utcMs)) return utcMs;
+  const tsCandidate = row?.timestamp ?? row?.date ?? row?.time;
+  if (tsCandidate != null && tsCandidate !== '') {
+    const parsed = new Date(tsCandidate);
+    const ms = parsed.getTime();
+    if (Number.isFinite(ms)) return ms;
+  }
+  return Number.NaN;
 }
 
 /* ---------- TIME WINDOW LOGIC ---------- */
@@ -7454,6 +7475,7 @@ function __fmtPct(rate) {
 
 function buildDate(row) {
   const ms = __esmPartsToUtcMs(row);
+  if (!Number.isFinite(ms)) return '';
   const d = new Date(ms);
   return d.toLocaleString('en-US', {
     timeZone: CLIENT_TIMEZONE,
@@ -7515,7 +7537,8 @@ function persistSortStack(stack) {
 
 function getCellValue(row, colKey, ctx) {
   if (colKey === 'DATE') {
-    return __esmPartsToUtcMs(row);
+    const ms = __esmPartsToUtcMs(row);
+    return Number.isFinite(ms) ? ms : Number.NEGATIVE_INFINITY;
   }
 
   if (ctx.authN && colKey === 'AuthN Success') {

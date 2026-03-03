@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UP BOBTOOLS Workspace</title>
+    <link id="workspace-style-link" rel="stylesheet" href="bobtools-workspace.css" />
+  </head>
+  <body>
+    <main id="workspace-app-root" class="workspace-app">
+      <header class="workspace-header">
+        <div class="workspace-title-wrap">
+          <p id="workspace-controller-state" class="workspace-controller-state">Waiting for UnderPAR side panel controller...</p>
+          <p id="workspace-filter-state" class="workspace-filter-state"></p>
+        </div>
+        <div class="workspace-actions">
+          <button id="workspace-refresh" class="workspace-icon-btn workspace-icon-btn--accent" type="button" title="Refresh selected MVPD context" aria-label="Refresh selected MVPD context">↻</button>
+          <button id="workspace-clear" class="workspace-icon-btn" type="button" title="Clear selected result" aria-label="Clear selected result">✕</button>
+        </div>
+      </header>
+
+      <p id="workspace-status" class="workspace-status" aria-live="polite"></p>
+
+      <section class="bobtools-hero">
+        <div class="bobtools-hero-art">
+          <img id="bobtools-hero-icon" src="icons/medium.png" alt="BOBTOOLS" loading="lazy" decoding="async" />
+        </div>
+        <div class="bobtools-hero-copy">
+          <p id="bobtools-greeting" class="bobtools-greeting"></p>
+          <p id="bobtools-subtitle" class="bobtools-subtitle"></p>
+        </div>
+      </section>
+
+      <section class="bobtools-grid">
+        <article class="bobtools-card bobtools-card--profiles">
+          <button type="button" class="bobtools-card-head bobtools-card-toggle" data-card-toggle="profiles" aria-expanded="true">
+            <span class="bobtools-card-head-label">
+              <h2>MVPD Login Profiles</h2>
+              <span id="bobtools-profile-count" class="bobtools-count">0</span>
+            </span>
+            <span class="bobtools-card-chevron" aria-hidden="true">▼</span>
+          </button>
+          <div class="bobtools-card-body" data-card-body="profiles">
+            <ul id="bobtools-profile-list" class="bobtools-profile-list"></ul>
+          </div>
+        </article>
+
+        <article class="bobtools-card bobtools-card--watch">
+          <button type="button" class="bobtools-card-head bobtools-card-toggle" data-card-toggle="watch" aria-expanded="true">
+            <span class="bobtools-card-head-label">
+              <h2>Can I watch?</h2>
+            </span>
+            <span class="bobtools-card-chevron" aria-hidden="true">▼</span>
+          </button>
+          <div class="bobtools-card-body" data-card-body="watch">
+            <p id="bobtools-profile-context" class="bobtools-profile-context"></p>
+            <form id="bobtools-form" class="bobtools-form">
+              <input
+                id="bobtools-resource-input"
+                class="bobtools-resource-input"
+                type="text"
+                placeholder="RESOURCE_ID_1, RESOURCE_ID_2"
+                aria-label="Resource IDs"
+              />
+              <button id="bobtools-go" class="bobtools-go" type="submit">GO</button>
+              <button id="bobtools-splunk" class="bobtools-splunk-go" type="button">SPLUNK</button>
+            </form>
+            <p id="bobtools-action-hint" class="bobtools-action-hint"></p>
+            <p id="bobtools-result-status" class="bobtools-result-status"></p>
+            <div id="bobtools-result-summary" class="bobtools-result-summary" hidden></div>
+          </div>
+        </article>
+
+        <article id="bobtools-splunk-card" class="bobtools-card bobtools-card--splunk">
+          <button type="button" class="bobtools-card-head bobtools-card-toggle" data-card-toggle="splunk" aria-expanded="true">
+            <span class="bobtools-card-head-label">
+              <h2>Splunk RCA Report</h2>
+              <span id="bobtools-splunk-card-meta" class="bobtools-count" hidden></span>
+            </span>
+            <span class="bobtools-card-chevron" aria-hidden="true">▼</span>
+          </button>
+          <div id="bobtools-splunk-body" class="bobtools-card-body bobtools-splunk-card-body" data-card-body="splunk">
+            <p id="bobtools-splunk-status" class="bobtools-splunk-status"></p>
+            <div id="bobtools-splunk-summary" class="bobtools-splunk-summary"></div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <script src="bobtools-workspace.js"></script>
+  </body>
+</html>

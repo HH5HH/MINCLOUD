@@ -74,6 +74,7 @@ const debugState = {
   flowsById: new Map(),
   flowIdByTabId: new Map(),
   portsByTabId: new Map(),
+  panelStateByPort: new Map(),
   debuggerAttachedTabIds: new Set(),
   persistTimerByFlowId: new Map(),
   persistIndexTimerId: 0,
@@ -743,6 +744,127 @@ function isAllowedSplunkRelayUrl(value) {
   }
 }
 
+function getHeaderKeyCaseInsensitive(headers = {}, headerName = "") {
+  const target = String(headerName || "").trim().toLowerCase();
+  if (!target || !headers || typeof headers !== "object") {
+    return "";
+  }
+  for (const key of Object.keys(headers)) {
+    if (String(key || "").trim().toLowerCase() === target) {
+      return key;
+    }
+  }
+  return "";
+}
+
+function setHeaderIfMissing(headers = {}, headerName = "", value = "") {
+  if (!headers || typeof headers !== "object") {
+    return;
+  }
+  const targetName = String(headerName || "").trim();
+  if (!targetName) {
+    return;
+  }
+  const existingKey = getHeaderKeyCaseInsensitive(headers, targetName);
+  if (existingKey) {
+    const existingValue = String(headers[existingKey] ?? "").trim();
+    if (existingValue) {
+      return;
+    }
+    delete headers[existingKey];
+  }
+  headers[targetName] = String(value ?? "");
+}
+
+function extractSplunkFormKeyFromCookieValue(rawValue = "") {
+  const normalized = String(rawValue || "").trim();
+  if (!normalized) {
+    return "";
+  }
+  let decoded = normalized;
+  try {
+    decoded = decodeURIComponent(normalized);
+  } catch {
+    decoded = normalized;
+  }
+  const candidateSegments = [decoded, ...decoded.split(/[=:|]/g).map((part) => String(part || "").trim())].filter(Boolean);
+  for (const segment of candidateSegments) {
+    if (/^[A-Za-z0-9._-]{8,}$/.test(segment)) {
+      return segment;
+    }
+  }
+  return "";
+}
+
+async function resolveSplunkFormKeyFromCookies(requestUrl = "") {
+  if (!chrome.cookies) {
+    return "";
+  }
+  const normalizedUrl = String(requestUrl || "").trim();
+  if (!normalizedUrl) {
+    return "";
+  }
+  let cookies = [];
+  try {
+    cookies = await chrome.cookies.getAll({ url: normalizedUrl });
+  } catch {
+    cookies = [];
+  }
+  if (!Array.isArray(cookies) || cookies.length === 0) {
+    return "";
+  }
+  const scoredCandidates = [];
+  for (const cookie of cookies) {
+    const name = String(cookie?.name || "").trim();
+    if (!name) {
+      continue;
+    }
+    if (!/csrf/i.test(name)) {
+      continue;
+    }
+    const extractedValue = extractSplunkFormKeyFromCookieValue(cookie?.value);
+    if (!extractedValue) {
+      continue;
+    }
+    let score = 0;
+    if (/^splunkweb_csrf_token/i.test(name)) {
+      score += 10;
+    }
+    if (/csrf_token/i.test(name)) {
+      score += 6;
+    }
+    if (cookie?.secure) {
+      score += 2;
+    }
+    if (String(cookie?.domain || "").toLowerCase().includes("splunk-us.corp.adobe.com")) {
+      score += 2;
+    }
+    scoredCandidates.push({
+      score,
+      value: extractedValue,
+    });
+  }
+  scoredCandidates.sort((left, right) => Number(right.score || 0) - Number(left.score || 0));
+  return String(scoredCandidates[0]?.value || "");
+}
+
+async function enrichSplunkRelayHeaders(requestUrl = "", method = "GET", headers = {}) {
+  const output = headers && typeof headers === "object" ? { ...headers } : {};
+  setHeaderIfMissing(output, "X-Requested-With", "XMLHttpRequest");
+  setHeaderIfMissing(output, "Accept", "*/*");
+  if (String(method || "GET").toUpperCase() === "POST") {
+    setHeaderIfMissing(output, "Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
+  }
+  const hasFormKey = Boolean(getHeaderKeyCaseInsensitive(output, "X-Splunk-Form-Key"));
+  if (!hasFormKey) {
+    const formKey = await resolveSplunkFormKeyFromCookies(requestUrl);
+    if (formKey) {
+      output["X-Splunk-Form-Key"] = formKey;
+    }
+  }
+  return output;
+}
+
 async function fetchSplunkRelayResponse(payload = {}) {
   const requestUrl = String(payload?.url || "").trim();
   if (!isAllowedSplunkRelayUrl(requestUrl)) {
@@ -755,7 +877,8 @@ async function fetchSplunkRelayResponse(payload = {}) {
   }
 
   const credentials = normalizeImsRelayCredentials(payload?.credentials);
-  const headers = normalizeImsRelayHeaders(payload?.headers);
+  const incomingHeaders = normalizeImsRelayHeaders(payload?.headers);
+  const headers = await enrichSplunkRelayHeaders(requestUrl, method, incomingHeaders);
   const bodyText = typeof payload?.body === "string" ? payload.body : "";
 
   const response = await fetch(requestUrl, {
@@ -1120,15 +1243,8 @@ async function reattachDebuggersFromState() {
     if (!flow) {
       continue;
     }
-    const shouldCaptureNetwork =
-      flow.context && typeof flow.context === "object" && Object.prototype.hasOwnProperty.call(flow.context, "captureNetwork")
-        ? flow.context.captureNetwork === true
-        : false;
-    if (!shouldCaptureNetwork) {
-      continue;
-    }
     try {
-      await ensureDebuggerAttachedForTab(tabId, flow);
+      await syncDebuggerAttachmentForTab(tabId, "state-restore");
     } catch (error) {
       appendFlowEvent(flow, {
         source: "extension",
@@ -1288,6 +1404,106 @@ function getPortsForTab(tabId) {
   return debugState.portsByTabId.get(normalizedTabId) || null;
 }
 
+function setPanelStateForPort(port, tabId, options = {}) {
+  if (!port) {
+    return;
+  }
+  const normalizedTabId = normalizeTabId(tabId);
+  const existing = debugState.panelStateByPort.get(port) || {};
+  const visible =
+    options.visible === undefined
+      ? existing.visible !== false
+      : options.visible === true;
+  debugState.panelStateByPort.set(port, {
+    tabId: normalizedTabId,
+    visible,
+  });
+}
+
+function updatePanelVisibilityForPort(port, visible) {
+  if (!port) {
+    return;
+  }
+  const existing = debugState.panelStateByPort.get(port) || {};
+  debugState.panelStateByPort.set(port, {
+    tabId: normalizeTabId(existing.tabId),
+    visible: visible === true,
+  });
+}
+
+function clearPanelStateForPort(port) {
+  if (!port) {
+    return;
+  }
+  debugState.panelStateByPort.delete(port);
+}
+
+function countVisiblePanelsForTab(tabId) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (!normalizedTabId) {
+    return 0;
+  }
+  const ports = getPortsForTab(normalizedTabId);
+  if (!ports || ports.size === 0) {
+    return 0;
+  }
+  let visibleCount = 0;
+  for (const port of ports) {
+    const panelState = debugState.panelStateByPort.get(port);
+    if (!panelState || panelState.visible !== false) {
+      visibleCount += 1;
+    }
+  }
+  return visibleCount;
+}
+
+function isUpPanelVisibleForTab(tabId) {
+  return countVisiblePanelsForTab(tabId) > 0;
+}
+
+function hasAnyVisibleUpPanel() {
+  for (const portState of debugState.panelStateByPort.values()) {
+    if (!portState || portState.visible === false) {
+      continue;
+    }
+    return true;
+  }
+  return false;
+}
+
+function flowHasNetworkCaptureEnabled(flow) {
+  const captureNetwork =
+    flow?.context && typeof flow.context === "object" && Object.prototype.hasOwnProperty.call(flow.context, "captureNetwork")
+      ? flow.context.captureNetwork === true
+      : false;
+  return captureNetwork;
+}
+
+function shouldRetainFlowEvent(flow) {
+  if (!flow) {
+    return false;
+  }
+  if (flowHasNetworkCaptureEnabled(flow)) {
+    // HAR/recording flows always retain events, even when UP is hidden.
+    return true;
+  }
+  // Non-recording flows are retained only while any UP panel is visible.
+  return hasAnyVisibleUpPanel();
+}
+
+function shouldAllowNetworkCaptureForFlow(flow, tabId) {
+  if (!flow || !flowHasNetworkCaptureEnabled(flow)) {
+    return false;
+  }
+  const normalizedTabId = normalizeTabId(tabId || flow?.tabId || 0);
+  const keepNetworkWhenHidden =
+    flow?.context && typeof flow.context === "object" && flow.context.keepNetworkWhenHidden === true;
+  if (keepNetworkWhenHidden) {
+    return true;
+  }
+  return isUpPanelVisibleForTab(normalizedTabId);
+}
+
 function postToPortSafe(port, payload) {
   try {
     port.postMessage(payload);
@@ -1303,7 +1519,36 @@ function postFlowEventToTabPorts(tabId, payload) {
   }
 
   for (const port of ports) {
+    const panelState = debugState.panelStateByPort.get(port);
+    if (panelState && panelState.visible === false) {
+      continue;
+    }
     postToPortSafe(port, payload);
+  }
+}
+
+function postFlowEventToAllSubscribedPorts(payload, options = {}) {
+  const excludedTabId = normalizeTabId(options.excludeTabId);
+  const deliveredPorts = new Set();
+  for (const [tabIdRaw, ports] of debugState.portsByTabId.entries()) {
+    const tabId = normalizeTabId(tabIdRaw);
+    if (excludedTabId && tabId === excludedTabId) {
+      continue;
+    }
+    if (!ports || ports.size === 0) {
+      continue;
+    }
+    for (const port of ports) {
+      if (!port || deliveredPorts.has(port)) {
+        continue;
+      }
+      const panelState = debugState.panelStateByPort.get(port);
+      if (panelState && panelState.visible === false) {
+        continue;
+      }
+      deliveredPorts.add(port);
+      postToPortSafe(port, payload);
+    }
   }
 }
 
@@ -1316,8 +1561,73 @@ function sendFlowSnapshotToTabPorts(tabId) {
   });
 }
 
+function shouldMirrorPassEventToAllPorts(event) {
+  if (!event || typeof event !== "object") {
+    return false;
+  }
+
+  const service = String(event.service || "").trim().toLowerCase();
+  if (
+    service === "cm" ||
+    service.includes("cmu") ||
+    service.includes("esm") ||
+    service.includes("mvpd") ||
+    service.includes("rest") ||
+    service.includes("degrad") ||
+    service.includes("decision")
+  ) {
+    return true;
+  }
+
+  const requestScope = String(event.requestScope || "").trim().toLowerCase();
+  if (
+    requestScope.includes("cm") ||
+    requestScope.includes("esm") ||
+    requestScope.includes("mvpd") ||
+    requestScope.includes("rest") ||
+    requestScope.includes("degrad") ||
+    requestScope.includes("decision")
+  ) {
+    return true;
+  }
+
+  const phase = String(event.phase || "").trim().toLowerCase();
+  if (
+    phase.startsWith("cm-") ||
+    phase.includes("cmu") ||
+    phase.includes("esm") ||
+    phase.includes("mvpd") ||
+    phase.startsWith("restv2-") ||
+    phase.startsWith("token-") ||
+    phase.startsWith("profiles-")
+  ) {
+    return true;
+  }
+
+  const workspaceHint = String(event.workspaceKey || event.workspaceOrigin || "").trim().toLowerCase();
+  if (
+    workspaceHint.includes("cm") ||
+    workspaceHint.includes("esm") ||
+    workspaceHint.includes("mvpd") ||
+    workspaceHint.includes("rest")
+  ) {
+    return true;
+  }
+
+  const urlHints = [event.url, event.endpointUrl, event.loginUrl]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+    .join(" ");
+  return /(?:cm-reports|config)\.adobeprimetime\.com|(?:sp|api)\.auth\.adobe\.com|mgmt\.auth\.adobe\.com|experience\.adobe\.com|\/cmu?\/|\/esm\/|\/api\/v2\/|\/authenticate\/|\/o\//i.test(
+    urlHints
+  );
+}
+
 function appendFlowEvent(flow, event) {
   if (!flow || !event || typeof event !== "object") {
+    return null;
+  }
+  if (!shouldRetainFlowEvent(flow)) {
     return null;
   }
 
@@ -1345,13 +1655,49 @@ function appendFlowEvent(flow, event) {
       event: normalizedEvent,
     });
   }
+  if (shouldMirrorPassEventToAllPorts(normalizedEvent)) {
+    postFlowEventToAllSubscribedPorts(
+      {
+        type: "pass-event",
+        tabId: normalizeTabId(flow.tabId),
+        flowId: flow.flowId,
+        event: normalizedEvent,
+      },
+      { excludeTabId: flow.tabId }
+    );
+  }
 
   return normalizedEvent;
+}
+
+async function syncDebuggerAttachmentForTab(tabId, reason = "") {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (!normalizedTabId) {
+    return;
+  }
+  const flow = getFlowByTabId(normalizedTabId);
+  if (!flow) {
+    if (debugState.debuggerAttachedTabIds.has(normalizedTabId)) {
+      await detachDebuggerForTab(normalizedTabId, reason || "flow-missing");
+    }
+    return;
+  }
+  const shouldAttach = shouldAllowNetworkCaptureForFlow(flow, normalizedTabId);
+  if (shouldAttach) {
+    await ensureDebuggerAttachedForTab(normalizedTabId, flow);
+    return;
+  }
+  if (debugState.debuggerAttachedTabIds.has(normalizedTabId)) {
+    await detachDebuggerForTab(normalizedTabId, reason || "network-capture-disabled");
+  }
 }
 
 async function ensureDebuggerAttachedForTab(tabId, flow) {
   const normalizedTabId = normalizeTabId(tabId);
   if (!normalizedTabId) {
+    return;
+  }
+  if (!shouldAllowNetworkCaptureForFlow(flow, normalizedTabId)) {
     return;
   }
 
@@ -1433,7 +1779,7 @@ async function bindFlowToTab(flowId, tabId, metadata = {}) {
   );
   if (metadata && typeof metadata === "object") {
     const nextContext = flow.context && typeof flow.context === "object" ? { ...flow.context } : {};
-    const contextFields = ["requestorId", "mvpd", "loginUrl", "redirectUrl", "serviceType"];
+    const contextFields = ["requestorId", "mvpd", "loginUrl", "redirectUrl", "serviceType", "tenantScope"];
     for (const field of contextFields) {
       const value = metadata[field];
       if (value === undefined || value === null || value === "") {
@@ -1443,11 +1789,14 @@ async function bindFlowToTab(flowId, tabId, metadata = {}) {
     }
     nextContext.captureNetwork = captureNetwork;
     nextContext.eventsOnly = !captureNetwork;
+    nextContext.keepNetworkWhenHidden =
+      metadata.keepNetworkWhenHidden === undefined ? captureNetwork : metadata.keepNetworkWhenHidden === true;
     flow.context = nextContext;
   } else {
     const nextContext = flow.context && typeof flow.context === "object" ? { ...flow.context } : {};
     nextContext.captureNetwork = captureNetwork;
     nextContext.eventsOnly = !captureNetwork;
+    nextContext.keepNetworkWhenHidden = captureNetwork;
     flow.context = nextContext;
   }
   debugState.flowIdByTabId.set(normalizedTabId, flow.flowId);
@@ -1459,11 +1808,7 @@ async function bindFlowToTab(flowId, tabId, metadata = {}) {
     ...metadata,
   });
 
-  if (captureNetwork) {
-    await ensureDebuggerAttachedForTab(normalizedTabId, flow);
-  } else if (debugState.debuggerAttachedTabIds.has(normalizedTabId)) {
-    await detachDebuggerForTab(normalizedTabId, "events-only-flow");
-  }
+  await syncDebuggerAttachmentForTab(normalizedTabId, captureNetwork ? "tab-bound" : "events-only-flow");
   scheduleFlowPersist(flow);
   scheduleFlowIndexPersist();
   sendFlowSnapshotToTabPorts(normalizedTabId);
@@ -1483,21 +1828,31 @@ function shouldIgnoreUrlForFlow(flow, url) {
     return false;
   }
 
+  let parsed;
+  try {
+    parsed = new URL(String(url));
+  } catch {
+    return false;
+  }
+
+  if (!/^https?:$/i.test(parsed.protocol)) {
+    // Ignore extension/document noise (chrome-extension://, data:, blob:, about:, etc).
+    return true;
+  }
+
   const redirectUrl = String(flow?.context?.redirectUrl || "").trim();
   if (!redirectUrl) {
     return false;
   }
 
   let redirectParsed;
-  let parsed;
   try {
     redirectParsed = new URL(redirectUrl);
-    parsed = new URL(String(url));
   } catch {
     return false;
   }
 
-  if (!/^https?:$/i.test(parsed.protocol) || parsed.origin !== redirectParsed.origin) {
+  if (parsed.origin !== redirectParsed.origin) {
     return false;
   }
   if (isPassCriticalPath(parsed.pathname)) {
@@ -1622,6 +1977,9 @@ function handleDebuggerEvent(source, method, params) {
 
   const flow = getFlowByTabId(tabId);
   if (!flow) {
+    return;
+  }
+  if (!shouldAllowNetworkCaptureForFlow(flow, tabId)) {
     return;
   }
 
@@ -1771,16 +2129,20 @@ function handleDebuggerDetach(source, reason) {
   });
 }
 
-function subscribePortToTab(port, tabId) {
+function subscribePortToTab(port, tabId, options = {}) {
   const normalizedTabId = normalizeTabId(tabId);
   if (!normalizedTabId) {
     return;
   }
 
+  setPanelStateForPort(port, normalizedTabId, {
+    visible: options.visible === undefined ? true : options.visible === true,
+  });
   const portSet = debugState.portsByTabId.get(normalizedTabId) || new Set();
   portSet.add(port);
   debugState.portsByTabId.set(normalizedTabId, portSet);
   sendFlowSnapshotToTabPorts(normalizedTabId);
+  void syncDebuggerAttachmentForTab(normalizedTabId, "panel-subscribed");
 }
 
 function unsubscribePortFromTab(port, tabId) {
@@ -1791,6 +2153,7 @@ function unsubscribePortFromTab(port, tabId) {
 
   const portSet = debugState.portsByTabId.get(normalizedTabId);
   if (!portSet) {
+    clearPanelStateForPort(port);
     return;
   }
 
@@ -1798,6 +2161,8 @@ function unsubscribePortFromTab(port, tabId) {
   if (portSet.size === 0) {
     debugState.portsByTabId.delete(normalizedTabId);
   }
+  clearPanelStateForPort(port);
+  void syncDebuggerAttachmentForTab(normalizedTabId, "panel-unsubscribed");
 }
 
 function getFlowForWebRequest(details) {
@@ -2187,22 +2552,30 @@ chrome.runtime.onConnect.addListener((port) => {
       }
       subscribedTabId = nextTabId;
       if (subscribedTabId) {
-        subscribePortToTab(port, subscribedTabId);
+        subscribePortToTab(port, subscribedTabId, {
+          visible: message.visible !== false,
+        });
         void restoreFlowForTabFromStorage(subscribedTabId).then((restored) => {
           if (restored) {
             sendFlowSnapshotToTabPorts(subscribedTabId);
-            const shouldCaptureNetwork =
-              restored.context &&
-              typeof restored.context === "object" &&
-              Object.prototype.hasOwnProperty.call(restored.context, "captureNetwork")
-                ? restored.context.captureNetwork === true
-                : false;
-            if (shouldCaptureNetwork) {
-              void ensureDebuggerAttachedForTab(subscribedTabId, restored);
-            }
+            void syncDebuggerAttachmentForTab(subscribedTabId, "panel-subscribe-restore");
           }
         });
       }
+      return;
+    }
+
+    if (message.type === "panel-visibility") {
+      const tabForVisibility = normalizeTabId(message.tabId || subscribedTabId);
+      if (!tabForVisibility) {
+        return;
+      }
+      const isVisible = message.visible === true;
+      updatePanelVisibilityForPort(port, isVisible);
+      if (isVisible) {
+        sendFlowSnapshotToTabPorts(tabForVisibility);
+      }
+      void syncDebuggerAttachmentForTab(tabForVisibility, "panel-visibility-change");
       return;
     }
 
@@ -2223,6 +2596,8 @@ chrome.runtime.onConnect.addListener((port) => {
   const onDisconnect = () => {
     if (subscribedTabId) {
       unsubscribePortFromTab(port, subscribedTabId);
+    } else {
+      clearPanelStateForPort(port);
     }
     port.onMessage.removeListener(onMessage);
     port.onDisconnect.removeListener(onDisconnect);

@@ -131,11 +131,10 @@ function setStatus(message = "", type = "info") {
   if (!els.status) {
     return;
   }
-  els.status.textContent = text;
-  els.status.classList.remove("error");
-  if (type === "error" && text) {
-    els.status.classList.add("error");
-  }
+  const showError = type === "error" && Boolean(text);
+  els.status.textContent = showError ? text : "";
+  els.status.classList.toggle("error", showError);
+  els.status.hidden = !showError;
 }
 
 function syncActionButtonsDisabled() {

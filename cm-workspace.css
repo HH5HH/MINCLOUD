@@ -33,8 +33,8 @@
   --s2-action-focus-ring: rgba(42, 139, 116, 0.32);
   --danger-rgb: 186, 54, 54;
   --danger-strong-rgb: 159, 37, 37;
-  --workspace-net-indicator-track: rgba(18, 67, 54, 0.3);
-  --workspace-net-indicator-head: rgba(18, 67, 54, 0.86);
+  --workspace-net-indicator-track: rgba(132, 87, 14, 0.34);
+  --workspace-net-indicator-head: rgba(171, 219, 68, 0.96);
   font-family: "Avenir Next", "Segoe UI Variable", "Gill Sans MT", "Trebuchet MS", sans-serif;
 }
 
@@ -252,10 +252,10 @@ body::after {
 }
 
 .workspace-icon-btn--rerun {
-  border-color: rgba(107, 70, 17, 0.34);
-  background: linear-gradient(180deg, rgba(255, 245, 222, 0.98), rgba(243, 221, 171, 0.98));
-  color: #6b3a0f;
-  box-shadow: 0 9px 18px rgba(133, 87, 11, 0.22);
+  border-color: rgba(132, 87, 14, 0.44);
+  background: linear-gradient(180deg, rgba(255, 246, 214, 0.98), rgba(245, 216, 146, 0.98));
+  color: #5f370d;
+  box-shadow: 0 9px 18px rgba(132, 87, 14, 0.24);
 }
 
 .workspace-icon-btn--accent:hover:not(:disabled) {
@@ -268,9 +268,17 @@ body::after {
 }
 
 .workspace-icon-btn--rerun:hover:not(:disabled) {
-  background: linear-gradient(180deg, rgba(255, 240, 201, 0.98), rgba(237, 208, 141, 0.98));
-  border-color: rgba(120, 76, 14, 0.46);
-  box-shadow: 0 12px 22px rgba(133, 87, 11, 0.26);
+  background: linear-gradient(180deg, rgba(219, 255, 136, 0.99), rgba(165, 214, 58, 0.99));
+  border-color: rgba(96, 143, 28, 0.78);
+  color: #1f3208;
+  box-shadow: 0 12px 22px rgba(96, 143, 28, 0.24);
+}
+
+.workspace-icon-btn--rerun:active:not(:disabled) {
+  background: linear-gradient(180deg, rgba(201, 240, 111, 1), rgba(145, 194, 45, 1));
+  border-color: rgba(82, 127, 24, 0.84);
+  color: #182806;
+  box-shadow: 0 8px 16px rgba(82, 127, 24, 0.24);
 }
 
 .workspace-icon svg {

@@ -73,8 +73,8 @@
   --s2-action-border-accent: rgb(var(--zip-accent-800));
   --s2-action-text-accent: rgb(var(--zip-accent-on-primary));
   --s2-action-focus-ring: rgba(var(--zip-accent-focus), var(--zip-theme-vibe-focus-alpha));
-  --workspace-net-indicator-track: rgba(var(--zip-accent-900), 0.42);
-  --workspace-net-indicator-head: rgba(var(--zip-accent-1100), 0.96);
+  --workspace-net-indicator-track: rgba(132, 87, 14, 0.34);
+  --workspace-net-indicator-head: rgba(171, 219, 68, 0.96);
 }
 
 body {
@@ -128,6 +128,80 @@ body::after {
   color: rgb(var(--zip-accent-1000));
 }
 
+.workspace-filter-state {
+  line-height: 1.25;
+}
+
+.workspace-filter-queue {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.workspace-filter-empty {
+  color: var(--legacy-muted);
+}
+
+.workspace-filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  border: 1px solid rgba(var(--zip-accent-900), 0.42);
+  background: rgba(var(--zip-accent-900), 0.16);
+  padding: 1px 7px;
+  min-height: 22px;
+}
+
+.workspace-filter-pill--mvpd {
+  border-color: rgba(var(--zip-accent-1000), 0.66);
+  background: rgba(var(--zip-accent-1000), 0.21);
+}
+
+.workspace-filter-pill--relation {
+  border-color: rgba(var(--zip-silver-rgb), 0.42);
+  background: rgba(var(--zip-silver-rgb), 0.12);
+}
+
+.workspace-filter-pill--integration {
+  border-color: rgba(var(--zip-accent-900), 0.58);
+  background: rgba(var(--zip-accent-700), 0.14);
+}
+
+.workspace-filter-pill-key {
+  color: var(--zip-menu-fg-subtle);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.workspace-filter-pill-value {
+  color: var(--legacy-text);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.workspace-filter-link {
+  color: rgb(var(--zip-accent-1000));
+  font-size: 11px;
+  font-weight: 680;
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.workspace-filter-link:hover {
+  color: rgb(var(--zip-accent-1100));
+}
+
+.workspace-filter-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--s2-action-focus-ring);
+  border-radius: 4px;
+}
+
 .workspace-status.error {
   color: rgb(var(--zip-carmine-rgb));
 }
@@ -145,6 +219,27 @@ body::after {
   box-shadow: 0 10px 20px rgba(34, 34, 34, 0.64);
 }
 
+.workspace-icon-btn--reference {
+  border-color: #c68500;
+  background: linear-gradient(180deg, #ffd76c 0%, #ffc20e 100%);
+  color: #111111;
+  box-shadow: 0 8px 16px rgba(143, 101, 0, 0.26);
+}
+
+.workspace-icon-btn--reference:hover:not(:disabled) {
+  border-color: #b17700;
+  background: linear-gradient(180deg, #ffe48f 0%, #f2b90c 100%);
+  color: #111111;
+  box-shadow: 0 11px 20px rgba(143, 101, 0, 0.34);
+}
+
+.workspace-icon-btn--reference:active:not(:disabled) {
+  border-color: #9f6900;
+  background: linear-gradient(180deg, #ffd258 0%, #e4a906 100%);
+  color: #111111;
+  box-shadow: 0 6px 12px rgba(143, 101, 0, 0.28);
+}
+
 .workspace-icon-btn--accent {
   background: linear-gradient(160deg, rgba(var(--zip-accent-900), 0.98), rgba(var(--zip-accent-700), 0.98));
   border-color: var(--s2-action-border-accent);
@@ -156,6 +251,27 @@ body::after {
   background: linear-gradient(160deg, rgba(var(--zip-accent-1000), 0.98), rgba(var(--zip-accent-800), 0.98));
   border-color: rgb(var(--zip-accent-1000));
   box-shadow: 0 12px 22px rgba(34, 34, 34, 0.66), 0 1px 0 rgba(242, 242, 242, 0.14) inset;
+}
+
+.workspace-icon-btn--rerun {
+  border-color: rgba(132, 87, 14, 0.44);
+  background: linear-gradient(180deg, rgba(255, 246, 214, 0.98), rgba(245, 216, 146, 0.98));
+  color: #5f370d;
+  box-shadow: 0 9px 18px rgba(132, 87, 14, 0.24);
+}
+
+.workspace-icon-btn--rerun:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(219, 255, 136, 0.99), rgba(165, 214, 58, 0.99));
+  border-color: rgba(96, 143, 28, 0.78);
+  color: #1f3208;
+  box-shadow: 0 12px 22px rgba(96, 143, 28, 0.24);
+}
+
+.workspace-icon-btn--rerun:active:not(:disabled) {
+  background: linear-gradient(180deg, rgba(201, 240, 111, 1), rgba(145, 194, 45, 1));
+  border-color: rgba(82, 127, 24, 0.84);
+  color: #182806;
+  box-shadow: 0 8px 16px rgba(82, 127, 24, 0.24);
 }
 
 .workspace-cards {

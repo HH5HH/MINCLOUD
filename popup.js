@@ -32,7 +32,7 @@ const PROGRAMMER_ENDPOINTS = [
 ];
 const DCR_CACHE_PREFIX = "underpar_dcr_cache_v1";
 const LEGACY_DCR_CACHE_PREFIX = "mincloudlogin_dcr_cache_v1";
-const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "esmWorkspace", "degradation", "cm"];
+const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "esmWorkspace", "degradation", "cm", "cmMvpd"];
 const PREMIUM_SERVICE_SCOPE_BY_KEY = {
   degradation: "decisions:owner",
   esm: "analytics:client",
@@ -41,6 +41,7 @@ const PREMIUM_SERVICE_SCOPE_BY_KEY = {
 const REST_V2_SCOPE = PREMIUM_SERVICE_SCOPE_BY_KEY.restV2;
 const PREMIUM_SERVICE_TITLE_BY_KEY = {
   cm: "Concurrency Monitoring",
+  cmMvpd: "Concurrency Monitoring (MVPD)",
   degradation: "DEGRADATION",
   esmWorkspace: "ESM",
   restV2: "REST V2",
@@ -75,7 +76,13 @@ const REST_V2_PREPARED_LOGIN_MAX_AGE_MS = 2 * 60 * 1000;
 const REST_V2_PROFILE_HARVEST_BUCKET_MAX = 120;
 const REST_V2_PREAUTHORIZE_HISTORY_MAX = 120;
 const REST_V2_PROFILE_PREAUTHZ_CHECK_MAX = 120;
+const BOBTOOLS_PROFILES_HYDRATE_STALE_MS = 20 * 1000;
 const REST_V2_DEFAULT_RESOURCE_ID_INPUT = "";
+const BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE = "preauthorize";
+const BOBTOOLS_REST_V2_ACTION_AUTHORIZE = "authorize";
+const BOBTOOLS_REST_V2_ACTION_PROFILES_MVPD = "profiles-mvpd";
+const BOBTOOLS_REST_V2_ACTION_PROFILES_ALL = "profiles-all";
+const BOBTOOLS_REST_V2_ACTION_CONFIGURATION = "configuration";
 const REST_V2_ACTIVE_PROFILE_CHECK_COOLDOWN_MS = 15 * 1000;
 const DEBUG_TEXT_PREVIEW_LIMIT = 12000;
 const DEBUG_REDACT_SENSITIVE = false;
@@ -86,6 +93,8 @@ const REST_V2_LOGOUT_NAVIGATION_TIMEOUT_MS = 35000;
 const REST_V2_LOGOUT_POST_NAV_DELAY_MS = 2200;
 const REST_V2_POST_LOGOUT_PROFILE_CHECK_RETRIES = 3;
 const REST_V2_POST_LOGOUT_PROFILE_CHECK_DELAY_MS = 900;
+const REST_V2_POST_AUTH_PROFILE_CHECK_RETRIES = 7;
+const REST_V2_POST_AUTH_PROFILE_CHECK_DELAY_MS = 850;
 const PREMIUM_AUTO_REFRESH_INTERVAL_MS = 60 * 1000;
 const PREMIUM_AUTO_REFRESH_COOLDOWN_MS = 90 * 1000;
 const PREMIUM_AUTO_REFRESH_TOKEN_LEEWAY_MS = 2 * 60 * 1000;
@@ -130,6 +139,11 @@ const LEGACY_MVPD_WORKSPACE_MESSAGE_TYPE = "mincloud:mvpd-workspace";
 const REST_WORKSPACE_PATH = "rest-workspace.html";
 const REST_WORKSPACE_MESSAGE_TYPE = "underpar:rest-workspace";
 const LEGACY_REST_WORKSPACE_MESSAGE_TYPE = "mincloud:rest-workspace";
+const BOBTOOLS_WORKSPACE_PATH = "bobtools-workspace.html";
+const BOBTOOLS_WORKSPACE_MESSAGE_TYPE = "underpar:bobtools-workspace";
+const LEGACY_BOBTOOLS_WORKSPACE_MESSAGE_TYPE = "mincloud:bobtools-workspace";
+const BOBTOOLS_INLINE_ICON_PATH = "icons/appIcon.png";
+const BOBTOOLS_WORKSPACE_ICON_PATH = "icons/medium.png";
 const SPLUNK_BASE_URL = "https://splunk-us.corp.adobe.com";
 const SPLUNK_APP_SEARCH_PATH = "/en-US/app/app_adobepass/search";
 const SPLUNK_SPLUNKD_BASE = `${SPLUNK_BASE_URL}/en-US/splunkd/__raw`;
@@ -137,6 +151,12 @@ const SPLUNK_SEARCH_EARLIEST = "-24h@h";
 const SPLUNK_SEARCH_LATEST = "now";
 const SPLUNK_EVENT_FETCH_LIMIT = 500;
 const SPLUNK_EVENT_RENDER_LIMIT = 500;
+const SPLUNK_SID_WAIT_TIMEOUT_MS = 15000;
+const SPLUNK_SID_WAIT_INTERVAL_MS = 450;
+const SPLUNK_JOB_POLL_TIMEOUT_MS = 15000;
+const SPLUNK_JOB_POLL_INTERVAL_MS = 450;
+const REST_V2_SPLUNK_INLINE_MAX_ROWS = 80;
+const REST_V2_SPLUNK_INLINE_MAX_COLUMNS = 14;
 const ESM_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
 const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const CM_CONFIG_BASE_URL = "https://config.adobeprimetime.com";
@@ -626,6 +646,7 @@ const CM_IMS_CHECK_CLIENT_IDS = ["cm-console-ui", "AdobePass1", IMS_CLIENT_ID];
 const CM_IMS_FORCE_REFRESH_SKEW_MS = 30 * 1000;
 const CM_BOOTSTRAP_PARALLELISM = 6;
 const CM_BOOTSTRAP_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
+const CM_EMPTY_MATCH_CACHE_MAX_AGE_MS = 2 * 60 * 1000;
 const CM_V2_OPERATION_DEFINITIONS = [
   {
     key: "metadata",
@@ -715,6 +736,7 @@ const LOGIN_HELPER_RESULT_MESSAGE_TYPES = new Set([
 const ESM_WORKSPACE_MESSAGE_TYPES = new Set([ESM_WORKSPACE_MESSAGE_TYPE, LEGACY_ESM_WORKSPACE_MESSAGE_TYPE]);
 const MVPD_WORKSPACE_MESSAGE_TYPES = new Set([MVPD_WORKSPACE_MESSAGE_TYPE, LEGACY_MVPD_WORKSPACE_MESSAGE_TYPE]);
 const REST_WORKSPACE_MESSAGE_TYPES = new Set([REST_WORKSPACE_MESSAGE_TYPE, LEGACY_REST_WORKSPACE_MESSAGE_TYPE]);
+const BOBTOOLS_WORKSPACE_MESSAGE_TYPES = new Set([BOBTOOLS_WORKSPACE_MESSAGE_TYPE, LEGACY_BOBTOOLS_WORKSPACE_MESSAGE_TYPE]);
 
 const state = {
   busy: false,
@@ -763,6 +785,7 @@ const state = {
   restV2LastLaunchWindowId: 0,
   restV2PreviousTabId: 0,
   restV2PreviousTabUrl: "",
+  lastDebuggableWebTabId: 0,
   restV2DebugFlowId: "",
   restV2RecordingActive: false,
   restV2RecordingStartedAt: 0,
@@ -775,6 +798,8 @@ const state = {
   premiumAppsLoadPromiseByProgrammerId: new Map(),
   cmServiceByProgrammerId: new Map(),
   cmServiceLoadPromiseByProgrammerId: new Map(),
+  cmServiceByMvpdSelectionKey: new Map(),
+  cmServiceLoadPromiseByMvpdSelectionKey: new Map(),
   cmTenantsCatalog: null,
   cmTenantsCatalogPromise: null,
   cmConsoleBootstrapSummary: null,
@@ -821,6 +846,8 @@ const state = {
   cmWorkspaceActivityDebugFlowId: "",
   cmWorkspaceActivityDebugFlowPromise: null,
   cmWorkspaceActivityDebugTargetTabId: 0,
+  cmWorkspacePendingDebugEvents: [],
+  cmWorkspacePendingDebugFlushPromise: null,
   mvpdWorkspaceTabId: 0,
   mvpdWorkspaceWindowId: 0,
   mvpdWorkspaceTabIdByWindowId: new Map(),
@@ -836,6 +863,18 @@ const state = {
   restWorkspaceLastSelectionKey: "",
   restWorkspaceLastReportBySelectionKey: new Map(),
   restWorkspaceLastQueryContextBySelectionKey: new Map(),
+  bobtoolsWorkspaceTabId: 0,
+  bobtoolsWorkspaceWindowId: 0,
+  bobtoolsWorkspaceTabIdByWindowId: new Map(),
+  bobtoolsWorkspaceRuntimeListenerBound: false,
+  bobtoolsWorkspaceTabWatcherBound: false,
+  bobtoolsWorkspaceLastResultByHarvestKey: new Map(),
+  restV2ProfilesHydrationLastAtBySelectionKey: new Map(),
+  restV2ProfilesHydrationPromiseBySelectionKey: new Map(),
+  restV2BobtoolsRedirectWatcherBound: false,
+  restV2BobtoolsRedirectInFlightByTabId: new Set(),
+  restV2LoginTabWatcherBound: false,
+  restV2PopupCloseProbeInFlightBySelectionKey: new Set(),
 };
 
 const els = {
@@ -1148,6 +1187,20 @@ function getActivePremiumDebugFlowId() {
   return getActiveEsmWorkspaceDebugFlowId();
 }
 
+function resolveRestV2DebugFlowIdForHarvest(harvest = null, explicitFlowId = "") {
+  const directFlowId = String(explicitFlowId || "").trim();
+  if (directFlowId) {
+    return directFlowId;
+  }
+  if (state.restV2RecordingActive === true) {
+    const activeFlowId = String(state.restV2DebugFlowId || "").trim();
+    if (activeFlowId) {
+      return activeFlowId;
+    }
+  }
+  return String(harvest?.flowId || "").trim();
+}
+
 function resolveCmDebugFlowId(explicitFlowId = "") {
   const direct = String(explicitFlowId || "").trim();
   if (direct) {
@@ -1221,11 +1274,62 @@ function getWorkspaceDebugLabel(workspaceKey = "") {
   return "";
 }
 
+const CM_PENDING_DEBUG_EVENT_LIMIT = 500;
+
+function queuePendingCmDebugEvent(payload = null) {
+  if (!payload || typeof payload !== "object") {
+    return;
+  }
+
+  const queue = Array.isArray(state.cmWorkspacePendingDebugEvents) ? state.cmWorkspacePendingDebugEvents : [];
+  queue.push({
+    payload: { ...payload },
+    queuedAt: Date.now(),
+  });
+  if (queue.length > CM_PENDING_DEBUG_EVENT_LIMIT) {
+    queue.splice(0, queue.length - CM_PENDING_DEBUG_EVENT_LIMIT);
+  }
+  state.cmWorkspacePendingDebugEvents = queue;
+}
+
+async function flushPendingCmDebugEvents(flowId) {
+  const normalizedFlowId = String(flowId || "").trim();
+  if (!normalizedFlowId) {
+    return;
+  }
+  if (!Array.isArray(state.cmWorkspacePendingDebugEvents) || state.cmWorkspacePendingDebugEvents.length === 0) {
+    return;
+  }
+  if (state.cmWorkspacePendingDebugFlushPromise) {
+    await state.cmWorkspacePendingDebugFlushPromise;
+  }
+
+  const flushPromise = (async () => {
+    const queue = Array.isArray(state.cmWorkspacePendingDebugEvents) ? state.cmWorkspacePendingDebugEvents.splice(0) : [];
+    if (queue.length === 0) {
+      return;
+    }
+    for (const entry of queue) {
+      const payload = entry?.payload && typeof entry.payload === "object" ? entry.payload : null;
+      if (!payload) {
+        continue;
+      }
+      emitRestV2DebugEvent(normalizedFlowId, payload);
+    }
+  })().finally(() => {
+    state.cmWorkspacePendingDebugFlushPromise = null;
+  });
+
+  state.cmWorkspacePendingDebugFlushPromise = flushPromise;
+  await flushPromise;
+}
+
 function emitCmDebugEvent(event = {}, options = {}) {
   const debugContext = options.context && typeof options.context === "object" ? options.context : {};
-  const workspaceKey = normalizeWorkspaceDebugKey(
-    firstNonEmptyString([event?.workspaceKey, debugContext?.workspaceKey, debugContext?.workspaceOrigin])
-  );
+  const workspaceKey =
+    normalizeWorkspaceDebugKey(
+      firstNonEmptyString([event?.workspaceKey, debugContext?.workspaceKey, debugContext?.workspaceOrigin])
+    ) || "cmu-workspace";
   const workspaceOrigin = firstNonEmptyString([
     event?.workspaceOrigin,
     debugContext?.workspaceOrigin,
@@ -1244,6 +1348,11 @@ function emitCmDebugEvent(event = {}, options = {}) {
     requestorId: String(debugContext.requestorId || state.selectedRequestorId || ""),
     mvpd: String(debugContext.mvpd || state.selectedMvpdId || ""),
     programmerId: String(debugContext.programmerId || resolveSelectedProgrammer()?.programmerId || ""),
+    tenantId: String(
+      firstNonEmptyString([event?.tenantId, debugContext?.tenantId, debugContext?.tenantScope, event?.tenantScope]) || ""
+    ),
+    tenantName: String(firstNonEmptyString([event?.tenantName, debugContext?.tenantName]) || ""),
+    tenantScope: String(firstNonEmptyString([event?.tenantScope, debugContext?.tenantScope, event?.tenantId]) || ""),
     ...(workspaceKey ? { workspaceKey } : {}),
     ...(workspaceOrigin ? { workspaceOrigin } : {}),
     ...event,
@@ -1266,16 +1375,20 @@ function emitCmDebugEvent(event = {}, options = {}) {
   const flowId = useWorkspaceFlow ? workspaceFlowId : resolveCmDebugFlowId(explicitFlowId);
   if (flowId) {
     emitRestV2DebugEvent(flowId, payload);
+    void flushPendingCmDebugEvents(flowId);
     if (flowId === String(state.cmWorkspaceActivityDebugFlowId || "").trim()) {
       void ensureCmWorkspaceActivityDebugFlow({
         reason: String(event?.phase || "cm-activity"),
         preferredWindowId,
         fallbackTabId,
+      }).then((resolvedFlowId) => {
+        void flushPendingCmDebugEvents(String(resolvedFlowId || flowId).trim());
       });
     }
     return;
   }
 
+  queuePendingCmDebugEvent(payload);
   void ensureCmWorkspaceActivityDebugFlow({
     reason: String(event?.phase || "cm-activity"),
     preferredWindowId,
@@ -1285,7 +1398,7 @@ function emitCmDebugEvent(event = {}, options = {}) {
     if (!normalizedFlowId) {
       return;
     }
-    emitRestV2DebugEvent(normalizedFlowId, payload);
+    void flushPendingCmDebugEvents(normalizedFlowId);
   });
 }
 
@@ -2507,7 +2620,11 @@ function getRestV2SectionState(section) {
       entitlementBusy: false,
       splunkBusy: false,
       splunkBusyHarvestKey: "",
+      profileToolCollapsed: false,
+      entitlementToolCollapsed: false,
       lastEntitlementResult: null,
+      lastSplunkResult: null,
+      lastSplunkHarvestKey: "",
     };
   }
   if (!section.__underparRestV2State || typeof section.__underparRestV2State !== "object") {
@@ -2520,7 +2637,11 @@ function getRestV2SectionState(section) {
       entitlementBusy: false,
       splunkBusy: false,
       splunkBusyHarvestKey: "",
+      profileToolCollapsed: false,
+      entitlementToolCollapsed: false,
       lastEntitlementResult: null,
+      lastSplunkResult: null,
+      lastSplunkHarvestKey: "",
     };
   }
   if (typeof section.__underparRestV2State.selectedHarvestKey !== "string") {
@@ -2547,7 +2668,76 @@ function getRestV2SectionState(section) {
   if (typeof section.__underparRestV2State.splunkBusyHarvestKey !== "string") {
     section.__underparRestV2State.splunkBusyHarvestKey = "";
   }
+  if (typeof section.__underparRestV2State.profileToolCollapsed !== "boolean") {
+    section.__underparRestV2State.profileToolCollapsed = false;
+  }
+  if (typeof section.__underparRestV2State.entitlementToolCollapsed !== "boolean") {
+    section.__underparRestV2State.entitlementToolCollapsed = false;
+  }
+  if (
+    section.__underparRestV2State.lastSplunkResult != null &&
+    typeof section.__underparRestV2State.lastSplunkResult !== "object"
+  ) {
+    section.__underparRestV2State.lastSplunkResult = null;
+  }
+  if (typeof section.__underparRestV2State.lastSplunkHarvestKey !== "string") {
+    section.__underparRestV2State.lastSplunkHarvestKey = "";
+  }
   return section.__underparRestV2State;
+}
+
+function normalizeBobtoolsRestV2Action(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE;
+  }
+  if (
+    normalized === "preauthorize" ||
+    normalized === "can-i-watch" ||
+    normalized === "can_i_watch" ||
+    normalized === "caniwatch"
+  ) {
+    return BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE;
+  }
+  if (normalized === "authorize") {
+    return BOBTOOLS_REST_V2_ACTION_AUTHORIZE;
+  }
+  if (normalized === "profiles" || normalized === "profiles-mvpd" || normalized === "profiles_mvpd") {
+    return BOBTOOLS_REST_V2_ACTION_PROFILES_MVPD;
+  }
+  if (normalized === "profiles-all" || normalized === "profiles_all" || normalized === "profilesall") {
+    return BOBTOOLS_REST_V2_ACTION_PROFILES_ALL;
+  }
+  if (normalized === "configuration" || normalized === "config") {
+    return BOBTOOLS_REST_V2_ACTION_CONFIGURATION;
+  }
+  return BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE;
+}
+
+function getBobtoolsRestV2ActionLabel(action = "") {
+  const normalized = normalizeBobtoolsRestV2Action(action);
+  if (normalized === BOBTOOLS_REST_V2_ACTION_AUTHORIZE) {
+    return "Authorize";
+  }
+  if (normalized === BOBTOOLS_REST_V2_ACTION_PROFILES_MVPD) {
+    return "Profiles (selected MVPD)";
+  }
+  if (normalized === BOBTOOLS_REST_V2_ACTION_PROFILES_ALL) {
+    return "Profiles (all MVPD)";
+  }
+  if (normalized === BOBTOOLS_REST_V2_ACTION_CONFIGURATION) {
+    return "Configuration";
+  }
+  return "Can I watch? (Preauthorize)";
+}
+
+function bobtoolsRestV2ActionRequiresResources(action = "") {
+  const normalized = normalizeBobtoolsRestV2Action(action);
+  return normalized === BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE || normalized === BOBTOOLS_REST_V2_ACTION_AUTHORIZE;
+}
+
+function bobtoolsRestV2ActionRequiresActiveProfile(action = "") {
+  return bobtoolsRestV2ActionRequiresResources(action);
 }
 
 function parseRestV2ResourceIdInput(value) {
@@ -2826,7 +3016,15 @@ function summarizeRestV2PreauthorizeRows(rows = [], requestedResourceIds = []) {
   };
 }
 
-async function fetchRestV2PreauthorizeDecisions(harvest, resourceIds) {
+async function fetchRestV2DecisionCheck(harvest, resourceIds, mode = BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE) {
+  const normalizedMode = normalizeBobtoolsRestV2Action(mode);
+  const decisionMode =
+    normalizedMode === BOBTOOLS_REST_V2_ACTION_AUTHORIZE
+      ? BOBTOOLS_REST_V2_ACTION_AUTHORIZE
+      : BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE;
+  const actionLabel = getBobtoolsRestV2ActionLabel(decisionMode);
+  const scopeKey = decisionMode === BOBTOOLS_REST_V2_ACTION_AUTHORIZE ? "decisions-authorize" : "decisions-preauthorize";
+
   const serviceProviderId = String(harvest?.serviceProviderId || harvest?.requestorId || "").trim();
   const mvpd = String(harvest?.mvpd || "").trim();
   const programmerId = String(harvest?.programmerId || "").trim();
@@ -2834,15 +3032,17 @@ async function fetchRestV2PreauthorizeDecisions(harvest, resourceIds) {
     throw new Error("Missing service provider or MVPD from the selected MVPD profile.");
   }
   if (!programmerId) {
-    throw new Error("Missing programmer context for preauthorization.");
+    throw new Error(`Missing programmer context for ${decisionMode}.`);
   }
 
   const appInfo = resolveRestV2AppInfoForHarvest(harvest);
   if (!appInfo?.guid) {
-    throw new Error("Unable to resolve REST V2 application context for preauthorization.");
+    throw new Error(`Unable to resolve REST V2 application context for ${decisionMode}.`);
   }
 
-  const endpointUrl = `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/decisions/preauthorize/${encodeURIComponent(mvpd)}`;
+  const endpointUrl = `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/decisions/${encodeURIComponent(
+    decisionMode
+  )}/${encodeURIComponent(mvpd)}`;
   const requestHeaders = buildRestV2Headers(serviceProviderId, {
     Accept: "application/json",
     "Content-Type": "application/json",
@@ -2851,13 +3051,13 @@ async function fetchRestV2PreauthorizeDecisions(harvest, resourceIds) {
     resources: resourceIds,
   });
 
-  const flowId = String(harvest?.flowId || "").trim();
+  const flowId = resolveRestV2DebugFlowIdForHarvest(harvest);
   emitRestV2DebugEvent(flowId, {
     source: "extension",
-    phase: "preauthorize-request",
+    phase: `${scopeKey}-request`,
     method: "POST",
     url: endpointUrl,
-    scope: "decisions-preauthorize",
+    scope: scopeKey,
     requestorId: String(harvest?.requestorId || ""),
     mvpd,
     programmerId,
@@ -2882,7 +3082,7 @@ async function fetchRestV2PreauthorizeDecisions(harvest, resourceIds) {
       flowId,
       requestorId: String(harvest?.requestorId || serviceProviderId || ""),
       mvpd,
-      scope: "decisions-preauthorize",
+      scope: scopeKey,
       service: "rest-v2-entitlements",
       endpointUrl,
     }
@@ -2911,6 +3111,10 @@ async function fetchRestV2PreauthorizeDecisions(harvest, resourceIds) {
     requestBody: {
       resources: resourceIds.slice(),
     },
+    method: "POST",
+    apiAction: decisionMode,
+    apiActionLabel: actionLabel,
+    resultType: "decisions",
     serviceProviderId,
     requestorId: String(harvest?.requestorId || serviceProviderId || "").trim(),
     mvpd,
@@ -2934,10 +3138,10 @@ async function fetchRestV2PreauthorizeDecisions(harvest, resourceIds) {
 
   emitRestV2DebugEvent(flowId, {
     source: "extension",
-    phase: "preauthorize-response",
+    phase: `${scopeKey}-response`,
     method: "POST",
     url: endpointUrl,
-    scope: "decisions-preauthorize",
+    scope: scopeKey,
     status: result.status,
     statusText: result.statusText,
     requestorId: result.requestorId,
@@ -2976,7 +3180,315 @@ async function fetchRestV2PreauthorizeDecisions(harvest, resourceIds) {
         ? "REST V2 rejected the client bearer token. UnderPAR uses DCR auth for this API, and token refresh is automatic."
         : "";
     result.error = errorHint ? `${errorMessage}. ${errorHint}` : errorMessage;
-    throw Object.assign(new Error(`Preauthorization failed (${result.status}): ${errorMessage}`), { underparResult: result });
+    throw Object.assign(new Error(`${actionLabel} failed (${result.status}): ${errorMessage}`), { underparResult: result });
+  }
+
+  return result;
+}
+
+async function fetchRestV2PreauthorizeDecisions(harvest, resourceIds) {
+  return fetchRestV2DecisionCheck(harvest, resourceIds, BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE);
+}
+
+async function fetchRestV2AuthorizeDecisions(harvest, resourceIds) {
+  return fetchRestV2DecisionCheck(harvest, resourceIds, BOBTOOLS_REST_V2_ACTION_AUTHORIZE);
+}
+
+function extractRestV2ProfileRowsFromPayload(payload = {}, context = null) {
+  const profiles = payload?.profiles && typeof payload.profiles === "object" ? payload.profiles : {};
+  const entries = Object.entries(profiles).filter(([, profile]) => profile && typeof profile === "object");
+  return entries
+    .map(([profileKey, profile]) => getRestV2ProfileSummary(profile, profileKey, context))
+    .map((summary) => {
+      const attributes = summary?.attributes && typeof summary.attributes === "object" ? summary.attributes : {};
+      const attributeRows = Object.entries(attributes)
+        .map(([key, value]) => ({
+          key: String(key || "").trim(),
+          value: String(value || "").trim(),
+        }))
+        .filter((item) => item.key && item.value)
+        .sort((left, right) => left.key.localeCompare(right.key));
+      return {
+        profileKey: String(summary?.profileKey || "").trim(),
+        mvpd: String(summary?.mvpd || "").trim(),
+        subject: String(summary?.subject || "").trim(),
+        upstreamUserId: String(summary?.upstreamUserId || "").trim(),
+        userId: String(summary?.userId || "").trim(),
+        sessionId: String(summary?.sessionId || "").trim(),
+        notBeforeMs: Number(summary?.notBeforeMs || 0),
+        notAfterMs: Number(summary?.notAfterMs || 0),
+        attributes: attributeRows,
+      };
+    })
+    .sort((left, right) => String(left?.profileKey || "").localeCompare(String(right?.profileKey || "")));
+}
+
+async function fetchRestV2ProfilesForHarvest(harvest, options = {}) {
+  const actionMode = normalizeBobtoolsRestV2Action(options?.apiAction || BOBTOOLS_REST_V2_ACTION_PROFILES_MVPD);
+  const serviceProviderId = String(harvest?.serviceProviderId || harvest?.requestorId || "").trim();
+  const mvpd = String(harvest?.mvpd || "").trim();
+  const programmerId = String(harvest?.programmerId || "").trim();
+  if (!serviceProviderId) {
+    throw new Error("Missing service provider from the selected MVPD profile.");
+  }
+  if (!programmerId) {
+    throw new Error("Missing programmer context for profile lookup.");
+  }
+
+  const appInfo = resolveRestV2AppInfoForHarvest(harvest);
+  if (!appInfo?.guid) {
+    throw new Error("Unable to resolve REST V2 application context for profile lookup.");
+  }
+
+  const endpointUrl =
+    actionMode === BOBTOOLS_REST_V2_ACTION_PROFILES_ALL
+      ? `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/profiles`
+      : `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/profiles/${encodeURIComponent(mvpd)}`;
+  const actionLabel = getBobtoolsRestV2ActionLabel(actionMode);
+  const flowId = resolveRestV2DebugFlowIdForHarvest(harvest);
+
+  emitRestV2DebugEvent(flowId, {
+    source: "extension",
+    phase: `${actionMode}-request`,
+    method: "GET",
+    url: endpointUrl,
+    scope: actionMode,
+    requestorId: String(harvest?.requestorId || serviceProviderId || ""),
+    mvpd,
+    programmerId,
+    appGuid: String(appInfo?.guid || ""),
+    appName: String(appInfo?.appName || appInfo?.guid || ""),
+    authMode: "dcr_client_bearer",
+  });
+
+  const response = await fetchWithPremiumAuth(
+    programmerId,
+    appInfo,
+    endpointUrl,
+    {
+      method: "GET",
+      mode: "cors",
+      headers: buildRestV2Headers(serviceProviderId, {
+        Accept: "application/json",
+      }),
+    },
+    "refresh",
+    {
+      flowId,
+      requestorId: String(harvest?.requestorId || serviceProviderId || ""),
+      mvpd,
+      scope: actionMode,
+      service: "rest-v2-profiles",
+      endpointUrl,
+    }
+  );
+
+  const responseText = await response.text().catch(() => "");
+  const parsedPayload = parseJsonText(responseText, null);
+  const profileRows = extractRestV2ProfileRowsFromPayload(parsedPayload || {}, {
+    mvpd,
+    requestorId: String(harvest?.requestorId || serviceProviderId || "").trim(),
+  });
+  const checkedAt = Date.now();
+  const result = {
+    checkedAt,
+    checkedAtLabel: formatTimestampLabel(checkedAt),
+    ok: response.ok === true,
+    status: Number(response.status || 0),
+    statusText: String(response.statusText || "").trim(),
+    programmerId,
+    appGuid: String(appInfo?.guid || "").trim(),
+    appName: String(appInfo?.appName || appInfo?.guid || "").trim(),
+    authMode: "dcr_client_bearer",
+    endpointUrl,
+    method: "GET",
+    apiAction: actionMode,
+    apiActionLabel: actionLabel,
+    resultType: "profiles",
+    serviceProviderId,
+    requestorId: String(harvest?.requestorId || serviceProviderId || "").trim(),
+    mvpd,
+    harvestKey: getRestV2HarvestRecordKey(harvest),
+    harvestCapturedAt: Number(harvest?.harvestedAt || 0),
+    subject: String(harvest?.subject || "").trim(),
+    upstreamUserId: String(harvest?.upstreamUserId || "").trim(),
+    userId: String(harvest?.userId || "").trim(),
+    sessionId: String(harvest?.sessionId || "").trim(),
+    profileKey: String(harvest?.profileKey || "").trim(),
+    profileRows,
+    profileCount: profileRows.length,
+    profileKeys: profileRows.map((row) => String(row?.profileKey || "").trim()).filter(Boolean),
+    responsePreview: truncateDebugText(responseText, 3000),
+    responsePayload: parsedPayload ?? responseText,
+    error: "",
+  };
+
+  emitRestV2DebugEvent(flowId, {
+    source: "extension",
+    phase: `${actionMode}-response`,
+    method: "GET",
+    url: endpointUrl,
+    scope: actionMode,
+    status: result.status,
+    statusText: result.statusText,
+    requestorId: result.requestorId,
+    mvpd: result.mvpd,
+    programmerId,
+    appGuid: result.appGuid,
+    appName: result.appName,
+    authMode: result.authMode,
+    profileCount: result.profileCount,
+    profileKeys: result.profileKeys.slice(0, 24),
+    responsePreview: result.responsePreview,
+  });
+
+  if (!response.ok) {
+    const errorMessage =
+      firstNonEmptyString([
+        parsedPayload?.code,
+        parsedPayload?.error?.code,
+        parsedPayload?.error,
+        parsedPayload?.details,
+        parsedPayload?.message,
+        normalizeHttpErrorMessage(responseText),
+        result.statusText,
+      ]) || `HTTP ${result.status}`;
+    result.error = errorMessage;
+    throw Object.assign(new Error(`${actionLabel} failed (${result.status}): ${errorMessage}`), { underparResult: result });
+  }
+
+  return result;
+}
+
+async function fetchRestV2ConfigurationForHarvest(harvest) {
+  const serviceProviderId = String(harvest?.serviceProviderId || harvest?.requestorId || "").trim();
+  const mvpd = String(harvest?.mvpd || "").trim();
+  const programmerId = String(harvest?.programmerId || "").trim();
+  if (!serviceProviderId) {
+    throw new Error("Missing service provider from the selected MVPD profile.");
+  }
+  if (!programmerId) {
+    throw new Error("Missing programmer context for configuration lookup.");
+  }
+
+  const appInfo = resolveRestV2AppInfoForHarvest(harvest);
+  if (!appInfo?.guid) {
+    throw new Error("Unable to resolve REST V2 application context for configuration lookup.");
+  }
+
+  const endpointUrl = `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/configuration`;
+  const actionMode = BOBTOOLS_REST_V2_ACTION_CONFIGURATION;
+  const actionLabel = getBobtoolsRestV2ActionLabel(actionMode);
+  const flowId = resolveRestV2DebugFlowIdForHarvest(harvest);
+
+  emitRestV2DebugEvent(flowId, {
+    source: "extension",
+    phase: "configuration-request",
+    method: "GET",
+    url: endpointUrl,
+    scope: actionMode,
+    requestorId: String(harvest?.requestorId || serviceProviderId || ""),
+    mvpd,
+    programmerId,
+    appGuid: String(appInfo?.guid || ""),
+    appName: String(appInfo?.appName || appInfo?.guid || ""),
+    authMode: "dcr_client_bearer",
+  });
+
+  const response = await fetchWithPremiumAuth(
+    programmerId,
+    appInfo,
+    endpointUrl,
+    {
+      method: "GET",
+      mode: "cors",
+      headers: buildRestV2Headers(serviceProviderId, {
+        Accept: "application/json",
+      }),
+    },
+    "refresh",
+    {
+      flowId,
+      requestorId: String(harvest?.requestorId || serviceProviderId || ""),
+      mvpd,
+      scope: actionMode,
+      service: "rest-v2-configuration",
+      endpointUrl,
+    }
+  );
+
+  const responseText = await response.text().catch(() => "");
+  const parsedPayload = parseJsonText(responseText, null);
+  const mvpds = normalizeRestV2MvpdCollection(parsedPayload || {});
+  const checkedAt = Date.now();
+  const result = {
+    checkedAt,
+    checkedAtLabel: formatTimestampLabel(checkedAt),
+    ok: response.ok === true,
+    status: Number(response.status || 0),
+    statusText: String(response.statusText || "").trim(),
+    programmerId,
+    appGuid: String(appInfo?.guid || "").trim(),
+    appName: String(appInfo?.appName || appInfo?.guid || "").trim(),
+    authMode: "dcr_client_bearer",
+    endpointUrl,
+    method: "GET",
+    apiAction: actionMode,
+    apiActionLabel: actionLabel,
+    resultType: "configuration",
+    serviceProviderId,
+    requestorId: String(harvest?.requestorId || serviceProviderId || "").trim(),
+    mvpd,
+    harvestKey: getRestV2HarvestRecordKey(harvest),
+    harvestCapturedAt: Number(harvest?.harvestedAt || 0),
+    subject: String(harvest?.subject || "").trim(),
+    upstreamUserId: String(harvest?.upstreamUserId || "").trim(),
+    userId: String(harvest?.userId || "").trim(),
+    sessionId: String(harvest?.sessionId || "").trim(),
+    profileKey: String(harvest?.profileKey || "").trim(),
+    mvpdRows: mvpds.map((item) => ({
+      id: String(item?.id || "").trim(),
+      name: String(item?.name || "").trim(),
+      isProxy: item?.isProxy === true,
+      boardingStatus: String(item?.boardingStatus || "").trim(),
+    })),
+    mvpdCount: mvpds.length,
+    responsePreview: truncateDebugText(responseText, 3000),
+    responsePayload: parsedPayload ?? responseText,
+    error: "",
+  };
+
+  emitRestV2DebugEvent(flowId, {
+    source: "extension",
+    phase: "configuration-response",
+    method: "GET",
+    url: endpointUrl,
+    scope: actionMode,
+    status: result.status,
+    statusText: result.statusText,
+    requestorId: result.requestorId,
+    mvpd: result.mvpd,
+    programmerId,
+    appGuid: result.appGuid,
+    appName: result.appName,
+    authMode: result.authMode,
+    mvpdCount: result.mvpdCount,
+    responsePreview: result.responsePreview,
+  });
+
+  if (!response.ok) {
+    const errorMessage =
+      firstNonEmptyString([
+        parsedPayload?.code,
+        parsedPayload?.error?.code,
+        parsedPayload?.error,
+        parsedPayload?.details,
+        parsedPayload?.message,
+        normalizeHttpErrorMessage(responseText),
+        result.statusText,
+      ]) || `HTTP ${result.status}`;
+    result.error = errorMessage;
+    throw Object.assign(new Error(`${actionLabel} failed (${result.status}): ${errorMessage}`), { underparResult: result });
   }
 
   return result;
@@ -3013,8 +3525,120 @@ function renderRestV2EntitlementDecisionItems(decisionRows = []) {
     .join("");
 }
 
+function resolveRestV2InlineSplunkColumns(result = null) {
+  const explicitColumns = (Array.isArray(result?.columns) ? result.columns : [])
+    .map((item) => String(item || "").trim())
+    .filter(Boolean);
+  if (explicitColumns.length > 0) {
+    return explicitColumns.slice(0, REST_V2_SPLUNK_INLINE_MAX_COLUMNS);
+  }
+  const sampleRows = Array.isArray(result?.rows) ? result.rows : [];
+  const discovered = [];
+  sampleRows.forEach((row) => {
+    if (!row || typeof row !== "object") {
+      return;
+    }
+    Object.keys(row).forEach((key) => {
+      const normalized = String(key || "").trim();
+      if (!normalized || discovered.includes(normalized)) {
+        return;
+      }
+      discovered.push(normalized);
+    });
+  });
+  return discovered.slice(0, REST_V2_SPLUNK_INLINE_MAX_COLUMNS);
+}
+
+function renderRestV2InlineSplunkNetworkEvents(events = []) {
+  const rows = (Array.isArray(events) ? events : []).slice(0, 8);
+  if (rows.length === 0) {
+    return "";
+  }
+  return `
+    <ul class="rest-v2-splunk-inline-network-list">
+      ${rows
+        .map((event) => {
+          const phase = String(event?.phase || "").trim() || "network";
+          const method = String(event?.method || "").trim().toUpperCase() || "GET";
+          const url = String(event?.url || "").trim();
+          const status = Number(event?.status || 0);
+          const statusText = String(event?.statusText || "").trim();
+          const duration = Number(event?.durationMs || 0);
+          return `<li class="rest-v2-splunk-inline-network-item">${escapeHtml(
+            `${phase}: ${method} ${url} | HTTP ${status || 0} ${statusText} | ${duration}ms`
+          )}</li>`;
+        })
+        .join("")}
+    </ul>
+  `;
+}
+
+function renderRestV2InlineSplunkReport(result = null) {
+  if (!result || typeof result !== "object") {
+    return "";
+  }
+  const checkedAt = formatTimestampLabel(result?.checkedAt);
+  const query = String(result?.queryContext?.search || "").trim();
+  const sid = String(result?.sid || "").trim();
+  const displayedRows = Number(result?.displayedRows || 0);
+  const totalRows = Number(result?.totalRows || 0);
+  const rowSummary =
+    totalRows > displayedRows
+      ? `${displayedRows} shown of ${totalRows} rows`
+      : `${displayedRows} row${displayedRows === 1 ? "" : "s"}`;
+  const networkMarkup = renderRestV2InlineSplunkNetworkEvents(result?.networkEvents || []);
+  if (result.ok !== true) {
+    return `
+      <p class="rest-v2-splunk-inline-head">
+        <strong>Checked:</strong> ${escapeHtml(checkedAt)} | <strong>SID:</strong> ${escapeHtml(sid || "N/A")}
+      </p>
+      <p class="rest-v2-splunk-inline-query"><strong>Query:</strong> ${escapeHtml(query || "(empty)")}</p>
+      <p class="rest-v2-splunk-inline-error">${escapeHtml(String(result?.error || "Splunk query failed."))}</p>
+      ${networkMarkup}
+    `;
+  }
+
+  const columns = resolveRestV2InlineSplunkColumns(result);
+  const rows = (Array.isArray(result?.rows) ? result.rows : []).slice(0, REST_V2_SPLUNK_INLINE_MAX_ROWS);
+  const tableMarkup =
+    columns.length === 0 || rows.length === 0
+      ? '<p class="rest-v2-splunk-inline-empty">No Splunk events were returned for this upstreamUserID.</p>'
+      : `
+      <div class="rest-v2-splunk-inline-table-wrap">
+        <table class="rest-v2-splunk-inline-table">
+          <thead>
+            <tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map((row) => {
+                const cells = columns
+                  .map((column) => `<td>${escapeHtml(String(row?.[column] == null ? "" : row[column]))}</td>`)
+                  .join("");
+                return `<tr>${cells}</tr>`;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+  return `
+    <p class="rest-v2-splunk-inline-head">
+      <strong>Checked:</strong> ${escapeHtml(checkedAt)} | <strong>SID:</strong> ${escapeHtml(sid || "N/A")} | <strong>Rows:</strong> ${escapeHtml(
+    rowSummary
+  )}
+    </p>
+    <p class="rest-v2-splunk-inline-query"><strong>Query:</strong> ${escapeHtml(query || "(empty)")}</p>
+    ${networkMarkup}
+    ${tableMarkup}
+  `;
+}
+
 function renderRestV2ProfileHistoryTool(section, harvestList = []) {
   const tool = section?.querySelector(".rest-v2-profile-history-tool");
+  const toggleButton = section?.querySelector(".rest-v2-profile-tool-toggle");
+  const bodyElement = section?.querySelector(".rest-v2-profile-tool-body");
   const countElement = section?.querySelector(".rest-v2-profile-count");
   const exportButton = section?.querySelector(".rest-v2-profile-export-btn");
   const listElement = section?.querySelector(".rest-v2-profile-list");
@@ -3063,10 +3687,18 @@ function renderRestV2ProfileHistoryTool(section, harvestList = []) {
     if (exportButton) {
       exportButton.disabled = true;
     }
+    if (toggleButton) {
+      toggleButton.setAttribute("aria-expanded", "false");
+    }
+    if (bodyElement) {
+      bodyElement.hidden = true;
+    }
     listElement.innerHTML = "";
     sectionState.selectedHarvestKey = "";
     sectionState.expandedHarvestKey = "";
     sectionState.hasProfileExpansionChoice = false;
+    sectionState.lastSplunkResult = null;
+    sectionState.lastSplunkHarvestKey = "";
     return null;
   }
 
@@ -3230,11 +3862,21 @@ function renderRestV2ProfileHistoryTool(section, harvestList = []) {
       }
     )
     .join("");
+
+  const collapsed = sectionState.profileToolCollapsed === true;
+  if (toggleButton) {
+    toggleButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
+  if (bodyElement) {
+    bodyElement.hidden = collapsed;
+  }
   return selected.harvest;
 }
 
 function renderRestV2EntitlementTool(section, programmerId, selectedHarvest = null, options = {}) {
   const tool = section?.querySelector(".rest-v2-entitlement-tool");
+  const toggleButton = section?.querySelector(".rest-v2-entitlement-tool-toggle");
+  const bodyElement = section?.querySelector(".rest-v2-entitlement-tool-body");
   const contextElement = section?.querySelector(".rest-v2-entitlement-context");
   const copyUpstreamButton = section?.querySelector(".rest-v2-entitlement-copy-upstream-btn");
   const splunkButton = section?.querySelector(".rest-v2-entitlement-splunk-btn");
@@ -3242,14 +3884,46 @@ function renderRestV2EntitlementTool(section, programmerId, selectedHarvest = nu
   const buttonElement = section?.querySelector(".rest-v2-entitlement-go-btn");
   const statusElement = section?.querySelector(".rest-v2-entitlement-status");
   const summaryElement = section?.querySelector(".rest-v2-entitlement-summary");
+  const splunkReportTool = section?.querySelector(".rest-v2-splunk-report-tool");
+  const splunkReportSummary = section?.querySelector(".rest-v2-splunk-report-summary");
   if (!tool || !contextElement || !inputElement || !buttonElement || !statusElement || !summaryElement) {
     return;
   }
 
   const sectionState = getRestV2SectionState(section);
+  const renderSplunkInlineBox = (selectedHarvestKey = "", hasUpstream = false) => {
+    if (!splunkReportTool || !splunkReportSummary) {
+      return;
+    }
+    const activeResult =
+      sectionState.lastSplunkResult &&
+      typeof sectionState.lastSplunkResult === "object" &&
+      String(sectionState.lastSplunkHarvestKey || "").trim() === selectedHarvestKey
+        ? sectionState.lastSplunkResult
+        : null;
+    if (!selectedHarvestKey || !hasUpstream) {
+      splunkReportTool.hidden = true;
+      splunkReportSummary.innerHTML = "";
+      return;
+    }
+    splunkReportTool.hidden = false;
+    if (activeResult) {
+      splunkReportSummary.innerHTML = renderRestV2InlineSplunkReport(activeResult);
+      return;
+    }
+    splunkReportSummary.innerHTML =
+      '<p class="rest-v2-splunk-inline-empty">Run SPLUNK to load query results for this upstreamUserID.</p>';
+  };
+
   const activeSession = options?.activeSession === true;
   if (!selectedHarvest || typeof selectedHarvest !== "object") {
     tool.hidden = true;
+    if (toggleButton) {
+      toggleButton.setAttribute("aria-expanded", "false");
+    }
+    if (bodyElement) {
+      bodyElement.hidden = true;
+    }
     contextElement.textContent = "";
     if (copyUpstreamButton) {
       copyUpstreamButton.hidden = true;
@@ -3268,10 +3942,18 @@ function renderRestV2EntitlementTool(section, programmerId, selectedHarvest = nu
     summaryElement.innerHTML = "";
     inputElement.disabled = true;
     buttonElement.disabled = true;
+    renderSplunkInlineBox("", false);
     return;
   }
 
   tool.hidden = false;
+  const collapsed = sectionState.entitlementToolCollapsed === true;
+  if (toggleButton) {
+    toggleButton.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  }
+  if (bodyElement) {
+    bodyElement.hidden = collapsed;
+  }
   const selectedRequestorId = String(selectedHarvest?.requestorId || "").trim();
   const selectedMvpdId = String(selectedHarvest?.mvpd || "").trim();
   const selectedMvpdMeta =
@@ -3310,6 +3992,7 @@ function renderRestV2EntitlementTool(section, programmerId, selectedHarvest = nu
   }
 
   const harvestKey = getRestV2HarvestRecordKey(selectedHarvest);
+  renderSplunkInlineBox(harvestKey, Boolean(selectedUpstreamUserId));
   const history = getRestV2PreauthorizeHistoryForProgrammer(programmerId);
   const historyResult = history.find((item) => String(item?.harvestKey || "") === harvestKey) || null;
   const profileCheckResult = getRestV2ProfilePreauthzChecks(selectedHarvest)[0] || null;
@@ -3416,11 +4099,15 @@ function syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo) {
   if (!programmerId) {
     const historyTool = section.querySelector(".rest-v2-profile-history-tool");
     const entitlementTool = section.querySelector(".rest-v2-entitlement-tool");
+    const splunkTool = section.querySelector(".rest-v2-splunk-report-tool");
     if (historyTool) {
       historyTool.hidden = true;
     }
     if (entitlementTool) {
       entitlementTool.hidden = true;
+    }
+    if (splunkTool) {
+      splunkTool.hidden = true;
     }
     return;
   }
@@ -3560,7 +4247,7 @@ async function runRestV2EntitlementCheck(section, programmer, appInfo) {
     if (!preflightContext) {
       throw new Error("Selected MVPD profile is missing REST V2 application context.");
     }
-    const preflightFlowId = String(selectedHarvest?.flowId || "").trim();
+    const preflightFlowId = resolveRestV2DebugFlowIdForHarvest(selectedHarvest);
     const preflight = await fetchRestV2ProfileCheckResult(
       preflightContext,
       preflightFlowId,
@@ -3820,6 +4507,7 @@ async function openSplunkSearchTabForLogin(options = {}) {
       return {
         ok: true,
         reused: true,
+        id: Number(updated?.id || existingTab.id || 0),
         tabId: Number(updated?.id || existingTab.id || 0),
         windowId: Number(updated?.windowId || existingTab.windowId || 0),
         url: landingUrl,
@@ -3837,9 +4525,139 @@ async function openSplunkSearchTabForLogin(options = {}) {
   return {
     ok: true,
     reused: false,
+    id: Number(created?.id || 0),
     tabId: Number(created?.id || 0),
     windowId: Number(created?.windowId || 0),
     url: landingUrl,
+  };
+}
+
+function parseSplunkSearchTabState(url = "") {
+  const rawUrl = String(url || "").trim();
+  if (!rawUrl) {
+    return {
+      url: "",
+      sid: "",
+      isLogin: false,
+      query: "",
+      earliest: "",
+      latest: "",
+    };
+  }
+  try {
+    const parsed = new URL(rawUrl);
+    const path = String(parsed.pathname || "").toLowerCase();
+    const hashText = String(parsed.hash || "");
+    const hashQueryText = hashText.startsWith("#") ? hashText.slice(1) : hashText;
+    const hashQueryOnly = hashQueryText.includes("?") ? hashQueryText.split("?").slice(1).join("?") : hashQueryText;
+    const hashParams = new URLSearchParams(hashQueryOnly.startsWith("?") ? hashQueryOnly.slice(1) : hashQueryOnly);
+    const sid = firstNonEmptyString([
+      parsed.searchParams.get("sid"),
+      hashParams.get("sid"),
+      parsed.searchParams.get("job"),
+      hashParams.get("job"),
+    ]);
+    const query = firstNonEmptyString([parsed.searchParams.get("q"), hashParams.get("q")]);
+    const earliest = firstNonEmptyString([parsed.searchParams.get("earliest"), hashParams.get("earliest")]);
+    const latest = firstNonEmptyString([parsed.searchParams.get("latest"), hashParams.get("latest")]);
+    return {
+      url: parsed.toString(),
+      sid,
+      query,
+      earliest,
+      latest,
+      isLogin: path.includes("/account/login") || path.includes("/signin"),
+    };
+  } catch {
+    return {
+      url: rawUrl,
+      sid: "",
+      isLogin: /\/account\/login|\/signin/i.test(rawUrl),
+      query: "",
+      earliest: "",
+      latest: "",
+    };
+  }
+}
+
+async function findSplunkSearchTab(windowId = 0) {
+  const preferredWindowId = Number(windowId || 0);
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query(preferredWindowId > 0 ? { windowId: preferredWindowId } : { currentWindow: true });
+  } catch {
+    tabs = [];
+  }
+  return (
+    tabs.find((tab) => String(tab?.url || "").startsWith(`${SPLUNK_BASE_URL}${SPLUNK_APP_SEARCH_PATH}`)) ||
+    tabs.find((tab) => String(tab?.url || "").startsWith(`${SPLUNK_BASE_URL}/en-US/app/`)) ||
+    tabs.find((tab) => String(tab?.url || "").startsWith(`${SPLUNK_BASE_URL}/`)) ||
+    null
+  );
+}
+
+async function waitForSplunkSidFromSearchTab(queryContext = null, options = {}) {
+  const timeoutMs = Math.max(2500, Number(options.timeoutMs || SPLUNK_SID_WAIT_TIMEOUT_MS));
+  const pollIntervalMs = Math.max(200, Number(options.pollIntervalMs || SPLUNK_SID_WAIT_INTERVAL_MS));
+  let tab = options.tab && typeof options.tab === "object" ? options.tab : null;
+  if (!tab) {
+    tab = await findSplunkSearchTab(Number(options.windowId || 0));
+  }
+  let activeTabId = Number(tab?.id || tab?.tabId || 0);
+  if (!activeTabId) {
+    return {
+      ok: false,
+      authRequired: false,
+      sid: "",
+      error: "Unable to locate Splunk search tab for SID retrieval.",
+    };
+  }
+  const expectedQuery = String(queryContext?.search || "").trim();
+  const startedAt = Date.now();
+  while (Date.now() - startedAt <= timeoutMs) {
+    let currentTab = null;
+    try {
+      currentTab = await chrome.tabs.get(activeTabId);
+    } catch {
+      return {
+        ok: false,
+        authRequired: false,
+        sid: "",
+        error: "Splunk search tab closed before a SID was produced.",
+      };
+    }
+    const tabState = parseSplunkSearchTabState(currentTab?.url);
+    const tabQuery = String(tabState.query || "").trim();
+    const queryLooksAligned = !expectedQuery || !tabQuery || tabQuery === expectedQuery;
+    if (tabState.sid && queryLooksAligned) {
+      return {
+        ok: true,
+        authRequired: false,
+        sid: String(tabState.sid || "").trim(),
+        tabId: Number(currentTab?.id || 0),
+        windowId: Number(currentTab?.windowId || 0),
+        url: String(currentTab?.url || ""),
+      };
+    }
+    if (tabState.isLogin) {
+      return {
+        ok: false,
+        authRequired: true,
+        sid: "",
+        tabId: Number(currentTab?.id || 0),
+        windowId: Number(currentTab?.windowId || 0),
+        url: String(currentTab?.url || ""),
+        error: "Splunk login screen is active. Sign in and re-run SPLUNK.",
+      };
+    }
+    activeTabId = Number(currentTab?.id || activeTabId);
+    await waitForDelay(pollIntervalMs);
+  }
+  return {
+    ok: false,
+    authRequired: false,
+    sid: "",
+    error: "Splunk did not produce a search SID in time. Refresh the Splunk tab and click SPLUNK again.",
   };
 }
 
@@ -3888,15 +4706,90 @@ function extractSplunkJobSid(payload = null) {
 }
 
 function extractSplunkJobResultCount(payload = null) {
-  const candidate = Number(
-    firstNonEmptyString([
-      String(payload?.entry?.[0]?.content?.resultCount || ""),
-      String(payload?.entry?.[0]?.content?.eventCount || ""),
-      String(payload?.resultCount || ""),
-      String(payload?.eventCount || ""),
-    ]) || 0
-  );
-  return Number.isFinite(candidate) && candidate > 0 ? candidate : 0;
+  const candidates = [
+    payload?.entry?.[0]?.content?.resultCount,
+    payload?.entry?.[0]?.content?.eventCount,
+    payload?.entry?.[0]?.content?.result_count,
+    payload?.entry?.[0]?.content?.event_count,
+    payload?.resultCount,
+    payload?.eventCount,
+    payload?.result_count,
+    payload?.event_count,
+  ];
+  for (const candidate of candidates) {
+    const numeric = Number(candidate);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric;
+    }
+  }
+  return 0;
+}
+
+function parseSplunkBoolean(value) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return normalized === "1" || normalized === "true" || normalized === "yes";
+}
+
+function parseSplunkJobStatus(payload = null) {
+  const content = payload?.entry?.[0]?.content || payload?.content || payload || {};
+  const dispatchState = String(content?.dispatchState || content?.dispatch_state || "").trim().toUpperCase();
+  const doneProgress = Number(content?.doneProgress ?? content?.done_progress ?? 0);
+  const eventCount = Number(content?.eventCount ?? content?.event_count ?? 0);
+  const resultCount = Number(content?.resultCount ?? content?.result_count ?? 0);
+  const isDone = parseSplunkBoolean(content?.isDone) || dispatchState === "DONE" || doneProgress >= 1;
+  const isFailed = parseSplunkBoolean(content?.isFailed) || dispatchState === "FAILED";
+  return {
+    isDone,
+    isFailed,
+    dispatchState,
+    doneProgress: Number.isFinite(doneProgress) ? doneProgress : 0,
+    eventCount: Number.isFinite(eventCount) ? eventCount : 0,
+    resultCount: Number.isFinite(resultCount) ? resultCount : 0,
+  };
+}
+
+function extractSplunkRowsFromResponsePayload(payload = null) {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+  const direct = Array.isArray(payload?.results)
+    ? payload.results
+    : Array.isArray(payload?.events)
+      ? payload.events
+      : null;
+  if (Array.isArray(direct)) {
+    return direct;
+  }
+  const nested = payload?.entry?.[0]?.content;
+  if (nested && typeof nested === "object") {
+    if (Array.isArray(nested.results)) {
+      return nested.results;
+    }
+    if (Array.isArray(nested.events)) {
+      return nested.events;
+    }
+  }
+  return [];
+}
+
+function extractSplunkFieldsFromResponsePayload(payload = null) {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+  if (Array.isArray(payload?.fields)) {
+    return payload.fields;
+  }
+  const nested = payload?.entry?.[0]?.content;
+  if (nested && typeof nested === "object" && Array.isArray(nested.fields)) {
+    return nested.fields;
+  }
+  return [];
 }
 
 function normalizeSplunkCellValue(value) {
@@ -3960,9 +4853,463 @@ function normalizeSplunkRows(results = [], columns = []) {
   });
 }
 
-async function runSplunkRelayRequest(url, options = {}, networkEvents = [], phase = "") {
+function buildSplunkAuthErrorReport(queryContext = null, networkEvents = [], options = {}) {
+  return {
+    ok: false,
+    selectionKey: String(queryContext?.selectionKey || "").trim(),
+    checkedAt: Date.now(),
+    queryContext,
+    sid: String(options.sid || "").trim(),
+    columns: [],
+    rows: [],
+    totalRows: 0,
+    displayedRows: 0,
+    truncatedRows: false,
+    endpointUrl: String(options.endpointUrl || `${SPLUNK_SPLUNKD_BASE}/services/search/v2/jobs`),
+    status: Number(options.status || 0),
+    statusText: String(options.statusText || "").trim(),
+    error:
+      String(options.error || "").trim() ||
+      "Splunk session is not active. Sign in or refresh auth in the opened Splunk tab, then click SPLUNK again.",
+    authRequired: options.authRequired !== false,
+    networkEvents: Array.isArray(networkEvents) ? networkEvents : [],
+  };
+}
+
+function buildSplunkReportPayloadFromEvents(queryContext = null, sid = "", eventsUrl = "", eventsResponse = null, networkEvents = [], options = {}) {
+  const fields = Array.isArray(eventsResponse?.parsed?.fields) ? eventsResponse.parsed.fields : [];
+  const rawRows = Array.isArray(eventsResponse?.parsed?.results) ? eventsResponse.parsed.results : [];
+  const columns = collectSplunkColumnOrder(rawRows, fields);
+  const normalizedRows = normalizeSplunkRows(rawRows, columns);
+  const displayedRows = normalizedRows.slice(0, SPLUNK_EVENT_RENDER_LIMIT);
+  const totalRowsFromMeta = Number(options.totalRowsFromMeta || 0);
+  const totalRows = Math.max(totalRowsFromMeta, normalizedRows.length);
+  return {
+    ok: true,
+    selectionKey: String(queryContext?.selectionKey || "").trim(),
+    checkedAt: Date.now(),
+    queryContext,
+    sid: String(sid || "").trim(),
+    columns,
+    rows: displayedRows,
+    totalRows,
+    displayedRows: displayedRows.length,
+    truncatedRows: totalRows > displayedRows.length,
+    endpointUrl: String(eventsUrl || ""),
+    status: Number(eventsResponse?.status || 0),
+    statusText: String(eventsResponse?.statusText || "").trim(),
+    error: "",
+    authRequired: false,
+    networkEvents: Array.isArray(networkEvents) ? networkEvents : [],
+  };
+}
+
+async function fetchSplunkReportBySid(queryContext = null, sid = "", networkEvents = [], phasePrefix = "sid-fetch", relayOptions = {}) {
+  const normalizedSid = String(sid || "").trim();
+  if (!normalizedSid) {
+    return {
+      ok: false,
+      error: "Unable to fetch Splunk results: SID is missing.",
+      authRequired: false,
+      report: null,
+    };
+  }
+  const encodedSid = encodeURIComponent(normalizedSid);
+  const jobsBaseCandidates = [
+    `${SPLUNK_SPLUNKD_BASE}/services/search/v2/jobs`,
+    `${SPLUNK_SPLUNKD_BASE}/services/search/jobs`,
+  ];
+  let lastError = "";
+  for (const jobsBaseUrl of jobsBaseCandidates) {
+    const jobMetaUrl = `${jobsBaseUrl}/${encodedSid}?output_mode=json`;
+    const pollStartedAt = Date.now();
+    let jobMeta = null;
+    let latestStatus = parseSplunkJobStatus(null);
+    do {
+      jobMeta = await runSplunkRelayRequest(
+        jobMetaUrl,
+        {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            Accept: "*/*",
+          },
+        },
+        networkEvents,
+        `${phasePrefix}-job-status`,
+        relayOptions
+      );
+      if (jobMeta.authRequired) {
+        return {
+          ok: false,
+          error: "Splunk session is not active. Sign in or refresh auth in the opened Splunk tab, then click SPLUNK again.",
+          authRequired: true,
+          report: buildSplunkAuthErrorReport(queryContext, networkEvents, {
+            sid: normalizedSid,
+            endpointUrl: jobMetaUrl,
+            status: jobMeta.status,
+            statusText: jobMeta.statusText,
+          }),
+        };
+      }
+      if (!jobMeta.ok) {
+        lastError = firstNonEmptyString([
+          normalizeHttpErrorMessage(jobMeta.text),
+          String(jobMeta.statusText || "").trim(),
+          `HTTP ${jobMeta.status || 0}`,
+        ]);
+        break;
+      }
+      latestStatus = parseSplunkJobStatus(jobMeta.parsed);
+      if (latestStatus.isFailed) {
+        lastError = "Splunk search job failed before event retrieval.";
+        break;
+      }
+      if (latestStatus.isDone) {
+        break;
+      }
+      await waitForDelay(SPLUNK_JOB_POLL_INTERVAL_MS);
+    } while (Date.now() - pollStartedAt < SPLUNK_JOB_POLL_TIMEOUT_MS);
+
+    if (!jobMeta?.ok) {
+      continue;
+    }
+
+    const totalRowsFromMeta = Math.max(extractSplunkJobResultCount(jobMeta.parsed), Number(latestStatus.eventCount || 0));
+    const relayFetchLimit = Number(relayOptions?.tabId || 0) > 0 ? Math.min(SPLUNK_EVENT_FETCH_LIMIT, 180) : SPLUNK_EVENT_FETCH_LIMIT;
+    const fetchCount = Math.max(50, Math.min(relayFetchLimit, totalRowsFromMeta > 0 ? totalRowsFromMeta : relayFetchLimit));
+    const eventsParams = new URLSearchParams({
+      output_mode: "json",
+      offset: "0",
+      count: String(fetchCount),
+      segmentation: "full",
+      max_lines: "5",
+      field_list: "_raw,_time,*",
+      truncation_mode: "abstract",
+    });
+    const eventsUrl = `${jobsBaseUrl}/${encodedSid}/events?${eventsParams.toString()}`;
+    const eventsResponse = await runSplunkRelayRequest(
+      eventsUrl,
+      {
+        method: "GET",
+        credentials: "include",
+        headers: {
+          Accept: "*/*",
+        },
+      },
+      networkEvents,
+      `${phasePrefix}-events`,
+      relayOptions
+    );
+    if (eventsResponse.authRequired) {
+      return {
+        ok: false,
+        error: "Splunk session is not active. Sign in or refresh auth in the opened Splunk tab, then click SPLUNK again.",
+        authRequired: true,
+        report: buildSplunkAuthErrorReport(queryContext, networkEvents, {
+          sid: normalizedSid,
+          endpointUrl: eventsUrl,
+          status: eventsResponse.status,
+          statusText: eventsResponse.statusText,
+        }),
+      };
+    }
+    if (!eventsResponse.ok) {
+      lastError = firstNonEmptyString([
+        normalizeHttpErrorMessage(eventsResponse.text),
+        String(eventsResponse.statusText || "").trim(),
+        `HTTP ${eventsResponse.status || 0}`,
+      ]);
+      continue;
+    }
+
+    const eventRows = extractSplunkRowsFromResponsePayload(eventsResponse.parsed);
+    const eventFields = extractSplunkFieldsFromResponsePayload(eventsResponse.parsed);
+    let fallbackResponse = null;
+    let fallbackRows = [];
+    let fallbackFields = [];
+
+    if (eventRows.length === 0 && (latestStatus.eventCount > 0 || totalRowsFromMeta > 0)) {
+      const resultsParams = new URLSearchParams({
+        output_mode: "json",
+        offset: "0",
+        count: String(fetchCount),
+      });
+      const resultsUrl = `${jobsBaseUrl}/${encodedSid}/results?${resultsParams.toString()}`;
+      fallbackResponse = await runSplunkRelayRequest(
+        resultsUrl,
+        {
+          method: "GET",
+          credentials: "include",
+          headers: {
+            Accept: "*/*",
+          },
+        },
+        networkEvents,
+        `${phasePrefix}-results`,
+        relayOptions
+      );
+      if (fallbackResponse.ok && !fallbackResponse.authRequired) {
+        fallbackRows = extractSplunkRowsFromResponsePayload(fallbackResponse.parsed);
+        fallbackFields = extractSplunkFieldsFromResponsePayload(fallbackResponse.parsed);
+      }
+    }
+
+    const chosenResponse = fallbackRows.length > 0 ? fallbackResponse : eventsResponse;
+    const chosenRows = fallbackRows.length > 0 ? fallbackRows : eventRows;
+    const chosenFields = fallbackRows.length > 0 ? fallbackFields : eventFields;
+    const rowsPayload =
+      chosenResponse?.parsed && typeof chosenResponse.parsed === "object"
+        ? {
+            ...chosenResponse.parsed,
+            fields: chosenFields,
+            results: chosenRows,
+          }
+        : {
+            fields: chosenFields,
+            results: chosenRows,
+          };
+
+    return {
+      ok: true,
+      error: "",
+      authRequired: false,
+      report: buildSplunkReportPayloadFromEvents(queryContext, normalizedSid, String(chosenResponse?.url || eventsUrl), { ...chosenResponse, parsed: rowsPayload }, networkEvents, {
+        totalRowsFromMeta: Math.max(totalRowsFromMeta, Number(latestStatus.eventCount || 0)),
+      }),
+    };
+  }
+  return {
+    ok: false,
+    error: lastError || "Unable to fetch Splunk results for search SID.",
+    authRequired: false,
+    report: null,
+  };
+}
+
+function isSplunkRelayHostUrl(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return false;
+  }
+  try {
+    const parsed = new URL(raw);
+    return String(parsed.hostname || "").trim().toLowerCase() === "splunk-us.corp.adobe.com";
+  } catch {
+    return false;
+  }
+}
+
+function shouldAttemptSplunkTabRelayFallback(runtimeOptions = {}, relayResult = null) {
+  const tabId = Number(runtimeOptions?.tabId || 0);
+  if (!tabId || tabId <= 0 || runtimeOptions?.allowTabRelay === false) {
+    return false;
+  }
+  if (!relayResult || typeof relayResult !== "object") {
+    return true;
+  }
+  if (relayResult.authRequired === true) {
+    return true;
+  }
+  if (!isSplunkRelayHostUrl(relayResult.url)) {
+    return true;
+  }
+  return false;
+}
+
+async function runSplunkRelayRequestFromTabContext(tabId = 0, url = "", options = {}) {
+  const normalizedTabId = Number(tabId || 0);
+  const requestUrl = String(url || "").trim();
+  if (!normalizedTabId || !requestUrl || !chrome.debugger || !isSplunkRelayHostUrl(requestUrl)) {
+    return null;
+  }
+
+  const target = { tabId: normalizedTabId };
   const method = String(options?.method || "GET").trim().toUpperCase();
   const requestBody = typeof options?.body === "string" ? options.body : "";
+  const requestHeaders = options?.headers && typeof options.headers === "object" ? options.headers : {};
+  const requestPayload = {
+    url: requestUrl,
+    method,
+    credentials: String(options?.credentials || "include").trim().toLowerCase() || "include",
+    headers: requestHeaders,
+    body: requestBody,
+  };
+
+  const expression = `(async () => {
+    const req = ${JSON.stringify(requestPayload)};
+    try {
+      const headers = req.headers && typeof req.headers === "object" ? { ...req.headers } : {};
+      const findHeader = (name) => {
+        const target = String(name || "").trim().toLowerCase();
+        if (!target) return "";
+        return Object.keys(headers).find((key) => String(key || "").trim().toLowerCase() === target) || "";
+      };
+      const setHeaderIfMissing = (name, value) => {
+        const existingKey = findHeader(name);
+        if (existingKey) {
+          const existingValue = String(headers[existingKey] ?? "").trim();
+          if (existingValue) return;
+          delete headers[existingKey];
+        }
+        headers[name] = String(value ?? "");
+      };
+      setHeaderIfMissing("X-Requested-With", "XMLHttpRequest");
+      setHeaderIfMissing("Accept", "*/*");
+      if (String(req.method || "GET").toUpperCase() === "POST") {
+        setHeaderIfMissing("Content-Type", "application/x-www-form-urlencoded;charset=UTF-8");
+      }
+      if (!findHeader("X-Splunk-Form-Key")) {
+        const cookieParts = String(document.cookie || "")
+          .split(";")
+          .map((part) => String(part || "").trim())
+          .filter(Boolean);
+        let formKey = "";
+        for (const cookiePart of cookieParts) {
+          const divider = cookiePart.indexOf("=");
+          if (divider <= 0) continue;
+          const cookieName = cookiePart.slice(0, divider).trim().toLowerCase();
+          const cookieValue = cookiePart.slice(divider + 1).trim();
+          if (!/csrf/.test(cookieName) || !cookieValue) continue;
+          formKey = cookieValue;
+          break;
+        }
+        if (formKey) {
+          setHeaderIfMissing("X-Splunk-Form-Key", formKey);
+        }
+      }
+      const response = await fetch(req.url, {
+        method: req.method || "GET",
+        credentials: req.credentials || "include",
+        cache: "no-store",
+        redirect: "follow",
+        headers,
+        body: req.method === "POST" ? (req.body || "") : undefined,
+      });
+      const bodyText = await response.text();
+      const headersOut = {};
+      response.headers.forEach((value, key) => {
+        headersOut[key] = value;
+      });
+      return {
+        ok: Boolean(response.ok),
+        status: Number(response.status || 0),
+        statusText: String(response.statusText || ""),
+        url: String(response.url || req.url || ""),
+        redirected: Boolean(response.redirected),
+        headers: headersOut,
+        bodyText: String(bodyText || ""),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        status: 0,
+        statusText: "",
+        url: String(req.url || ""),
+        redirected: false,
+        headers: {},
+        bodyText: "",
+        error: error && error.message ? String(error.message) : String(error || "unknown_error"),
+      };
+    }
+  })();`;
+
+  let attachedByThisCall = false;
+  try {
+    try {
+      await chrome.debugger.attach(target, AUTH_DEBUGGER_PROTOCOL_VERSION);
+      attachedByThisCall = true;
+    } catch (attachError) {
+      const attachMessage = String(attachError?.message || attachError || "").trim().toLowerCase();
+      if (!attachMessage.includes("already attached")) {
+        throw attachError;
+      }
+    }
+    const evaluateResult = await chrome.debugger.sendCommand(target, "Runtime.evaluate", {
+      expression,
+      returnByValue: true,
+      awaitPromise: true,
+    });
+    const value = evaluateResult?.result?.value;
+    return value && typeof value === "object" ? value : null;
+  } catch {
+    return null;
+  } finally {
+    if (attachedByThisCall) {
+      try {
+        await chrome.debugger.detach(target);
+      } catch {
+        // Ignore detach failures for short-lived tab relay.
+      }
+    }
+  }
+}
+
+async function runSplunkRelayRequest(url, options = {}, networkEvents = [], phase = "", runtimeOptions = {}) {
+  const method = String(options?.method || "GET").trim().toUpperCase();
+  const requestBody = typeof options?.body === "string" ? options.body : "";
+  const recordNetworkEvent = (payload = null) => {
+    if (!Array.isArray(networkEvents) || !payload || typeof payload !== "object") {
+      return;
+    }
+    networkEvents.push(payload);
+  };
+  const buildRelayResult = (relayResponse = null, responseText = "", durationMs = 0) => {
+    const parsed = parseJsonText(responseText, null);
+    return {
+      ok: Boolean(relayResponse?.ok),
+      status: Number(relayResponse?.status || 0),
+      statusText: String(relayResponse?.statusText || "").trim(),
+      url: String(relayResponse?.url || url),
+      headers: relayResponse?.headers instanceof Headers ? relayResponse.headers : new Headers(),
+      text: responseText,
+      parsed,
+      durationMs: Number(durationMs || 0),
+      authRequired: isSplunkAuthRequiredResponse(relayResponse, parsed, responseText),
+      redirected: Boolean(relayResponse?.redirected),
+    };
+  };
+  const attemptTabContextFallback = async (reason = "") => {
+    if (!shouldAttemptSplunkTabRelayFallback(runtimeOptions, null)) {
+      return null;
+    }
+    const tabStartedAt = Date.now();
+    const tabPayload = await runSplunkRelayRequestFromTabContext(Number(runtimeOptions?.tabId || 0), url, {
+      method,
+      credentials: options.credentials || "include",
+      headers: options.headers && typeof options.headers === "object" ? options.headers : {},
+      ...(requestBody ? { body: requestBody } : {}),
+    });
+    if (!tabPayload || typeof tabPayload !== "object") {
+      return null;
+    }
+    const tabDurationMs = Date.now() - tabStartedAt;
+    const tabBodyText = typeof tabPayload?.bodyText === "string" ? tabPayload.bodyText : "";
+    const tabHeaders = tabPayload?.headers && typeof tabPayload.headers === "object" ? new Headers(tabPayload.headers) : new Headers();
+    const relayResponse = {
+      ok: Boolean(tabPayload?.ok),
+      status: Number(tabPayload?.status || 0),
+      statusText: String(tabPayload?.statusText || "").trim(),
+      url: String(tabPayload?.url || url),
+      redirected: Boolean(tabPayload?.redirected),
+      headers: tabHeaders,
+    };
+    recordNetworkEvent({
+      phase: `${String(phase || "request")}-tab-relay`,
+      method,
+      url: String(relayResponse?.url || url),
+      status: Number(relayResponse?.status || 0),
+      statusText: String(relayResponse?.statusText || "").trim(),
+      ok: Boolean(relayResponse?.ok),
+      durationMs: tabDurationMs,
+      requestBody: requestBody ? truncateDebugText(requestBody, 800) : "",
+      responsePreview: truncateDebugText(tabBodyText || String(tabPayload?.error || ""), 1600),
+      relay: "tab",
+      reason: String(reason || ""),
+    });
+    return buildRelayResult(relayResponse, tabBodyText, tabDurationMs);
+  };
+
   const startedAt = Date.now();
   try {
     const response = await relaySplunkFetch(url, {
@@ -3972,71 +5319,82 @@ async function runSplunkRelayRequest(url, options = {}, networkEvents = [], phas
       ...(requestBody ? { body: requestBody } : {}),
     });
     const responseText = await response.text().catch(() => "");
-    const parsed = parseJsonText(responseText, null);
     const durationMs = Date.now() - startedAt;
-    const event = {
+    const result = buildRelayResult(response, responseText, durationMs);
+    recordNetworkEvent({
       phase: String(phase || "request"),
       method,
-      url: String(response?.url || url),
-      status: Number(response?.status || 0),
-      statusText: String(response?.statusText || "").trim(),
-      ok: Boolean(response?.ok),
+      url: String(result?.url || url),
+      status: Number(result?.status || 0),
+      statusText: String(result?.statusText || "").trim(),
+      ok: Boolean(result?.ok),
       durationMs,
       requestBody: requestBody ? truncateDebugText(requestBody, 800) : "",
       responsePreview: truncateDebugText(responseText, 1600),
-    };
-    if (Array.isArray(networkEvents)) {
-      networkEvents.push(event);
+      relay: "background",
+    });
+
+    if (shouldAttemptSplunkTabRelayFallback(runtimeOptions, result)) {
+      const fallbackResult = await attemptTabContextFallback("background-auth-or-redirect");
+      if (fallbackResult) {
+        return fallbackResult;
+      }
     }
-    return {
-      ok: Boolean(response?.ok),
-      status: Number(response?.status || 0),
-      statusText: String(response?.statusText || "").trim(),
-      url: String(response?.url || url),
-      headers: response?.headers instanceof Headers ? response.headers : new Headers(),
-      text: responseText,
-      parsed,
-      durationMs,
-      authRequired: isSplunkAuthRequiredResponse(response, parsed, responseText),
-    };
+    return result;
   } catch (error) {
     const durationMs = Date.now() - startedAt;
     const message = error instanceof Error ? error.message : String(error);
-    if (Array.isArray(networkEvents)) {
-      networkEvents.push({
-        phase: String(phase || "request"),
-        method,
-        url: String(url || ""),
-        status: 0,
-        statusText: "",
-        ok: false,
-        durationMs,
-        requestBody: requestBody ? truncateDebugText(requestBody, 800) : "",
-        responsePreview: truncateDebugText(message, 1600),
-        error: message,
-      });
+    recordNetworkEvent({
+      phase: String(phase || "request"),
+      method,
+      url: String(url || ""),
+      status: 0,
+      statusText: "",
+      ok: false,
+      durationMs,
+      requestBody: requestBody ? truncateDebugText(requestBody, 800) : "",
+      responsePreview: truncateDebugText(message, 1600),
+      error: message,
+      relay: "background",
+    });
+    if (shouldAttemptSplunkTabRelayFallback(runtimeOptions, null)) {
+      const fallbackResult = await attemptTabContextFallback("background-exception");
+      if (fallbackResult) {
+        return fallbackResult;
+      }
     }
     throw error;
   }
 }
 
-async function checkSplunkSessionActive(queryContext = null, networkEvents = []) {
-  const probeUrl = `${SPLUNK_SPLUNKD_BASE}/services/server/info/server-info?output_mode=json`;
+async function checkSplunkSessionActive(queryContext = null, networkEvents = [], runtimeOptions = {}) {
+  const probeUrl = `${SPLUNK_SPLUNKD_BASE}/services/authentication/current-context?output_mode=json`;
   const probe = await runSplunkRelayRequest(
     probeUrl,
     {
       method: "GET",
       credentials: "include",
       headers: {
-        Accept: "application/json, text/plain, */*",
+        Accept: "*/*",
       },
     },
     networkEvents,
-    "session-probe"
+    "session-probe",
+    runtimeOptions
+  );
+  const hasUserIdentity = Boolean(
+    firstNonEmptyString([
+      probe?.parsed?.username,
+      probe?.parsed?.entry?.[0]?.content?.username,
+      probe?.parsed?.entry?.[0]?.name,
+      probe?.parsed?.entry?.[0]?.acl?.owner,
+      probe?.parsed?.entry?.[0]?.content?.realname,
+    ])
   );
   return {
-    active: probe.ok && !probe.authRequired,
+    active: probe.ok && !probe.authRequired && hasUserIdentity,
     probe,
+    hasUserIdentity,
     queryContext,
   };
 }
@@ -4087,6 +5445,7 @@ async function runSplunkSearchForQueryContext(rawQueryContext = null, options = 
 
   const openWorkspace = options.openWorkspace !== false;
   const activateWorkspace = options.activateWorkspace !== false;
+  const emitRestWorkspace = options.emitRestWorkspace !== false;
   const forceLoginOnAuthFailure = options.forceLoginOnAuthFailure !== false;
   let targetWindowId = Number(options.targetWindowId || 0);
 
@@ -4098,65 +5457,62 @@ async function runSplunkSearchForQueryContext(rawQueryContext = null, options = 
     targetWindowId = Number(workspaceTab?.windowId || targetWindowId || state.restWorkspaceWindowId || 0);
   }
 
-  const selectionContext = {
-    programmerId: queryContext.programmerId,
-    programmerName: queryContext.programmerName,
-    requestorId: queryContext.requestorId,
-    mvpd: queryContext.mvpd,
-    mvpdLabel: queryContext.mvpdLabel,
-    upstreamUserId: queryContext.upstreamUserId,
-    selectionKey: queryContext.selectionKey,
-  };
-  restWorkspaceBroadcastControllerState(resolveSelectedProgrammer(), selectionContext, targetWindowId);
-  void restWorkspaceSendWorkspaceMessage(
-    "report-start",
-    {
+  if (emitRestWorkspace) {
+    const selectionContext = {
+      programmerId: queryContext.programmerId,
+      programmerName: queryContext.programmerName,
+      requestorId: queryContext.requestorId,
+      mvpd: queryContext.mvpd,
+      mvpdLabel: queryContext.mvpdLabel,
+      upstreamUserId: queryContext.upstreamUserId,
       selectionKey: queryContext.selectionKey,
-      queryContext,
-      startedAt: Date.now(),
-      search: queryContext.search,
-      earliest: queryContext.earliest,
-      latest: queryContext.latest,
-    },
-    {
-      targetWindowId,
-    }
-  );
+    };
+    restWorkspaceBroadcastControllerState(resolveSelectedProgrammer(), selectionContext, targetWindowId);
+    void restWorkspaceSendWorkspaceMessage(
+      "report-start",
+      {
+        selectionKey: queryContext.selectionKey,
+        queryContext,
+        startedAt: Date.now(),
+        search: queryContext.search,
+        earliest: queryContext.earliest,
+        latest: queryContext.latest,
+      },
+      {
+        targetWindowId,
+      }
+    );
+  }
 
   const networkEvents = [];
-  try {
-    const session = await checkSplunkSessionActive(queryContext, networkEvents);
-    if (!session.active) {
-      if (forceLoginOnAuthFailure) {
-        await openSplunkSearchTabForLogin({
-          activate: true,
-          windowId: targetWindowId || undefined,
-          queryContext,
-        });
-      }
-      const sessionErrorReport = {
-        ok: false,
-        selectionKey: queryContext.selectionKey,
-        checkedAt: Date.now(),
-        queryContext,
-        sid: "",
-        columns: [],
-        rows: [],
-        totalRows: 0,
-        displayedRows: 0,
-        truncatedRows: false,
-        endpointUrl: `${SPLUNK_SPLUNKD_BASE}/services/server/info/server-info?output_mode=json`,
-        status: Number(session?.probe?.status || 0),
-        statusText: String(session?.probe?.statusText || "").trim(),
-        error:
-          "Splunk session is not active. Sign in or refresh auth in the opened Splunk tab, then click SPLUNK again.",
-        authRequired: true,
-        networkEvents,
-      };
-      restWorkspaceStoreLatestReport(sessionErrorReport);
-      void restWorkspaceSendWorkspaceMessage("report-result", sessionErrorReport, { targetWindowId });
-      return sessionErrorReport;
+  const finalizeReport = (payload) => {
+    if (emitRestWorkspace) {
+      restWorkspaceStoreLatestReport(payload);
+      void restWorkspaceSendWorkspaceMessage("report-result", payload, { targetWindowId });
     }
+    return payload;
+  };
+
+  try {
+    let splunkTab = null;
+    try {
+      splunkTab = await openSplunkSearchTabForLogin({
+        activate: true,
+        windowId: targetWindowId || undefined,
+        queryContext,
+      });
+      if (Number(splunkTab?.windowId || 0) > 0) {
+        targetWindowId = Number(splunkTab.windowId);
+      }
+    } catch {
+      splunkTab = null;
+    }
+    const splunkTabId = Number(splunkTab?.tabId || splunkTab?.id || 0);
+    const relayOptions = {
+      tabId: splunkTabId,
+      allowTabRelay: true,
+    };
+    const session = await checkSplunkSessionActive(queryContext, networkEvents, relayOptions);
 
     const createBody = new URLSearchParams({
       search: queryContext.search,
@@ -4168,10 +5524,10 @@ async function runSplunkSearchForQueryContext(rawQueryContext = null, options = 
       `${SPLUNK_SPLUNKD_BASE}/services/search/v2/jobs`,
       `${SPLUNK_SPLUNKD_BASE}/services/search/jobs`,
     ];
-
-    let createResponse = null;
-    let jobsBaseUrl = "";
-    let sid = "";
+    let sawAuthRequired = false;
+    let authEndpointUrl = createCandidates[0];
+    let authStatus = Number(session?.probe?.status || 0);
+    let authStatusText = String(session?.probe?.statusText || "").trim();
     let lastCreateError = "";
 
     for (const createUrl of createCandidates) {
@@ -4181,44 +5537,26 @@ async function runSplunkSearchForQueryContext(rawQueryContext = null, options = 
           method: "POST",
           credentials: "include",
           headers: {
-            Accept: "application/json, text/plain, */*",
+            Accept: "*/*",
             "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
           },
           body: createBody,
         },
         networkEvents,
-        "create-job"
+        "create-job",
+        relayOptions
       );
       if (response.authRequired) {
-        if (forceLoginOnAuthFailure) {
-          await openSplunkSearchTabForLogin({
-            activate: true,
-            windowId: targetWindowId || undefined,
-            queryContext,
-          });
-        }
-        const authErrorReport = {
-          ok: false,
-          selectionKey: queryContext.selectionKey,
-          checkedAt: Date.now(),
-          queryContext,
-          sid: "",
-          columns: [],
-          rows: [],
-          totalRows: 0,
-          displayedRows: 0,
-          truncatedRows: false,
-          endpointUrl: createUrl,
-          status: Number(response?.status || 0),
-          statusText: String(response?.statusText || "").trim(),
-          error:
-            "Splunk session is not active. Sign in or refresh auth in the opened Splunk tab, then click SPLUNK again.",
-          authRequired: true,
-          networkEvents,
-        };
-        restWorkspaceStoreLatestReport(authErrorReport);
-        void restWorkspaceSendWorkspaceMessage("report-result", authErrorReport, { targetWindowId });
-        return authErrorReport;
+        sawAuthRequired = true;
+        authEndpointUrl = createUrl;
+        authStatus = Number(response?.status || 0);
+        authStatusText = String(response?.statusText || "").trim();
+        lastCreateError = firstNonEmptyString([
+          normalizeHttpErrorMessage(response.text),
+          "Splunk requires an authenticated session for job creation.",
+        ]);
+        continue;
       }
       if (!response.ok) {
         lastCreateError = firstNonEmptyString([
@@ -4233,92 +5571,82 @@ async function runSplunkSearchForQueryContext(rawQueryContext = null, options = 
         lastCreateError = "Splunk search job was created without a SID.";
         continue;
       }
-      createResponse = response;
-      jobsBaseUrl = createUrl;
-      sid = extractedSid;
+      const createdJobResult = await fetchSplunkReportBySid(queryContext, extractedSid, networkEvents, "create-job", relayOptions);
+      if (createdJobResult.ok && createdJobResult.report) {
+        return finalizeReport(createdJobResult.report);
+      }
+      if (createdJobResult.authRequired) {
+        sawAuthRequired = true;
+        authEndpointUrl = createUrl;
+        authStatus = Number(createdJobResult?.report?.status || response.status || 0);
+        authStatusText = String(createdJobResult?.report?.statusText || response.statusText || "").trim();
+      }
+      lastCreateError = firstNonEmptyString([
+        createdJobResult?.error,
+        lastCreateError,
+      ]);
       break;
     }
 
-    if (!createResponse || !sid || !jobsBaseUrl) {
-      throw new Error(lastCreateError || "Unable to create Splunk search job.");
-    }
-
-    const encodedSid = encodeURIComponent(sid);
-    const jobMetaUrl = `${jobsBaseUrl}/${encodedSid}?output_mode=json`;
-    const jobMeta = await runSplunkRelayRequest(
-      jobMetaUrl,
-      {
-        method: "GET",
-        credentials: "include",
-        headers: {
-          Accept: "application/json, text/plain, */*",
-        },
-      },
-      networkEvents,
-      "job-status"
-    );
-
-    const totalCountFromMeta = extractSplunkJobResultCount(jobMeta.parsed);
-    const fetchCount = Math.max(50, Math.min(SPLUNK_EVENT_FETCH_LIMIT, totalCountFromMeta > 0 ? totalCountFromMeta : SPLUNK_EVENT_FETCH_LIMIT));
-    const eventsParams = new URLSearchParams({
-      output_mode: "json",
-      offset: "0",
-      count: String(fetchCount),
-      segmentation: "full",
-      max_lines: "5",
-      field_list: "*",
-      truncation_mode: "abstract",
+    const sidFromTab = await waitForSplunkSidFromSearchTab(queryContext, {
+      tab: splunkTab,
+      windowId: targetWindowId,
+      timeoutMs: SPLUNK_SID_WAIT_TIMEOUT_MS,
+      pollIntervalMs: SPLUNK_SID_WAIT_INTERVAL_MS,
     });
-    const eventsUrl = `${jobsBaseUrl}/${encodedSid}/events?${eventsParams.toString()}`;
-    const eventsResponse = await runSplunkRelayRequest(
-      eventsUrl,
-      {
-        method: "GET",
-        credentials: "include",
-        headers: {
-          Accept: "application/json, text/plain, */*",
-        },
-      },
-      networkEvents,
-      "fetch-events"
-    );
-
-    if (!eventsResponse.ok) {
-      throw new Error(
-        firstNonEmptyString([
-          normalizeHttpErrorMessage(eventsResponse.text),
-          String(eventsResponse.statusText || "").trim(),
-          `HTTP ${eventsResponse.status || 0}`,
-        ]) || "Unable to load Splunk events."
+    if (sidFromTab.ok && sidFromTab.sid) {
+      const sidFallbackResult = await fetchSplunkReportBySid(queryContext, sidFromTab.sid, networkEvents, "sid-fallback", {
+        tabId: Number(sidFromTab?.tabId || splunkTabId || 0),
+        allowTabRelay: true,
+      });
+      if (sidFallbackResult.ok && sidFallbackResult.report) {
+        return finalizeReport(sidFallbackResult.report);
+      }
+      if (sidFallbackResult.authRequired && sidFallbackResult.report) {
+        return finalizeReport(sidFallbackResult.report);
+      }
+      lastCreateError = firstNonEmptyString([
+        sidFallbackResult?.error,
+        lastCreateError,
+      ]);
+    } else if (sidFromTab.authRequired) {
+      return finalizeReport(
+        buildSplunkAuthErrorReport(queryContext, networkEvents, {
+          endpointUrl: authEndpointUrl,
+          status: authStatus,
+          statusText: authStatusText,
+          error: sidFromTab.error,
+        })
       );
     }
 
-    const fields = Array.isArray(eventsResponse?.parsed?.fields) ? eventsResponse.parsed.fields : [];
-    const rawRows = Array.isArray(eventsResponse?.parsed?.results) ? eventsResponse.parsed.results : [];
-    const columns = collectSplunkColumnOrder(rawRows, fields);
-    const normalizedRows = normalizeSplunkRows(rawRows, columns);
-    const displayedRows = normalizedRows.slice(0, SPLUNK_EVENT_RENDER_LIMIT);
-    const reportPayload = {
-      ok: true,
-      selectionKey: queryContext.selectionKey,
-      checkedAt: Date.now(),
-      queryContext,
-      sid,
-      columns,
-      rows: displayedRows,
-      totalRows: normalizedRows.length,
-      displayedRows: displayedRows.length,
-      truncatedRows: normalizedRows.length > displayedRows.length,
-      endpointUrl: eventsUrl,
-      status: Number(eventsResponse.status || 0),
-      statusText: String(eventsResponse.statusText || "").trim(),
-      error: "",
-      authRequired: false,
-      networkEvents,
-    };
-    restWorkspaceStoreLatestReport(reportPayload);
-    void restWorkspaceSendWorkspaceMessage("report-result", reportPayload, { targetWindowId });
-    return reportPayload;
+    if (sawAuthRequired || !session.active) {
+      if (forceLoginOnAuthFailure) {
+        try {
+          await openSplunkSearchTabForLogin({
+            activate: true,
+            windowId: targetWindowId || undefined,
+            queryContext,
+          });
+        } catch {
+          // Ignore tab-open failures while reporting auth state.
+        }
+      }
+      return finalizeReport(
+        buildSplunkAuthErrorReport(queryContext, networkEvents, {
+          endpointUrl: authEndpointUrl,
+          status: authStatus,
+          statusText: authStatusText,
+        })
+      );
+    }
+
+    throw new Error(
+      firstNonEmptyString([
+        lastCreateError,
+        "Unable to create Splunk search job.",
+      ])
+    );
   } catch (error) {
     if (forceLoginOnAuthFailure) {
       const lowerMessage = String(error instanceof Error ? error.message : error).toLowerCase();
@@ -4353,9 +5681,7 @@ async function runSplunkSearchForQueryContext(rawQueryContext = null, options = 
       authRequired: false,
       networkEvents,
     };
-    restWorkspaceStoreLatestReport(errorPayload);
-    void restWorkspaceSendWorkspaceMessage("report-result", errorPayload, { targetWindowId });
-    return errorPayload;
+    return finalizeReport(errorPayload);
   }
 }
 
@@ -4401,6 +5727,7 @@ async function runRestV2SplunkLookup(section, programmer, appInfo) {
 
   sectionState.splunkBusy = true;
   sectionState.splunkBusyHarvestKey = String(selectedState.selectedHarvestKey || "").trim();
+  sectionState.lastSplunkHarvestKey = String(selectedState.selectedHarvestKey || "").trim();
   syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
 
   const result = await runSplunkSearchForQueryContext(queryContext, {
@@ -4410,6 +5737,7 @@ async function runRestV2SplunkLookup(section, programmer, appInfo) {
     forceLoginOnAuthFailure: true,
   });
 
+  sectionState.lastSplunkResult = result && typeof result === "object" ? cloneJsonLikeValue(result, null) : null;
   sectionState.splunkBusy = false;
   sectionState.splunkBusyHarvestKey = "";
   syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
@@ -4426,11 +5754,79 @@ async function runRestV2SplunkLookup(section, programmer, appInfo) {
   }
 }
 
+async function runBobtoolsSplunkLookupForHarvest(harvest = null, options = {}) {
+  if (!harvest || typeof harvest !== "object") {
+    return {
+      ok: false,
+      error: "No captured MVPD profile is selected for Splunk query.",
+    };
+  }
+
+  const upstreamUserId = String(harvest?.upstreamUserId || "").trim();
+  if (!upstreamUserId) {
+    return {
+      ok: false,
+      error: "Selected MVPD profile does not include upstreamUserID.",
+    };
+  }
+
+  const programmer = resolveSelectedProgrammer();
+  const appInfo = resolveRestV2AppInfoForHarvest(harvest);
+  const selectionContext = buildRestWorkspaceSelectionContextFromHarvest(harvest, programmer);
+  const queryContext = {
+    ...selectionContext,
+    search: buildSplunkSearchQueryForUpstreamUserId(upstreamUserId),
+    earliest: SPLUNK_SEARCH_EARLIEST,
+    latest: SPLUNK_SEARCH_LATEST,
+    requestSource: "bobtools-can-i-watch-splunk",
+    appGuid: String(appInfo?.guid || "").trim(),
+    appName: String(appInfo?.appName || appInfo?.guid || "").trim(),
+    harvestKey: String(getRestV2HarvestRecordKey(harvest) || "").trim(),
+  };
+
+  const result = await runSplunkSearchForQueryContext(queryContext, {
+    openWorkspace: false,
+    emitRestWorkspace: false,
+    activateWorkspace: false,
+    requestSource: "bobtools-can-i-watch-splunk",
+    forceLoginOnAuthFailure: true,
+    targetWindowId: Number(options.targetWindowId || 0),
+  });
+  return result && typeof result === "object"
+    ? result
+    : {
+        ok: false,
+        error: "Unable to run Splunk query.",
+      };
+}
+
 function wireRestV2ProfileAndEntitlementHandlers(section, programmer, appInfo) {
   if (!section || section.__underparRestV2HandlersBound) {
     return;
   }
   section.__underparRestV2HandlersBound = true;
+
+  const profileToolToggle = section.querySelector(".rest-v2-profile-tool-toggle");
+  if (profileToolToggle) {
+    profileToolToggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const sectionState = getRestV2SectionState(section);
+      sectionState.profileToolCollapsed = !sectionState.profileToolCollapsed;
+      syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
+    });
+  }
+
+  const entitlementToolToggle = section.querySelector(".rest-v2-entitlement-tool-toggle");
+  if (entitlementToolToggle) {
+    entitlementToolToggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const sectionState = getRestV2SectionState(section);
+      sectionState.entitlementToolCollapsed = !sectionState.entitlementToolCollapsed;
+      syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
+    });
+  }
 
   const listElement = section.querySelector(".rest-v2-profile-list");
   if (listElement) {
@@ -4455,6 +5851,8 @@ function wireRestV2ProfileAndEntitlementHandlers(section, programmer, appInfo) {
         if (sectionState.selectedHarvestKey === harvestKey) {
           sectionState.selectedHarvestKey = "";
           sectionState.lastEntitlementResult = null;
+          sectionState.lastSplunkResult = null;
+          sectionState.lastSplunkHarvestKey = "";
         }
         if (sectionState.expandedHarvestKey === harvestKey) {
           sectionState.expandedHarvestKey = "";
@@ -4462,6 +5860,7 @@ function wireRestV2ProfileAndEntitlementHandlers(section, programmer, appInfo) {
         sectionState.hasProfileExpansionChoice = false;
         setStatus("Removed captured MVPD login profile.", "info");
         syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
+        refreshBobtoolsWorkspaceTools();
         return;
       }
 
@@ -4866,12 +6265,39 @@ async function getCurrentActiveTab() {
       lastFocusedWindow: true,
     });
     if (Array.isArray(tabs) && tabs.length > 0) {
-      return tabs[0];
+      const tab = tabs[0];
+      rememberLastDebuggableWebTab(tab);
+      return tab;
     }
   } catch {
     // Ignore query failures.
   }
   return null;
+}
+
+async function focusChromeWindowFront(windowId, options = {}) {
+  const normalizedWindowId = Number(windowId || 0);
+  if (!normalizedWindowId) {
+    return;
+  }
+  try {
+    await chrome.windows.update(normalizedWindowId, {
+      focused: true,
+      ...(options.drawAttention === true ? { drawAttention: true } : {}),
+    });
+  } catch {
+    // Ignore focus/update failures.
+  }
+}
+
+function pulseChromeWindowFront(windowId, delayMs = 120) {
+  const normalizedWindowId = Number(windowId || 0);
+  if (!normalizedWindowId) {
+    return;
+  }
+  window.setTimeout(() => {
+    void focusChromeWindowFront(normalizedWindowId, { drawAttention: true });
+  }, Math.max(0, Number(delayMs) || 0));
 }
 
 async function openRestV2LoginPopupWindow() {
@@ -4904,6 +6330,10 @@ async function openRestV2LoginPopupWindow() {
   if (!launchWindowId || !launchTabId) {
     throw new Error("Unable to open dedicated MVPD login window.");
   }
+
+  await focusChromeWindowFront(launchWindowId, { drawAttention: true });
+  pulseChromeWindowFront(launchWindowId, 160);
+  pulseChromeWindowFront(launchWindowId, 420);
 
   return {
     windowId: launchWindowId,
@@ -5205,17 +6635,26 @@ function buildCurrentRestV2SelectionContext(programmer, appInfoOverride = null) 
   };
 }
 
-function getRestV2MvpdPickerLabel(requestorId = "", mvpdId = "", mvpdMeta = null) {
+function getRestV2MvpdMeta(requestorId = "", mvpdId = "", mvpdMeta = null) {
+  const normalizedRequestorId = String(requestorId || "").trim();
   const normalizedMvpdId = String(mvpdId || "").trim();
   if (!normalizedMvpdId) {
-    return "MVPD";
+    return null;
   }
-  const normalizedRequestorId = String(requestorId || "").trim();
   const cacheMeta =
     normalizedRequestorId && state.mvpdCacheByRequestor.has(normalizedRequestorId)
       ? state.mvpdCacheByRequestor.get(normalizedRequestorId)?.get(normalizedMvpdId) || null
       : null;
   const resolvedMeta = mvpdMeta && typeof mvpdMeta === "object" ? mvpdMeta : cacheMeta;
+  return resolvedMeta && typeof resolvedMeta === "object" ? resolvedMeta : null;
+}
+
+function getRestV2MvpdPickerLabel(requestorId = "", mvpdId = "", mvpdMeta = null) {
+  const normalizedMvpdId = String(mvpdId || "").trim();
+  if (!normalizedMvpdId) {
+    return "MVPD";
+  }
+  const resolvedMeta = getRestV2MvpdMeta(requestorId, normalizedMvpdId, mvpdMeta);
   return formatMvpdPickerLabel(normalizedMvpdId, resolvedMeta) || normalizedMvpdId;
 }
 
@@ -5230,11 +6669,106 @@ function formatRestV2RequestorMvpdDisplay(requestorId = "", mvpdId = "", mvpdMet
   return `${requestorLabel}${separator}${getRestV2MvpdPickerLabel(normalizedRequestorId, normalizedMvpdId, mvpdMeta)}`;
 }
 
+function syncRestV2BobtoolsLauncher(section, programmer, appInfo) {
+  if (!section) {
+    return;
+  }
+  const tool = section.querySelector(".rest-v2-bobtools-tool");
+  const button = section.querySelector(".rest-v2-bobtools-open-btn");
+  if (!tool || !button) {
+    return;
+  }
+
+  const context = buildCurrentRestV2SelectionContext(programmer, appInfo);
+  const programmerId = context?.ok
+    ? String(context.programmerId || "").trim()
+    : String(programmer?.programmerId || resolveSelectedProgrammer()?.programmerId || "").trim();
+  const harvestList = programmerId ? getRestV2ProfileHarvestBucketForProgrammer(programmerId) : [];
+  const hasProfiles = harvestList.length > 0;
+  const selectedHarvest = harvestList[0] || null;
+  const selectedRequestorId = String(selectedHarvest?.requestorId || selectedHarvest?.serviceProviderId || "").trim();
+  const selectedMvpd = String(selectedHarvest?.mvpd || "").trim();
+  const mvpdMeta =
+    selectedHarvest && String(selectedHarvest?.mvpdName || "").trim() && selectedMvpd
+      ? {
+          id: selectedMvpd,
+          name: String(selectedHarvest.mvpdName || "").trim(),
+        }
+      : null;
+  const requestorMvpdLabel = selectedHarvest
+    ? formatRestV2RequestorMvpdDisplay(selectedRequestorId, selectedMvpd, mvpdMeta, { separator: " x " })
+    : "";
+
+  tool.hidden = !hasProfiles;
+  button.disabled = !hasProfiles;
+  if (!hasProfiles) {
+    button.title = "BOBTOOLS unlocks after at least one successful MVPD login profile is captured.";
+    button.setAttribute("aria-label", "BOBTOOLS unavailable until MVPD login profile is captured");
+    return;
+  }
+  const actionLabel = requestorMvpdLabel ? `Open BOBTOOLS Workspace for ${requestorMvpdLabel}.` : "Open BOBTOOLS Workspace";
+  button.title = actionLabel;
+  button.setAttribute("aria-label", actionLabel);
+}
+
+function hideRestV2MvpdDependentControls(section) {
+  if (!section) {
+    return;
+  }
+  const loginTool = section.querySelector(".rest-v2-login-tool");
+  const loginButton = section.querySelector(".rest-v2-test-login-btn");
+  const stopButton = section.querySelector(".rest-v2-close-login-btn");
+  const profileTool = section.querySelector(".rest-v2-profile-history-tool");
+  const entitlementTool = section.querySelector(".rest-v2-entitlement-tool");
+  const splunkTool = section.querySelector(".rest-v2-splunk-report-tool");
+  const bobtoolsTool = section.querySelector(".rest-v2-bobtools-tool");
+
+  if (loginTool) {
+    loginTool.hidden = true;
+  }
+  if (loginButton) {
+    loginButton.hidden = true;
+    loginButton.disabled = true;
+    loginButton.removeAttribute("title");
+    loginButton.removeAttribute("aria-label");
+  }
+  if (stopButton) {
+    stopButton.hidden = true;
+    stopButton.disabled = true;
+  }
+  if (profileTool) {
+    profileTool.hidden = true;
+  }
+  if (entitlementTool) {
+    entitlementTool.hidden = true;
+  }
+  if (splunkTool) {
+    splunkTool.hidden = true;
+  }
+  if (bobtoolsTool) {
+    bobtoolsTool.hidden = true;
+  }
+  setRestV2LoginPanelStatus(section, "");
+}
+
 function syncRestV2LoginPanel(section, programmer, appInfo) {
   const button = section?.querySelector(".rest-v2-test-login-btn");
+  const loginTool = section?.querySelector(".rest-v2-login-tool");
+  const hasSelectedMvpd = Boolean(String(state.selectedMvpdId || "").trim());
+  const showMvpdUi = hasSelectedMvpd || state.restV2RecordingActive === true || state.restV2Stopping === true;
+
+  if (!showMvpdUi) {
+    hideRestV2MvpdDependentControls(section);
+    return;
+  }
+  if (loginTool) {
+    loginTool.hidden = false;
+  }
+
   const context = buildCurrentRestV2SelectionContext(programmer, appInfo);
   syncRestV2CloseLoginButton(section);
   syncRestV2ProfileAndEntitlementPanels(section, programmer, appInfo);
+  syncRestV2BobtoolsLauncher(section, programmer, appInfo);
   if (!button) {
     return;
   }
@@ -5299,6 +6833,7 @@ function syncRestV2LoginPanel(section, programmer, appInfo) {
 function refreshRestV2LoginPanels() {
   const sections = document.querySelectorAll(".premium-service-section.service-rest-v2");
   if (!sections || sections.length === 0) {
+    refreshBobtoolsWorkspaceTools();
     return;
   }
 
@@ -5306,6 +6841,7 @@ function refreshRestV2LoginPanels() {
   sections.forEach((section) => {
     syncRestV2LoginPanel(section, selectedProgrammer, null);
   });
+  refreshBobtoolsWorkspaceTools();
 }
 
 function waitForDelay(durationMs) {
@@ -5397,6 +6933,19 @@ function toRestV2RecordingContext(context, appInfoOverride = null, options = {})
   if (!context?.ok) {
     return null;
   }
+  const serviceProviderId = String(context.serviceProviderId || context.requestorId || "").trim();
+  const redirectUrl = normalizeAdobeNavigationUrl(firstNonEmptyString([options?.redirectUrl, context?.redirectUrl]));
+  const sessionUrl = normalizeAdobeNavigationUrl(firstNonEmptyString([options?.sessionUrl]));
+  const sessionCodeCandidates = collectRestV2SessionCodeCandidates(
+    [
+      options?.sessionCode,
+      ...(Array.isArray(options?.sessionCodeCandidates) ? options.sessionCodeCandidates : []),
+      sessionUrl,
+      options?.loginUrl,
+    ],
+    serviceProviderId
+  );
+  const sessionCode = firstNonEmptyString(sessionCodeCandidates);
   const selectedAppInfo = appInfoOverride || context.appInfo || null;
   const compactAppInfo = selectedAppInfo
     ? {
@@ -5406,16 +6955,20 @@ function toRestV2RecordingContext(context, appInfoOverride = null, options = {})
         softwareStatement: String(selectedAppInfo.softwareStatement || ""),
       }
       : null;
-  const redirectUrl = normalizeAdobeNavigationUrl(firstNonEmptyString([options?.redirectUrl, context?.redirectUrl]));
   return {
     programmerId: context.programmerId,
     programmerName: context.programmerName || "",
     requestorId: context.requestorId,
-    serviceProviderId: context.serviceProviderId || context.requestorId,
+    serviceProviderId,
     mvpd: context.mvpd,
     mvpdName: String(context?.mvpdMeta?.name || "").trim(),
     appInfo: compactAppInfo,
     redirectUrl,
+    sessionCode,
+    sessionCodeCandidates,
+    sessionAction: String(options?.sessionAction || "").trim(),
+    sessionPartner: String(options?.sessionPartner || "").trim(),
+    sessionUrl,
     startedAt: Date.now(),
   };
 }
@@ -5542,9 +7095,24 @@ async function launchRestV2MvpdLogin(section, programmer, appInfo) {
         preparedEntry?.sessionData?.existingParameters?.redirectUrl,
       ])
     );
+    const sessionCodeCandidates = collectRestV2SessionCodeCandidates(
+      [
+        preparedEntry?.sessionData?.code,
+        preparedEntry?.sessionData?.sessionCode,
+        preparedEntry?.sessionData?.url,
+        preparedEntry?.loginUrl,
+      ],
+      context.serviceProviderId
+    );
     storeRestV2AuthContextForRequestor(context, selectedAppInfo);
     state.restV2RecordingContext = toRestV2RecordingContext(context, selectedAppInfo, {
       redirectUrl: configuredRedirectUrl,
+      sessionCode: firstNonEmptyString([preparedEntry?.sessionData?.code, sessionCodeCandidates[0]]),
+      sessionCodeCandidates,
+      sessionAction: String(preparedEntry?.sessionData?.actionName || "").trim(),
+      sessionPartner: String(preparedEntry?.sessionData?.partner || "").trim(),
+      sessionUrl: normalizeAdobeNavigationUrl(firstNonEmptyString([preparedEntry?.sessionData?.url])),
+      loginUrl: preparedEntry?.loginUrl,
     });
 
     const activeTab = await getCurrentActiveTab();
@@ -5576,6 +7144,8 @@ async function launchRestV2MvpdLogin(section, programmer, appInfo) {
         url: preparedEntry.loginUrl,
         active: true,
       });
+      await focusChromeWindowFront(state.restV2LastLaunchWindowId, { drawAttention: true });
+      pulseChromeWindowFront(state.restV2LastLaunchWindowId, 120);
 
       const traceViewerResult = await openOrFocusUPTraceViewer(state.restV2LastLaunchTabId, debugFlowId);
       if (traceViewerResult.ok) {
@@ -5603,8 +7173,15 @@ async function launchRestV2MvpdLogin(section, programmer, appInfo) {
       tabId: state.restV2LastLaunchTabId,
       windowId: state.restV2LastLaunchWindowId,
       loginUrl: preparedEntry.loginUrl,
-      sessionCode: preparedEntry?.sessionData?.code || "",
-      sessionAction: preparedEntry?.sessionData?.actionName || "",
+      sessionCode:
+        String(state.restV2RecordingContext?.sessionCode || "").trim() ||
+        String(preparedEntry?.sessionData?.code || "").trim(),
+      sessionCodeCandidates: Array.isArray(state.restV2RecordingContext?.sessionCodeCandidates)
+        ? state.restV2RecordingContext.sessionCodeCandidates.slice(0, 8)
+        : [],
+      sessionAction:
+        String(state.restV2RecordingContext?.sessionAction || "").trim() ||
+        String(preparedEntry?.sessionData?.actionName || "").trim(),
     });
 
     setRestV2LoginPanelStatus(
@@ -6947,7 +8524,149 @@ function getRestV2ProfileHarvestForContext(context = null) {
   return state.restV2ProfileHarvestLast && typeof state.restV2ProfileHarvestLast === "object" ? state.restV2ProfileHarvestLast : null;
 }
 
-async function fetchRestV2ProfileCheckResult(context, flowId, scope = "profiles-check") {
+function buildRestV2ProfileCheckEndpointCandidates(context = null) {
+  if (!context || typeof context !== "object") {
+    return [];
+  }
+  const serviceProviderId = String(context.serviceProviderId || context.requestorId || "").trim();
+  const mvpd = String(context.mvpd || "").trim();
+  if (!serviceProviderId) {
+    return [];
+  }
+
+  const endpoints = [];
+  const seen = new Set();
+  const pushEndpoint = (endpointKey, url, metadata = {}) => {
+    const normalizedUrl = String(url || "").trim();
+    if (!endpointKey || !normalizedUrl || seen.has(normalizedUrl)) {
+      return;
+    }
+    seen.add(normalizedUrl);
+    endpoints.push({
+      endpointKey: String(endpointKey || "").trim(),
+      endpointLabel: String(metadata.endpointLabel || endpointKey || "").trim(),
+      url: normalizedUrl,
+      sessionCode: String(metadata.sessionCode || "").trim(),
+    });
+  };
+
+  const mvpdProfilesUrl = mvpd
+    ? `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/profiles/${encodeURIComponent(mvpd)}`
+    : "";
+  const allProfilesUrl = `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/profiles`;
+  const sessionCodeCandidates = collectRestV2SessionCodeCandidates(
+    [
+      context.sessionCode,
+      ...(Array.isArray(context.sessionCodeCandidates) ? context.sessionCodeCandidates : []),
+      context.sessionUrl,
+      context.loginUrl,
+    ],
+    serviceProviderId
+  );
+  const sessionCodeEndpoints = sessionCodeCandidates.map((sessionCode) => ({
+    sessionCode,
+    url: `${REST_V2_BASE}/${encodeURIComponent(serviceProviderId)}/profiles/code/${encodeURIComponent(sessionCode)}`,
+  }));
+
+  if (isRestV2LikelyPartnerSsoContext(context) && sessionCodeEndpoints.length > 0) {
+    sessionCodeEndpoints.forEach((item) => {
+      pushEndpoint("profiles-code", item.url, {
+        endpointLabel: "profiles/code",
+        sessionCode: item.sessionCode,
+      });
+    });
+    if (mvpdProfilesUrl) {
+      pushEndpoint("profiles-mvpd", mvpdProfilesUrl, {
+        endpointLabel: "profiles/{mvpd}",
+      });
+    }
+  } else {
+    if (mvpdProfilesUrl) {
+      pushEndpoint("profiles-mvpd", mvpdProfilesUrl, {
+        endpointLabel: "profiles/{mvpd}",
+      });
+    }
+    sessionCodeEndpoints.forEach((item) => {
+      pushEndpoint("profiles-code", item.url, {
+        endpointLabel: "profiles/code",
+        sessionCode: item.sessionCode,
+      });
+    });
+  }
+
+  pushEndpoint("profiles-all", allProfilesUrl, {
+    endpointLabel: "profiles",
+  });
+
+  return endpoints;
+}
+
+function buildRestV2ProfileCheckAttemptSummary(result = null) {
+  if (!result || typeof result !== "object") {
+    return null;
+  }
+  return {
+    endpointKey: String(result.profileCheckEndpoint || "").trim(),
+    endpointLabel: String(result.profileCheckEndpointLabel || "").trim(),
+    url: String(result.url || "").trim(),
+    ok: result.ok === true,
+    checked: result.checked === true,
+    status: Number(result.status || 0),
+    statusText: String(result.statusText || "").trim(),
+    profileCount: Number(result.profileCount || 0),
+    error: String(result.error || "").trim(),
+    sessionCode: String(result.profileCheckSessionCode || "").trim(),
+  };
+}
+
+function shouldPreferRestV2ProfileCheckResult(candidate = null, current = null) {
+  if (!candidate || typeof candidate !== "object") {
+    return false;
+  }
+  if (!current || typeof current !== "object") {
+    return true;
+  }
+
+  const candidateActive = isRestV2ProfileSessionActiveResult(candidate);
+  const currentActive = isRestV2ProfileSessionActiveResult(current);
+  if (candidateActive !== currentActive) {
+    return candidateActive;
+  }
+
+  const candidateOk = candidate.checked === true && candidate.ok === true;
+  const currentOk = current.checked === true && current.ok === true;
+  if (candidateOk !== currentOk) {
+    return candidateOk;
+  }
+
+  const candidateProfileCount = Number(candidate.profileCount || 0);
+  const currentProfileCount = Number(current.profileCount || 0);
+  if (candidateProfileCount !== currentProfileCount) {
+    return candidateProfileCount > currentProfileCount;
+  }
+
+  const candidateNoActiveSignal = isRestV2NoActiveProfileSignal(candidate);
+  const currentNoActiveSignal = isRestV2NoActiveProfileSignal(current);
+  if (candidateNoActiveSignal !== currentNoActiveSignal) {
+    return candidateNoActiveSignal;
+  }
+
+  const candidateError = String(candidate.error || "").trim();
+  const currentError = String(current.error || "").trim();
+  if (Boolean(candidateError) !== Boolean(currentError)) {
+    return !candidateError;
+  }
+
+  const candidateStatus = Number(candidate.status || 0);
+  const currentStatus = Number(current.status || 0);
+  if (candidateStatus !== currentStatus) {
+    return candidateStatus > currentStatus;
+  }
+
+  return true;
+}
+
+async function fetchRestV2ProfileCheckResultFromEndpoint(context, flowId, scope = "profiles-check", endpoint = null) {
   const emptyResult = {
     checked: false,
     ok: false,
@@ -6955,36 +8674,47 @@ async function fetchRestV2ProfileCheckResult(context, flowId, scope = "profiles-
     statusText: "",
     profileCount: 0,
     responsePreview: "",
-    url: "",
+    url: String(endpoint?.url || "").trim(),
     error: "",
     responsePayload: null,
     harvestedProfile: null,
+    profileCheckEndpoint: String(endpoint?.endpointKey || "").trim(),
+    profileCheckEndpointLabel: String(endpoint?.endpointLabel || "").trim(),
+    profileCheckSessionCode: String(endpoint?.sessionCode || "").trim(),
+    attemptedEndpoints: [],
   };
 
-  if (!context?.programmerId || !context?.appInfo?.guid || !context?.serviceProviderId || !context?.mvpd) {
+  if (!context?.programmerId || !context?.appInfo?.guid || !context?.serviceProviderId) {
     return {
       ...emptyResult,
       error: "Missing REST V2 profile-check context.",
     };
   }
+  if (!endpoint?.url) {
+    return {
+      ...emptyResult,
+      error: "Missing REST V2 profile-check endpoint URL.",
+    };
+  }
 
-  const profilesUrl = `${REST_V2_BASE}/${encodeURIComponent(context.serviceProviderId)}/profiles/${encodeURIComponent(
-    context.mvpd
-  )}`;
+  const endpointScope = `${String(scope || "profiles-check")}:${String(endpoint.endpointKey || "profiles").trim()}`;
 
   emitRestV2DebugEvent(flowId, {
     source: "extension",
     phase: "profiles-check-request",
-    url: profilesUrl,
+    url: endpoint.url,
     requestorId: context.requestorId,
     mvpd: context.mvpd,
+    profileCheckEndpoint: endpoint.endpointKey,
+    profileCheckEndpointLabel: endpoint.endpointLabel,
+    profileCheckSessionCode: endpoint.sessionCode || "",
   });
 
   try {
     const response = await fetchWithPremiumAuth(
       context.programmerId,
       context.appInfo,
-      profilesUrl,
+      endpoint.url,
       {
         method: "GET",
         mode: "cors",
@@ -6997,28 +8727,81 @@ async function fetchRestV2ProfileCheckResult(context, flowId, scope = "profiles-
         flowId,
         requestorId: context.requestorId,
         mvpd: context.mvpd,
-        scope,
+        scope: endpointScope,
       }
     );
 
     const responseText = await response.text().catch(() => "");
     const parsed = parseJsonText(responseText, {});
-    const profiles = parsed?.profiles && typeof parsed.profiles === "object" ? parsed.profiles : {};
-    const profileCount = Object.keys(profiles).length;
+    const normalizedMvpd = String(context?.mvpd || "").trim().toLowerCase();
+    const rawProfiles = parsed?.profiles && typeof parsed.profiles === "object" ? parsed.profiles : {};
+    let effectivePayload =
+      parsed && typeof parsed === "object"
+        ? {
+            ...parsed,
+          }
+        : {};
+    let effectiveProfiles = rawProfiles;
+    const rawProfileCount = Object.keys(rawProfiles).length;
+
+    if (String(endpoint?.endpointKey || "").trim() === "profiles-all" && normalizedMvpd) {
+      const filteredProfiles = {};
+      for (const [profileKey, profileValue] of Object.entries(rawProfiles)) {
+        if (!profileValue || typeof profileValue !== "object") {
+          continue;
+        }
+        const summary = getRestV2ProfileSummary(profileValue, profileKey, context);
+        const keyMatch = String(profileKey || "").trim().toLowerCase() === normalizedMvpd;
+        const idpMatch = (Array.isArray(summary?.idpCandidates) ? summary.idpCandidates : []).some(
+          (candidate) => String(candidate || "").trim().toLowerCase() === normalizedMvpd
+        );
+        if (keyMatch || idpMatch) {
+          filteredProfiles[profileKey] = profileValue;
+        }
+      }
+      effectiveProfiles = filteredProfiles;
+      effectivePayload = {
+        ...effectivePayload,
+        profiles: filteredProfiles,
+      };
+    } else {
+      effectivePayload = {
+        ...effectivePayload,
+        profiles: rawProfiles,
+      };
+    }
+
+    const profileCount = Object.keys(effectiveProfiles).length;
     const status = Number(response.status || 0);
     const statusText = String(response.statusText || "");
     const responsePreview = truncateDebugText(responseText, 1200);
-    const harvestedProfile = buildRestV2ProfileHarvest(context, {
-      checked: true,
-      ok: Boolean(response.ok),
-      status,
-      statusText,
-      profileCount,
-      responsePreview,
-      responsePayload: parsed,
-      url: profilesUrl,
-      error: "",
-    }, flowId);
+    const errorMessage =
+      response.ok === true
+        ? ""
+        : firstNonEmptyString([
+            parsed?.code,
+            parsed?.error?.code,
+            parsed?.error,
+            parsed?.message,
+            parsed?.description,
+            normalizeHttpErrorMessage(responseText),
+            statusText,
+          ]) || `HTTP ${status}`;
+    const harvestedProfile = buildRestV2ProfileHarvest(
+      context,
+      {
+        checked: true,
+        ok: Boolean(response.ok),
+        status,
+        statusText,
+        profileCount,
+        responsePreview,
+        responsePayload: effectivePayload,
+        url: endpoint.url,
+        error: errorMessage,
+      },
+      flowId
+    );
 
     emitRestV2DebugEvent(flowId, {
       source: "extension",
@@ -7026,31 +8809,41 @@ async function fetchRestV2ProfileCheckResult(context, flowId, scope = "profiles-
       status,
       statusText,
       profileCount,
+      rawProfileCount,
       responsePreview,
-      profileKeys: Object.keys(profiles || {}),
-      payload: cloneJsonLikeValue(parsed, {}),
+      profileKeys: Object.keys(effectiveProfiles || {}),
+      payload: cloneJsonLikeValue(effectivePayload, {}),
+      profileCheckEndpoint: endpoint.endpointKey,
+      profileCheckEndpointLabel: endpoint.endpointLabel,
+      profileCheckSessionCode: endpoint.sessionCode || "",
       profileHarvest: harvestedProfile ? cloneJsonLikeValue(harvestedProfile, {}) : null,
     });
 
-    return {
+    const result = {
       checked: true,
       ok: Boolean(response.ok),
       status,
       statusText,
       profileCount,
       responsePreview,
-      url: profilesUrl,
-      error: "",
-      responsePayload: parsed,
+      url: endpoint.url,
+      error: errorMessage,
+      responsePayload: effectivePayload,
       harvestedProfile,
+      profileCheckEndpoint: String(endpoint.endpointKey || "").trim(),
+      profileCheckEndpointLabel: String(endpoint.endpointLabel || "").trim(),
+      profileCheckSessionCode: String(endpoint.sessionCode || "").trim(),
+      attemptedEndpoints: [],
     };
+    const summary = buildRestV2ProfileCheckAttemptSummary(result);
+    result.attemptedEndpoints = summary ? [summary] : [];
+    return result;
   } catch (error) {
     const reason = error instanceof Error ? error.message : String(error);
     const errorResult = {
       ...emptyResult,
       checked: true,
       ok: false,
-      url: profilesUrl,
       error: reason,
     };
     const harvestedProfile = buildRestV2ProfileHarvest(
@@ -7063,15 +8856,92 @@ async function fetchRestV2ProfileCheckResult(context, flowId, scope = "profiles-
     emitRestV2DebugEvent(flowId, {
       source: "extension",
       phase: "profiles-check-error",
-      url: profilesUrl,
+      url: endpoint.url,
       error: reason,
+      profileCheckEndpoint: endpoint.endpointKey,
+      profileCheckEndpointLabel: endpoint.endpointLabel,
+      profileCheckSessionCode: endpoint.sessionCode || "",
       profileHarvest: harvestedProfile ? cloneJsonLikeValue(harvestedProfile, {}) : null,
     });
-    return {
+    const result = {
       ...errorResult,
       harvestedProfile,
     };
+    const summary = buildRestV2ProfileCheckAttemptSummary(result);
+    result.attemptedEndpoints = summary ? [summary] : [];
+    return result;
   }
+}
+
+async function fetchRestV2ProfileCheckResult(context, flowId, scope = "profiles-check") {
+  const emptyResult = {
+    checked: false,
+    ok: false,
+    status: 0,
+    statusText: "",
+    profileCount: 0,
+    responsePreview: "",
+    url: "",
+    error: "",
+    responsePayload: null,
+    harvestedProfile: null,
+    profileCheckEndpoint: "",
+    profileCheckEndpointLabel: "",
+    profileCheckSessionCode: "",
+    attemptedEndpoints: [],
+  };
+
+  if (!context?.programmerId || !context?.appInfo?.guid || !context?.serviceProviderId) {
+    return {
+      ...emptyResult,
+      error: "Missing REST V2 profile-check context.",
+    };
+  }
+
+  const endpointCandidates = buildRestV2ProfileCheckEndpointCandidates(context);
+  if (endpointCandidates.length === 0) {
+    return {
+      ...emptyResult,
+      error: "Missing REST V2 profile-check endpoint candidates.",
+    };
+  }
+
+  let bestResult = null;
+  const attemptedEndpoints = [];
+
+  for (const endpoint of endpointCandidates) {
+    const endpointResult = await fetchRestV2ProfileCheckResultFromEndpoint(context, flowId, scope, endpoint);
+    const endpointAttempts = Array.isArray(endpointResult?.attemptedEndpoints) ? endpointResult.attemptedEndpoints : [];
+    if (endpointAttempts.length > 0) {
+      attemptedEndpoints.push(...endpointAttempts);
+    } else {
+      const summary = buildRestV2ProfileCheckAttemptSummary(endpointResult);
+      if (summary) {
+        attemptedEndpoints.push(summary);
+      }
+    }
+
+    if (shouldPreferRestV2ProfileCheckResult(endpointResult, bestResult)) {
+      bestResult = endpointResult;
+    }
+
+    if (isRestV2ProfileSessionActiveResult(endpointResult)) {
+      break;
+    }
+  }
+
+  if (!bestResult) {
+    return {
+      ...emptyResult,
+      error: "REST V2 profile check did not produce a result.",
+      attemptedEndpoints,
+    };
+  }
+
+  return {
+    ...bestResult,
+    attemptedEndpoints,
+  };
 }
 
 function buildRestV2ProfileVerdict(profileCheckResult, context = null) {
@@ -7120,10 +8990,92 @@ function buildRestV2ProfileVerdict(profileCheckResult, context = null) {
   }
 
   return {
-    panelType: "error",
-    mainType: "error",
-    panelSuffix: "Profile check: FAIL AUTHNF (empty profiles response).",
-    mainMessage: `REST V2 Profile Check FAIL AUTHNF for ${targetLabel} (empty profiles response).`,
+    panelType: "info",
+    mainType: "info",
+    panelSuffix: "Profile check: NO ACTIVE PROFILE (empty profiles response).",
+    mainMessage: `REST V2 Profile Check found no active profile for ${targetLabel} (empty profiles response).`,
+  };
+}
+
+function buildRestV2ProfileCheckFallbackResult(errorText = "", options = {}) {
+  return {
+    checked: false,
+    ok: false,
+    status: Number(options?.status || 0),
+    statusText: String(options?.statusText || "").trim(),
+    profileCount: 0,
+    responsePreview: String(options?.responsePreview || "").trim(),
+    url: String(options?.url || "").trim(),
+    error: String(errorText || "").trim(),
+    responsePayload: null,
+    harvestedProfile: null,
+    profileCheckEndpoint: String(options?.profileCheckEndpoint || "").trim(),
+    profileCheckEndpointLabel: String(options?.profileCheckEndpointLabel || "").trim(),
+    profileCheckSessionCode: String(options?.profileCheckSessionCode || "").trim(),
+    attemptedEndpoints: Array.isArray(options?.attemptedEndpoints)
+      ? options.attemptedEndpoints.map((item) => (item && typeof item === "object" ? { ...item } : item))
+      : [],
+  };
+}
+
+async function probeRestV2PostAuthProfiles(context, flowId, options = {}) {
+  const maxAttempts = Math.max(1, Number(options?.maxAttempts || REST_V2_POST_AUTH_PROFILE_CHECK_RETRIES || 1));
+  const delayMs = Math.max(0, Number(options?.delayMs || REST_V2_POST_AUTH_PROFILE_CHECK_DELAY_MS || 0));
+  const scopePrefix = String(options?.scopePrefix || "profiles-post-auth").trim() || "profiles-post-auth";
+  let lastCheck = buildRestV2ProfileCheckFallbackResult("Profile check not attempted.");
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    emitRestV2DebugEvent(flowId, {
+      source: "extension",
+      phase: `${scopePrefix}-attempt`,
+      attempt,
+      maxAttempts,
+      requestorId: String(context?.requestorId || ""),
+      mvpd: String(context?.mvpd || ""),
+    });
+
+    lastCheck = await fetchRestV2ProfileCheckResult(context, flowId, `${scopePrefix}-${attempt}`);
+    const hasActiveProfile = isRestV2ProfileSessionActiveResult(lastCheck);
+    const noActiveProfileSignal = isRestV2NoActiveProfileSignal(lastCheck);
+
+    emitRestV2DebugEvent(flowId, {
+      source: "extension",
+      phase: `${scopePrefix}-result`,
+      attempt,
+      maxAttempts,
+      hasActiveProfile,
+      noActiveProfileSignal,
+      profileCount: Number(lastCheck?.profileCount || 0),
+      status: Number(lastCheck?.status || 0),
+      statusText: String(lastCheck?.statusText || "").trim(),
+      error: String(lastCheck?.error || "").trim(),
+      profileCheckEndpoint: String(lastCheck?.profileCheckEndpoint || "").trim(),
+      profileCheckEndpointLabel: String(lastCheck?.profileCheckEndpointLabel || "").trim(),
+      profileCheckSessionCode: String(lastCheck?.profileCheckSessionCode || "").trim(),
+      attemptedEndpoints: Array.isArray(lastCheck?.attemptedEndpoints)
+        ? lastCheck.attemptedEndpoints.slice(0, 6)
+        : [],
+    });
+
+    if (hasActiveProfile) {
+      return {
+        ok: true,
+        attempt,
+        maxAttempts,
+        result: lastCheck,
+      };
+    }
+
+    if (attempt < maxAttempts && delayMs > 0) {
+      await waitForDelay(delayMs);
+    }
+  }
+
+  return {
+    ok: false,
+    attempt: maxAttempts,
+    maxAttempts,
+    result: lastCheck,
   };
 }
 
@@ -7157,6 +9109,12 @@ async function verifyPostLogoutProfilesCleared(context, flowId) {
       status: Number(lastCheck?.status || 0),
       statusText: String(lastCheck?.statusText || ""),
       error: String(lastCheck?.error || "").trim(),
+      profileCheckEndpoint: String(lastCheck?.profileCheckEndpoint || "").trim(),
+      profileCheckEndpointLabel: String(lastCheck?.profileCheckEndpointLabel || "").trim(),
+      profileCheckSessionCode: String(lastCheck?.profileCheckSessionCode || "").trim(),
+      attemptedEndpoints: Array.isArray(lastCheck?.attemptedEndpoints)
+        ? lastCheck.attemptedEndpoints.slice(0, 6)
+        : [],
     });
 
     if ((checkOk && profileCount === 0) || noActiveProfileSignal) {
@@ -8262,11 +10220,94 @@ function sanitizeDownloadFileSegment(value, fallback = "download") {
   return normalized || fallback;
 }
 
+function isRestV2EntitlementSignalValue(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  return (
+    normalized.includes("/decisions/") ||
+    normalized.includes("preauthorize") ||
+    normalized.includes("authorize") ||
+    normalized.includes("entitlement")
+  );
+}
+
+function summarizeRestV2EntitlementPhaseSignals(flowSnapshot = null) {
+  const flowEvents = Array.isArray(flowSnapshot?.events) ? flowSnapshot.events : [];
+  let signalCount = 0;
+  let deniedCount = 0;
+  let errorCount = 0;
+  const samples = [];
+
+  const pushSample = (source, method, url, status, statusText) => {
+    if (samples.length >= 8) {
+      return;
+    }
+    samples.push({
+      source: String(source || "").trim(),
+      method: String(method || "").trim().toUpperCase(),
+      url: String(url || "").trim(),
+      status: Number(status || 0),
+      statusText: String(statusText || "").trim(),
+    });
+  };
+
+  flowEvents.forEach((event) => {
+    if (!event || typeof event !== "object") {
+      return;
+    }
+    if (event.source === "web-request") {
+      const url = String(event?.url || "").trim();
+      if (!isRestV2EntitlementSignalValue(url)) {
+        return;
+      }
+      const status = Number(event?.statusCode || 0);
+      const statusText = String(event?.statusLine || "").trim();
+      signalCount += 1;
+      if (status === 401 || status === 403) {
+        deniedCount += 1;
+      }
+      if (status >= 400) {
+        errorCount += 1;
+      }
+      pushSample("web-request", event?.method, url, status, statusText);
+      return;
+    }
+
+    if (event.source === "extension" && String(event?.phase || "").trim() === "restv2-response") {
+      const requestScope = String(event?.requestScope || "").trim();
+      const url = String(event?.url || "").trim();
+      if (!isRestV2EntitlementSignalValue(requestScope) && !isRestV2EntitlementSignalValue(url)) {
+        return;
+      }
+      const status = Number(event?.status || 0);
+      const statusText = String(event?.statusText || "").trim();
+      signalCount += 1;
+      if (status === 401 || status === 403) {
+        deniedCount += 1;
+      }
+      if (status >= 400) {
+        errorCount += 1;
+      }
+      pushSample("extension", event?.method, url, status, statusText);
+    }
+  });
+
+  return {
+    signalCount,
+    deniedCount,
+    errorCount,
+    hasEntitlementPhase: signalCount > 0,
+    samples,
+  };
+}
+
 function buildRestV2HarFilename(context = null, logoutResult = null, profileCheckResult = null) {
   const requestor = sanitizeHarFileSegment(context?.requestorId || "requestor", "requestor");
   const mvpd = sanitizeHarFileSegment(context?.mvpd || "mvpd", "mvpd");
   const hasProfile = Boolean(profileCheckResult?.ok) && Number(profileCheckResult?.profileCount || 0) > 0;
-  const mode = logoutResult?.performed ? "full-login-logout" : hasProfile ? "login-profile-retained" : "failed-login-attempt";
+  const mode = logoutResult?.performed ? "full-login-logout" : hasProfile ? "login-profile-retained" : "login-no-active-profile";
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   return `underpar-restv2-${requestor}-${mvpd}-${mode}-${stamp}.har`;
 }
@@ -8355,7 +10396,12 @@ async function stopRestV2MvpdRecording(section, programmer, appInfo) {
 
     try {
       if (hasRecordingContext) {
-        profileCheckResult = await fetchRestV2ProfileCheckResult(recordingContext, activeFlowId, "profiles-check");
+        const postAuthProbe = await probeRestV2PostAuthProfiles(recordingContext, activeFlowId, {
+          scopePrefix: "profiles-stop",
+          maxAttempts: REST_V2_POST_AUTH_PROFILE_CHECK_RETRIES,
+          delayMs: REST_V2_POST_AUTH_PROFILE_CHECK_DELAY_MS,
+        });
+        profileCheckResult = postAuthProbe?.result || profileCheckResult;
         const activeWindowContext = {
           ok: true,
           programmerId: String(recordingContext.programmerId || "").trim(),
@@ -8408,6 +10454,7 @@ async function stopRestV2MvpdRecording(section, programmer, appInfo) {
             cmBroadcastControllerState(activeCmState);
           }
         }
+        refreshBobtoolsWorkspaceTools();
       }
 
       closeResult = await closeRestV2LoginAndReturn(section, {
@@ -8420,6 +10467,18 @@ async function stopRestV2MvpdRecording(section, programmer, appInfo) {
 
     await waitForDelay(900);
     const stopResult = await stopRestV2DebugFlowAndSnapshot(activeFlowId, "user-stop");
+    const entitlementPhaseSummary = stopResult?.flow ? summarizeRestV2EntitlementPhaseSignals(stopResult.flow) : null;
+    if (entitlementPhaseSummary) {
+      emitRestV2DebugEvent(activeFlowId, {
+        source: "extension",
+        phase: "recording-stop-entitlement-phase-summary",
+        signalCount: Number(entitlementPhaseSummary.signalCount || 0),
+        deniedCount: Number(entitlementPhaseSummary.deniedCount || 0),
+        errorCount: Number(entitlementPhaseSummary.errorCount || 0),
+        hasEntitlementPhase: entitlementPhaseSummary.hasEntitlementPhase === true,
+        samples: Array.isArray(entitlementPhaseSummary.samples) ? entitlementPhaseSummary.samples.slice(0, 8) : [],
+      });
+    }
 
     state.restV2DebugFlowId = "";
     state.restV2RecordingActive = false;
@@ -8447,6 +10506,11 @@ async function stopRestV2MvpdRecording(section, programmer, appInfo) {
         panelMessage = hasProfile
           ? `Recording stopped. HAR downloaded as ${harFileName}. MVPD profile retained for Can I watch?.`
           : `Recording stopped. HAR downloaded as ${harFileName}.`;
+        if (!hasProfile && entitlementPhaseSummary?.hasEntitlementPhase) {
+          panelMessage += ` Entitlement phase activity was detected (${Number(
+            entitlementPhaseSummary.signalCount || 0
+          )} calls). A deny/reject is treated as authZ, not authN.`;
+        }
       }
     } else {
       const failureReason = stopResult?.error || operationError || "Flow snapshot unavailable.";
@@ -8852,6 +10916,15 @@ function normalizeEsmColumns(columns, options = {}) {
 }
 
 function normalizeClickCmuColumns(columns) {
+  const blockedColumns = new Set([
+    "media-company",
+    "tenant",
+    "tenant-id",
+    "tenant_id",
+    "view",
+    "activity-level",
+    "activity_level",
+  ]);
   const output = [];
   const seen = new Set();
   (Array.isArray(columns) ? columns : []).forEach((value) => {
@@ -8863,7 +10936,8 @@ function normalizeClickCmuColumns(columns) {
       return;
     }
     const lower = normalized.toLowerCase();
-    if (lower === "media-company" || seen.has(lower)) {
+    const canonical = lower.replace(/_/g, "-");
+    if (blockedColumns.has(lower) || blockedColumns.has(canonical) || seen.has(lower)) {
       return;
     }
     seen.add(lower);
@@ -8952,6 +11026,15 @@ async function loadClickCmuEndpoints() {
         }
         const url = ensureCmUsageEndpointFormat(endpoint.url);
         if (!url) {
+          return null;
+        }
+        let pathname = "";
+        try {
+          pathname = String(new URL(url, CM_REPORTS_BASE_URL).pathname || "");
+        } catch {
+          pathname = String(url || "").split("?")[0];
+        }
+        if (!isCanonicalCmuUsagePath(pathname)) {
           return null;
         }
         const normalizedColumns = normalizeClickCmuColumns(endpoint.columns);
@@ -9292,15 +11375,32 @@ async function makeClickEsmDownload(context, requestToken, options = {}) {
   };
 }
 
-function ensureCmUsageEndpointFormat(url) {
+function ensureCmUsageEndpointFormat(url, options = {}) {
   const raw = String(url || "").trim();
   if (!raw) {
     return "";
   }
+  const tenantScope = resolveCmUsageTenantScopeValue(
+    options?.tenantScope,
+    options?.tenantId,
+    getCmTenantScopeForProgrammer({ programmerId: String(options?.programmerId || "").trim() })
+  );
   try {
     const parsed = new URL(raw, CM_REPORTS_BASE_URL);
+    const canonicalPath = canonicalizeCmuUsagePath(parsed.pathname);
+    if (canonicalPath) {
+      parsed.pathname = canonicalPath;
+    }
     if (!parsed.searchParams.has("format")) {
       parsed.searchParams.set("format", "json");
+    }
+    if (tenantScope && isCanonicalCmuUsagePath(parsed.pathname)) {
+      const existingTenantScope = resolveCmUsageTenantScopeValue(
+        parsed.searchParams.get("tenant"),
+        parsed.searchParams.get("tenant_id"),
+        parsed.searchParams.get("tenant-id")
+      );
+      applyCmUsageTenantScopeToSearchParams(parsed.searchParams, existingTenantScope || tenantScope);
     }
     return parsed.toString();
   } catch {
@@ -9308,39 +11408,76 @@ function ensureCmUsageEndpointFormat(url) {
   }
 }
 
-function buildClickCmuFallbackEndpointsFromTemplates() {
-  const entries = CM_USAGE_PATH_TEMPLATES.map((templatePath, index) => {
+function getCmPrimaryUsageTenantScopeFromState(cmState = null) {
+  const recordsById = cmState?.recordsById instanceof Map ? cmState.recordsById : null;
+  if (!recordsById || recordsById.size === 0) {
+    return "";
+  }
+  for (const record of recordsById.values()) {
+    if (String(record?.kind || "").trim().toLowerCase() !== "usage") {
+      continue;
+    }
+    const tenantScope = resolveCmUsageTenantScopeValue(record?.tenantId, record?.tenantName);
+    if (tenantScope) {
+      return tenantScope;
+    }
+  }
+  return "";
+}
+
+function getClickCmuTenantScopeFromContext(context = null) {
+  const primaryUsageTenantScope = getCmPrimaryUsageTenantScopeFromState(context?.cmState || null);
+  const matchedTenantScope = resolveCmUsageTenantScopeValue(
+    context?.cmService?.matchedTenants?.[0]?.tenantId,
+    context?.cmService?.matchedTenants?.[0]?.tenantName
+  );
+  return resolveCmUsageTenantScopeValue(
+    primaryUsageTenantScope,
+    matchedTenantScope,
+    context?.cmState?.tenantScope,
+    context?.tenantScope,
+    getCmTenantScopeForProgrammer(context?.programmer || context?.cmState?.programmer)
+  );
+}
+
+function buildClickCmuFallbackEndpointsFromTemplates(tenantScope = "") {
+  const entries = getCanonicalCmUsageTemplatePaths().map((templatePath, index) => {
     const path = String(templatePath || "").trim();
     if (!path) {
       return null;
     }
-    const normalizedPath = `/${path.replace(/^\/+/, "").replace(/\?.*$/, "")}`;
+    const normalizedPath = canonicalizeCmuUsagePath(path);
+    if (!normalizedPath) {
+      return null;
+    }
     return {
       id: `cmu-${index + 1}`,
       label: formatCmUsageLabelFromPath(normalizedPath),
-      url: ensureCmUsageEndpointFormat(`${CM_REPORTS_BASE_URL}${normalizedPath}`),
+      url: ensureCmUsageEndpointFormat(`${CM_REPORTS_BASE_URL}${normalizedPath}`, {
+        tenantScope,
+      }),
       columns: [],
       columnsKnown: false,
     };
   }).filter(Boolean);
-  return normalizeClickCmuEndpointCatalog(entries);
+  return normalizeClickCmuEndpointCatalog(entries, { tenantScope });
 }
 
-async function buildClickCmuFallbackEndpoints() {
+async function buildClickCmuFallbackEndpoints(tenantScope = "") {
   try {
     const fromCatalog = await loadClickCmuEndpoints();
     if (Array.isArray(fromCatalog) && fromCatalog.length > 0) {
-      return normalizeClickCmuEndpointCatalog(fromCatalog);
+      return normalizeClickCmuEndpointCatalog(fromCatalog, { tenantScope });
     }
   } catch (error) {
     log("CMU endpoint catalog load failed; falling back to template paths.", {
       error: error instanceof Error ? error.message : String(error),
     });
   }
-  return buildClickCmuFallbackEndpointsFromTemplates();
+  return buildClickCmuFallbackEndpointsFromTemplates(tenantScope);
 }
 
-function resolveClickCmuEndpointsFromCmState(cmState = null) {
+function resolveClickCmuEndpointsFromCmState(cmState = null, tenantScope = "") {
   const recordsById = cmState?.recordsById instanceof Map ? cmState.recordsById : null;
   if (!recordsById || recordsById.size === 0) {
     return [];
@@ -9350,7 +11487,12 @@ function resolveClickCmuEndpointsFromCmState(cmState = null) {
     if (String(record?.kind || "").toLowerCase() !== "usage") {
       continue;
     }
-    const requestUrl = ensureCmUsageEndpointFormat(firstNonEmptyString([record?.sourceUrl, record?.requestUrl, record?.endpointUrl]));
+    const requestUrl = ensureCmUsageEndpointFormat(
+      firstNonEmptyString([record?.sourceUrl, record?.requestUrl, record?.endpointUrl]),
+      {
+        tenantScope: resolveCmUsageTenantScopeValue(record?.tenantId, record?.tenantName, tenantScope),
+      }
+    );
     if (!requestUrl) {
       continue;
     }
@@ -9376,16 +11518,16 @@ function resolveClickCmuEndpointsFromCmState(cmState = null) {
       columnsKnown: Array.isArray(record?.columns),
     });
   }
-  return normalizeClickCmuEndpointCatalog(output);
+  return normalizeClickCmuEndpointCatalog(output, { tenantScope });
 }
 
 function buildClickCmuTemplatePathOrderMap() {
   const orderMap = new Map();
-  CM_USAGE_PATH_TEMPLATES.forEach((templatePath, index) => {
-    const normalizedPath = `/${String(templatePath || "")
-      .trim()
-      .replace(/^\/+/, "")
-      .replace(/\?.*$/, "")}`;
+  getCanonicalCmUsageTemplatePaths().forEach((templatePath, index) => {
+    const normalizedPath = canonicalizeCmuUsagePath(templatePath);
+    if (!normalizedPath) {
+      return;
+    }
     const pathKey = cmuUsagePathPartsToKey(cmuUsageExtractPathParts(normalizedPath));
     if (!pathKey || orderMap.has(pathKey)) {
       return;
@@ -9395,13 +11537,18 @@ function buildClickCmuTemplatePathOrderMap() {
   return orderMap;
 }
 
-function normalizeClickCmuEndpointCatalog(entries = []) {
+function normalizeClickCmuEndpointCatalog(entries = [], options = {}) {
+  const tenantScope = resolveCmUsageTenantScopeValue(
+    options?.tenantScope,
+    options?.tenantId,
+    getCmTenantScopeForProgrammer({ programmerId: String(options?.programmerId || "").trim() })
+  );
   const list = Array.isArray(entries) ? entries : [];
   const deduped = [];
   const byKey = new Map();
 
   list.forEach((entry, index) => {
-    const normalizedUrl = ensureCmUsageEndpointFormat(entry?.url);
+    const normalizedUrl = ensureCmUsageEndpointFormat(entry?.url, { tenantScope });
     if (!normalizedUrl) {
       return;
     }
@@ -9469,9 +11616,10 @@ function normalizeClickCmuEndpointCatalog(entries = []) {
 }
 
 async function buildClickCmuEndpointCatalog(context = null) {
-  const fromState = resolveClickCmuEndpointsFromCmState(context?.cmState || null);
-  const fallback = await buildClickCmuFallbackEndpoints();
-  return normalizeClickCmuEndpointCatalog([...fromState, ...fallback]);
+  const tenantScope = getClickCmuTenantScopeFromContext(context);
+  const fromState = resolveClickCmuEndpointsFromCmState(context?.cmState || null, tenantScope);
+  const fallback = await buildClickCmuFallbackEndpoints(tenantScope);
+  return normalizeClickCmuEndpointCatalog([...fromState, ...fallback], { tenantScope });
 }
 
 async function loadClickCmuTemplateHtml() {
@@ -9483,7 +11631,7 @@ function deriveClickCmuEndpointDimensions(endpointUrl = "") {
   const pathParts = cmuUsageExtractPathParts(endpointUrl)
     .map((value) => String(value || "").trim().toLowerCase())
     .filter(Boolean);
-  return pathParts.length > 0 ? pathParts : ["year", "month"];
+  return pathParts.length > 0 ? pathParts : CM_USAGE_ROOT_SEGMENTS.slice();
 }
 
 function deriveClickCmuZoomClass(endpointUrl = "") {
@@ -9505,7 +11653,9 @@ function buildClickCmuEndpointDlMarkup(endpointCatalog = []) {
     .map((entry, index) => ({
       id: String(entry?.id || `cmu-${index + 1}`).trim() || `cmu-${index + 1}`,
       label: String(entry?.label || "CMU Endpoint").trim() || "CMU Endpoint",
-      url: ensureCmUsageEndpointFormat(entry?.url),
+      url: ensureCmUsageEndpointFormat(entry?.url, {
+        tenantScope: resolveCmUsageTenantScopeValue(entry?.tenantScope),
+      }),
       columns: normalizeClickCmuColumns(entry?.columns),
       columnsKnown: Array.isArray(entry?.columns) || entry?.columnsKnown === true,
     }))
@@ -9516,12 +11666,14 @@ function buildClickCmuEndpointDlMarkup(endpointCatalog = []) {
       const label = escapeHtml(entry.label);
       const zoomClass = deriveClickCmuZoomClass(entry.url);
       const columns = entry.columns.length > 0
-        ? entry.columns
+        ? normalizeClickCmuColumns(entry.columns)
         : (entry.columnsKnown
           ? []
-          : deriveClickCmuEndpointDimensions(entry.url)
-              .map((dimension) => String(dimension || "").trim())
-              .filter(Boolean));
+          : normalizeClickCmuColumns(
+              deriveClickCmuEndpointDimensions(entry.url)
+                .map((dimension) => String(dimension || "").trim())
+                .filter(Boolean)
+            ));
       const columnText = columns.length > 0
         ? escapeHtml(columns.join("\n"))
         : "<em>No report columns</em>";
@@ -9583,6 +11735,7 @@ function clickCmuSerializeForInlineScript(value) {
 function buildClickCmuRuntimePatchSnippet(context = {}) {
   const runtimeConfig = {
     programmerId: String(context.programmerId || "").trim(),
+    tenantScope: resolveCmUsageTenantScopeValue(context?.tenantScope),
     clientIds: uniqueSorted(
       (Array.isArray(context.clientIds) ? context.clientIds : [])
         .map((value) => String(value || "").trim())
@@ -9979,6 +12132,60 @@ body[data-theme="dark"]{
     return yyyy + "-" + mm + "-" + dd + "T" + hh + ":" + mi + ":" + ss;
   }
 
+  const CMU_TENANT_QUERY_KEYS = ["tenant", "tenant_id", "tenant-id"];
+  const CMU_USAGE_ROOT_SEGMENTS = ["year", "tenant"];
+  const CMU_USAGE_ROOT_SEGMENT_SET = new Set(CMU_USAGE_ROOT_SEGMENTS);
+
+  function normalizeTenantScopeValue(value) {
+    return String(value || "").trim();
+  }
+
+  function canonicalizeCmuUsagePath(pathValue) {
+    const raw = String(pathValue || "").trim();
+    if (!raw) {
+      return "";
+    }
+    let pathname = raw;
+    try {
+      pathname = String(new URL(raw, CM_REPORTS_BASE_URL).pathname || "");
+    } catch {
+      pathname = String(raw || "").split("?")[0];
+    }
+    const normalizedParts = pathname
+      .split("/")
+      .map((part) => String(part || "").trim().toLowerCase())
+      .filter(Boolean)
+      .filter((part) => part !== "cmu" && part !== "v2");
+    if (normalizedParts.length === 0 || !normalizedParts.includes("year")) {
+      return "";
+    }
+    const extras = [];
+    const seenExtras = new Set();
+    normalizedParts.forEach((part) => {
+      if (CMU_USAGE_ROOT_SEGMENT_SET.has(part) || seenExtras.has(part)) {
+        return;
+      }
+      seenExtras.add(part);
+      extras.push(part);
+    });
+    return "/" + ["v2", ...CMU_USAGE_ROOT_SEGMENTS, ...extras].join("/");
+  }
+
+  function isCmuUsagePath(pathValue) {
+    return canonicalizeCmuUsagePath(pathValue).startsWith("/v2/" + CMU_USAGE_ROOT_SEGMENTS.join("/"));
+  }
+
+  function applyTenantScopeToSearchParams(searchParams, tenantScope = "") {
+    if (!(searchParams instanceof URLSearchParams)) {
+      return;
+    }
+    CMU_TENANT_QUERY_KEYS.forEach((key) => searchParams.delete(key));
+    const normalizedTenantScope = normalizeTenantScopeValue(tenantScope);
+    if (normalizedTenantScope) {
+      searchParams.set("tenant", normalizedTenantScope);
+    }
+  }
+
   function ensureCmuQueryDefaults(urlValue, limitValue = 1000) {
     const raw = String(urlValue || "").trim();
     if (!raw) {
@@ -9986,6 +12193,10 @@ body[data-theme="dark"]{
     }
     try {
       const parsed = new URL(raw, CM_REPORTS_BASE_URL);
+      const canonicalPath = canonicalizeCmuUsagePath(parsed.pathname);
+      if (canonicalPath) {
+        parsed.pathname = canonicalPath;
+      }
       if (!parsed.searchParams.has("format")) {
         parsed.searchParams.set("format", "json");
       }
@@ -10009,6 +12220,15 @@ body[data-theme="dark"]{
         (lowerPath.includes("/tenant") || lowerPath.includes("/hour"))
       ) {
         parsed.searchParams.set("metrics", "users");
+      }
+      const existingTenantScope = normalizeTenantScopeValue(
+        parsed.searchParams.get("tenant") ||
+          parsed.searchParams.get("tenant_id") ||
+          parsed.searchParams.get("tenant-id")
+      );
+      const tenantScope = existingTenantScope || normalizeTenantScopeValue(runtime.tenantScope);
+      if (!existingTenantScope && tenantScope && isCmuUsagePath(parsed.pathname)) {
+        applyTenantScopeToSearchParams(parsed.searchParams, tenantScope);
       }
       return parsed.toString();
     } catch {
@@ -10127,7 +12347,15 @@ body[data-theme="dark"]{
     "bstreams-120",
   ]);
   const CMU_FILTER_DATE_DIMENSION_KEYS = new Set(["year", "month", "day", "hour", "minute", "second", "date", "time", "timestamp"]);
-  const CMU_FILTER_BLOCKED_COLUMNS = new Set(["media-company", "view", "activity-level", "activity_level"]);
+  const CMU_FILTER_BLOCKED_COLUMNS = new Set([
+    "media-company",
+    "tenant",
+    "tenant-id",
+    "tenant_id",
+    "view",
+    "activity-level",
+    "activity_level",
+  ]);
   const CMU_DIMENSION_LABELS = new Map([
     ["tenant", "Concurrency Monitoring tenant"],
     ["mvpd", "MVPD ID"],
@@ -10289,6 +12517,12 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
   const programmerLabel = String(context.programmerLabel || "Media Company").trim() || "Media Company";
   const titleText = `${programmerLabel} CLICK CMU`;
   const accessToken = String(context.accessToken || "").trim();
+  const programmerId = String(context.programmerId || "").trim();
+  const themeScope = String(context.themeScope || programmerId || programmerLabel || "MediaCompany").trim();
+  const tenantScope = resolveCmUsageTenantScopeValue(
+    context?.tenantScope,
+    getCmTenantScopeForProgrammer({ programmerId })
+  );
   if (!accessToken) {
     throw new Error("CMU access token is required to generate clickCMU.");
   }
@@ -10301,7 +12535,7 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
     .map((entry, index) => ({
       id: String(entry?.id || `cmu-${index + 1}`).trim() || `cmu-${index + 1}`,
       label: String(entry?.label || "CMU Endpoint").trim() || "CMU Endpoint",
-      url: ensureCmUsageEndpointFormat(entry?.url),
+      url: ensureCmUsageEndpointFormat(entry?.url, { tenantScope }),
     }))
     .filter((entry) => String(entry?.url || "").trim());
   if (endpointCatalog.length === 0) {
@@ -10309,11 +12543,10 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
   }
 
   const primaryClientId = String(clientIds[0] || "cm-console-ui").trim() || "cm-console-ui";
-  const programmerId = String(context.programmerId || "").trim();
   let output = buildClickEsmHtmlFromTemplate(templateHtml, {
     programmerLabel,
     programmerId,
-    themeScope: programmerId || programmerLabel || "MediaCompany",
+    themeScope,
     clientId: primaryClientId,
     clientSecret: "cmu-ims-token-flow",
     accessToken,
@@ -10330,19 +12563,137 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
 
   const runtimePatch = buildClickCmuRuntimePatchSnippet({
     programmerId,
+    tenantScope,
     clientIds,
     userId: String(context.userId || "").trim(),
     scope: String(context.scope || CM_IMS_CHECK_DEFAULT_SCOPE).trim() || CM_IMS_CHECK_DEFAULT_SCOPE,
   });
+  const themeOverrideCss = buildClickCmuThemeOverrideCss(context?.themePreset);
   if (!output.includes("</body>")) {
     throw new Error("clickCMU build failed: missing </body> marker.");
   }
-  output = output.replace("</body>", `${runtimePatch}\n</body>`);
+  output = output.replace(
+    "</body>",
+    `${runtimePatch}${themeOverrideCss ? `\n<style id="up-clickcmu-theme-override">${themeOverrideCss}</style>` : ""}\n</body>`
+  );
   return output;
 }
 
-function buildClickCmuDownloadFileName(programmer) {
+function buildClickCmuThemeOverrideCss(themePreset = "") {
+  if (String(themePreset || "").trim().toLowerCase() !== "sunflower") {
+    return "";
+  }
+  const lightVars = {
+    "--zip-accent-500": "255, 215, 96",
+    "--zip-accent-600": "255, 207, 67",
+    "--zip-accent-700": "255, 201, 41",
+    "--zip-accent-800": "255, 194, 14",
+    "--zip-accent-900": "230, 175, 13",
+    "--zip-accent-1000": "199, 151, 11",
+    "--zip-accent-1100": "173, 132, 10",
+    "--zip-accent-focus": "255, 194, 14",
+    "--zip-accent-on-primary": "0, 0, 0",
+    "--zip-theme-vibe-body-radial-alpha": "0.191",
+    "--zip-theme-vibe-body-start-mix": "50%",
+    "--zip-theme-vibe-body-end-mix": "34%",
+    "--zip-theme-vibe-shell-mix": "41.31%",
+    "--zip-theme-vibe-border-mix": "50.64%",
+    "--zip-theme-vibe-topbar-a-alpha": "0.181",
+    "--zip-theme-vibe-topbar-b-alpha": "0.12",
+    "--zip-theme-vibe-topbar-c-mix": "36.76%",
+    "--zip-theme-vibe-footer-a-alpha": "0.146",
+    "--zip-theme-vibe-footer-b-mix": "30.88%",
+    "--zip-theme-vibe-menu-a-mix": "24.48%",
+    "--zip-theme-vibe-menu-b-mix": "17.36%",
+    "--zip-theme-vibe-login-a-alpha": "0.174",
+    "--zip-theme-vibe-login-c-alpha": "0.125",
+    "--zip-theme-vibe-section-a-mix": "30.73%",
+    "--zip-theme-vibe-section-b-mix": "40.03%",
+    "--zip-theme-vibe-header-a-alpha": "0.193",
+    "--zip-theme-vibe-selection-a-alpha": "0.234",
+    "--zip-theme-vibe-selection-b-alpha": "0.153",
+    "--zip-theme-vibe-focus-alpha": "0.241",
+    "--zip-theme-vibe-surface-soft-alpha": "0.113",
+    "--zip-theme-vibe-surface-mid-alpha": "0.167",
+    "--zip-theme-vibe-surface-strong-alpha": "0.252",
+    "--zip-theme-vibe-menu-surface-mix": "20.98%",
+    "--zip-theme-vibe-glow-alpha": "0.204",
+    "--zip-theme-vibe-feedback-bg-alpha": "0.165",
+    "--zip-theme-vibe-feedback-border-alpha": "0.392",
+    "--zip-theme-vibe-zebra-contrast": "16.84%",
+    "--zip-theme-vibe-zebra-hover": "9.21%",
+    "--click-url-rgb": "230, 175, 13",
+    "--click-url-hover-rgb": "199, 151, 11",
+    "--header-link-rgb": "230, 175, 13",
+    "--reset-bg": "#E6AF0D",
+    "--reset-border": "#C7970B",
+    "--reset-hover": "#FFC20E",
+    "--reset-text": "#111111",
+    "--parent-highlight": "rgba(230, 175, 13, .18)",
+    "--parent-highlight-border": "rgba(199, 151, 11, .58)",
+    "--parent-highlight-glow": "rgba(230, 175, 13, .24)",
+    "--chip-highlight-bg": "rgba(230, 175, 13, .16)",
+    "--chip-highlight-border": "rgba(199, 151, 11, .60)",
+  };
+  const darkVars = {
+    "--zip-accent-500": "168, 128, 9",
+    "--zip-accent-600": "199, 151, 11",
+    "--zip-accent-700": "227, 173, 12",
+    "--zip-accent-800": "255, 194, 14",
+    "--zip-accent-900": "255, 201, 43",
+    "--zip-accent-1000": "255, 209, 72",
+    "--zip-accent-1100": "255, 216, 101",
+    "--zip-accent-focus": "255, 194, 14",
+    "--zip-accent-on-primary": "0, 0, 0",
+    "--zip-theme-vibe-body-radial-alpha": "0.319",
+    "--zip-theme-vibe-body-start-mix": "62%",
+    "--zip-theme-vibe-body-end-mix": "50%",
+    "--zip-theme-vibe-shell-mix": "50.92%",
+    "--zip-theme-vibe-border-mix": "55.56%",
+    "--zip-theme-vibe-topbar-a-alpha": "0.289",
+    "--zip-theme-vibe-topbar-b-alpha": "0.187",
+    "--zip-theme-vibe-topbar-c-mix": "39.05%",
+    "--zip-theme-vibe-footer-a-alpha": "0.246",
+    "--zip-theme-vibe-footer-b-mix": "35.75%",
+    "--zip-theme-vibe-menu-a-mix": "27.9%",
+    "--zip-theme-vibe-menu-b-mix": "21.49%",
+    "--zip-theme-vibe-login-a-alpha": "0.238",
+    "--zip-theme-vibe-login-c-alpha": "0.167",
+    "--zip-theme-vibe-section-a-mix": "41.78%",
+    "--zip-theme-vibe-section-b-mix": "48.45%",
+    "--zip-theme-vibe-header-a-alpha": "0.268",
+    "--zip-theme-vibe-selection-a-alpha": "0.325",
+    "--zip-theme-vibe-selection-b-alpha": "0.197",
+    "--zip-theme-vibe-focus-alpha": "0.298",
+    "--zip-theme-vibe-surface-soft-alpha": "0.211",
+    "--zip-theme-vibe-surface-mid-alpha": "0.311",
+    "--zip-theme-vibe-surface-strong-alpha": "0.446",
+    "--zip-theme-vibe-menu-surface-mix": "24.4%",
+    "--zip-theme-vibe-glow-alpha": "0.285",
+    "--zip-theme-vibe-feedback-bg-alpha": "0.217",
+    "--zip-theme-vibe-feedback-border-alpha": "0.459",
+    "--zip-theme-vibe-zebra-contrast": "18.82%",
+    "--zip-theme-vibe-zebra-hover": "10.5%",
+    "--click-url-rgb": "255, 201, 43",
+    "--click-url-hover-rgb": "255, 209, 72",
+    "--header-link-rgb": "255, 201, 43",
+    "--reset-bg": "#FFC92B",
+    "--reset-border": "#FFC20E",
+    "--reset-hover": "#FFD148",
+    "--reset-text": "#111111",
+    "--parent-highlight": "rgba(255, 201, 43, .20)",
+    "--parent-highlight-border": "rgba(255, 209, 72, .62)",
+    "--parent-highlight-glow": "rgba(255, 201, 43, .27)",
+    "--chip-highlight-bg": "rgba(255, 201, 43, .20)",
+    "--chip-highlight-border": "rgba(255, 209, 72, .64)",
+  };
+  const toCssBlock = (vars = {}) => Object.entries(vars).map(([name, value]) => `${name}:${String(value || "").trim()};`).join("");
+  return `:root{${toCssBlock(lightVars)}}body[data-theme="dark"]{${toCssBlock(darkVars)}}`;
+}
+
+function buildClickCmuDownloadFileName(programmer, options = {}) {
   const label = firstNonEmptyString([
+    options?.fileLabel,
     programmer?.programmerName,
     programmer?.mediaCompanyName,
     programmer?.programmerId,
@@ -10351,8 +12702,9 @@ function buildClickCmuDownloadFileName(programmer) {
   return `${base}_clickCMU.html`;
 }
 
-function buildClickCmuWorkspaceDownloadFileName(programmer) {
+function buildClickCmuWorkspaceDownloadFileName(programmer, options = {}) {
   const label = firstNonEmptyString([
+    options?.fileLabel,
     programmer?.programmerName,
     programmer?.mediaCompanyName,
     programmer?.programmerId,
@@ -10362,32 +12714,26 @@ function buildClickCmuWorkspaceDownloadFileName(programmer) {
   return `${base}_clickCMUWS_${epoch}.html`;
 }
 
-function getClickCmuWorkspaceCardUrlCandidates(card = null) {
+function getClickCmuWorkspaceCardUrlCandidates(card = null, options = {}) {
+  const tenantScope = resolveCmUsageTenantScopeValue(
+    options?.tenantScope,
+    card?.tenantId,
+    options?.programmerId,
+    card?.programmerId
+  );
   return uniqueSorted(
     [card?.requestUrl, card?.baseRequestUrl, card?.endpointUrl]
-      .map((value) => ensureCmUsageEndpointFormat(value))
+      .map((value) =>
+        ensureCmUsageEndpointFormat(value, {
+          tenantScope,
+        })
+      )
       .filter((value) => String(value || "").trim())
   );
 }
 
 function isClickCmuUsagePath(pathValue = "") {
-  const normalizedPath = `/${String(pathValue || "")
-    .trim()
-    .toLowerCase()
-    .replace(/^\/+/, "")}`;
-  if (!normalizedPath || normalizedPath === "/") {
-    return false;
-  }
-  if (normalizedPath.includes("/cmu/")) {
-    return true;
-  }
-  if (/\/v2\/year(?:\/|$)/i.test(normalizedPath)) {
-    return true;
-  }
-  if (/\/v2\/year\/month(?:\/|$)/i.test(normalizedPath)) {
-    return true;
-  }
-  return /\/v2\/.+/i.test(normalizedPath) && /\/(?:usage|concurrency-level|occurrences|activity-level|duration)(?:\/|$)/i.test(normalizedPath);
+  return isCanonicalCmuUsagePath(pathValue);
 }
 
 function isClickCmuUsageCardLike(card = null, endpointUrl = "") {
@@ -10408,10 +12754,18 @@ function isClickCmuUsageCardLike(card = null, endpointUrl = "") {
   }
 }
 
-function buildClickCmuWorkspaceEndpointCatalog(cards = []) {
+function buildClickCmuWorkspaceEndpointCatalog(cards = [], options = {}) {
+  const tenantScope = resolveCmUsageTenantScopeValue(
+    options?.tenantScope,
+    options?.tenantId,
+    getCmTenantScopeForProgrammer({ programmerId: String(options?.programmerId || "").trim() })
+  );
   const output = [];
   (Array.isArray(cards) ? cards : []).forEach((card, index) => {
-    const urlCandidates = getClickCmuWorkspaceCardUrlCandidates(card);
+    const urlCandidates = getClickCmuWorkspaceCardUrlCandidates(card, {
+      tenantScope,
+      programmerId: options?.programmerId,
+    });
     if (urlCandidates.length === 0) {
       return;
     }
@@ -10435,7 +12789,9 @@ function buildClickCmuWorkspaceEndpointCatalog(cards = []) {
     output.push({
       id: endpointId,
       label,
-      url: endpointUrl,
+      url: ensureCmUsageEndpointFormat(endpointUrl, {
+        tenantScope,
+      }),
       columns: normalizeClickCmuColumns([
         ...(Array.isArray(card?.columns) ? card.columns : []),
         ...((Array.isArray(card?.rows) && card.rows[0] && typeof card.rows[0] === "object")
@@ -10448,7 +12804,7 @@ function buildClickCmuWorkspaceEndpointCatalog(cards = []) {
       columnsKnown: Array.isArray(card?.columns),
     });
   });
-  return normalizeClickCmuEndpointCatalog(output).slice(0, 120);
+  return normalizeClickCmuEndpointCatalog(output, { tenantScope }).slice(0, 120);
 }
 
 async function resolveClickCmuDownloadContext(cmState = null) {
@@ -10531,16 +12887,25 @@ async function resolveClickCmuAuthContext(context, requestToken, options = {}) {
 async function makeClickCmuDownload(context, requestToken, options = {}) {
   const programmer = context?.programmer || null;
   const authContext = await resolveClickCmuAuthContext(context, requestToken, options);
-  const endpointCatalog = await buildClickCmuEndpointCatalog(context);
+  const tenantScope = resolveCmUsageTenantScopeValue(options?.tenantScope, context?.tenantScope);
+  const endpointCatalog = await buildClickCmuEndpointCatalog({
+    ...(context && typeof context === "object" ? context : {}),
+    tenantScope: tenantScope || context?.tenantScope || "",
+  });
   if (endpointCatalog.length === 0) {
     throw new Error("No CMU endpoints were resolved for clickCMU export.");
   }
 
   const templateHtml = await loadClickCmuTemplateHtml();
-  const fileName = buildClickCmuDownloadFileName(programmer);
+  const fileName = buildClickCmuDownloadFileName(programmer, {
+    fileLabel: String(options?.fileLabel || "").trim(),
+  });
   const downloadHtml = buildClickCmuHtmlFromTemplate(templateHtml, {
-    programmerLabel: authContext.programmerLabel,
+    programmerLabel: String(options?.programmerLabelOverride || authContext.programmerLabel || "").trim() || authContext.programmerLabel,
     programmerId: String(programmer?.programmerId || ""),
+    themeScope: String(options?.themeScope || programmer?.programmerId || "").trim(),
+    themePreset: String(options?.themePreset || "").trim(),
+    tenantScope: tenantScope || getCmTenantScopeForProgrammer(programmer),
     accessToken: authContext.accessToken,
     clientIds: authContext.clientIds,
     userId: authContext.userId,
@@ -10563,16 +12928,25 @@ async function makeClickCmuWorkspaceDownload(context, cards, requestToken, optio
   }
 
   const authContext = await resolveClickCmuAuthContext(context, requestToken, options);
-  const endpointCatalog = buildClickCmuWorkspaceEndpointCatalog(workspaceCards);
+  const tenantScope = resolveCmUsageTenantScopeValue(options?.tenantScope, context?.tenantScope);
+  const endpointCatalog = buildClickCmuWorkspaceEndpointCatalog(workspaceCards, {
+    tenantScope: tenantScope || getCmTenantScopeForProgrammer(context?.programmer),
+    programmerId: String(context?.programmer?.programmerId || "").trim(),
+  });
   if (endpointCatalog.length === 0) {
     throw new Error("Open at least one CMU usage table before generating clickCMUWS_TEARSHEET.");
   }
 
   const templateHtml = await loadClickCmuTemplateHtml();
-  const fileName = buildClickCmuWorkspaceDownloadFileName(programmer);
+  const fileName = buildClickCmuWorkspaceDownloadFileName(programmer, {
+    fileLabel: String(options?.fileLabel || "").trim(),
+  });
   const downloadHtml = buildClickCmuHtmlFromTemplate(templateHtml, {
-    programmerLabel: authContext.programmerLabel,
+    programmerLabel: String(options?.programmerLabelOverride || authContext.programmerLabel || "").trim() || authContext.programmerLabel,
     programmerId: String(programmer?.programmerId || ""),
+    themeScope: String(options?.themeScope || programmer?.programmerId || "").trim(),
+    themePreset: String(options?.themePreset || "").trim(),
+    tenantScope: tenantScope || getCmTenantScopeForProgrammer(programmer),
     accessToken: authContext.accessToken,
     clientIds: authContext.clientIds,
     userId: authContext.userId,
@@ -11204,6 +13578,78 @@ function isEsmWorkspaceDebuggableTab(tab = null) {
   return /^https?:\/\//.test(url);
 }
 
+function rememberLastDebuggableWebTab(tab = null) {
+  if (!isEsmWorkspaceDebuggableTab(tab)) {
+    return;
+  }
+  state.lastDebuggableWebTabId = Number(tab?.id || 0);
+}
+
+function scoreDebuggableWebTab(tab = null, preferredWindowId = 0) {
+  if (!isEsmWorkspaceDebuggableTab(tab)) {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const tabId = Number(tab?.id || 0);
+  const windowId = Number(tab?.windowId || 0);
+  const active = tab?.active === true;
+  const lastAccessed = Number(tab?.lastAccessed || 0);
+  const url = String(tab?.url || tab?.pendingUrl || "").trim().toLowerCase();
+  let score = 0;
+  if (tabId > 0 && tabId === Number(state.lastDebuggableWebTabId || 0)) {
+    score += 2200;
+  }
+  if (preferredWindowId > 0 && windowId === preferredWindowId) {
+    score += 1600;
+  }
+  if (active) {
+    score += 700;
+  }
+  if (url.includes("experience.adobe.com/#/@adobepass") || url.includes("experience.adobe.com/?shell_ims=prod#/@adobepass")) {
+    score += 550;
+  }
+  if (
+    url.includes("experience.adobe.com") ||
+    url.includes("sp.auth.adobe.com") ||
+    url.includes("api.auth.adobe.com") ||
+    url.includes("config.adobeprimetime.com") ||
+    url.includes("cm-reports.adobeprimetime.com")
+  ) {
+    score += 300;
+  }
+  if (Number.isFinite(lastAccessed) && lastAccessed > 0) {
+    score += Math.floor(lastAccessed / 1000);
+  }
+  return score;
+}
+
+async function findBestDebuggableWebTab(preferredWindowId = 0) {
+  let tabs = [];
+  try {
+    tabs = await chrome.tabs.query({});
+  } catch {
+    tabs = [];
+  }
+  if (!Array.isArray(tabs) || tabs.length === 0) {
+    return null;
+  }
+  const debuggableTabs = tabs.filter((tab) => isEsmWorkspaceDebuggableTab(tab));
+  if (debuggableTabs.length === 0) {
+    return null;
+  }
+  debuggableTabs.sort((left, right) => {
+    const scoreDiff = scoreDebuggableWebTab(right, preferredWindowId) - scoreDebuggableWebTab(left, preferredWindowId);
+    if (scoreDiff !== 0) {
+      return scoreDiff;
+    }
+    return Number(right?.id || 0) - Number(left?.id || 0);
+  });
+  const winner = debuggableTabs[0] || null;
+  if (winner) {
+    rememberLastDebuggableWebTab(winner);
+  }
+  return winner;
+}
+
 async function getEsmWorkspaceDebuggableTabById(tabId) {
   const normalizedTabId = Number(tabId || 0);
   if (!Number.isFinite(normalizedTabId) || normalizedTabId <= 0) {
@@ -11212,7 +13658,11 @@ async function getEsmWorkspaceDebuggableTabById(tabId) {
 
   try {
     const tab = await chrome.tabs.get(normalizedTabId);
-    return isEsmWorkspaceDebuggableTab(tab) ? tab : null;
+    if (!isEsmWorkspaceDebuggableTab(tab)) {
+      return null;
+    }
+    rememberLastDebuggableWebTab(tab);
+    return tab;
   } catch {
     return null;
   }
@@ -11253,6 +13703,7 @@ async function resolveEsmWorkspaceDebugTargetTabId(options = {}) {
   pushCandidateTabId(state.esmWorkspaceActivityDebugTargetTabId);
   pushCandidateTabId(fallbackTabId);
   pushCandidateTabId(state.restV2LastLaunchTabId);
+  pushCandidateTabId(state.lastDebuggableWebTabId);
 
   const preferredWindowTab = await getEsmWorkspaceActiveTabForWindow(preferredWindowId);
   if (preferredWindowTab) {
@@ -11270,6 +13721,12 @@ async function resolveEsmWorkspaceDebugTargetTabId(options = {}) {
       state.esmWorkspaceActivityDebugTargetTabId = Number(tab.id || 0);
       return Number(tab.id || 0);
     }
+  }
+
+  const fallbackTab = await findBestDebuggableWebTab(preferredWindowId);
+  if (fallbackTab) {
+    state.esmWorkspaceActivityDebugTargetTabId = Number(fallbackTab.id || 0);
+    return Number(fallbackTab.id || 0);
   }
 
   state.esmWorkspaceActivityDebugTargetTabId = 0;
@@ -13661,11 +16118,19 @@ function cmGetControllerStatePayload(cmState) {
   const mvpdIds = state.selectedMvpdId ? [String(state.selectedMvpdId)] : [];
   const profileHarvest = getCmProfileHarvestForProgrammer(cmState?.programmer || null);
   const profileHarvestList = getCmProfileHarvestListForProgrammer(cmState?.programmer || null);
+  const tenantScope = resolveCmUsageTenantScopeValue(
+    getCmPrimaryUsageTenantScopeFromState(cmState),
+    cmState?.tenantScope,
+    cmState?.cmService?.matchedTenants?.[0]?.tenantId,
+    cmState?.cmService?.matchedTenants?.[0]?.tenantName,
+    getCmTenantScopeForProgrammer(cmState?.programmer)
+  );
   return {
     controllerOnline: Boolean(cmState?.section?.isConnected),
     cmAvailable: true,
     programmerId: String(cmState?.programmer?.programmerId || ""),
     programmerName: String(cmState?.programmer?.programmerName || ""),
+    tenantScope,
     requestorIds,
     mvpdIds,
     profileHarvest:
@@ -13705,6 +16170,7 @@ function cmGetSelectedControllerStatePayload(programmer = null, services = null)
     cmAvailable,
     programmerId: String(resolvedProgrammer?.programmerId || ""),
     programmerName: String(resolvedProgrammer?.programmerName || ""),
+    tenantScope: getCmTenantScopeForProgrammer(resolvedProgrammer),
     requestorIds,
     mvpdIds,
     profileHarvest:
@@ -13817,10 +16283,18 @@ function buildCmWorkspaceDebugContext(cmState = null) {
   const selections = getGlobalRequestorMvpdSelections();
   const activeCmState = cmState || getActiveCmState() || null;
   const programmer = activeCmState?.programmer || resolveSelectedProgrammer() || null;
+  const tenantScope = resolveCmUsageTenantScopeValue(
+    getCmPrimaryUsageTenantScopeFromState(activeCmState),
+    activeCmState?.tenantScope,
+    activeCmState?.cmService?.matchedTenants?.[0]?.tenantId,
+    activeCmState?.cmService?.matchedTenants?.[0]?.tenantName,
+    getCmTenantScopeForProgrammer(programmer)
+  );
   return {
     serviceType: "cm",
     programmerId: String(programmer?.programmerId || ""),
     programmerName: String(programmer?.programmerName || ""),
+    tenantScope,
     requestorId: String(selections.requestorIds[0] || ""),
     mvpd: String(selections.mvpdIds[0] || ""),
     requestorIds: selections.requestorIds.slice(0, 24),
@@ -13848,6 +16322,7 @@ async function resolveCmWorkspaceDebugTargetTabId(options = {}) {
   pushCandidateTabId(cmGetBoundWorkspaceTabId(preferredWindowId));
   pushCandidateTabId(state.cmWorkspaceTabId);
   pushCandidateTabId(state.restV2LastLaunchTabId);
+  pushCandidateTabId(state.lastDebuggableWebTabId);
 
   const preferredWindowTab = await getEsmWorkspaceActiveTabForWindow(preferredWindowId);
   if (preferredWindowTab) {
@@ -13865,6 +16340,12 @@ async function resolveCmWorkspaceDebugTargetTabId(options = {}) {
       state.cmWorkspaceActivityDebugTargetTabId = Number(tab.id || 0);
       return Number(tab.id || 0);
     }
+  }
+
+  const fallbackTab = await findBestDebuggableWebTab(preferredWindowId);
+  if (fallbackTab) {
+    state.cmWorkspaceActivityDebugTargetTabId = Number(fallbackTab.id || 0);
+    return Number(fallbackTab.id || 0);
   }
 
   state.cmWorkspaceActivityDebugTargetTabId = 0;
@@ -13893,6 +16374,7 @@ async function ensureCmWorkspaceActivityDebugFlow(options = {}) {
         requestorId: context.requestorId,
         mvpd: context.mvpd,
         serviceType: "cm",
+        tenantScope: String(context.tenantScope || ""),
         eventsOnly: true,
         captureNetwork: false,
       });
@@ -13909,10 +16391,6 @@ async function ensureCmWorkspaceActivityDebugFlow(options = {}) {
 
   const createPromise = (async () => {
     const context = buildCmWorkspaceDebugContext(getActiveCmState());
-    if (!context.programmerId) {
-      return "";
-    }
-
     const flowId = await startRestV2DebugFlow(context, "cm-activity");
     if (!flowId) {
       return "";
@@ -13929,6 +16407,7 @@ async function ensureCmWorkspaceActivityDebugFlow(options = {}) {
         requestorId: context.requestorId,
         mvpd: context.mvpd,
         serviceType: "cm",
+        tenantScope: String(context.tenantScope || ""),
         eventsOnly: true,
         captureNetwork: false,
       });
@@ -13943,6 +16422,7 @@ async function ensureCmWorkspaceActivityDebugFlow(options = {}) {
       phase: "activity-flow-start",
       trigger: String(options.reason || "cm-activity"),
       programmerId: context.programmerId,
+      tenantScope: String(context.tenantScope || ""),
       requestorId: context.requestorId,
       mvpd: context.mvpd,
       tabId: Number(state.cmWorkspaceActivityDebugTargetTabId || 0),
@@ -13971,6 +16451,8 @@ function clearCmWorkspaceActivityDebugFlow(reason = "state-reset", options = {})
   state.cmWorkspaceActivityDebugFlowId = "";
   state.cmWorkspaceActivityDebugFlowPromise = null;
   state.cmWorkspaceActivityDebugTargetTabId = 0;
+  state.cmWorkspacePendingDebugEvents = [];
+  state.cmWorkspacePendingDebugFlushPromise = null;
 }
 
 function cmBuildRecordId(kind, tenantId, entityId, index = 0) {
@@ -14277,7 +16759,7 @@ function cmBuildRestV2CorrelationRecords(programmer = null) {
         : profileCheck.ok
           ? Number(profileCheck.profileCount || 0) > 0
             ? "SUCCESS (profiles returned)"
-            : "FAIL AUTHNF (empty profiles)"
+            : "NO ACTIVE PROFILE (empty profiles)"
           : `ERROR (HTTP ${Number(profileCheck.status || 0)} ${String(profileCheck.statusText || "").trim()})`
       : "Unknown";
     const profileSummaries = Array.isArray(profileHarvest.profileSummaries) ? profileHarvest.profileSummaries : [];
@@ -14613,21 +17095,7 @@ function cmuUsageExtractPathParts(endpointUrl) {
     .split("/")
     .map((value) => String(value || "").trim())
     .filter(Boolean);
-  if (parts.length === 0) {
-    return [];
-  }
-  const v2Index = parts.findIndex((part) => String(part || "").toLowerCase() === "v2");
-  if (v2Index >= 0) {
-    return parts.slice(v2Index + 1).map((value) => String(value || "").trim()).filter(Boolean);
-  }
-  const cmuIndex = parts.findIndex((part) => String(part || "").toLowerCase() === "cmu");
-  if (cmuIndex >= 0) {
-    return parts
-      .slice(cmuIndex + 1)
-      .map((value) => String(value || "").trim())
-      .filter((value) => value && String(value).toLowerCase() !== "v2");
-  }
-  return parts;
+  return canonicalizeCmuUsagePathParts(parts);
 }
 
 function cmuUsageGetZoomKey(pathParts, endpointUrl = "") {
@@ -14663,23 +17131,31 @@ function cmuUsagePathPartsToKey(pathParts) {
 }
 
 function cmuUsageNormalizeTreemapPathParts(pathParts) {
-  const normalized = esmWorkspaceNormalizeEndpointSegments(pathParts);
-  if (String(normalized[0] || "").trim().toLowerCase() === "year") {
-    return normalized.slice(1);
-  }
-  return normalized;
+  return canonicalizeCmuUsagePathParts(esmWorkspaceNormalizeEndpointSegments(pathParts));
 }
 
 function cmuUsageBuildPathLookupCandidates(pathParts) {
-  const normalized = esmWorkspaceNormalizeEndpointSegments(pathParts);
-  if (normalized.length === 0) {
+  const normalizedInput = esmWorkspaceNormalizeEndpointSegments(pathParts)
+    .map((value) => normalizeCmuUsagePathSegment(value))
+    .filter(Boolean)
+    .filter((value) => value !== "cmu" && value !== "v2");
+  if (normalizedInput.length === 0) {
     return [];
   }
-  const candidates = [normalized];
-  if (String(normalized[0] || "").trim().toLowerCase() !== "year") {
-    candidates.push(["year", ...normalized]);
+  const canonical = canonicalizeCmuUsagePathParts(normalizedInput);
+  if (canonical.length > 0) {
+    return [canonical];
   }
-  return candidates;
+  const extras = [];
+  const seenExtras = new Set();
+  normalizedInput.forEach((part) => {
+    if (CM_USAGE_ROOT_SEGMENT_SET.has(part) || seenExtras.has(part)) {
+      return;
+    }
+    seenExtras.add(part);
+    extras.push(part);
+  });
+  return [[...CM_USAGE_ROOT_SEGMENTS, ...extras]];
 }
 
 function cmuUsageBuildCatalog(usageRecords) {
@@ -15507,14 +17983,22 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
   }
 
   const cardId = String(options.cardId || record.cardId || generateRequestId());
+  const targetWorkspace = cmResolveWorkspaceTarget(cmState, options);
   const targetWindowId =
-    Number(options.targetWindowId || 0) || Number(cmState.controllerWindowId || 0) || Number(state.cmWorkspaceWindowId || 0);
+    Number(options.targetWindowId || 0) ||
+    Number(cmState.controllerWindowId || 0) ||
+    Number(targetWorkspace === "mvpd" ? state.mvpdWorkspaceWindowId : state.cmWorkspaceWindowId || 0);
+  const targetRequestorId = String(cmState?.cmService?.requestorId || state.selectedRequestorId || "");
+  const targetMvpdId = String(cmState?.cmService?.mvpdId || state.selectedMvpdId || "");
+  const targetMvpdLabel = targetMvpdId ? getRestV2MvpdPickerLabel(targetRequestorId, targetMvpdId) : "";
+  const cmWorkspaceKey = targetWorkspace === "mvpd" ? "mvpd-workspace" : "cmu-workspace";
+  const cmWorkspaceOrigin = targetWorkspace === "mvpd" ? "MVPD Workspace" : "CMU Workspace";
   const cmWorkspaceDebugContext = {
     programmerId: String(cmState?.programmer?.programmerId || ""),
-    requestorId: String(state.selectedRequestorId || ""),
-    mvpd: String(state.selectedMvpdId || ""),
-    workspaceKey: "cmu-workspace",
-    workspaceOrigin: "CMU Workspace",
+    requestorId: targetRequestorId,
+    mvpd: targetMvpdId,
+    workspaceKey: cmWorkspaceKey,
+    workspaceOrigin: cmWorkspaceOrigin,
   };
   const formValues = cmNormalizeOperationFormValues(record, options.formValues || {});
   if (record.payload && typeof record.payload === "object") {
@@ -15525,7 +18009,8 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
   const fallbackUrl = normalizeCmUrl(`${String(formValues.baseUrl || CM_V2_API_BASE_DEFAULT).replace(/\/+$/, "")}${displayPath}`);
 
   if (options.emitForm !== false) {
-    void cmSendWorkspaceMessage(
+    cmSendReportWorkspaceMessage(
+      targetWorkspace,
       "report-form",
       {
         cardId,
@@ -15535,6 +18020,10 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
         columns: [],
         operation,
         formValues,
+        programmerId: String(cmState?.programmer?.programmerId || ""),
+        requestorId: targetRequestorId,
+        mvpdId: targetMvpdId,
+        mvpdLabel: targetMvpdLabel,
       },
       { targetWindowId }
     );
@@ -15544,7 +18033,8 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
     return;
   }
 
-  void cmSendWorkspaceMessage(
+  cmSendReportWorkspaceMessage(
+    targetWorkspace,
     "report-start",
     {
       cardId,
@@ -15552,6 +18042,10 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
       requestUrl: fallbackUrl || displayPath,
       zoomKey: "CMV2",
       columns: [],
+      programmerId: String(cmState?.programmer?.programmerId || ""),
+      requestorId: targetRequestorId,
+      mvpdId: targetMvpdId,
+      mvpdLabel: targetMvpdLabel,
     },
     { targetWindowId }
   );
@@ -15677,7 +18171,8 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
     record.lastModified = responseLastModified;
     record.columns = cmColumnsFromPayload(normalizedPayload);
 
-    void cmSendWorkspaceMessage(
+    cmSendReportWorkspaceMessage(
+      targetWorkspace,
       "report-result",
       {
         ok: true,
@@ -15688,6 +18183,10 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
         columns: record.columns,
         rows: summaryRows,
         lastModified: record.lastModified,
+        programmerId: String(cmState?.programmer?.programmerId || ""),
+        requestorId: targetRequestorId,
+        mvpdId: targetMvpdId,
+        mvpdLabel: targetMvpdLabel,
       },
       { targetWindowId }
     );
@@ -15705,7 +18204,8 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
         context: cmWorkspaceDebugContext,
       }
     );
-    void cmSendWorkspaceMessage(
+    cmSendReportWorkspaceMessage(
+      targetWorkspace,
       "report-result",
       {
         ok: false,
@@ -15713,6 +18213,10 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
         endpointUrl: fallbackUrl || displayPath,
         requestUrl: fallbackUrl || displayPath,
         error: error instanceof Error ? error.message : String(error),
+        programmerId: String(cmState?.programmer?.programmerId || ""),
+        requestorId: targetRequestorId,
+        mvpdId: targetMvpdId,
+        mvpdLabel: targetMvpdLabel,
       },
       { targetWindowId }
     );
@@ -15747,6 +18251,52 @@ function cmResolveApplicationDetailUrl(record, fallbackUrl = "") {
   );
 }
 
+function cmResolveUsageTenantScope(cmState, record = null) {
+  return resolveCmUsageTenantScopeValue(
+    record?.tenantId,
+    record?.tenantName,
+    cmState?.tenantScope,
+    cmState?.cmService?.matchedTenants?.[0]?.tenantId,
+    cmState?.cmService?.matchedTenants?.[0]?.tenantName,
+    getCmTenantScopeForProgrammer(cmState?.programmer)
+  );
+}
+
+function cmScopeUsageRequestUrl(urlValue, cmState, record = null) {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return "";
+  }
+  try {
+    const parsed = new URL(raw, CM_REPORTS_BASE_URL);
+    if (!isClickCmuUsagePath(parsed.pathname)) {
+      return parsed.toString();
+    }
+    return ensureCmUsageEndpointFormat(parsed.toString(), {
+      tenantScope: cmResolveUsageTenantScope(cmState, record),
+    });
+  } catch {
+    return raw;
+  }
+}
+
+function cmSendReportWorkspaceMessage(targetWorkspace = "cm", event = "", payload = {}, options = {}) {
+  const normalizedTargetWorkspace = String(targetWorkspace || "cm").trim().toLowerCase();
+  const normalizedEvent = String(event || "").trim();
+  if (!normalizedEvent) {
+    return;
+  }
+  if (normalizedTargetWorkspace === "mvpd") {
+    void mvpdWorkspaceSendWorkspaceMessage(`cm-${normalizedEvent}`, payload, {
+      targetWindowId: Number(options?.targetWindowId || 0),
+    });
+    return;
+  }
+  void cmSendWorkspaceMessage(normalizedEvent, payload, {
+    targetWindowId: Number(options?.targetWindowId || 0),
+  });
+}
+
 async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {}) {
   if (!cmState || !record) {
     return;
@@ -15756,28 +18306,41 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
   }
 
   if (String(record?.kind || "").toLowerCase() === "cmv2-op") {
+    const targetWorkspace = cmResolveWorkspaceTarget(cmState, options);
     await cmRunOperationRecordToWorkspace(cmState, record, requestToken, {
       emitForm: options.emitForm !== false,
       execute: options.execute === true,
       formValues: options.formValues && typeof options.formValues === "object" ? options.formValues : {},
       cardId: options.cardId,
       targetWindowId: options.targetWindowId,
+      targetWorkspace,
     });
     return;
   }
 
   const cardId = String(options.cardId || record.cardId || generateRequestId());
   const endpointUrl = String(record.endpointUrl || record.requestUrl || "").trim();
-  const baseRequestUrl = String(options.baseRequestUrl || record.requestUrl || endpointUrl).trim();
+  const baseRequestUrlRaw = String(options.baseRequestUrl || record.requestUrl || endpointUrl).trim();
+  const baseRequestUrl = cmScopeUsageRequestUrl(baseRequestUrlRaw, cmState, record) || baseRequestUrlRaw;
   const requestUrlOverride = String(options.requestUrlOverride || "").trim();
   let requestUrl = requestUrlOverride || baseRequestUrl;
   requestUrl = cmResolveApplicationDetailUrl(record, requestUrl);
+  requestUrl = cmScopeUsageRequestUrl(requestUrl, cmState, record) || requestUrl;
+  const targetWorkspace = cmResolveWorkspaceTarget(cmState, options);
   const normalizedLocalColumnFilters =
     options.localColumnFilters && typeof options.localColumnFilters === "object" ? { ...options.localColumnFilters } : {};
+  const targetRequestorId = String(cmState?.cmService?.requestorId || state.selectedRequestorId || "");
+  const targetMvpdId = String(cmState?.cmService?.mvpdId || state.selectedMvpdId || "");
+  const targetMvpdLabel = targetMvpdId ? getRestV2MvpdPickerLabel(targetRequestorId, targetMvpdId) : "";
+  const cmWorkspaceKey = targetWorkspace === "mvpd" ? "mvpd-workspace" : "cmu-workspace";
+  const cmWorkspaceOrigin = targetWorkspace === "mvpd" ? "MVPD Workspace" : "CMU Workspace";
   const targetWindowId =
-    Number(options.targetWindowId || 0) || Number(cmState.controllerWindowId || 0) || Number(state.cmWorkspaceWindowId || 0);
+    Number(options.targetWindowId || 0) ||
+    Number(cmState.controllerWindowId || 0) ||
+    Number(targetWorkspace === "mvpd" ? state.mvpdWorkspaceWindowId : state.cmWorkspaceWindowId || 0);
   if (options.emitStart !== false) {
-    void cmSendWorkspaceMessage(
+    cmSendReportWorkspaceMessage(
+      targetWorkspace,
       "report-start",
       {
         cardId,
@@ -15787,6 +18350,12 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
         zoomKey: String(record.kind || "").toUpperCase(),
         columns: Array.isArray(record.columns) ? record.columns : [],
         localColumnFilters: normalizedLocalColumnFilters,
+        tenantId: String(record?.tenantId || cmState?.programmer?.programmerId || ""),
+        tenantName: String(record?.tenantName || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""),
+        programmerId: String(cmState?.programmer?.programmerId || ""),
+        requestorId: targetRequestorId,
+        mvpdId: targetMvpdId,
+        mvpdLabel: targetMvpdLabel,
       },
       { targetWindowId }
     );
@@ -15794,13 +18363,49 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
 
   let payload = record.payload;
   let lastModified = String(record.lastModified || "");
+  const recordRequestUrl = cmScopeUsageRequestUrl(String(record.requestUrl || endpointUrl || "").trim(), cmState, record);
   const hasUrlOverrideDiffersFromRecord =
-    Boolean(requestUrlOverride) && requestUrlOverride !== String(record.requestUrl || endpointUrl || "").trim();
-  const shouldRefetchForRecordKind = String(record?.kind || "").trim().toLowerCase() === "applications";
+    Boolean(requestUrlOverride) && requestUrl !== recordRequestUrl;
+  const recordKind = String(record?.kind || "").trim().toLowerCase();
+  const shouldRefetchForRecordKind = recordKind === "applications" || recordKind === "usage";
   const shouldRefetch =
     options.forceRefetch === true || shouldRefetchForRecordKind || payload == null || hasUrlOverrideDiffersFromRecord;
   const allowPayloadFallbackOnFetchError =
     payload != null && !shouldRefetchForRecordKind && !hasUrlOverrideDiffersFromRecord && options.forceRefetch !== true;
+  emitCmDebugEvent(
+    {
+      phase: "cm-report-request",
+      contextLabel: String(record.kind || "item"),
+      method: "GET",
+      url: requestUrl,
+      endpointUrl: String(endpointUrl || ""),
+      baseRequestUrl: String(baseRequestUrl || ""),
+      cardId,
+      shouldRefetch,
+      hasUrlOverride: Boolean(requestUrlOverride),
+      tenantId: String(record?.tenantId || cmState?.programmer?.programmerId || ""),
+      tenantName: String(record?.tenantName || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""),
+      tenantScope: cmResolveUsageTenantScope(cmState, record),
+      workspaceKey: cmWorkspaceKey,
+      workspaceOrigin: cmWorkspaceOrigin,
+    },
+    {
+      flowId: resolveCmDebugFlowId(),
+      context: {
+        scope: String(record.kind || "report"),
+        cardId,
+        endpointUrl: requestUrl,
+        programmerId: String(cmState?.programmer?.programmerId || ""),
+        requestorId: targetRequestorId,
+        mvpd: targetMvpdId,
+        workspaceKey: cmWorkspaceKey,
+        workspaceOrigin: cmWorkspaceOrigin,
+        tenantId: String(record?.tenantId || ""),
+        tenantName: String(record?.tenantName || ""),
+        tenantScope: cmResolveUsageTenantScope(cmState, record),
+      },
+    }
+  );
   if (requestUrl && shouldRefetch) {
     try {
       const response = await fetchCmJsonWithAuthVariants([requestUrl], `CM ${record.kind || "item"} report`, {
@@ -15809,10 +18414,10 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
           cardId,
           endpointUrl: requestUrl,
           programmerId: String(cmState?.programmer?.programmerId || ""),
-          requestorId: String(state.selectedRequestorId || ""),
-          mvpd: String(state.selectedMvpdId || ""),
-          workspaceKey: "cmu-workspace",
-          workspaceOrigin: "CMU Workspace",
+          requestorId: targetRequestorId,
+          mvpd: targetMvpdId,
+          workspaceKey: cmWorkspaceKey,
+          workspaceOrigin: cmWorkspaceOrigin,
         },
       });
       payload = response.parsed;
@@ -15823,7 +18428,8 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
       }
     } catch (error) {
       if (!allowPayloadFallbackOnFetchError) {
-        void cmSendWorkspaceMessage(
+        cmSendReportWorkspaceMessage(
+          targetWorkspace,
           "report-result",
           {
             ok: false,
@@ -15832,7 +18438,13 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
             requestUrl,
             baseRequestUrl,
             localColumnFilters: normalizedLocalColumnFilters,
+            tenantId: String(record?.tenantId || cmState?.programmer?.programmerId || ""),
+            tenantName: String(record?.tenantName || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""),
             error: error instanceof Error ? error.message : String(error),
+            programmerId: String(cmState?.programmer?.programmerId || ""),
+            requestorId: targetRequestorId,
+            mvpdId: targetMvpdId,
+            mvpdLabel: targetMvpdLabel,
           },
           { targetWindowId }
         );
@@ -15844,7 +18456,42 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
   const rows = cmRowsFromPayload(payload);
   const columns = cmColumnsFromPayload(payload);
   record.columns = columns;
-  void cmSendWorkspaceMessage(
+  emitCmDebugEvent(
+    {
+      phase: "cm-report-result",
+      contextLabel: String(record.kind || "item"),
+      method: "GET",
+      url: requestUrl,
+      endpointUrl: String(endpointUrl || ""),
+      cardId,
+      rowCount: rows.length,
+      columnCount: columns.length,
+      emptyResult: rows.length === 0,
+      tenantId: String(record?.tenantId || cmState?.programmer?.programmerId || ""),
+      tenantName: String(record?.tenantName || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""),
+      tenantScope: cmResolveUsageTenantScope(cmState, record),
+      workspaceKey: cmWorkspaceKey,
+      workspaceOrigin: cmWorkspaceOrigin,
+    },
+    {
+      flowId: resolveCmDebugFlowId(),
+      context: {
+        scope: String(record.kind || "report"),
+        cardId,
+        endpointUrl: requestUrl,
+        programmerId: String(cmState?.programmer?.programmerId || ""),
+        requestorId: targetRequestorId,
+        mvpd: targetMvpdId,
+        workspaceKey: cmWorkspaceKey,
+        workspaceOrigin: cmWorkspaceOrigin,
+        tenantId: String(record?.tenantId || ""),
+        tenantName: String(record?.tenantName || ""),
+        tenantScope: cmResolveUsageTenantScope(cmState, record),
+      },
+    }
+  );
+  cmSendReportWorkspaceMessage(
+    targetWorkspace,
     "report-result",
     {
       ok: true,
@@ -15857,6 +18504,12 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
       rows,
       lastModified,
       localColumnFilters: normalizedLocalColumnFilters,
+      tenantId: String(record?.tenantId || cmState?.programmer?.programmerId || ""),
+      tenantName: String(record?.tenantName || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""),
+      programmerId: String(cmState?.programmer?.programmerId || ""),
+      requestorId: targetRequestorId,
+      mvpdId: targetMvpdId,
+      mvpdLabel: targetMvpdLabel,
     },
     { targetWindowId }
   );
@@ -16003,6 +18656,10 @@ async function handleCmWorkspaceAction(message, sender = null) {
           payload: null,
           columns: Array.isArray(card?.columns) ? card.columns : [],
           lastModified: "",
+          tenantId: String(card?.tenantId || cmState?.tenantScope || cmState?.programmer?.programmerId || ""),
+          tenantName: String(
+            card?.tenantName || card?.tenantId || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""
+          ),
         },
         requestToken,
         {
@@ -16077,8 +18734,10 @@ async function handleCmWorkspaceAction(message, sender = null) {
       payload: null,
       columns: Array.isArray(card?.columns) ? card.columns.map((value) => String(value || "")).filter(Boolean) : [],
       lastModified: "",
-      tenantId: String(cmState?.programmer?.programmerId || "cm"),
-      tenantName: String(cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || "CM"),
+      tenantId: String(card?.tenantId || cmState?.tenantScope || cmState?.programmer?.programmerId || "cm"),
+      tenantName: String(
+        card?.tenantName || card?.tenantId || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || "CM"
+      ),
     };
     const record = matchedRecord || fallbackRecord;
     if (!matchedRecord && !fallbackUrl && (!Array.isArray(card?.rows) || card.rows.length === 0)) {
@@ -16250,6 +18909,13 @@ function mvpdWorkspaceGetSelectionContext(programmer = null, services = null) {
   const requestorId = String(state.selectedRequestorId || "").trim();
   const mvpdId = String(state.selectedMvpdId || "").trim();
   const hasRestV2Service = Boolean(String(resolvedServices?.restV2?.guid || "").trim());
+  const cmMvpdService = resolvedServices?.cmMvpd && typeof resolvedServices.cmMvpd === "object" ? resolvedServices.cmMvpd : null;
+  const cmMvpdMatchedTenants = Array.isArray(cmMvpdService?.matchedTenants) ? cmMvpdService.matchedTenants : [];
+  const mvpdCmTenantScope = resolveCmUsageTenantScopeValue(
+    cmMvpdMatchedTenants?.[0]?.tenantId,
+    cmMvpdMatchedTenants?.[0]?.tenantName
+  );
+  const hasMvpdCmTenant = Boolean(mvpdCmTenantScope);
   return {
     programmer: resolvedProgrammer,
     services: resolvedServices,
@@ -16258,6 +18924,9 @@ function mvpdWorkspaceGetSelectionContext(programmer = null, services = null) {
     requestorId,
     mvpdId,
     hasRestV2Service,
+    hasMvpdCmTenant,
+    mvpdCmTenantScope,
+    cmMvpdTenantCount: cmMvpdMatchedTenants.length,
     isReady: Boolean(String(resolvedProgrammer?.programmerId || "").trim() && requestorId && mvpdId),
   };
 }
@@ -16274,16 +18943,32 @@ function mvpdWorkspaceGetSelectionMvpdLabel(selectionContext = null) {
 function mvpdWorkspaceGetSelectedControllerStatePayload(programmer = null, services = null) {
   const context = mvpdWorkspaceGetSelectionContext(programmer, services);
   const mvpdLabel = mvpdWorkspaceGetSelectionMvpdLabel(context);
+  const mvpdMeta = context.mvpdId ? getRestV2MvpdMeta(context.requestorId, context.mvpdId) : null;
+  const requestorMvpdLabel =
+    context.requestorId && context.mvpdId
+      ? formatRestV2RequestorMvpdDisplay(context.requestorId, context.mvpdId, mvpdMeta, { separator: " x " })
+      : "";
+  const cacheKey = mvpdWorkspaceGetSnapshotCacheKey(context);
+  const cachedSnapshot = cacheKey ? state.mvpdWorkspaceSnapshotCacheBySelectionKey.get(cacheKey) || null : null;
   return {
-    controllerOnline: false,
+    controllerOnline: true,
     mvpdReady: context.isReady,
     hasRestV2Service: context.hasRestV2Service,
+    hasMvpdCmTenant: context.hasMvpdCmTenant === true,
+    mvpdCmTenantScope: String(context.mvpdCmTenantScope || "").trim(),
+    cmMvpdTenantCount: Number(context.cmMvpdTenantCount || 0),
     programmerId: context.programmerId,
     programmerName: context.programmerName,
+    requestorId: context.requestorId,
+    mvpdId: context.mvpdId,
     requestorIds: context.requestorId ? [context.requestorId] : [],
     mvpdIds: context.mvpdId ? [context.mvpdId] : [],
     mvpdLabel,
     mvpdLabels: mvpdLabel ? [mvpdLabel] : [],
+    requestorMvpdLabel,
+    resolvedIntegration: String(cachedSnapshot?.resolvedIntegration || "").trim(),
+    integrationRef: String(cachedSnapshot?.integrationRef || cachedSnapshot?.resolvedIntegration || "").trim(),
+    integrationRecordUrl: String(cachedSnapshot?.integrationRecordUrl || "").trim(),
     updatedAt: Date.now(),
   };
 }
@@ -17124,6 +19809,20 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
       ? `IntegrationConfiguration:${selectedIntegrationEntity.entityData.id}`
       : "",
   ]);
+  const integrationRecordUrl = firstNonEmptyString([
+    integrationEntityCall?.url,
+    selectedIntegrationRefSplit.type && selectedIntegrationRefSplit.id
+      ? `${ADOBE_CONSOLE_BASE}/${withVersion(
+          `rest/api/entity/${selectedIntegrationRefSplit.type}/${encodeURIComponent(selectedIntegrationRefSplit.id)}`
+        )}`
+      : "",
+  ]);
+  const requestorMvpdLabel = formatRestV2RequestorMvpdDisplay(
+    context.requestorId,
+    context.mvpdId,
+    getRestV2MvpdMeta(context.requestorId, context.mvpdId),
+    { separator: " x " }
+  );
   const loadedTmsMapIds = [...new Set(
     displayedCalls
       .filter((call) => call?.ok && String(call?.key || "").startsWith("tmsIdMap_"))
@@ -17156,8 +19855,11 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
     requestorId: context.requestorId,
     mvpdId: context.mvpdId,
     mvpdLabel: selectedMvpdLabel,
+    requestorMvpdLabel,
     configurationVersion,
     resolvedIntegration,
+    integrationRef: mvpdWorkspaceNormalizeEntityRef(selectedIntegrationRef),
+    integrationRecordUrl,
     loadedTmsMapIds,
     callsCompleted: completedCalls,
     callsFailed: failedCalls,
@@ -17165,8 +19867,8 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
     overview: [
       { label: "Media Company", value: context.programmerName || context.programmerId || "N/A" },
       { label: "Media Company ID", value: context.programmerId || "N/A" },
-      { label: "RequestorId", value: context.requestorId || "N/A" },
       { label: "MVPD", value: selectedMvpdLabel || context.mvpdId || "N/A" },
+      { label: "RequestorId", value: context.requestorId || "N/A" },
       { label: "Configuration Version", value: configurationVersion > 0 ? String(configurationVersion) : "N/A" },
       { label: "Resolved Integration", value: resolvedIntegration || "N/A" },
       { label: "Calls Completed", value: `${completedCalls}/${displayedCalls.length}` },
@@ -17415,6 +20117,77 @@ async function handleMvpdWorkspaceAction(message, sender = null) {
     return refreshResult?.ok ? { ok: true } : { ok: false, error: refreshResult?.error || "Unable to refresh MVPD details." };
   }
 
+  if (action === "make-clickcmu" || action === "make-clickcmuws") {
+    const selectedProgrammer = resolveSelectedProgrammer();
+    if (!selectedProgrammer?.programmerId) {
+      return { ok: false, error: "Select a media company before exporting clickCMU tearsheets." };
+    }
+    const selectedServices = state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null;
+    const selectedCmMvpdService =
+      selectedServices?.cmMvpd && typeof selectedServices.cmMvpd === "object" ? selectedServices.cmMvpd : null;
+    const matchedMvpdTenants = Array.isArray(selectedCmMvpdService?.matchedTenants) ? selectedCmMvpdService.matchedTenants : [];
+    const selectedMvpdTenantScope = resolveCmUsageTenantScopeValue(
+      matchedMvpdTenants?.[0]?.tenantId,
+      matchedMvpdTenants?.[0]?.tenantName
+    );
+    if (!selectedMvpdTenantScope) {
+      return { ok: false, error: "Selected MVPD does not have Concurrency Monitoring tenant access." };
+    }
+    const selectedRequestorId = String(state.selectedRequestorId || "").trim();
+    const selectedMvpdId = String(state.selectedMvpdId || "").trim();
+    if (!selectedMvpdId) {
+      return { ok: false, error: "Select an MVPD before exporting clickCMU tearsheets." };
+    }
+    const selectedMvpdMeta = getRestV2MvpdMeta(selectedRequestorId, selectedMvpdId);
+    const selectedMvpdLabel = getRestV2MvpdPickerLabel(selectedRequestorId, selectedMvpdId, selectedMvpdMeta) || selectedMvpdId;
+    const exportFileScopeLabel = [String(selectedProgrammer.programmerId || "").trim(), selectedMvpdTenantScope]
+      .filter(Boolean)
+      .join("_");
+    const clickCmuContext = {
+      programmer: selectedProgrammer,
+      cmService: selectedCmMvpdService,
+      cmState: null,
+      section: null,
+      tenantScope: selectedMvpdTenantScope,
+    };
+    const requestToken = Number(state.premiumPanelRequestToken || 0);
+    if (action === "make-clickcmu") {
+      const exportResult = await makeClickCmuDownload(clickCmuContext, requestToken, {
+        source: "mvpd-workspace",
+        tenantScope: selectedMvpdTenantScope,
+        themePreset: "sunflower",
+        themeScope: `mvpd:${selectedMvpdTenantScope}`,
+        fileLabel: exportFileScopeLabel,
+        programmerLabelOverride: `${selectedMvpdLabel} (${selectedMvpdTenantScope})`,
+      });
+      return {
+        ok: true,
+        fileName: exportResult.fileName,
+        programmerLabel: exportResult.programmerLabel,
+        endpointCount: Number(exportResult?.endpointCount || 0),
+      };
+    }
+
+    const cards = Array.isArray(message?.cards) ? message.cards : [];
+    if (cards.length === 0) {
+      return { ok: false, error: "Open at least one MVPD CMU table before generating clickCMUWS_TEARSHEET." };
+    }
+    const exportResult = await makeClickCmuWorkspaceDownload(clickCmuContext, cards, requestToken, {
+      source: "mvpd-workspace-tearsheet",
+      tenantScope: selectedMvpdTenantScope,
+      themePreset: "sunflower",
+      themeScope: `mvpd:${selectedMvpdTenantScope}`,
+      fileLabel: exportFileScopeLabel,
+      programmerLabelOverride: `${selectedMvpdLabel} (${selectedMvpdTenantScope})`,
+    });
+    return {
+      ok: true,
+      fileName: exportResult.fileName,
+      programmerLabel: exportResult.programmerLabel,
+      endpointCount: Number(exportResult?.endpointCount || 0),
+    };
+  }
+
   if (action === "clear-all") {
     const targetWindowId = Number(senderWindowId || state.mvpdWorkspaceWindowId || 0);
     void mvpdWorkspaceSendWorkspaceMessage("workspace-clear", {}, { targetWindowId });
@@ -17484,9 +20257,35 @@ function syncMvpdWorkspaceToolForSection(section, programmer = null, services = 
   if (!button && !activeLabelElement) {
     return;
   }
+  const hasSelectedMvpd = Boolean(String(state.selectedMvpdId || "").trim());
+  if (!hasSelectedMvpd) {
+    if (button) {
+      button.hidden = true;
+      button.disabled = true;
+      button.title = "";
+      button.setAttribute("aria-label", "MVPD Workspace");
+    }
+    if (activeLabelElement) {
+      activeLabelElement.hidden = true;
+      activeLabelElement.textContent = "";
+      activeLabelElement.classList.remove("has-logo", "is-active");
+      activeLabelElement.removeAttribute("title");
+      activeLabelElement.removeAttribute("aria-label");
+    }
+    return;
+  }
+  if (button) {
+    button.hidden = false;
+  }
+  if (activeLabelElement) {
+    activeLabelElement.hidden = false;
+  }
   const context = mvpdWorkspaceGetSelectionContext(programmer, services);
   const mvpdLabel = mvpdWorkspaceGetSelectionMvpdLabel(context);
+  const mvpdMeta = getRestV2MvpdMeta(context.requestorId, context.mvpdId);
+  const mvpdLogoUrl = String(mvpdMeta?.logoUrl || "").trim();
   const isMvpdActive = Boolean(context.isReady && mvpdLabel);
+  const activeTitleText = isMvpdActive ? `MVPD ${mvpdLabel} Active` : "MVPD Not Active";
   if (button) {
     button.disabled = !context.isReady;
     if (!context.programmerId) {
@@ -17499,7 +20298,23 @@ function syncMvpdWorkspaceToolForSection(section, programmer = null, services = 
     button.setAttribute("aria-label", "MVPD Workspace");
   }
   if (activeLabelElement) {
-    activeLabelElement.textContent = isMvpdActive ? `MVPD ${mvpdLabel} Active` : "MVPD Not Active";
+    activeLabelElement.title = activeTitleText;
+    activeLabelElement.setAttribute("aria-label", activeTitleText);
+    activeLabelElement.classList.toggle("has-logo", isMvpdActive && Boolean(mvpdLogoUrl));
+    if (isMvpdActive && mvpdLogoUrl) {
+      activeLabelElement.textContent = "";
+      const logoImage = document.createElement("img");
+      logoImage.className = "mvpd-workspace-active-logo";
+      logoImage.src = mvpdLogoUrl;
+      logoImage.alt = mvpdLabel;
+      logoImage.loading = "lazy";
+      logoImage.decoding = "async";
+      logoImage.referrerPolicy = "no-referrer";
+      logoImage.title = activeTitleText;
+      activeLabelElement.appendChild(logoImage);
+    } else {
+      activeLabelElement.textContent = activeTitleText;
+    }
     activeLabelElement.classList.toggle("is-active", isMvpdActive);
   }
 }
@@ -17512,10 +20327,18 @@ function refreshMvpdWorkspaceTools() {
   const sections = document.querySelectorAll(".premium-service-section.service-rest-v2");
   sections.forEach((section) => {
     syncMvpdWorkspaceToolForSection(section, selectedProgrammer, selectedServices);
+    syncRestV2BobtoolsLauncher(section, selectedProgrammer, selectedServices?.restV2 || null);
   });
   if (restWorkspaceHasOpenTab()) {
     const selectionContext = restWorkspaceGetSelectionContextFromCurrentSelection(selectedProgrammer);
     restWorkspaceBroadcastControllerState(selectedProgrammer, selectionContext);
+  }
+  if (bobtoolsWorkspaceHasOpenTab()) {
+    const selectionContext = buildBobtoolsWorkspaceSelectionContext(selectedProgrammer);
+    bobtoolsWorkspaceBroadcastControllerState(selectedProgrammer, selectionContext);
+    bobtoolsWorkspaceBroadcastProfiles(selectedProgrammer, {
+      selectedHarvestKey: selectionContext.selectedHarvestKey,
+    });
   }
 }
 
@@ -17964,27 +20787,1541 @@ function ensureRestWorkspaceTabWatcher() {
   state.restWorkspaceTabWatcherBound = true;
 }
 
+function getUnderparActiveUserLabel() {
+  const profile = resolveLoginProfile(state.loginData) || {};
+  return firstNonEmptyString([
+    getProfileDisplayName(profile),
+    getProfileEmail(profile),
+    String(state.loginData?.email || "").trim(),
+    String(state.loginData?.userId || "").trim(),
+    "UnderPAR User",
+  ]);
+}
+
+function getRestV2HarvestByRecordKey(harvestKey = "", preferredProgrammerId = "") {
+  const normalizedKey = String(harvestKey || "").trim();
+  if (!normalizedKey) {
+    return null;
+  }
+  const normalizedProgrammerId = String(preferredProgrammerId || "").trim();
+  if (normalizedProgrammerId) {
+    const preferredBucket = getRestV2ProfileHarvestBucketForProgrammer(normalizedProgrammerId);
+    const preferredMatch =
+      preferredBucket.find((item, index) => getRestV2HarvestRecordKey(item, index) === normalizedKey) || null;
+    if (preferredMatch) {
+      return preferredMatch;
+    }
+  }
+
+  for (const bucket of state.restV2ProfileHarvestBucketByProgrammerId.values()) {
+    const match = (Array.isArray(bucket) ? bucket : []).find((item, index) => getRestV2HarvestRecordKey(item, index) === normalizedKey);
+    if (match) {
+      return match;
+    }
+  }
+  return null;
+}
+
+function buildRestV2SelectionContextFromRecordingContext(recordingContext = null) {
+  if (!recordingContext || typeof recordingContext !== "object") {
+    return null;
+  }
+  const programmerId = String(recordingContext.programmerId || "").trim();
+  const requestorId = String(recordingContext.requestorId || recordingContext.serviceProviderId || "").trim();
+  const serviceProviderId = String(recordingContext.serviceProviderId || requestorId || "").trim();
+  const mvpd = String(recordingContext.mvpd || "").trim();
+  const appGuid = String(recordingContext?.appInfo?.guid || "").trim();
+  if (!programmerId || !requestorId || !serviceProviderId || !mvpd || !appGuid) {
+    return null;
+  }
+  const mvpdName = String(recordingContext?.mvpdName || "").trim();
+  const mvpdMeta = mvpdName ? { id: mvpd, name: mvpdName } : getRestV2MvpdMeta(requestorId, mvpd);
+  return {
+    ok: true,
+    programmerId,
+    programmerName: String(recordingContext.programmerName || "").trim(),
+    requestorId,
+    serviceProviderId,
+    mvpd,
+    mvpdMeta: mvpdMeta || null,
+    sessionCode: String(recordingContext.sessionCode || "").trim(),
+    sessionCodeCandidates: Array.isArray(recordingContext.sessionCodeCandidates)
+      ? recordingContext.sessionCodeCandidates.map((value) => String(value || "").trim()).filter(Boolean)
+      : [],
+    sessionAction: String(recordingContext.sessionAction || "").trim(),
+    sessionPartner: String(recordingContext.sessionPartner || "").trim(),
+    sessionUrl: normalizeAdobeNavigationUrl(String(recordingContext.sessionUrl || "").trim()),
+    appInfo: {
+      guid: appGuid,
+      appName: String(recordingContext?.appInfo?.appName || appGuid).trim(),
+    },
+  };
+}
+
+function buildRestV2ProfilesHydrationSeedHarvest(context = null) {
+  if (!context?.ok) {
+    return null;
+  }
+  const existingHarvest = getRestV2ProfileHarvestForContext(context);
+  if (existingHarvest && typeof existingHarvest === "object") {
+    return existingHarvest;
+  }
+  return {
+    programmerId: String(context.programmerId || "").trim(),
+    programmerName: String(context.programmerName || "").trim(),
+    requestorId: String(context.requestorId || "").trim(),
+    serviceProviderId: String(context.serviceProviderId || context.requestorId || "").trim(),
+    mvpd: String(context.mvpd || "").trim(),
+    mvpdName: String(context?.mvpdMeta?.name || "").trim(),
+    appGuid: String(context?.appInfo?.guid || "").trim(),
+    appName: String(context?.appInfo?.appName || context?.appInfo?.guid || "").trim(),
+    harvestedAt: Date.now(),
+    profileCount: 0,
+    profileCheckOutcome: "seed",
+    preauthzChecks: [],
+  };
+}
+
+function buildRestV2ProfilesHydrationProfilePayload(row = null) {
+  const attributes = {};
+  const attributeRows = Array.isArray(row?.attributes) ? row.attributes : [];
+  attributeRows.forEach((entry) => {
+    const key = String(entry?.key || "").trim();
+    if (!key) {
+      return;
+    }
+    const value = String(entry?.value || "").trim();
+    if (!value) {
+      return;
+    }
+    attributes[key] = value;
+  });
+  const upstreamUserId = String(row?.upstreamUserId || "").trim();
+  const userId = String(row?.userId || "").trim();
+  const mvpd = String(row?.mvpd || "").trim();
+  if (upstreamUserId && !attributes.upstreamUserID) {
+    attributes.upstreamUserID = upstreamUserId;
+  }
+  if (userId && !attributes.userID) {
+    attributes.userID = userId;
+  }
+  if (mvpd && !attributes.mvpd) {
+    attributes.mvpd = mvpd;
+  }
+  const payload = {
+    attributes,
+    sessionId: String(row?.sessionId || "").trim(),
+    notBefore: Number(row?.notBeforeMs || 0),
+    notAfter: Number(row?.notAfterMs || 0),
+    upstreamUserID: upstreamUserId,
+    userID: userId,
+    mvpd,
+  };
+  if (!Number.isFinite(payload.notBefore) || payload.notBefore <= 0) {
+    delete payload.notBefore;
+  }
+  if (!Number.isFinite(payload.notAfter) || payload.notAfter <= 0) {
+    delete payload.notAfter;
+  }
+  if (!payload.sessionId) {
+    delete payload.sessionId;
+  }
+  if (!payload.upstreamUserID) {
+    delete payload.upstreamUserID;
+  }
+  if (!payload.userID) {
+    delete payload.userID;
+  }
+  if (!payload.mvpd) {
+    delete payload.mvpd;
+  }
+  return payload;
+}
+
+function ingestRestV2ProfilesHydrationResult(context = null, profilesResult = null, options = {}) {
+  if (!context?.ok || !profilesResult || typeof profilesResult !== "object") {
+    return { storedCount: 0, totalRows: 0 };
+  }
+  const rows = Array.isArray(profilesResult.profileRows) ? profilesResult.profileRows : [];
+  if (rows.length === 0) {
+    return { storedCount: 0, totalRows: 0 };
+  }
+  const flowId = String(options.flowId || "").trim();
+  let storedCount = 0;
+  rows.forEach((row, index) => {
+    const rowMvpd = firstNonEmptyString([row?.mvpd, context.mvpd]);
+    if (!rowMvpd) {
+      return;
+    }
+    const rowMvpdMeta =
+      getRestV2MvpdMeta(String(context.requestorId || "").trim(), rowMvpd, rowMvpd === context.mvpd ? context.mvpdMeta : null) ||
+      (rowMvpd === context.mvpd ? context.mvpdMeta || null : null);
+    const rowContext = {
+      ...context,
+      mvpd: rowMvpd,
+      mvpdMeta: rowMvpdMeta || null,
+    };
+    const profileKey = firstNonEmptyString([row?.profileKey, rowMvpd, `profile-${index + 1}`]);
+    const profilePayload = buildRestV2ProfilesHydrationProfilePayload(row);
+    const checkResult = {
+      checked: true,
+      ok: true,
+      status: Number(profilesResult.status || 200),
+      statusText: String(profilesResult.statusText || "").trim(),
+      profileCount: 1,
+      responsePreview: String(profilesResult.responsePreview || "").trim(),
+      url: String(profilesResult.endpointUrl || "").trim(),
+      error: "",
+      responsePayload: {
+        profiles: {
+          [profileKey]: profilePayload,
+        },
+      },
+      harvestedProfile: null,
+    };
+    const stored = storeRestV2ProfileHarvest(rowContext, checkResult, flowId);
+    if (stored && isUsableRestV2ProfileHarvest(stored)) {
+      storedCount += 1;
+    }
+  });
+  return {
+    storedCount,
+    totalRows: rows.length,
+  };
+}
+
+async function ensureRestV2ProfilesHydratedForBobtools(context = null, options = {}) {
+  if (!context?.ok) {
+    return { ok: false, skipped: true, error: "Missing REST V2 selection context for profile hydration." };
+  }
+  const selectionKey = getRestV2SelectionKey(context);
+  if (!selectionKey) {
+    return { ok: false, skipped: true, error: "Missing REST V2 selection key for profile hydration." };
+  }
+
+  const force = options.force === true;
+  const now = Date.now();
+  const staleMs = Math.max(5000, Number(options.staleMs || BOBTOOLS_PROFILES_HYDRATE_STALE_MS));
+  if (!force) {
+    const lastAt = Number(state.restV2ProfilesHydrationLastAtBySelectionKey.get(selectionKey) || 0);
+    if (lastAt > 0 && now - lastAt < staleMs) {
+      return { ok: true, skipped: true, checkedAt: lastAt };
+    }
+    const pending = state.restV2ProfilesHydrationPromiseBySelectionKey.get(selectionKey);
+    if (pending) {
+      return pending;
+    }
+  }
+
+  const workPromise = (async () => {
+    const harvestSeed = buildRestV2ProfilesHydrationSeedHarvest(context);
+    if (!harvestSeed) {
+      return { ok: false, skipped: true, error: "Unable to build REST V2 profile hydration context." };
+    }
+    try {
+      const result = await fetchRestV2ProfilesForHarvest(harvestSeed, {
+        apiAction: BOBTOOLS_REST_V2_ACTION_PROFILES_ALL,
+      });
+      const ingest = ingestRestV2ProfilesHydrationResult(context, result, {
+        flowId: String(options.flowId || "").trim() || resolveRestV2DebugFlowIdForHarvest(harvestSeed),
+      });
+      state.restV2ProfilesHydrationLastAtBySelectionKey.set(selectionKey, Date.now());
+      return {
+        ok: result?.ok === true,
+        skipped: false,
+        result,
+        storedCount: Number(ingest.storedCount || 0),
+        totalRows: Number(ingest.totalRows || 0),
+      };
+    } catch (error) {
+      const underparResult = error?.underparResult && typeof error.underparResult === "object" ? error.underparResult : null;
+      return {
+        ok: false,
+        skipped: false,
+        error: error instanceof Error ? error.message : String(error),
+        result: underparResult,
+      };
+    }
+  })().finally(() => {
+    if (state.restV2ProfilesHydrationPromiseBySelectionKey.get(selectionKey) === workPromise) {
+      state.restV2ProfilesHydrationPromiseBySelectionKey.delete(selectionKey);
+    }
+  });
+
+  state.restV2ProfilesHydrationPromiseBySelectionKey.set(selectionKey, workPromise);
+  return workPromise;
+}
+
+function buildBobtoolsWorkspaceSelectionContext(programmer = null) {
+  const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  const programmerId = String(resolvedProgrammer?.programmerId || "").trim();
+  const programmerName = String(resolvedProgrammer?.programmerName || "").trim();
+  const harvestList = programmerId ? getRestV2ProfileHarvestBucketForProgrammer(programmerId) : [];
+  const selectedRequestorId = String(state.selectedRequestorId || "").trim();
+  const selectedMvpd = String(state.selectedMvpdId || "").trim();
+  let selectedHarvest = null;
+  if (selectedRequestorId && selectedMvpd) {
+    selectedHarvest =
+      harvestList.find((item) => {
+        const harvestRequestorId = String(item?.requestorId || item?.serviceProviderId || "").trim();
+        const harvestMvpd = String(item?.mvpd || "").trim();
+        return harvestRequestorId === selectedRequestorId && harvestMvpd === selectedMvpd;
+      }) || null;
+  }
+  if (!selectedHarvest && harvestList.length > 0) {
+    selectedHarvest = harvestList[0];
+  }
+  const requestorId = String(selectedHarvest?.requestorId || selectedHarvest?.serviceProviderId || selectedRequestorId || "").trim();
+  const mvpd = String(selectedHarvest?.mvpd || selectedMvpd || "").trim();
+  const mvpdMeta =
+    selectedHarvest && String(selectedHarvest?.mvpdName || "").trim() && mvpd
+      ? {
+          id: mvpd,
+          name: String(selectedHarvest.mvpdName || "").trim(),
+        }
+      : null;
+  const mvpdLabel = mvpd ? getRestV2MvpdPickerLabel(requestorId, mvpd, mvpdMeta) : "";
+  const selectedHarvestKey = selectedHarvest ? getRestV2HarvestRecordKey(selectedHarvest) : "";
+  return {
+    programmer: resolvedProgrammer,
+    programmerId,
+    programmerName,
+    userLabel: getUnderparActiveUserLabel(),
+    requestorId,
+    mvpd,
+    mvpdLabel,
+    selectedHarvestKey,
+    selectedHarvest,
+    hasProfiles: harvestList.length > 0,
+    harvestList,
+  };
+}
+
+function bobtoolsWorkspaceGetWorkspaceUrl() {
+  return chrome.runtime.getURL(BOBTOOLS_WORKSPACE_PATH);
+}
+
+function bobtoolsWorkspaceIsWorkspaceTab(tabLike) {
+  return String(tabLike?.url || "").startsWith(bobtoolsWorkspaceGetWorkspaceUrl());
+}
+
+function bobtoolsWorkspaceBindWorkspaceTab(windowId, tabId) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId > 0 && normalizedTabId > 0) {
+    state.bobtoolsWorkspaceTabIdByWindowId.set(normalizedWindowId, normalizedTabId);
+  }
+  if (normalizedWindowId > 0) {
+    state.bobtoolsWorkspaceWindowId = normalizedWindowId;
+  }
+  if (normalizedTabId > 0) {
+    state.bobtoolsWorkspaceTabId = normalizedTabId;
+  }
+}
+
+function bobtoolsWorkspaceUnbindWorkspaceTab(tabId) {
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedTabId > 0) {
+    for (const [windowId, mappedTabId] of state.bobtoolsWorkspaceTabIdByWindowId.entries()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        state.bobtoolsWorkspaceTabIdByWindowId.delete(windowId);
+      }
+    }
+  }
+  if (!normalizedTabId || Number(state.bobtoolsWorkspaceTabId || 0) === normalizedTabId) {
+    state.bobtoolsWorkspaceTabId = 0;
+    state.bobtoolsWorkspaceWindowId = 0;
+  }
+}
+
+function bobtoolsWorkspaceGetBoundWorkspaceTabId(windowId) {
+  const normalizedWindowId = Number(windowId || 0);
+  if (normalizedWindowId > 0) {
+    const mapped = Number(state.bobtoolsWorkspaceTabIdByWindowId.get(normalizedWindowId) || 0);
+    if (mapped > 0) {
+      return mapped;
+    }
+  }
+  return Number(state.bobtoolsWorkspaceTabId || 0);
+}
+
+function bobtoolsWorkspaceHasOpenTab() {
+  return Number(state.bobtoolsWorkspaceTabId || 0) > 0 || state.bobtoolsWorkspaceTabIdByWindowId.size > 0;
+}
+
+function buildBobtoolsWorkspaceResultSummary(result = null) {
+  if (!result || typeof result !== "object") {
+    return "No REST V2 checks yet";
+  }
+  const action = normalizeBobtoolsRestV2Action(result?.apiAction);
+  const actionLabel = getBobtoolsRestV2ActionLabel(action);
+  const resultType = String(result?.resultType || "").trim().toLowerCase();
+  if (resultType === "decisions") {
+    if (result?.ok === true) {
+      const permit = Number(result?.permitCount || 0);
+      const deny = Number(result?.denyCount || 0);
+      const unknown = Number(result?.unknownCount || 0);
+      const verdict = result?.allRequestedPermitted ? "YES" : "NO";
+      return `${actionLabel}: ${verdict} (${permit} permit, ${deny} deny, ${unknown} unknown)`;
+    }
+    return `${actionLabel}: NO (${String(result?.error || "request_failed").trim() || "request_failed"})`;
+  }
+  if (resultType === "profiles") {
+    const profileCount = Number(result?.profileCount || 0);
+    if (result?.ok === true) {
+      return `${actionLabel}: ${profileCount} profile${profileCount === 1 ? "" : "s"} returned`;
+    }
+    return `${actionLabel}: ERROR (${String(result?.error || "request_failed").trim() || "request_failed"})`;
+  }
+  if (resultType === "configuration") {
+    const mvpdCount = Number(result?.mvpdCount || 0);
+    if (result?.ok === true) {
+      return `${actionLabel}: ${mvpdCount} MVPD config entries`;
+    }
+    return `${actionLabel}: ERROR (${String(result?.error || "request_failed").trim() || "request_failed"})`;
+  }
+  return `${actionLabel}: ${result?.ok === true ? "completed" : "error"}`;
+}
+
+function buildBobtoolsWorkspaceProfilesPayload(programmer = null, options = {}) {
+  const selectionContext = buildBobtoolsWorkspaceSelectionContext(programmer);
+  const profiles = selectionContext.harvestList.map((harvest, index) => {
+    const requestorId = String(harvest?.requestorId || harvest?.serviceProviderId || "").trim();
+    const mvpd = String(harvest?.mvpd || "").trim();
+    const mvpdMeta =
+      String(harvest?.mvpdName || "").trim() && mvpd
+        ? {
+            id: mvpd,
+            name: String(harvest.mvpdName || "").trim(),
+          }
+        : null;
+    const key = getRestV2HarvestRecordKey(harvest, index);
+    const checks = getRestV2ProfilePreauthzChecks(harvest);
+    const latestCheck = state.bobtoolsWorkspaceLastResultByHarvestKey.get(key) || checks[0] || null;
+    const latestSummary = buildBobtoolsWorkspaceResultSummary(latestCheck);
+    return {
+      key,
+      requestorId,
+      mvpd,
+      mvpdLabel: getRestV2MvpdPickerLabel(requestorId, mvpd, mvpdMeta),
+      requestorMvpdLabel: formatRestV2RequestorMvpdDisplay(requestorId, mvpd, mvpdMeta, { separator: " x " }),
+      subject: String(harvest?.subject || "").trim(),
+      upstreamUserId: String(harvest?.upstreamUserId || "").trim(),
+      userId: String(harvest?.userId || "").trim(),
+      sessionId: String(harvest?.sessionId || "").trim(),
+      profileKey: String(harvest?.profileKey || "").trim(),
+      profileCount: Number(harvest?.profileCount || 0),
+      profileCheckOutcome: String(harvest?.profileCheckOutcome || "").trim(),
+      capturedAt: Number(harvest?.harvestedAt || 0),
+      capturedAtLabel: formatTimestampLabel(harvest?.harvestedAt),
+      lastCheck: latestCheck ? cloneJsonLikeValue(latestCheck, null) : null,
+      lastCheckSummary: latestSummary,
+    };
+  });
+  const selectedHarvestKey = firstNonEmptyString([
+    options?.selectedHarvestKey,
+    selectionContext.selectedHarvestKey,
+    profiles[0]?.key,
+  ]);
+  return {
+    programmerId: selectionContext.programmerId,
+    programmerName: selectionContext.programmerName,
+    userLabel: selectionContext.userLabel,
+    requestorId: selectionContext.requestorId,
+    mvpd: selectionContext.mvpd,
+    mvpdLabel: selectionContext.mvpdLabel,
+    selectedHarvestKey,
+    profileCount: profiles.length,
+    profiles,
+    updatedAt: Date.now(),
+  };
+}
+
+function bobtoolsWorkspaceGetSelectedControllerStatePayload(programmer = null, selectionContext = null) {
+  const context =
+    selectionContext && typeof selectionContext === "object"
+      ? selectionContext
+      : buildBobtoolsWorkspaceSelectionContext(programmer);
+  return {
+    controllerOnline: true,
+    bobtoolsReady: context.hasProfiles === true,
+    programmerId: String(context.programmerId || "").trim(),
+    programmerName: String(context.programmerName || "").trim(),
+    userLabel: String(context.userLabel || "").trim(),
+    requestorId: String(context.requestorId || "").trim(),
+    mvpd: String(context.mvpd || "").trim(),
+    mvpdLabel: String(context.mvpdLabel || "").trim(),
+    selectedHarvestKey: String(context.selectedHarvestKey || "").trim(),
+    workspaceIconUrl: chrome.runtime.getURL(BOBTOOLS_WORKSPACE_ICON_PATH),
+    updatedAt: Date.now(),
+  };
+}
+
+async function bobtoolsWorkspaceSendWorkspaceMessage(event, payload = {}, options = {}) {
+  const targetWindowId = Number(options.targetWindowId || 0);
+  try {
+    const message = {
+      type: BOBTOOLS_WORKSPACE_MESSAGE_TYPE,
+      channel: "workspace-event",
+      event: String(event || ""),
+      payload,
+    };
+    if (targetWindowId > 0) {
+      message.targetWindowId = targetWindowId;
+    }
+    await chrome.runtime.sendMessage(message);
+  } catch {
+    // Ignore when workspace listener is inactive.
+  }
+}
+
+function bobtoolsWorkspaceBroadcastControllerState(programmer = null, selectionContext = null, targetWindowId = 0) {
+  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.bobtoolsWorkspaceWindowId || 0);
+  void bobtoolsWorkspaceSendWorkspaceMessage(
+    "controller-state",
+    bobtoolsWorkspaceGetSelectedControllerStatePayload(programmer, selectionContext),
+    {
+      targetWindowId: resolvedWindowId,
+    }
+  );
+}
+
+function bobtoolsWorkspaceBroadcastProfiles(programmer = null, options = {}) {
+  const targetWindowId = Number(options.targetWindowId || 0) || Number(state.bobtoolsWorkspaceWindowId || 0);
+  const payload = buildBobtoolsWorkspaceProfilesPayload(programmer, {
+    selectedHarvestKey: String(options.selectedHarvestKey || "").trim(),
+  });
+  void bobtoolsWorkspaceSendWorkspaceMessage("profiles-update", payload, { targetWindowId });
+}
+
+async function bobtoolsWorkspaceEnsureWorkspaceTab(options = {}) {
+  const shouldActivate = options.activate !== false;
+  const requestedWindowId = Number(options.windowId || 0);
+  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await esmWorkspaceGetCurrentWindowId();
+  const useWindowFilter = targetWindowId > 0;
+  let workspaceTab = null;
+
+  const boundTabId = bobtoolsWorkspaceGetBoundWorkspaceTabId(targetWindowId);
+  if (boundTabId > 0) {
+    try {
+      const existing = await chrome.tabs.get(boundTabId);
+      if (bobtoolsWorkspaceIsWorkspaceTab(existing) && (!useWindowFilter || Number(existing.windowId || 0) === targetWindowId)) {
+        workspaceTab = existing;
+      }
+    } catch {
+      bobtoolsWorkspaceUnbindWorkspaceTab(boundTabId);
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    try {
+      const allTabs = await chrome.tabs.query(useWindowFilter ? { windowId: targetWindowId } : { currentWindow: true });
+      workspaceTab = allTabs.find((tab) => bobtoolsWorkspaceIsWorkspaceTab(tab)) || null;
+    } catch {
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    workspaceTab = await chrome.tabs.create({
+      url: bobtoolsWorkspaceGetWorkspaceUrl(),
+      active: shouldActivate,
+      ...(useWindowFilter ? { windowId: targetWindowId } : {}),
+    });
+  } else if (shouldActivate && workspaceTab.id) {
+    try {
+      workspaceTab = await chrome.tabs.update(workspaceTab.id, { active: true });
+      if (Number(workspaceTab?.windowId || 0) > 0) {
+        await chrome.windows.update(Number(workspaceTab.windowId), { focused: true });
+      }
+    } catch {
+      // Ignore activation failures.
+    }
+  }
+
+  bobtoolsWorkspaceBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+  return workspaceTab;
+}
+
+function buildRestV2CanIWatchErrorResult(harvest = null, resourceIds = [], message = "", options = {}) {
+  const checkedAt = Date.now();
+  const normalizedAction = normalizeBobtoolsRestV2Action(options?.apiAction || BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE);
+  const actionLabel = String(options?.apiActionLabel || getBobtoolsRestV2ActionLabel(normalizedAction)).trim();
+  const endpointMethod = String(options?.method || "POST").trim().toUpperCase();
+  const errorCode = String(options?.errorCode || "request_failed").trim() || "request_failed";
+  const errorDetails = String(options?.errorDetails || message || "").trim();
+  const decisionRows = (Array.isArray(resourceIds) ? resourceIds : []).map((resourceId) => ({
+    resourceId: String(resourceId || "").trim(),
+    decision: "Unknown",
+    authorized: null,
+    source: "",
+    serviceProvider: String(harvest?.serviceProviderId || harvest?.requestorId || "").trim(),
+    mvpd: String(harvest?.mvpd || "").trim(),
+    errorCode,
+    errorDetails,
+    mediaTokenPresent: false,
+    mediaTokenPreview: "",
+    mediaTokenNotBeforeMs: 0,
+    mediaTokenNotAfterMs: 0,
+    notBeforeMs: 0,
+    notAfterMs: 0,
+    raw: {},
+  }));
+  return {
+    checkedAt,
+    checkedAtLabel: formatTimestampLabel(checkedAt),
+    ok: false,
+    status: Number(options?.status || 0),
+    statusText: String(options?.statusText || "").trim(),
+    programmerId: String(harvest?.programmerId || "").trim(),
+    appGuid: String(options?.appGuid || harvest?.appGuid || "").trim(),
+    appName: String(options?.appName || harvest?.appName || harvest?.appGuid || "").trim(),
+    authMode: "dcr_client_bearer",
+    endpointUrl: String(options?.endpointUrl || "").trim(),
+    method: endpointMethod,
+    apiAction: normalizedAction,
+    apiActionLabel: actionLabel,
+    resultType: "decisions",
+    requestBody: {
+      resources: (Array.isArray(resourceIds) ? resourceIds : []).slice(),
+    },
+    serviceProviderId: String(harvest?.serviceProviderId || harvest?.requestorId || "").trim(),
+    requestorId: String(harvest?.requestorId || "").trim(),
+    mvpd: String(harvest?.mvpd || "").trim(),
+    harvestKey: getRestV2HarvestRecordKey(harvest),
+    harvestCapturedAt: Number(harvest?.harvestedAt || 0),
+    subject: String(harvest?.subject || "").trim(),
+    upstreamUserId: String(harvest?.upstreamUserId || "").trim(),
+    userId: String(harvest?.userId || "").trim(),
+    sessionId: String(harvest?.sessionId || "").trim(),
+    profileKey: String(harvest?.profileKey || "").trim(),
+    resourceIds: (Array.isArray(resourceIds) ? resourceIds : []).slice(),
+    decisionRows,
+    permitCount: 0,
+    denyCount: 0,
+    unknownCount: decisionRows.length,
+    allRequestedPermitted: false,
+    responsePreview: String(options?.responsePreview || "").trim(),
+    responsePayload: cloneJsonLikeValue(options?.responsePayload, {}),
+    error: String(message || "").trim() || "Unable to run Can I watch? check.",
+  };
+}
+
+function buildRestV2BobtoolsActionErrorResult(harvest = null, apiAction = "", message = "", options = {}) {
+  const normalizedAction = normalizeBobtoolsRestV2Action(apiAction);
+  if (bobtoolsRestV2ActionRequiresResources(normalizedAction)) {
+    const resourceIds = Array.isArray(options?.resourceIds) ? options.resourceIds : [];
+    return buildRestV2CanIWatchErrorResult(harvest, resourceIds, message, {
+      ...options,
+      apiAction: normalizedAction,
+      apiActionLabel: getBobtoolsRestV2ActionLabel(normalizedAction),
+      method: "POST",
+    });
+  }
+
+  const checkedAt = Date.now();
+  return {
+    checkedAt,
+    checkedAtLabel: formatTimestampLabel(checkedAt),
+    ok: false,
+    status: Number(options?.status || 0),
+    statusText: String(options?.statusText || "").trim(),
+    programmerId: String(harvest?.programmerId || "").trim(),
+    appGuid: String(options?.appGuid || harvest?.appGuid || "").trim(),
+    appName: String(options?.appName || harvest?.appName || harvest?.appGuid || "").trim(),
+    authMode: "dcr_client_bearer",
+    endpointUrl: String(options?.endpointUrl || "").trim(),
+    method: String(options?.method || "GET").trim().toUpperCase(),
+    apiAction: normalizedAction,
+    apiActionLabel: getBobtoolsRestV2ActionLabel(normalizedAction),
+    resultType: normalizedAction === BOBTOOLS_REST_V2_ACTION_CONFIGURATION ? "configuration" : "profiles",
+    serviceProviderId: String(harvest?.serviceProviderId || harvest?.requestorId || "").trim(),
+    requestorId: String(harvest?.requestorId || harvest?.serviceProviderId || "").trim(),
+    mvpd: String(harvest?.mvpd || "").trim(),
+    harvestKey: getRestV2HarvestRecordKey(harvest),
+    harvestCapturedAt: Number(harvest?.harvestedAt || 0),
+    subject: String(harvest?.subject || "").trim(),
+    upstreamUserId: String(harvest?.upstreamUserId || "").trim(),
+    userId: String(harvest?.userId || "").trim(),
+    sessionId: String(harvest?.sessionId || "").trim(),
+    profileKey: String(harvest?.profileKey || "").trim(),
+    profileRows: [],
+    profileCount: 0,
+    profileKeys: [],
+    mvpdRows: [],
+    mvpdCount: 0,
+    responsePreview: String(options?.responsePreview || "").trim(),
+    responsePayload: cloneJsonLikeValue(options?.responsePayload, {}),
+    error: String(message || "").trim() || "Unable to run REST V2 action.",
+  };
+}
+
+async function runRestV2BobtoolsActionForHarvest(harvest, options = {}) {
+  const apiAction = normalizeBobtoolsRestV2Action(options?.apiAction || BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE);
+  const normalizedResources = dedupeRestV2CandidateStrings(
+    (Array.isArray(options?.resourceIds) ? options.resourceIds : [])
+      .map((item) => String(item || "").trim())
+      .filter(Boolean)
+  );
+  const actionLabel = getBobtoolsRestV2ActionLabel(apiAction);
+  if (!harvest || typeof harvest !== "object") {
+    return buildRestV2BobtoolsActionErrorResult(null, apiAction, "No MVPD profile was selected.", {
+      resourceIds: normalizedResources,
+      errorCode: "profile_missing",
+    });
+  }
+  if (bobtoolsRestV2ActionRequiresResources(apiAction) && normalizedResources.length === 0) {
+    return buildRestV2BobtoolsActionErrorResult(
+      harvest,
+      apiAction,
+      "Enter at least one resourceId (comma-delimited supported).",
+      {
+        resourceIds: normalizedResources,
+        errorCode: "resource_missing",
+      }
+    );
+  }
+
+  const context = buildRestV2ContextFromHarvest(harvest);
+  if (!context?.ok) {
+    return buildRestV2BobtoolsActionErrorResult(
+      harvest,
+      apiAction,
+      "Selected MVPD profile is missing REST V2 context. Re-run LOGIN for this MVPD profile and try again.",
+      {
+        resourceIds: normalizedResources,
+        errorCode: "profile_context_missing",
+      }
+    );
+  }
+
+  if (bobtoolsRestV2ActionRequiresActiveProfile(apiAction)) {
+    let activeWindowEntry = getRestV2ActiveProfileWindowEntryForContext(context);
+    if (activeWindowEntry?.active !== true) {
+      activeWindowEntry = await ensureRestV2ActiveProfileWindowForContext(null, null, null, {
+        context,
+        force: true,
+      });
+    }
+    if (activeWindowEntry?.active !== true) {
+      return buildRestV2BobtoolsActionErrorResult(
+        harvest,
+        apiAction,
+        `${actionLabel} is available only while an authenticated MVPD profile session is active. Run LOGIN first.`,
+        {
+          resourceIds: normalizedResources,
+          errorCode: "authenticated_profile_missing",
+        }
+      );
+    }
+
+    const preflightFlowId = resolveRestV2DebugFlowIdForHarvest(harvest);
+    const preflight = await fetchRestV2ProfileCheckResult(context, preflightFlowId, `profiles-${apiAction}-preflight`);
+    if (preflight?.harvestedProfile && isUsableRestV2ProfileHarvest(preflight.harvestedProfile)) {
+      storeRestV2ProfileHarvest(context, preflight, preflightFlowId);
+    }
+    if (!preflight?.ok || Number(preflight?.profileCount || 0) <= 0) {
+      const preflightPayload =
+        preflight?.responsePayload && typeof preflight.responsePayload === "object" ? preflight.responsePayload : {};
+      const preflightCode = String(
+        firstNonEmptyString([
+          preflightPayload?.code,
+          preflightPayload?.error?.code,
+          preflightPayload?.error,
+          Number(preflight?.profileCount || 0) <= 0 ? "authenticated_profile_missing" : "",
+        ]) || "authenticated_profile_missing"
+      ).trim();
+      const preflightMessage = String(
+        firstNonEmptyString([
+          preflightPayload?.details,
+          preflightPayload?.message,
+          preflight?.error,
+          "The authenticated profile associated with this request is missing or expired.",
+        ]) || "The authenticated profile associated with this request is missing or expired."
+      ).trim();
+      const result = buildRestV2BobtoolsActionErrorResult(
+        harvest,
+        apiAction,
+        `${preflightCode}: ${preflightMessage}. Re-run LOGIN for this MVPD profile to refresh the session, then retry ${actionLabel}.`,
+        {
+          resourceIds: normalizedResources,
+          status: Number(preflight?.status || 403),
+          statusText: String(preflight?.statusText || "").trim(),
+          errorCode: preflightCode,
+          errorDetails: preflightMessage,
+          endpointUrl: String(preflight?.url || "").trim(),
+          responsePayload: preflightPayload,
+          responsePreview: String(preflight?.responsePreview || "").trim(),
+        }
+      );
+      setRestV2ActiveProfileWindowState(context, false, {
+        checkedAt: Date.now(),
+        profileCount: Number(preflight?.profileCount || 0),
+        status: Number(preflight?.status || 0),
+        statusText: String(preflight?.statusText || "").trim(),
+        error: String(result.error || "").trim(),
+        source: `${apiAction}-preflight`,
+      });
+      clearRestV2ProfileHarvestForContext(context);
+      return result;
+    }
+
+    setRestV2ActiveProfileWindowState(context, true, {
+      checkedAt: Date.now(),
+      profileCount: Number(preflight?.profileCount || 0),
+      status: Number(preflight?.status || 0),
+      statusText: String(preflight?.statusText || "").trim(),
+      error: "",
+      source: `${apiAction}-preflight`,
+    });
+  }
+
+  try {
+    let result = null;
+    if (apiAction === BOBTOOLS_REST_V2_ACTION_AUTHORIZE) {
+      result = await fetchRestV2AuthorizeDecisions(harvest, normalizedResources);
+    } else if (apiAction === BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE) {
+      result = await fetchRestV2PreauthorizeDecisions(harvest, normalizedResources);
+    } else if (apiAction === BOBTOOLS_REST_V2_ACTION_PROFILES_ALL || apiAction === BOBTOOLS_REST_V2_ACTION_PROFILES_MVPD) {
+      result = await fetchRestV2ProfilesForHarvest(harvest, { apiAction });
+      if (result?.ok === true && Number(result?.profileCount || 0) > 0) {
+        const profileCheckResult = {
+          checked: true,
+          ok: true,
+          status: Number(result?.status || 200),
+          statusText: String(result?.statusText || "").trim(),
+          profileCount: Number(result?.profileCount || 0),
+          responsePreview: String(result?.responsePreview || "").trim(),
+          url: String(result?.endpointUrl || "").trim(),
+          error: "",
+          responsePayload: cloneJsonLikeValue(result?.responsePayload, {}),
+          harvestedProfile: null,
+        };
+        storeRestV2ProfileHarvest(context, profileCheckResult, resolveRestV2DebugFlowIdForHarvest(harvest));
+      }
+      setRestV2ActiveProfileWindowState(context, result?.ok === true && Number(result?.profileCount || 0) > 0, {
+        checkedAt: Number(result?.checkedAt || Date.now()),
+        profileCount: Number(result?.profileCount || 0),
+        status: Number(result?.status || 0),
+        statusText: String(result?.statusText || "").trim(),
+        error: String(result?.error || "").trim(),
+        source: apiAction,
+      });
+    } else if (apiAction === BOBTOOLS_REST_V2_ACTION_CONFIGURATION) {
+      result = await fetchRestV2ConfigurationForHarvest(harvest);
+    } else {
+      return buildRestV2BobtoolsActionErrorResult(harvest, apiAction, `Unsupported BOBTOOLS action: ${apiAction}.`, {
+        resourceIds: normalizedResources,
+      });
+    }
+
+    const enrichedResult = {
+      ...result,
+      programmerId: String(harvest?.programmerId || "").trim(),
+    };
+
+    if (String(enrichedResult?.resultType || "").trim().toLowerCase() === "decisions") {
+      storeRestV2PreauthorizeHistoryEntry(String(harvest?.programmerId || "").trim(), enrichedResult);
+      storeRestV2ProfilePreauthzCheckEntry(
+        String(harvest?.programmerId || "").trim(),
+        String(enrichedResult?.harvestKey || "").trim(),
+        enrichedResult
+      );
+      setRestV2ActiveProfileWindowState(context, true, {
+        checkedAt: Number(enrichedResult?.checkedAt || Date.now()),
+        profileCount: Math.max(1, Number(getRestV2ActiveProfileWindowEntryForContext(context)?.profileCount || 0)),
+        status: Number(enrichedResult?.status || 0),
+        statusText: String(enrichedResult?.statusText || "").trim(),
+        error: "",
+        source: apiAction,
+      });
+    }
+
+    state.bobtoolsWorkspaceLastResultByHarvestKey.set(
+      String(enrichedResult?.harvestKey || getRestV2HarvestRecordKey(harvest)).trim(),
+      cloneJsonLikeValue(enrichedResult, null)
+    );
+    return enrichedResult;
+  } catch (error) {
+    const errorResult = error?.underparResult && typeof error.underparResult === "object" ? error.underparResult : null;
+    const fallbackError = error instanceof Error ? error.message : String(error);
+    const enrichedError = errorResult
+      ? {
+          ...errorResult,
+          programmerId: String(harvest?.programmerId || "").trim(),
+        }
+      : buildRestV2BobtoolsActionErrorResult(harvest, apiAction, fallbackError, {
+          resourceIds: normalizedResources,
+          errorCode: `${apiAction}_failed`,
+        });
+    if (hasRestV2AuthenticatedProfileMissingSignal(enrichedError)) {
+      setRestV2ActiveProfileWindowState(context, false, {
+        checkedAt: Number(enrichedError?.checkedAt || Date.now()),
+        profileCount: 0,
+        status: Number(enrichedError?.status || 0),
+        statusText: String(enrichedError?.statusText || "").trim(),
+        error: String(enrichedError?.error || "").trim(),
+        source: `${apiAction}-authenticated-profile-missing`,
+      });
+      clearRestV2ProfileHarvestForContext(context);
+    }
+    state.bobtoolsWorkspaceLastResultByHarvestKey.set(
+      String(enrichedError?.harvestKey || getRestV2HarvestRecordKey(harvest)).trim(),
+      cloneJsonLikeValue(enrichedError, null)
+    );
+    return enrichedError;
+  }
+}
+
+async function runRestV2CanIWatchForHarvest(harvest, resourceIds = []) {
+  return runRestV2BobtoolsActionForHarvest(harvest, {
+    apiAction: BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE,
+    resourceIds,
+  });
+}
+
+function syncRestV2BobtoolsLaunchers() {
+  const selectedProgrammer = resolveSelectedProgrammer();
+  const services = selectedProgrammer?.programmerId ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null : null;
+  const sections = document.querySelectorAll(".premium-service-section.service-rest-v2");
+  sections.forEach((section) => {
+    syncRestV2BobtoolsLauncher(section, selectedProgrammer, services?.restV2 || null);
+  });
+}
+
+function refreshBobtoolsWorkspaceTools() {
+  syncRestV2BobtoolsLaunchers();
+  if (!bobtoolsWorkspaceHasOpenTab()) {
+    return;
+  }
+  const selectedProgrammer = resolveSelectedProgrammer();
+  const selectionContext = buildBobtoolsWorkspaceSelectionContext(selectedProgrammer);
+  bobtoolsWorkspaceBroadcastControllerState(selectedProgrammer, selectionContext);
+  bobtoolsWorkspaceBroadcastProfiles(selectedProgrammer, {
+    selectedHarvestKey: selectionContext.selectedHarvestKey,
+  });
+}
+
+async function bobtoolsWorkspaceOpenFromRestV2(programmer = null, options = {}) {
+  const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  const liveContext = buildCurrentRestV2SelectionContext(resolvedProgrammer, null);
+  const fallbackSelection = buildBobtoolsWorkspaceSelectionContext(resolvedProgrammer);
+  const hydrationContext = liveContext?.ok ? liveContext : buildRestV2ContextFromHarvest(fallbackSelection.selectedHarvest);
+  if (hydrationContext?.ok) {
+    await ensureRestV2ProfilesHydratedForBobtools(hydrationContext, {
+      force: options.forceRefresh === true,
+      source: "bobtools-open",
+    });
+    refreshRestV2LoginPanels();
+  }
+  const selectionContext = buildBobtoolsWorkspaceSelectionContext(resolvedProgrammer);
+  if (!selectionContext.programmerId) {
+    throw new Error("Select a Media Company first.");
+  }
+  if (!selectionContext.hasProfiles) {
+    throw new Error("BOBTOOLS unlocks after at least one successful MVPD login profile is captured.");
+  }
+  const workspaceTab = await bobtoolsWorkspaceEnsureWorkspaceTab({
+    activate: options.activate !== false,
+    windowId: options.windowId || undefined,
+  });
+  const targetWindowId = Number(workspaceTab?.windowId || state.bobtoolsWorkspaceWindowId || 0);
+  bobtoolsWorkspaceBroadcastControllerState(resolvedProgrammer, selectionContext, targetWindowId);
+  bobtoolsWorkspaceBroadcastProfiles(resolvedProgrammer, {
+    targetWindowId,
+    selectedHarvestKey: selectionContext.selectedHarvestKey,
+  });
+  return workspaceTab;
+}
+
+async function handleBobtoolsWorkspaceAction(message, sender = null) {
+  const action = String(message?.action || "").trim().toLowerCase();
+  const senderWindowId = Number(sender?.tab?.windowId || 0);
+  const senderTabId = Number(sender?.tab?.id || 0);
+  const mappedSenderTabId = senderWindowId > 0 ? Number(state.bobtoolsWorkspaceTabIdByWindowId.get(senderWindowId) || 0) : 0;
+  if (senderWindowId > 0 && senderTabId > 0 && mappedSenderTabId > 0 && senderTabId !== mappedSenderTabId) {
+    return { ok: false, error: "This is not the bound BOBTOOLS workspace tab for the window." };
+  }
+  if (senderWindowId > 0 && senderTabId > 0 && (!mappedSenderTabId || mappedSenderTabId <= 0)) {
+    bobtoolsWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
+  }
+
+  if (action === "workspace-ready") {
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const liveContext = buildCurrentRestV2SelectionContext(selectedProgrammer, null);
+    const preliminarySelection = buildBobtoolsWorkspaceSelectionContext(selectedProgrammer);
+    const hydrationContext = liveContext?.ok ? liveContext : buildRestV2ContextFromHarvest(preliminarySelection.selectedHarvest);
+    if (hydrationContext?.ok) {
+      await ensureRestV2ProfilesHydratedForBobtools(hydrationContext, {
+        force: false,
+        source: "workspace-ready",
+      });
+      refreshRestV2LoginPanels();
+    }
+    const selectionContext = buildBobtoolsWorkspaceSelectionContext(selectedProgrammer);
+    if (senderWindowId > 0) {
+      bobtoolsWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
+    }
+    bobtoolsWorkspaceBroadcastControllerState(selectedProgrammer, selectionContext, senderWindowId);
+    bobtoolsWorkspaceBroadcastProfiles(selectedProgrammer, {
+      targetWindowId: senderWindowId,
+      selectedHarvestKey: selectionContext.selectedHarvestKey,
+    });
+    return { ok: true };
+  }
+
+  if (action === "open-workspace") {
+    await bobtoolsWorkspaceOpenFromRestV2(null, {
+      activate: true,
+      windowId: senderWindowId || undefined,
+      forceRefresh: false,
+    });
+    return { ok: true };
+  }
+
+  if (action === "run-can-i-watch") {
+    const requestedHarvestKey = String(message?.harvestKey || "").trim();
+    const apiAction = BOBTOOLS_REST_V2_ACTION_PREAUTHORIZE;
+    const actionLabel = getBobtoolsRestV2ActionLabel(apiAction);
+    const resourceInput = firstNonEmptyString([message?.resourceInput, message?.resources]);
+    const resourceIds = parseRestV2ResourceIdInput(resourceInput);
+    if (resourceIds.length === 0) {
+      return {
+        ok: false,
+        error: `${actionLabel} requires at least one resourceId (comma-delimited supported).`,
+      };
+    }
+
+    const preferredProgrammerId = String(
+      firstNonEmptyString([
+        message?.programmerId,
+        resolveSelectedProgrammer()?.programmerId,
+      ])
+    ).trim();
+    const harvest = getRestV2HarvestByRecordKey(requestedHarvestKey, preferredProgrammerId);
+    if (!harvest) {
+      return { ok: false, error: "Selected MVPD profile was not found. Re-run LOGIN and try again." };
+    }
+
+    const result = await runRestV2BobtoolsActionForHarvest(harvest, {
+      apiAction,
+      resourceIds,
+    });
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const targetWindowId = Number(senderWindowId || state.bobtoolsWorkspaceWindowId || 0);
+    bobtoolsWorkspaceBroadcastProfiles(selectedProgrammer, {
+      targetWindowId,
+      selectedHarvestKey: String(result?.harvestKey || requestedHarvestKey || "").trim(),
+    });
+    void bobtoolsWorkspaceSendWorkspaceMessage(
+      "can-i-watch-result",
+      {
+        apiAction,
+        harvestKey: String(result?.harvestKey || requestedHarvestKey || "").trim(),
+        result: cloneJsonLikeValue(result, null),
+      },
+      { targetWindowId }
+    );
+    refreshRestV2LoginPanels();
+    return { ok: true, result };
+  }
+
+  if (action === "run-splunk") {
+    const requestedHarvestKey = String(message?.harvestKey || "").trim();
+    const preferredProgrammerId = String(
+      firstNonEmptyString([
+        message?.programmerId,
+        resolveSelectedProgrammer()?.programmerId,
+      ])
+    ).trim();
+    const harvest = getRestV2HarvestByRecordKey(requestedHarvestKey, preferredProgrammerId);
+    if (!harvest) {
+      return { ok: false, error: "Selected MVPD profile was not found. Re-run LOGIN and try again." };
+    }
+    const result = await runBobtoolsSplunkLookupForHarvest(harvest, {
+      targetWindowId: senderWindowId,
+    });
+    return result?.ok
+      ? { ok: true, report: cloneJsonLikeValue(result, null) }
+      : {
+          ok: false,
+          error: String(result?.error || "Splunk query failed. Sign in and retry."),
+          report: result && typeof result === "object" ? cloneJsonLikeValue(result, null) : null,
+        };
+  }
+
+  if (action === "delete-profile") {
+    const harvestKey = String(message?.harvestKey || "").trim();
+    if (!harvestKey) {
+      return { ok: false, error: "Missing profile key." };
+    }
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const programmerId = String(message?.programmerId || selectedProgrammer?.programmerId || "").trim();
+    if (!programmerId) {
+      return { ok: false, error: "Missing media company context." };
+    }
+    const removed = removeRestV2ProfileHarvestByRecordKey(programmerId, harvestKey);
+    if (!removed) {
+      return { ok: false, error: "Unable to remove the selected MVPD profile." };
+    }
+    state.bobtoolsWorkspaceLastResultByHarvestKey.delete(harvestKey);
+    bobtoolsWorkspaceBroadcastProfiles(selectedProgrammer, { targetWindowId: senderWindowId });
+    refreshRestV2LoginPanels();
+    return { ok: true };
+  }
+
+  if (action === "refresh-selected") {
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const liveContext = buildCurrentRestV2SelectionContext(selectedProgrammer, null);
+    const preliminarySelection = buildBobtoolsWorkspaceSelectionContext(selectedProgrammer);
+    const hydrationContext = liveContext?.ok ? liveContext : buildRestV2ContextFromHarvest(preliminarySelection.selectedHarvest);
+    if (hydrationContext?.ok) {
+      await ensureRestV2ProfilesHydratedForBobtools(hydrationContext, {
+        force: false,
+        source: "workspace-refresh-selected",
+      });
+      refreshRestV2LoginPanels();
+    }
+    const selectionContext = buildBobtoolsWorkspaceSelectionContext(selectedProgrammer);
+    bobtoolsWorkspaceBroadcastControllerState(selectedProgrammer, selectionContext, senderWindowId);
+    bobtoolsWorkspaceBroadcastProfiles(selectedProgrammer, {
+      targetWindowId: senderWindowId,
+      selectedHarvestKey: selectionContext.selectedHarvestKey,
+    });
+    return { ok: true };
+  }
+
+  if (action === "clear-result") {
+    const harvestKey = String(message?.harvestKey || "").trim();
+    if (harvestKey) {
+      state.bobtoolsWorkspaceLastResultByHarvestKey.delete(harvestKey);
+    } else {
+      state.bobtoolsWorkspaceLastResultByHarvestKey.clear();
+    }
+    bobtoolsWorkspaceBroadcastProfiles(resolveSelectedProgrammer(), { targetWindowId: senderWindowId });
+    return { ok: true };
+  }
+
+  return { ok: false, error: `Unsupported BOBTOOLS workspace action: ${action}` };
+}
+
+function ensureBobtoolsWorkspaceRuntimeListener() {
+  if (state.bobtoolsWorkspaceRuntimeListenerBound) {
+    return;
+  }
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!BOBTOOLS_WORKSPACE_MESSAGE_TYPES.has(String(message?.type || "")) || message?.channel !== "workspace-action") {
+      return false;
+    }
+    void handleBobtoolsWorkspaceAction(message, sender)
+      .then((result) => {
+        sendResponse(result && typeof result === "object" ? result : { ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+    return true;
+  });
+  state.bobtoolsWorkspaceRuntimeListenerBound = true;
+}
+
+function ensureBobtoolsWorkspaceTabWatcher() {
+  if (state.bobtoolsWorkspaceTabWatcherBound) {
+    return;
+  }
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    bobtoolsWorkspaceUnbindWorkspaceTab(tabId);
+    state.restV2BobtoolsRedirectInFlightByTabId.delete(Number(tabId || 0));
+  });
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const normalizedTabId = Number(tabId || 0);
+    if (!normalizedTabId || !changeInfo?.url) {
+      return;
+    }
+    if (bobtoolsWorkspaceIsWorkspaceTab(tab)) {
+      bobtoolsWorkspaceBindWorkspaceTab(tab?.windowId, normalizedTabId);
+      return;
+    }
+    const boundTabId = Number(state.bobtoolsWorkspaceTabId || 0);
+    let isMappedTab = false;
+    for (const mappedTabId of state.bobtoolsWorkspaceTabIdByWindowId.values()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        isMappedTab = true;
+        break;
+      }
+    }
+    if (isMappedTab || normalizedTabId === boundTabId) {
+      bobtoolsWorkspaceUnbindWorkspaceTab(normalizedTabId);
+    }
+  });
+  state.bobtoolsWorkspaceTabWatcherBound = true;
+}
+
+function isRestV2RedirectAtPostLoginTarget(url = "", redirectUrl = "") {
+  const candidate = String(url || "").trim();
+  const configuredRedirect = normalizeAdobeNavigationUrl(redirectUrl);
+  if (!candidate || !configuredRedirect) {
+    return false;
+  }
+  try {
+    const candidateParsed = new URL(candidate);
+    const redirectParsed = new URL(configuredRedirect);
+    return candidateParsed.origin === redirectParsed.origin && candidateParsed.pathname === redirectParsed.pathname;
+  } catch {
+    return candidate === configuredRedirect || candidate.startsWith(`${configuredRedirect}?`) || candidate.startsWith(`${configuredRedirect}#`);
+  }
+}
+
+function buildRestV2SelectionContextFromRecordingContextSafe(recordingContext = null) {
+  const selectionContext = buildRestV2SelectionContextFromRecordingContext(recordingContext);
+  if (selectionContext?.ok) {
+    return selectionContext;
+  }
+  const fallback = buildCurrentRestV2SelectionContext(resolveSelectedProgrammer(), null);
+  return fallback?.ok ? fallback : null;
+}
+
+function setRestV2LoginPanelStatusAcrossSections(message = "", type = "") {
+  const sections = document.querySelectorAll(".premium-service-section.service-rest-v2");
+  sections.forEach((section) => {
+    setRestV2LoginPanelStatus(section, message, type);
+  });
+}
+
+async function handleRestV2LoginPopupClosed(tabId = 0) {
+  const normalizedTabId = Number(tabId || 0);
+  if (!normalizedTabId || normalizedTabId !== Number(state.restV2LastLaunchTabId || 0)) {
+    return;
+  }
+
+  const flowId = String(state.restV2DebugFlowId || "").trim();
+  const recordingContext =
+    state.restV2RecordingContext && typeof state.restV2RecordingContext === "object" ? state.restV2RecordingContext : null;
+  const wasRecording = state.restV2RecordingActive === true;
+
+  state.restV2LastLaunchTabId = 0;
+  state.restV2LastLaunchWindowId = 0;
+
+  emitRestV2DebugEvent(flowId, {
+    source: "extension",
+    phase: "login-popup-closed",
+    tabId: normalizedTabId,
+    recordingActive: wasRecording,
+    requestorId: String(recordingContext?.requestorId || ""),
+    mvpd: String(recordingContext?.mvpd || ""),
+  });
+
+  if (!wasRecording || state.restV2Stopping || !recordingContext) {
+    refreshRestV2LoginPanels();
+    return;
+  }
+
+  const selectionContext = buildRestV2SelectionContextFromRecordingContextSafe(recordingContext);
+  if (!selectionContext?.ok) {
+    refreshRestV2LoginPanels();
+    return;
+  }
+
+  const selectionKey = getRestV2SelectionKey(selectionContext);
+  if (!selectionKey || state.restV2PopupCloseProbeInFlightBySelectionKey.has(selectionKey)) {
+    return;
+  }
+  state.restV2PopupCloseProbeInFlightBySelectionKey.add(selectionKey);
+
+  try {
+    const postAuthProbe = await probeRestV2PostAuthProfiles(recordingContext, flowId, {
+      scopePrefix: "profiles-popup-close",
+      maxAttempts: REST_V2_POST_AUTH_PROFILE_CHECK_RETRIES,
+      delayMs: REST_V2_POST_AUTH_PROFILE_CHECK_DELAY_MS,
+    });
+    const profileCheckResult =
+      postAuthProbe?.result || buildRestV2ProfileCheckFallbackResult("Profile check unavailable after popup close.");
+    const hasActiveProfile = isRestV2ProfileSessionActiveResult(profileCheckResult);
+    setRestV2ActiveProfileWindowState(selectionContext, hasActiveProfile, {
+      checkedAt: Date.now(),
+      profileCount: Number(profileCheckResult?.profileCount || 0),
+      status: Number(profileCheckResult?.status || 0),
+      statusText: String(profileCheckResult?.statusText || "").trim(),
+      error: String(profileCheckResult?.error || "").trim(),
+      source: "popup-close-profiles-check",
+    });
+
+    if (hasActiveProfile) {
+      const harvestedProfile = storeRestV2ProfileHarvest(recordingContext, profileCheckResult, flowId);
+      if (harvestedProfile) {
+        emitRestV2DebugEvent(flowId, {
+          source: "extension",
+          phase: "profiles-harvested",
+          requestorId: recordingContext.requestorId,
+          mvpd: recordingContext.mvpd,
+          subject: harvestedProfile.subject,
+          sessionId: harvestedProfile.sessionId,
+          profileCheckOutcome: harvestedProfile.profileCheckOutcome,
+          profileCount: Number(harvestedProfile.profileCount || 0),
+          profileHarvest: cloneJsonLikeValue(harvestedProfile, {}),
+          profileCheck:
+            harvestedProfile.profileCheck && typeof harvestedProfile.profileCheck === "object"
+              ? { ...harvestedProfile.profileCheck }
+              : null,
+        });
+      }
+
+      const hydrationContext = buildRestV2ContextFromHarvest(harvestedProfile) || selectionContext;
+      if (hydrationContext?.ok) {
+        await ensureRestV2ProfilesHydratedForBobtools(hydrationContext, {
+          force: true,
+          flowId,
+          source: "popup-close",
+        });
+      }
+
+      const requestorMvpdLabel = formatRestV2RequestorMvpdDisplay(
+        String(recordingContext.requestorId || ""),
+        String(recordingContext.mvpd || ""),
+        String(recordingContext?.mvpdName || "").trim()
+          ? {
+              id: String(recordingContext.mvpd || "").trim(),
+              name: String(recordingContext.mvpdName || "").trim(),
+            }
+          : null,
+        { separator: " x " }
+      );
+      refreshRestV2LoginPanels();
+      setRestV2LoginPanelStatusAcrossSections(
+        `MVPD popup closed. Authenticated profile captured for ${requestorMvpdLabel} (profiles=${Number(
+          profileCheckResult?.profileCount || 0
+        )}). Entitlement denies are treated as authZ outcomes; recording remains active.`,
+        "success"
+      );
+    } else {
+      const explicitNoActiveProfile = isRestV2NoActiveProfileSignal(profileCheckResult);
+      const checkedNoProfiles =
+        profileCheckResult?.checked === true &&
+        profileCheckResult?.ok === true &&
+        Number(profileCheckResult?.profileCount || 0) === 0;
+      if (explicitNoActiveProfile || checkedNoProfiles) {
+        clearRestV2ProfileHarvestForContext(recordingContext);
+      }
+      const requestorMvpdLabel = formatRestV2RequestorMvpdDisplay(
+        String(recordingContext.requestorId || ""),
+        String(recordingContext.mvpd || ""),
+        String(recordingContext?.mvpdName || "").trim()
+          ? {
+              id: String(recordingContext.mvpd || "").trim(),
+              name: String(recordingContext.mvpdName || "").trim(),
+            }
+          : null,
+        { separator: " x " }
+      );
+      const reasonText = firstNonEmptyString([
+        String(profileCheckResult?.error || "").trim(),
+        Number(profileCheckResult?.status || 0) > 0
+          ? `HTTP ${Number(profileCheckResult.status || 0)} ${String(profileCheckResult.statusText || "").trim()}`.trim()
+          : "",
+      ]);
+      const probePath = firstNonEmptyString([
+        String(profileCheckResult?.profileCheckEndpointLabel || "").trim(),
+        String(profileCheckResult?.profileCheckEndpoint || "").trim(),
+      ]);
+      refreshRestV2LoginPanels();
+      setRestV2LoginPanelStatusAcrossSections(
+        `MVPD popup closed before redirect_url for ${requestorMvpdLabel}. No active profile was returned${
+          reasonText ? ` (${reasonText})` : ""
+        }${probePath ? ` [probe=${probePath}]` : ""}. If the partner showed an entitlement deny page, authN may still have succeeded; click STOP to export HAR and review decisions.`,
+        "error"
+      );
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    emitRestV2DebugEvent(flowId, {
+      source: "extension",
+      phase: "popup-close-profiles-check-error",
+      requestorId: String(recordingContext?.requestorId || ""),
+      mvpd: String(recordingContext?.mvpd || ""),
+      error: reason,
+    });
+    refreshRestV2LoginPanels();
+    setRestV2LoginPanelStatusAcrossSections(
+      `MVPD popup closed and profile probe failed: ${reason}. Recording remains active; click STOP to export HAR.`,
+      "error"
+    );
+  } finally {
+    state.restV2PopupCloseProbeInFlightBySelectionKey.delete(selectionKey);
+  }
+}
+
+function ensureRestV2LoginTabWatcher() {
+  if (state.restV2LoginTabWatcherBound) {
+    return;
+  }
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    const normalizedTabId = Number(tabId || 0);
+    if (!normalizedTabId || normalizedTabId !== Number(state.restV2LastLaunchTabId || 0)) {
+      return;
+    }
+    void handleRestV2LoginPopupClosed(normalizedTabId);
+  });
+  state.restV2LoginTabWatcherBound = true;
+}
+
+function ensureRestV2BobtoolsRedirectWatcher() {
+  if (state.restV2BobtoolsRedirectWatcherBound) {
+    return;
+  }
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const activeTabId = Number(state.restV2LastLaunchTabId || 0);
+    const normalizedTabId = Number(tabId || 0);
+    if (!activeTabId || normalizedTabId !== activeTabId) {
+      return;
+    }
+    if (!state.restV2RecordingActive || !state.restV2RecordingContext) {
+      return;
+    }
+    const candidateUrl = String(changeInfo?.url || tab?.url || "").trim();
+    if (!candidateUrl || bobtoolsWorkspaceIsWorkspaceTab({ url: candidateUrl })) {
+      return;
+    }
+    const redirectUrl = String(state.restV2RecordingContext?.redirectUrl || "").trim();
+    if (!isRestV2RedirectAtPostLoginTarget(candidateUrl, redirectUrl)) {
+      return;
+    }
+    if (state.restV2BobtoolsRedirectInFlightByTabId.has(normalizedTabId)) {
+      return;
+    }
+    state.restV2BobtoolsRedirectInFlightByTabId.add(normalizedTabId);
+    void (async () => {
+      const recordingContext =
+        state.restV2RecordingContext && typeof state.restV2RecordingContext === "object"
+          ? state.restV2RecordingContext
+          : null;
+      let hydrationContext = null;
+      if (
+        recordingContext?.programmerId &&
+        recordingContext?.appInfo?.guid &&
+        recordingContext?.serviceProviderId &&
+        recordingContext?.mvpd
+      ) {
+        try {
+          const profileCheckResult = await fetchRestV2ProfileCheckResult(
+            recordingContext,
+            String(state.restV2DebugFlowId || "").trim(),
+            "profiles-redirect-bobtools"
+          );
+          if (profileCheckResult?.harvestedProfile && isUsableRestV2ProfileHarvest(profileCheckResult.harvestedProfile)) {
+            const storedHarvest = storeRestV2ProfileHarvest(recordingContext, profileCheckResult, String(state.restV2DebugFlowId || "").trim());
+            hydrationContext = buildRestV2ContextFromHarvest(storedHarvest);
+          }
+        } catch {
+          // Continue and open BOBTOOLS even if early profile harvest probe fails.
+        }
+      }
+      if (!hydrationContext) {
+        hydrationContext = buildRestV2SelectionContextFromRecordingContext(recordingContext);
+      }
+      if (hydrationContext?.ok) {
+        await ensureRestV2ProfilesHydratedForBobtools(hydrationContext, {
+          force: true,
+          flowId: String(state.restV2DebugFlowId || "").trim(),
+          source: "redirect-intercept",
+        });
+        refreshRestV2LoginPanels();
+      }
+
+      const workspaceUrl = bobtoolsWorkspaceGetWorkspaceUrl();
+      const updatedTab = await chrome.tabs.update(normalizedTabId, { url: workspaceUrl });
+      bobtoolsWorkspaceBindWorkspaceTab(updatedTab?.windowId, normalizedTabId);
+      const selectedProgrammer = resolveSelectedProgrammer();
+      const selectionContext = buildBobtoolsWorkspaceSelectionContext(selectedProgrammer);
+      bobtoolsWorkspaceBroadcastControllerState(selectedProgrammer, selectionContext, Number(updatedTab?.windowId || 0));
+      bobtoolsWorkspaceBroadcastProfiles(selectedProgrammer, {
+        targetWindowId: Number(updatedTab?.windowId || 0),
+        selectedHarvestKey: selectionContext.selectedHarvestKey,
+      });
+    })()
+      .catch(() => {
+        // Ignore tab update race failures.
+      })
+      .finally(() => {
+        state.restV2BobtoolsRedirectInFlightByTabId.delete(normalizedTabId);
+      });
+  });
+  state.restV2BobtoolsRedirectWatcherBound = true;
+}
+
+function cmResolveWorkspaceTarget(cmState = null, options = {}) {
+  const explicitTarget = String(options?.targetWorkspace || "").trim().toLowerCase();
+  if (explicitTarget === "mvpd" || explicitTarget === "cm") {
+    return explicitTarget;
+  }
+  return String(cmState?.serviceType || "").trim() === "cmMvpd" ? "mvpd" : "cm";
+}
+
+async function cmEnsureTargetWorkspaceTab(cmState, options = {}) {
+  const targetWorkspace = cmResolveWorkspaceTarget(cmState, options);
+  const requestedWindowId = Number(options.windowId || 0) || Number(cmState?.controllerWindowId || 0) || undefined;
+  if (targetWorkspace === "mvpd") {
+    const workspaceTab = await mvpdWorkspaceEnsureWorkspaceTab({
+      activate: options.activate !== false,
+      windowId: requestedWindowId,
+    });
+    mvpdWorkspaceBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+    const targetWindowId = Number(workspaceTab?.windowId || cmState?.controllerWindowId || state.mvpdWorkspaceWindowId || 0);
+    return {
+      targetWorkspace,
+      workspaceTab,
+      targetWindowId,
+    };
+  }
+
+  const workspaceTab = await cmEnsureWorkspaceTab({
+    activate: options.activate !== false,
+    windowId: requestedWindowId,
+  });
+  cmBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+  const targetWindowId = Number(workspaceTab?.windowId || cmState?.controllerWindowId || state.cmWorkspaceWindowId || 0);
+  return {
+    targetWorkspace,
+    workspaceTab,
+    targetWindowId,
+  };
+}
+
+function cmBroadcastTargetControllerState(cmState, targetWorkspace, targetWindowId = 0) {
+  if (!cmState) {
+    return;
+  }
+  if (targetWorkspace === "mvpd") {
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices, targetWindowId);
+    return;
+  }
+  cmBroadcastControllerState(cmState, targetWindowId);
+}
+
 async function cmOpenRecordInWorkspace(cmState, record, requestToken, options = {}) {
   if (!cmState || !record) {
     return;
   }
-  const workspaceTab = await cmEnsureWorkspaceTab({
-    activate: options.activate !== false,
-    windowId: Number(cmState.controllerWindowId || 0) || undefined,
-  });
-  cmBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
-  const targetWindowId = Number(workspaceTab?.windowId || cmState.controllerWindowId || 0);
+  const workspaceInfo = await cmEnsureTargetWorkspaceTab(cmState, options);
+  const workspaceTab = workspaceInfo?.workspaceTab || null;
+  const targetWindowId = Number(workspaceInfo?.targetWindowId || cmState.controllerWindowId || 0);
+  const targetWorkspace = String(workspaceInfo?.targetWorkspace || "cm").trim();
   void ensureCmWorkspaceActivityDebugFlow({
-    reason: "cm-open-record",
+    reason: targetWorkspace === "mvpd" ? "cm-open-record-mvpd" : "cm-open-record",
     preferredWindowId: targetWindowId,
     fallbackTabId: Number(workspaceTab?.id || 0),
   });
-  cmBroadcastControllerState(cmState, targetWindowId);
+  cmBroadcastTargetControllerState(cmState, targetWorkspace, targetWindowId);
   await cmRunRecordToWorkspace(cmState, record, requestToken, {
     emitStart: options.emitStart !== false,
     forceRefetch: options.forceRefetch === true,
     cardId: String(options.cardId || record.cardId || generateRequestId()),
     targetWindowId,
+    targetWorkspace,
   });
 }
 
@@ -17993,18 +22330,16 @@ async function cmOpenRecordsInWorkspace(cmState, records, requestToken, options 
   if (!cmState || queue.length === 0) {
     return 0;
   }
-  const workspaceTab = await cmEnsureWorkspaceTab({
-    activate: options.activate !== false,
-    windowId: Number(cmState.controllerWindowId || 0) || undefined,
-  });
-  cmBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
-  const targetWindowId = Number(workspaceTab?.windowId || cmState.controllerWindowId || 0);
+  const workspaceInfo = await cmEnsureTargetWorkspaceTab(cmState, options);
+  const workspaceTab = workspaceInfo?.workspaceTab || null;
+  const targetWindowId = Number(workspaceInfo?.targetWindowId || cmState.controllerWindowId || 0);
+  const targetWorkspace = String(workspaceInfo?.targetWorkspace || "cm").trim();
   void ensureCmWorkspaceActivityDebugFlow({
-    reason: "cm-open-records",
+    reason: targetWorkspace === "mvpd" ? "cm-open-records-mvpd" : "cm-open-records",
     preferredWindowId: targetWindowId,
     fallbackTabId: Number(workspaceTab?.id || 0),
   });
-  cmBroadcastControllerState(cmState, targetWindowId);
+  cmBroadcastTargetControllerState(cmState, targetWorkspace, targetWindowId);
 
   let openedCount = 0;
   for (const record of queue) {
@@ -18016,13 +22351,14 @@ async function cmOpenRecordsInWorkspace(cmState, records, requestToken, options 
       forceRefetch: options.forceRefetch === true,
       cardId: String(record?.cardId || generateRequestId()),
       targetWindowId,
+      targetWorkspace,
     });
     openedCount += 1;
   }
   return openedCount;
 }
 
-async function loadCmService(programmer, cmService, section, contentElement, requestToken) {
+async function loadCmService(programmer, cmService, section, contentElement, requestToken, options = {}) {
   if (!contentElement) {
     return;
   }
@@ -18030,12 +22366,17 @@ async function loadCmService(programmer, cmService, section, contentElement, req
     contentElement.innerHTML = '<div class="service-error">Missing media company details.</div>';
     return;
   }
+  const serviceType = String(options?.serviceType || cmService?.serviceType || "cm").trim();
+  const isMvpdService = serviceType === "cmMvpd";
+  const workspaceKey = isMvpdService ? "mvpd-workspace" : "cmu-workspace";
+  const workspaceOrigin = isMvpdService ? "MVPD Workspace" : "CMU Workspace";
+  const scopeLabel = isMvpdService ? "selected MVPD" : "media company";
   const matchedTenants = Array.isArray(cmService?.matchedTenants) ? cmService.matchedTenants : [];
   if (matchedTenants.length === 0) {
     const loadError = String(cmService?.loadError || "").trim();
     const message = loadError
       ? `CM tenant discovery failed: ${escapeHtml(loadError)}`
-      : "No CM tenant matches were detected for this media company.";
+      : `No CM tenant matches were detected for the ${scopeLabel}.`;
     contentElement.innerHTML = `<div class="service-error">${message}</div>`;
     return;
   }
@@ -18045,7 +22386,31 @@ async function loadCmService(programmer, cmService, section, contentElement, req
   try {
     const controllerWindowId = await esmWorkspaceGetCurrentWindowId();
     const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
-    const bundles = await Promise.all(matchedTenants.map((tenant) => loadCmTenantBundle(tenant, { profileHarvest })));
+    const tenantScope = resolveCmUsageTenantScopeValue(
+      matchedTenants?.[0]?.tenantId,
+      matchedTenants?.[0]?.tenantName,
+      getCmTenantScopeForProgrammer(programmer)
+    );
+    emitCmDebugEvent({
+      phase: "cm-tenant-scope-selected",
+      programmerId: String(programmer?.programmerId || ""),
+      programmerName: String(programmer?.programmerName || ""),
+      tenantScope,
+      matchedTenantCount: matchedTenants.length,
+      matchedTenantIds: matchedTenants
+        .map((tenant) => String(tenant?.tenantId || "").trim())
+        .filter(Boolean)
+        .slice(0, 12),
+      matchedTenantNames: matchedTenants
+        .map((tenant) => String(tenant?.tenantName || "").trim())
+        .filter(Boolean)
+        .slice(0, 12),
+      requestorId: String(cmService?.requestorId || state.selectedRequestorId || ""),
+      mvpd: String(cmService?.mvpdId || state.selectedMvpdId || ""),
+      workspaceKey,
+      workspaceOrigin,
+    });
+    const bundles = await Promise.all(matchedTenants.map((tenant) => loadCmTenantBundle(tenant, { profileHarvest, tenantScope })));
     if (!isCmServiceRequestActive(section, requestToken, programmer.programmerId)) {
       return;
     }
@@ -18140,9 +22505,12 @@ async function loadCmService(programmer, cmService, section, contentElement, req
     `;
 
     const cmState = {
-      serviceType: "cm",
+      serviceType,
+      workspaceKey,
+      workspaceOrigin,
       section,
       programmer,
+      tenantScope,
       cmService,
       contentElement,
       requestToken,
@@ -18164,8 +22532,32 @@ async function loadCmService(programmer, cmService, section, contentElement, req
           if (!clickCmuContext) {
             throw new Error("Select a media company with Concurrency Monitoring access to generate clickCMU.");
           }
+          const selectedRequestorId = String(cmService?.requestorId || state.selectedRequestorId || "").trim();
+          const selectedMvpdId = String(cmService?.mvpdId || state.selectedMvpdId || "").trim();
+          const resolvedMvpdScope = resolveCmUsageTenantScopeValue(
+            selectedMvpdId,
+            cmState?.tenantScope,
+            matchedTenants?.[0]?.tenantId,
+            matchedTenants?.[0]?.tenantName
+          );
+          if (isMvpdService && !resolvedMvpdScope) {
+            throw new Error("Select an MVPD before generating clickCMU.");
+          }
+          const selectedMvpdMeta = selectedMvpdId ? getRestV2MvpdMeta(selectedRequestorId, selectedMvpdId) : null;
+          const selectedMvpdLabel = selectedMvpdId
+            ? getRestV2MvpdPickerLabel(selectedRequestorId, selectedMvpdId, selectedMvpdMeta) || selectedMvpdId
+            : String(firstNonEmptyString([matchedTenants?.[0]?.tenantName, resolvedMvpdScope || ""])).trim();
+          const exportFileScopeLabel = [String(programmer?.programmerId || "").trim(), resolvedMvpdScope || selectedMvpdId]
+            .filter(Boolean)
+            .join("_");
           await makeClickCmuDownload(clickCmuContext, requestToken, {
             source: "sidepanel",
+            tenantScope: isMvpdService ? resolvedMvpdScope : undefined,
+            themePreset: isMvpdService ? "sunflower" : undefined,
+            themeScope: isMvpdService && resolvedMvpdScope ? `mvpd:${resolvedMvpdScope}` : undefined,
+            fileLabel: isMvpdService ? exportFileScopeLabel : undefined,
+            programmerLabelOverride:
+              isMvpdService && resolvedMvpdScope ? `${selectedMvpdLabel} (${resolvedMvpdScope})` : undefined,
           });
         } catch (error) {
           setStatus(
@@ -18216,8 +22608,9 @@ async function loadCmService(programmer, cmService, section, contentElement, req
         const groupLabel =
           String(button.querySelector(".cm-group-title-text")?.textContent || groupRecord?.title || "CM Group").trim() || "CM Group";
         const childPlural = childRecords.length === 1 ? "entry" : "entries";
+        const workspaceLabel = String(cmState.workspaceOrigin || "CM Workspace").trim() || "CM Workspace";
         if (childRecords.length > 0) {
-          setStatus(`${groupLabel}: loading ${childRecords.length} child ${childPlural} into CM Workspace...`, "info");
+          setStatus(`${groupLabel}: loading ${childRecords.length} child ${childPlural} into ${workspaceLabel}...`, "info");
         }
         button.disabled = true;
         try {
@@ -18228,7 +22621,7 @@ async function loadCmService(programmer, cmService, section, contentElement, req
           });
           if (childRecords.length > 0) {
             setStatus(
-              `${groupLabel}: loaded ${openedCount}/${childRecords.length} child ${childPlural} in CM Workspace.`,
+              `${groupLabel}: loaded ${openedCount}/${childRecords.length} child ${childPlural} in ${workspaceLabel}.`,
               "success"
             );
           } else {
@@ -18254,7 +22647,8 @@ async function loadCmService(programmer, cmService, section, contentElement, req
 }
 
 function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
-  if (serviceKey === "cm") {
+  if (serviceKey === "cm" || serviceKey === "cmMvpd") {
+    const isMvpdCmService = serviceKey === "cmMvpd";
     const matchedTenants = Array.isArray(appInfo?.matchedTenants) ? appInfo.matchedTenants : [];
     const tenantLabel = matchedTenants.length === 1 ? "tenant" : "tenants";
     const sampleNames = matchedTenants.slice(0, 4).map((item) => item?.tenantName || item?.tenantId).filter(Boolean);
@@ -18280,7 +22674,11 @@ function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
     const profileCheckLabel = profileCheckOutcome
       ? `${profileCheckOutcome}${Number.isFinite(profileCount) ? ` (profiles=${profileCount})` : ""}`
       : "Not captured";
+    const targetLabel = isMvpdCmService
+      ? firstNonEmptyString([String(appInfo?.mvpdLabel || "").trim(), String(appInfo?.mvpdName || "").trim(), String(appInfo?.mvpdId || "").trim()])
+      : "";
     const summaryItems = [
+      ...(isMvpdCmService ? [buildMetadataItemHtml("Selected MVPD", targetLabel || "N/A")] : []),
       buildMetadataItemHtml("CM Tenant Matches", `${matchedTenants.length} ${tenantLabel}`),
       buildMetadataItemHtml("Matched Tenant Names", sampleNames.length > 0 ? sampleNames.join(", ") : "N/A"),
       buildMetadataItemHtml("CM Tenant Source", sourceUrl || "Not detected"),
@@ -18369,9 +22767,15 @@ function shouldAutoRefreshPremiumService(programmer, serviceKey, appInfo = null)
     return { refresh: false, reason: "" };
   }
 
-  if (normalizedServiceKey === "cm") {
+  if (normalizedServiceKey === "cm" || normalizedServiceKey === "cmmvpd") {
     const cachedServices = state.premiumAppsByProgrammerId.get(programmerId) || {};
-    const cmService = appInfo || cachedServices?.cm || state.cmServiceByProgrammerId.get(programmerId) || null;
+    const cmService =
+      appInfo ||
+      (normalizedServiceKey === "cmmvpd"
+        ? cachedServices?.cmMvpd ||
+          state.cmServiceByMvpdSelectionKey.get(buildCurrentCmMvpdSelectionKey(programmer))
+        : cachedServices?.cm || state.cmServiceByProgrammerId.get(programmerId)) ||
+      null;
     if (shouldRetryCachedCmService(cmService)) {
       return { refresh: true, reason: "CM tenant/auth state changed or stale cache detected." };
     }
@@ -18469,9 +22873,12 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   };
   const serviceHoverMessage = hoverServiceLabelByKey[serviceKey]
     ? `${hoverServiceLabelByKey[serviceKey]} premium service is powered by registered application '${registeredAppLabel}'.`
-    : "Concurrency Monitoring is powered by CM tenant APIs (not a registered application scope).";
+    : serviceKey === "cmMvpd"
+      ? "MVPD Concurrency Monitoring is powered by CM tenant APIs (not a registered application scope)."
+      : "Concurrency Monitoring is powered by CM tenant APIs (not a registered application scope).";
   const serviceClassByKey = {
     cm: "service-cm",
+    cmMvpd: "service-cm-mvpd",
     degradation: "service-degradation",
     esmWorkspace: "service-esm",
     restV2: "service-rest-v2",
@@ -18495,58 +22902,95 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
         </section>
         <section class="rest-v2-profile-history-tool" hidden>
           <div class="rest-v2-tool-head">
-            <p class="rest-v2-tool-title">MVPD Login Profiles (Session)</p>
+            <button type="button" class="rest-v2-tool-collapse-btn rest-v2-profile-tool-toggle" aria-expanded="true">
+              <span class="rest-v2-tool-title">MVPD Login Profiles (Session)</span>
+              <span class="rest-v2-tool-collapse-icon" aria-hidden="true">▼</span>
+            </button>
             <div class="rest-v2-tool-head-actions">
               <button type="button" class="rest-v2-profile-export-btn" disabled>Export CSV</button>
               <span class="rest-v2-tool-count rest-v2-profile-count">0</span>
             </div>
           </div>
-          <ul class="rest-v2-profile-list"></ul>
+          <div class="rest-v2-tool-body rest-v2-profile-tool-body">
+            <ul class="rest-v2-profile-list"></ul>
+          </div>
         </section>
         <section class="rest-v2-entitlement-tool" hidden>
           <div class="rest-v2-tool-head">
-            <p class="rest-v2-tool-title">Can I watch?</p>
-          </div>
-          <div class="rest-v2-entitlement-context-row">
-            <p class="rest-v2-entitlement-context"></p>
-            <button
-              type="button"
-              class="rest-v2-entitlement-copy-upstream-btn"
-              aria-label="Copy upstreamUserID to clipboard"
-              title="Copy upstreamUserID to clipboard"
-              hidden
-            >
-              <span class="rest-v2-entitlement-copy-icon" aria-hidden="true"></span>
-            </button>
-            <button
-              type="button"
-              class="rest-v2-entitlement-splunk-btn"
-              aria-label="Run Splunk RCA lookup in REST Workspace"
-              title="Run Splunk RCA lookup in REST Workspace"
-              hidden
-            >
-              <span class="rest-v2-entitlement-splunk-icon" aria-hidden="true"></span>
+            <button type="button" class="rest-v2-tool-collapse-btn rest-v2-entitlement-tool-toggle" aria-expanded="true">
+              <span class="rest-v2-tool-title">Can I watch?</span>
+              <span class="rest-v2-tool-collapse-icon" aria-hidden="true">▼</span>
             </button>
           </div>
-          <form class="rest-v2-entitlement-form">
-            <input
-              type="text"
-              class="rest-v2-resource-input"
-              placeholder="RESOURCE_ID_1, RESOURCE_ID_2"
-              aria-label="Resource IDs for preauthorization"
-              value="${escapeHtml(REST_V2_DEFAULT_RESOURCE_ID_INPUT)}"
-            />
-            <button type="submit" class="rest-v2-entitlement-go-btn">GO</button>
-          </form>
-          <p class="rest-v2-entitlement-status"></p>
-          <div class="rest-v2-entitlement-summary" hidden></div>
+          <div class="rest-v2-tool-body rest-v2-entitlement-tool-body">
+            <div class="rest-v2-entitlement-context-row">
+              <p class="rest-v2-entitlement-context"></p>
+              <button
+                type="button"
+                class="rest-v2-entitlement-copy-upstream-btn"
+                aria-label="Copy upstreamUserID to clipboard"
+                title="Copy upstreamUserID to clipboard"
+                hidden
+              >
+                <span class="rest-v2-entitlement-copy-icon" aria-hidden="true"></span>
+              </button>
+              <button
+                type="button"
+                class="rest-v2-entitlement-splunk-btn"
+                aria-label="Run Splunk RCA lookup in REST Workspace"
+                title="Run Splunk RCA lookup in REST Workspace"
+                hidden
+              >
+                <span class="rest-v2-entitlement-splunk-icon" aria-hidden="true"></span>
+              </button>
+            </div>
+            <form class="rest-v2-entitlement-form">
+              <input
+                type="text"
+                class="rest-v2-resource-input"
+                placeholder="NBALPP, NBALP3, NBATV"
+                aria-label="Comma-delimited resource IDs"
+              />
+              <button type="submit" class="rest-v2-entitlement-go-btn">GO</button>
+            </form>
+            <p class="rest-v2-entitlement-status"></p>
+            <div class="rest-v2-entitlement-summary" hidden></div>
+          </div>
+        </section>
+        <section class="rest-v2-splunk-report-tool" hidden>
+          <div class="rest-v2-tool-head">
+            <p class="rest-v2-tool-title">Splunk RCA Results</p>
+          </div>
+          <div class="rest-v2-splunk-report-summary"></div>
+        </section>
+        <section class="rest-v2-bobtools-tool" hidden>
+          <div class="rest-v2-tool-head">
+            <p class="rest-v2-tool-title">BOBTOOLS</p>
+          </div>
+          <button
+            type="button"
+            class="rest-v2-bobtools-open-btn"
+            aria-label="Open BOBTOOLS Workspace"
+            title="Open BOBTOOLS Workspace"
+          >
+            <span class="rest-v2-bobtools-open-icon-wrap" aria-hidden="true">
+              <img
+                class="rest-v2-bobtools-open-icon"
+                src="${escapeHtml(BOBTOOLS_INLINE_ICON_PATH)}"
+                alt=""
+                loading="lazy"
+                decoding="async"
+              />
+            </span>
+            <span class="rest-v2-bobtools-open-copy">Open BOBTOOLS Workspace</span>
+          </button>
         </section>
         `
       : "";
   const serviceBodyHtml =
     serviceKey === "esmWorkspace"
       ? '<div class="loading">Loading ESM...</div>'
-      : serviceKey === "cm"
+      : serviceKey === "cm" || serviceKey === "cmMvpd"
         ? '<div class="loading">Loading Concurrency Monitoring...</div>'
         : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
   const sectionLabel = title;
@@ -18579,7 +23023,7 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     if (!collapsed && serviceKey === "esmWorkspace" && typeof section.__underparRefreshEsmWorkspace === "function") {
       void section.__underparRefreshEsmWorkspace();
     }
-    if (!collapsed && serviceKey === "cm" && typeof section.__underparRefreshCm === "function") {
+    if (!collapsed && (serviceKey === "cm" || serviceKey === "cmMvpd") && typeof section.__underparRefreshCm === "function") {
       void section.__underparRefreshCm();
     }
   });
@@ -18590,10 +23034,12 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       return loadEsmWorkspaceService(programmer, appInfo, section, contentElement, requestToken);
     };
     void section.__underparRefreshEsmWorkspace();
-  } else if (serviceKey === "cm") {
+  } else if (serviceKey === "cm" || serviceKey === "cmMvpd") {
     section.__underparRefreshCm = () => {
       const requestToken = state.premiumPanelRequestToken;
-      return loadCmService(programmer, appInfo, section, contentElement, requestToken);
+      return loadCmService(programmer, appInfo, section, contentElement, requestToken, {
+        serviceType: serviceKey,
+      });
     };
     void section.__underparRefreshCm();
   }
@@ -18602,6 +23048,7 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     const testLoginButton = section.querySelector(".rest-v2-test-login-btn");
     const closeLoginButton = section.querySelector(".rest-v2-close-login-btn");
     const openMvpdWorkspaceButton = section.querySelector(".mvpd-open-workspace-btn");
+    const openBobtoolsButton = section.querySelector(".rest-v2-bobtools-open-btn");
     if (testLoginButton) {
       testLoginButton.addEventListener("click", async (event) => {
         event.stopPropagation();
@@ -18624,6 +23071,19 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
           await mvpdWorkspaceOpenFromRestV2(programmer, servicesForProgrammer, {
             activate: true,
             forceRefresh: true,
+          });
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : String(error), "error");
+        }
+      });
+    }
+    if (openBobtoolsButton) {
+      openBobtoolsButton.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        try {
+          await bobtoolsWorkspaceOpenFromRestV2(programmer, {
+            activate: true,
+            forceRefresh: false,
           });
         } catch (error) {
           setStatus(error instanceof Error ? error.message : String(error), "error");
@@ -18705,6 +23165,28 @@ function renderPremiumServices(services, programmer = null, options = {}) {
     esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
     cmBroadcastSelectedControllerState(programmer, null);
     mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
+    bobtoolsWorkspaceBroadcastControllerState(programmer, {
+      programmerId: String(programmer?.programmerId || "").trim(),
+      programmerName: String(programmer?.programmerName || "").trim(),
+      userLabel: getUnderparActiveUserLabel(),
+      hasProfiles: false,
+      requestorId: "",
+      mvpd: "",
+      mvpdLabel: "",
+      selectedHarvestKey: "",
+    });
+    void bobtoolsWorkspaceSendWorkspaceMessage("profiles-update", {
+      programmerId: "",
+      programmerName: "",
+      userLabel: getUnderparActiveUserLabel(),
+      requestorId: "",
+      mvpd: "",
+      mvpdLabel: "",
+      selectedHarvestKey: "",
+      profileCount: 0,
+      profiles: [],
+      updatedAt: Date.now(),
+    });
     els.premiumServicesContainer.innerHTML =
       '<p class="metadata-empty">No premium scoped applications loaded yet.</p>';
     return;
@@ -18717,8 +23199,8 @@ function renderPremiumServices(services, programmer = null, options = {}) {
     if (serviceKey === "esmWorkspace") {
       return hasEsmScopedApp(services);
     }
-    if (serviceKey === "cm") {
-      return shouldShowCmService(services?.cm);
+    if (serviceKey === "cm" || serviceKey === "cmMvpd") {
+      return shouldShowCmService(services?.[serviceKey]);
     }
     return Boolean(services?.[serviceKey]);
   });
@@ -18750,6 +23232,8 @@ function resetWorkflowForLoggedOut() {
   state.premiumAppsLoadPromiseByProgrammerId.clear();
   state.cmServiceByProgrammerId.clear();
   state.cmServiceLoadPromiseByProgrammerId.clear();
+  state.cmServiceByMvpdSelectionKey.clear();
+  state.cmServiceLoadPromiseByMvpdSelectionKey.clear();
   state.cmTenantsCatalog = null;
   state.cmTenantsCatalogPromise = null;
   state.cmConsoleBootstrapSummary = null;
@@ -18772,6 +23256,14 @@ function resetWorkflowForLoggedOut() {
   state.restWorkspaceLastSelectionKey = "";
   state.restWorkspaceLastReportBySelectionKey.clear();
   state.restWorkspaceLastQueryContextBySelectionKey.clear();
+  state.bobtoolsWorkspaceTabId = 0;
+  state.bobtoolsWorkspaceWindowId = 0;
+  state.bobtoolsWorkspaceTabIdByWindowId.clear();
+  state.bobtoolsWorkspaceLastResultByHarvestKey.clear();
+  state.restV2ProfilesHydrationLastAtBySelectionKey.clear();
+  state.restV2ProfilesHydrationPromiseBySelectionKey.clear();
+  state.restV2BobtoolsRedirectInFlightByTabId.clear();
+  state.restV2PopupCloseProbeInFlightBySelectionKey.clear();
   state.premiumSectionCollapsedByKey.clear();
   state.premiumAutoRefreshMetaByKey.clear();
   state.premiumPanelRequestToken = 0;
@@ -18814,6 +23306,9 @@ function resetWorkflowForLoggedOut() {
     controllerOnline: false,
     mvpdReady: false,
     hasRestV2Service: false,
+    hasMvpdCmTenant: false,
+    mvpdCmTenantScope: "",
+    cmMvpdTenantCount: 0,
     programmerId: "",
     programmerName: "",
     requestorIds: [],
@@ -18834,6 +23329,32 @@ function resetWorkflowForLoggedOut() {
     updatedAt: Date.now(),
   });
   void restWorkspaceSendWorkspaceMessage("workspace-clear", {});
+  void bobtoolsWorkspaceSendWorkspaceMessage("controller-state", {
+    controllerOnline: false,
+    bobtoolsReady: false,
+    programmerId: "",
+    programmerName: "",
+    userLabel: getUnderparActiveUserLabel(),
+    requestorId: "",
+    mvpd: "",
+    mvpdLabel: "",
+    selectedHarvestKey: "",
+    workspaceIconUrl: chrome.runtime.getURL(BOBTOOLS_WORKSPACE_ICON_PATH),
+    updatedAt: Date.now(),
+  });
+  void bobtoolsWorkspaceSendWorkspaceMessage("profiles-update", {
+    programmerId: "",
+    programmerName: "",
+    userLabel: getUnderparActiveUserLabel(),
+    requestorId: "",
+    mvpd: "",
+    mvpdLabel: "",
+    selectedHarvestKey: "",
+    profileCount: 0,
+    profiles: [],
+    updatedAt: Date.now(),
+  });
+  void bobtoolsWorkspaceSendWorkspaceMessage("workspace-clear", {});
 
   els.mediaCompanySelect.disabled = true;
   els.mediaCompanySelect.innerHTML = '<option value="">-- Please login first --</option>';
@@ -24257,14 +28778,36 @@ function populateRequestorSelect() {
   refreshMvpdWorkspaceTools();
 }
 
+function getCmMvpdSelectionKey(programmerId = "", requestorId = "", mvpdId = "") {
+  const normalizedProgrammerId = String(programmerId || "").trim();
+  const normalizedRequestorId = String(requestorId || "").trim();
+  const normalizedMvpdId = String(mvpdId || "").trim();
+  if (!normalizedProgrammerId || !normalizedRequestorId || !normalizedMvpdId) {
+    return "";
+  }
+  return `${normalizedProgrammerId}|${normalizedRequestorId}|${normalizedMvpdId}`;
+}
+
+function buildCurrentCmMvpdSelectionKey(programmer = null) {
+  const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  return getCmMvpdSelectionKey(
+    String(resolvedProgrammer?.programmerId || "").trim(),
+    String(state.selectedRequestorId || "").trim(),
+    String(state.selectedMvpdId || "").trim()
+  );
+}
+
 async function refreshProgrammerPanels(options = {}) {
   const programmer = resolveSelectedProgrammer();
   const forcePremiumRefresh = options.forcePremiumRefresh === true;
   const controllerReason = String(options?.controllerReason || "").trim();
   const requestToken = ++state.premiumPanelRequestToken;
+  const cmMvpdSelectionKey = buildCurrentCmMvpdSelectionKey(programmer);
   if (forcePremiumRefresh) {
     state.cmTenantBundleByTenantKey.clear();
     state.cmTenantBundlePromiseByTenantKey.clear();
+    state.cmServiceByMvpdSelectionKey.clear();
+    state.cmServiceLoadPromiseByMvpdSelectionKey.clear();
   }
 
   if (!programmer) {
@@ -24277,9 +28820,12 @@ async function refreshProgrammerPanels(options = {}) {
 
   const cachedServices = state.premiumAppsByProgrammerId.get(programmer.programmerId) || null;
   const cachedIncludesCm = Boolean(cachedServices && Object.prototype.hasOwnProperty.call(cachedServices, "cm"));
+  const cachedCmMvpdSelectionKey = String(cachedServices?.cmMvpdSelectionKey || "").trim();
+  const cmMvpdSelectionMatches = cachedCmMvpdSelectionKey === cmMvpdSelectionKey;
   const shouldReuseCachedServices =
     cachedServices &&
     cachedIncludesCm &&
+    cmMvpdSelectionMatches &&
     !forcePremiumRefresh &&
     !shouldRetryCachedCmService(cachedServices?.cm);
   if (shouldReuseCachedServices) {
@@ -24290,11 +28836,14 @@ async function refreshProgrammerPanels(options = {}) {
 
   renderPremiumServicesLoading(programmer, { controllerReason });
   try {
-    const [premiumApps, cmService] = await Promise.all([
+    const [premiumApps, cmService, cmMvpdService] = await Promise.all([
       ensurePremiumAppsForProgrammer(programmer, {
         forceRefresh: forcePremiumRefresh,
       }),
       ensureCmServiceForProgrammer(programmer, {
+        forceRefresh: forcePremiumRefresh,
+      }),
+      ensureCmServiceForSelectedMvpd(programmer, {
         forceRefresh: forcePremiumRefresh,
       }),
     ]);
@@ -24304,6 +28853,8 @@ async function refreshProgrammerPanels(options = {}) {
     const mergedServices = {
       ...(premiumApps && typeof premiumApps === "object" ? premiumApps : {}),
       cm: cmService,
+      cmMvpd: cmMvpdService,
+      cmMvpdSelectionKey,
     };
     state.premiumAppsByProgrammerId.set(programmer.programmerId, mergedServices);
     renderPremiumServices(mergedServices, programmer, { controllerReason });
@@ -25829,6 +30380,8 @@ async function ensurePremiumAppsForProgrammer(programmer, options = {}) {
     const mergedServices = {
       ...premiumApps,
       cm: existingServices?.cm ?? null,
+      cmMvpd: existingServices?.cmMvpd ?? null,
+      cmMvpdSelectionKey: String(existingServices?.cmMvpdSelectionKey || "").trim(),
     };
     state.premiumAppsByProgrammerId.set(programmer.programmerId, mergedServices);
     return mergedServices;
@@ -26465,12 +31018,154 @@ function normalizeCmConsoleKey(value) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
-function collectCmProgrammerConsoleKeys(programmer) {
-  const baseCandidates = uniqueSorted([
+function collectCmEntityIdCandidates(values = []) {
+  return uniqueSorted(
+    (Array.isArray(values) ? values : [values])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .map((value) => normalizeCmConsoleKey(value))
+      .filter(Boolean)
+  );
+}
+
+function collectCmEntityNameCandidates(values = []) {
+  return uniqueSorted(
+    (Array.isArray(values) ? values : [values])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+      .map((value) => normalizeCmConsoleKey(value))
+      .filter(Boolean)
+  );
+}
+
+function collectCmProgrammerIdCandidates(programmer = null) {
+  const sourceEntity = programmer?.source?.entityData && typeof programmer.source.entityData === "object" ? programmer.source.entityData : {};
+  const sourceKeyId = extractEntityIdFromToken(programmer?.source?.key || "");
+  return collectCmEntityIdCandidates([
+    programmer?.programmerId,
+    sourceEntity?.id,
+    sourceEntity?.programmerId,
+    sourceEntity?.["programmer-id"],
+    sourceEntity?.["media-company"],
+    sourceEntity?.media_company,
+    sourceEntity?.mediaCompany,
+    sourceEntity?.mediaCompanyId,
+    sourceEntity?.["media-company-id"],
+    sourceKeyId,
+  ]);
+}
+
+function collectCmProgrammerNameCandidates(programmer = null) {
+  const sourceEntity = programmer?.source?.entityData && typeof programmer.source.entityData === "object" ? programmer.source.entityData : {};
+  return collectCmEntityNameCandidates([
     programmer?.mediaCompanyName,
     programmer?.programmerName,
-    programmer?.programmerId,
+    sourceEntity?.displayName,
+    sourceEntity?.["display-name"],
+    sourceEntity?.name,
+    sourceEntity?.mediaCompanyName,
+    sourceEntity?.["media-company-name"],
+    sourceEntity?.["media-company"],
+    sourceEntity?.media_company,
+    sourceEntity?.mediaCompany,
   ]);
+}
+
+function collectCmMvpdIdCandidates(mvpdId = "", mvpdMeta = null) {
+  return collectCmEntityIdCandidates([
+    mvpdId,
+    mvpdMeta?.id,
+    mvpdMeta?.mvpdId,
+    mvpdMeta?.code,
+    mvpdMeta?.identifier,
+  ]);
+}
+
+function collectCmMvpdNameCandidates(mvpdName = "", mvpdMeta = null, mvpdLabel = "") {
+  return collectCmEntityNameCandidates([
+    mvpdName,
+    mvpdMeta?.name,
+    mvpdMeta?.displayName,
+    mvpdMeta?.label,
+    mvpdMeta?.description,
+    mvpdLabel,
+  ]);
+}
+
+function collectCmTenantIdKeys(tenant) {
+  return collectCmEntityIdCandidates([
+    tenant?.raw?.consoleId,
+    tenant?.tenantId,
+    tenant?.raw?.payload?.id,
+    tenant?.raw?.payload?.tenantId,
+    tenant?.raw?.payload?.tenant_id,
+  ]);
+}
+
+function collectCmTenantNameKeys(tenant) {
+  return collectCmEntityNameCandidates([
+    tenant?.tenantName,
+    tenant?.raw?.payload?.name,
+    ...(Array.isArray(tenant?.aliases) ? tenant.aliases : []),
+  ]);
+}
+
+function finalizeCmTenantMatches(matches = [], matchPass = "") {
+  const seen = new Set();
+  const output = [];
+  (Array.isArray(matches) ? matches : []).forEach((tenant) => {
+    if (!tenant || typeof tenant !== "object") {
+      return;
+    }
+    const key = `${String(tenant?.tenantId || "").trim().toLowerCase()}|${String(tenant?.tenantName || "")
+      .trim()
+      .toLowerCase()}`;
+    if (!key || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    output.push({
+      ...tenant,
+      matchPass: String(matchPass || tenant?.matchPass || "").trim(),
+    });
+  });
+  return output;
+}
+
+function findCmTenantMatchesByPass(tenants = [], entityKeys = [], passType = "id", keyExtractor = null) {
+  const normalizedEntityKeys = new Set(
+    (Array.isArray(entityKeys) ? entityKeys : []).map((value) => normalizeCmConsoleKey(value)).filter(Boolean)
+  );
+  if (normalizedEntityKeys.size === 0 || typeof keyExtractor !== "function") {
+    return [];
+  }
+  const matches = (Array.isArray(tenants) ? tenants : []).filter((tenant) => {
+    const tenantKeys = new Set((Array.isArray(keyExtractor(tenant)) ? keyExtractor(tenant) : []).filter(Boolean));
+    if (tenantKeys.size === 0) {
+      return false;
+    }
+    for (const key of tenantKeys) {
+      if (normalizedEntityKeys.has(normalizeCmConsoleKey(key))) {
+        return true;
+      }
+    }
+    return false;
+  });
+  return finalizeCmTenantMatches(matches, passType);
+}
+
+function findCmTenantMatchesByTwoPass(tenants = [], idCandidates = [], nameCandidates = []) {
+  const idMatches = findCmTenantMatchesByPass(tenants, idCandidates, "id", collectCmTenantIdKeys);
+  if (idMatches.length > 0) {
+    return idMatches;
+  }
+  return findCmTenantMatchesByPass(tenants, nameCandidates, "name", collectCmTenantNameKeys);
+}
+
+function collectCmProgrammerConsoleKeys(programmer) {
+  const baseCandidates = uniqueSorted(
+    collectCmProgrammerIdCandidates(programmer).concat(collectCmProgrammerNameCandidates(programmer))
+  );
   const keys = new Set();
   baseCandidates.forEach((value) => {
     const raw = String(value || "").trim();
@@ -26515,33 +31210,70 @@ function collectCmTenantConsoleKeys(tenant) {
 }
 
 function isCmDirectTenantMatch(programmer, tenant) {
-  const programmerKeys = collectCmProgrammerConsoleKeys(programmer);
-  const tenantKeys = new Set(collectCmTenantConsoleKeys(tenant));
-  if (programmerKeys.length === 0 || tenantKeys.size === 0) {
-    return false;
+  const idMatches = findCmTenantMatchesByPass([tenant], collectCmProgrammerIdCandidates(programmer), "id", collectCmTenantIdKeys);
+  if (idMatches.length > 0) {
+    return true;
   }
-  return programmerKeys.some((value) => tenantKeys.has(value));
+  const nameMatches = findCmTenantMatchesByPass(
+    [tenant],
+    collectCmProgrammerNameCandidates(programmer),
+    "name",
+    collectCmTenantNameKeys
+  );
+  return nameMatches.length > 0;
 }
 
 function findCmTenantMatchesForProgrammer(programmer, tenants) {
-  const matches = (Array.isArray(tenants) ? tenants : [])
-    .filter((tenant) => isCmDirectTenantMatch(programmer, tenant));
-  if (matches.length === 0) {
-    return [];
-  }
-  const seen = new Set();
-  return matches.filter((tenant) => {
-    const key = `${tenant?.tenantId || ""}|${tenant?.tenantName || ""}`;
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
+  return findCmTenantMatchesByTwoPass(
+    tenants,
+    collectCmProgrammerIdCandidates(programmer),
+    collectCmProgrammerNameCandidates(programmer)
+  );
+}
+
+function findCmTenantMatchesForMvpd(mvpdId = "", mvpdName = "", tenants = [], options = {}) {
+  const mvpdMeta = options?.mvpdMeta && typeof options.mvpdMeta === "object" ? options.mvpdMeta : null;
+  const mvpdLabel = String(options?.mvpdLabel || "").trim();
+  return findCmTenantMatchesByTwoPass(
+    tenants,
+    collectCmMvpdIdCandidates(mvpdId, mvpdMeta),
+    collectCmMvpdNameCandidates(mvpdName, mvpdMeta, mvpdLabel)
+  );
+}
+
+function getCmTenantScopeForProgrammer(programmer = null) {
+  const programmerId = String(programmer?.programmerId || "").trim();
+  const serviceByProgrammerId =
+    programmerId && state.cmServiceByProgrammerId instanceof Map
+      ? state.cmServiceByProgrammerId.get(programmerId)
+      : null;
+  const selectedServiceByProgrammerId =
+    programmerId && state.premiumAppsByProgrammerId instanceof Map
+      ? state.premiumAppsByProgrammerId.get(programmerId)?.cm
+      : null;
+  const selectedProgrammer = resolveSelectedProgrammer();
+  const selectedProgrammerService =
+    !programmerId && selectedProgrammer?.programmerId && state.premiumAppsByProgrammerId instanceof Map
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId)?.cm
+      : null;
+  return resolveCmUsageTenantScopeValue(
+    serviceByProgrammerId?.matchedTenants?.[0]?.tenantId,
+    serviceByProgrammerId?.matchedTenants?.[0]?.tenantName,
+    selectedServiceByProgrammerId?.matchedTenants?.[0]?.tenantId,
+    selectedServiceByProgrammerId?.matchedTenants?.[0]?.tenantName,
+    selectedProgrammerService?.matchedTenants?.[0]?.tenantId,
+    selectedProgrammerService?.matchedTenants?.[0]?.tenantName,
+    programmer?.tenantId,
+    programmer?.tenantName,
+    programmer?.programmerId,
+    resolveSelectedProgrammer()?.programmerId
+  );
 }
 
 function emitCmTenantMatchDebugLine(programmer, catalog, matchedTenants, options = {}) {
   const resolvedMatches = Array.isArray(matchedTenants) ? matchedTenants : [];
+  const idMatchCandidates = collectCmProgrammerIdCandidates(programmer).slice(0, 16);
+  const nameMatchCandidates = collectCmProgrammerNameCandidates(programmer).slice(0, 16);
   const normalizedMediaCompanyKeys = collectCmProgrammerConsoleKeys(programmer).slice(0, 16);
   const normalizedMediaCompanyKey = String(normalizedMediaCompanyKeys[0] || "").trim();
   const matchedTenantConsoleIds = resolvedMatches
@@ -26552,6 +31284,8 @@ function emitCmTenantMatchDebugLine(programmer, catalog, matchedTenants, options
   const selectedMediaCompany = String(programmer?.mediaCompanyName || programmer?.programmerName || programmer?.programmerId || "");
   const cmDecisionSummary = {
     selectedMediaCompany,
+    idMatchCandidates,
+    nameMatchCandidates,
     normalizedMediaCompanyKey,
     normalizedMediaCompanyKeys,
     matchedTenantConsoleIds,
@@ -26559,6 +31293,7 @@ function emitCmTenantMatchDebugLine(programmer, catalog, matchedTenants, options
     tenantCatalogSourceUrl: String(catalog?.sourceUrl || ""),
     tenantCatalogCount: Number(catalog?.tenants?.length || 0),
     matchedTenantCount: resolvedMatches.length,
+    matchPass: String(resolvedMatches?.[0]?.matchPass || "").trim(),
     cacheState: String(options?.cacheState || "live"),
     traceLine: `CM detect | media-company="${selectedMediaCompany || "unknown"}" | normalized-key="${normalizedMediaCompanyKey || "none"}" | matched-consoleIds="${matchedTenantConsoleIdsText || "none"}"`,
   };
@@ -26566,6 +31301,70 @@ function emitCmTenantMatchDebugLine(programmer, catalog, matchedTenants, options
   emitCmDebugEvent({
     phase: "cm-tenant-match-decision",
     ...cmDecisionSummary,
+  });
+  return cmDecisionSummary;
+}
+
+function buildSelectedMvpdMatchContext(programmer = null) {
+  const programmerId = String(programmer?.programmerId || "").trim();
+  const requestorId = String(state.selectedRequestorId || "").trim();
+  const mvpdId = String(state.selectedMvpdId || "").trim();
+  if (!programmerId || !requestorId || !mvpdId) {
+    return null;
+  }
+  const mvpdMeta = getRestV2MvpdMeta(requestorId, mvpdId);
+  const mvpdName = String(firstNonEmptyString([mvpdMeta?.name, mvpdMeta?.displayName, mvpdId]) || mvpdId).trim();
+  const mvpdLabel = getRestV2MvpdPickerLabel(requestorId, mvpdId, mvpdMeta);
+  return {
+    programmerId,
+    requestorId,
+    mvpdId,
+    mvpdName,
+    mvpdLabel,
+    mvpdMeta,
+    selectionKey: getCmMvpdSelectionKey(programmerId, requestorId, mvpdId),
+  };
+}
+
+function emitCmTenantMatchDebugLineForMvpd(programmer, mvpdContext, catalog, matchedTenants, options = {}) {
+  const resolvedMatches = Array.isArray(matchedTenants) ? matchedTenants : [];
+  const idMatchCandidates = collectCmMvpdIdCandidates(mvpdContext?.mvpdId, mvpdContext?.mvpdMeta).slice(0, 16);
+  const nameMatchCandidates = collectCmMvpdNameCandidates(
+    mvpdContext?.mvpdName,
+    mvpdContext?.mvpdMeta,
+    mvpdContext?.mvpdLabel
+  ).slice(0, 16);
+  const normalizedMvpdKeys = idMatchCandidates.concat(nameMatchCandidates);
+  const matchedTenantConsoleIds = resolvedMatches
+    .map((tenant) => String(tenant?.raw?.consoleId || tenant?.tenantId || tenant?.tenantName || "").trim())
+    .filter(Boolean)
+    .slice(0, 16);
+  const matchedTenantConsoleIdsText = matchedTenantConsoleIds.join(", ");
+  const selectedMvpd = String(mvpdContext?.mvpdLabel || mvpdContext?.mvpdName || mvpdContext?.mvpdId || "");
+  const cmDecisionSummary = {
+    selectedMvpd,
+    requestorId: String(mvpdContext?.requestorId || ""),
+    mvpdId: String(mvpdContext?.mvpdId || ""),
+    idMatchCandidates,
+    nameMatchCandidates,
+    normalizedMvpdKeys,
+    matchedTenantConsoleIds,
+    matchedTenantConsoleKeys: matchedTenantConsoleIds.map((value) => normalizeCmConsoleKey(value)).filter(Boolean),
+    tenantCatalogSourceUrl: String(catalog?.sourceUrl || ""),
+    tenantCatalogCount: Number(catalog?.tenants?.length || 0),
+    matchedTenantCount: resolvedMatches.length,
+    matchPass: String(resolvedMatches?.[0]?.matchPass || "").trim(),
+    cacheState: String(options?.cacheState || "live"),
+    traceLine: `CM detect (mvpd) | mvpd="${selectedMvpd || "unknown"}" | matched-consoleIds="${matchedTenantConsoleIdsText || "none"}"`,
+  };
+  log("CM tenant match decision (MVPD)", cmDecisionSummary);
+  emitCmDebugEvent({
+    phase: "cm-tenant-match-decision-mvpd",
+    programmerId: String(programmer?.programmerId || ""),
+    programmerName: String(programmer?.programmerName || ""),
+    ...cmDecisionSummary,
+    workspaceKey: "mvpd-workspace",
+    workspaceOrigin: "MVPD Workspace",
   });
   return cmDecisionSummary;
 }
@@ -27073,20 +31872,13 @@ function shouldRetryCachedCmService(cmService) {
   if (!emptyFetchedAt) {
     return true;
   }
-  // Empty CM matches should be periodically retried; tenant payload shape and auth context can drift.
-  if (Date.now() - emptyFetchedAt >= 2 * 60 * 1000) {
+  if (Date.now() - emptyFetchedAt >= CM_EMPTY_MATCH_CACHE_MAX_AGE_MS) {
     return true;
   }
 
   const cachedFingerprint = String(cmService.tokenFingerprint || "").trim();
   if (!cachedFingerprint) {
-    return currentFingerprint !== "no-token";
-  }
-  if (currentFingerprint === "no-token" && cachedFingerprint === "no-token") {
-    const fetchedAt = Number(cmService.fetchedAt || 0);
-    if (fetchedAt > 0 && Date.now() - fetchedAt >= CM_AUTH_BOOTSTRAP_RETRY_MS) {
-      return true;
-    }
+    return true;
   }
   return cachedFingerprint !== currentFingerprint;
 }
@@ -27299,7 +32091,160 @@ function buildCmUsageDateWindow(profileHarvest = null) {
   };
 }
 
-function buildCmUsageQueryString(path, profileHarvest = null) {
+const CM_USAGE_TENANT_QUERY_KEYS = ["tenant", "tenant_id", "tenant-id"];
+const CM_USAGE_ROOT_SEGMENTS = ["year", "tenant"];
+const CM_USAGE_ROOT_SEGMENT_SET = new Set(CM_USAGE_ROOT_SEGMENTS);
+const CM_USAGE_CANONICAL_PREFIX = `/${["v2", ...CM_USAGE_ROOT_SEGMENTS].join("/")}`;
+let cmUsageCanonicalTemplatePathsCache = null;
+
+function resolveCmUsageTenantScopeValue(...candidates) {
+  for (const candidate of candidates) {
+    if (candidate == null) {
+      continue;
+    }
+    if (typeof candidate === "string" || typeof candidate === "number") {
+      const text = String(candidate || "").trim();
+      if (text) {
+        return text;
+      }
+      continue;
+    }
+    if (typeof candidate === "object") {
+      const objectValue = firstNonEmptyString([
+        candidate.tenantScope,
+        candidate.tenantId,
+        candidate.tenantName,
+        candidate.tenant_id,
+        candidate.programmerId,
+        candidate.id,
+      ]);
+      const text = String(objectValue || "").trim();
+      if (text) {
+        return text;
+      }
+    }
+  }
+  return "";
+}
+
+function normalizeCmuUsagePathSegment(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function canonicalizeCmuUsagePathParts(pathParts = []) {
+  const normalizedParts = (Array.isArray(pathParts) ? pathParts : [])
+    .map((value) => normalizeCmuUsagePathSegment(value))
+    .filter(Boolean);
+  if (normalizedParts.length === 0) {
+    return [];
+  }
+  const withoutPrefixes = normalizedParts.filter((value) => value !== "cmu" && value !== "v2");
+  if (withoutPrefixes.length === 0) {
+    return [];
+  }
+  if (!withoutPrefixes.includes("year")) {
+    return [];
+  }
+  const extras = [];
+  const seenExtras = new Set();
+  withoutPrefixes.forEach((part) => {
+    if (CM_USAGE_ROOT_SEGMENT_SET.has(part) || seenExtras.has(part)) {
+      return;
+    }
+    seenExtras.add(part);
+    extras.push(part);
+  });
+  return [...CM_USAGE_ROOT_SEGMENTS, ...extras];
+}
+
+function canonicalizeCmuUsagePath(pathValue = "") {
+  const raw = String(pathValue || "").trim();
+  if (!raw) {
+    return "";
+  }
+  let pathname = raw;
+  try {
+    pathname = String(new URL(raw, CM_REPORTS_BASE_URL).pathname || "");
+  } catch {
+    pathname = String(raw || "").split("?")[0];
+  }
+  const parts = pathname
+    .split("/")
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  const canonicalParts = canonicalizeCmuUsagePathParts(parts);
+  if (canonicalParts.length === 0) {
+    return "";
+  }
+  return `/${["v2", ...canonicalParts].join("/")}`;
+}
+
+function isCanonicalCmuUsagePath(pathValue = "") {
+  const canonicalPath = canonicalizeCmuUsagePath(pathValue);
+  return canonicalPath.startsWith(CM_USAGE_CANONICAL_PREFIX);
+}
+
+function getCanonicalCmUsageTemplatePaths() {
+  if (Array.isArray(cmUsageCanonicalTemplatePathsCache) && cmUsageCanonicalTemplatePathsCache.length > 0) {
+    return cmUsageCanonicalTemplatePathsCache;
+  }
+  const output = [];
+  const seen = new Set();
+  CM_USAGE_PATH_TEMPLATES.forEach((template) => {
+    const canonicalPath = canonicalizeCmuUsagePath(template);
+    if (!canonicalPath) {
+      return;
+    }
+    const normalizedPath = canonicalPath.replace(/^\/v2/i, "").replace(/\/{2,}/g, "/");
+    if (!normalizedPath || seen.has(normalizedPath)) {
+      return;
+    }
+    seen.add(normalizedPath);
+    output.push(normalizedPath);
+  });
+  if (output.length === 0) {
+    output.push(`/${CM_USAGE_ROOT_SEGMENTS.join("/")}`);
+  }
+  cmUsageCanonicalTemplatePathsCache = output;
+  return cmUsageCanonicalTemplatePathsCache;
+}
+
+function applyCmUsageTenantScopeToSearchParams(searchParams, tenantScope = "") {
+  if (!(searchParams instanceof URLSearchParams)) {
+    return;
+  }
+  CM_USAGE_TENANT_QUERY_KEYS.forEach((key) => searchParams.delete(key));
+  const normalizedTenantScope = resolveCmUsageTenantScopeValue(tenantScope);
+  if (normalizedTenantScope) {
+    searchParams.set("tenant", normalizedTenantScope);
+  }
+}
+
+function enforceCmUsageTenantScope(urlValue, tenantScope = "") {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return "";
+  }
+  const normalizedTenantScope = resolveCmUsageTenantScopeValue(tenantScope);
+  if (!normalizedTenantScope) {
+    return raw;
+  }
+
+  try {
+    const parsed = new URL(raw, CM_REPORTS_BASE_URL);
+    const canonicalPath = canonicalizeCmuUsagePath(parsed.pathname);
+    if (!canonicalPath) {
+      return parsed.toString();
+    }
+    parsed.pathname = canonicalPath;
+    applyCmUsageTenantScopeToSearchParams(parsed.searchParams, normalizedTenantScope);
+    return parsed.toString();
+  } catch {
+    return raw;
+  }
+}
+
+function buildCmUsageQueryString(path, profileHarvest = null, tenantScope = "") {
   const now = new Date();
   const range = buildCmUsageDateWindow(profileHarvest);
   const start = range.start || new Date(now.getTime() - 9 * 24 * 60 * 60 * 1000);
@@ -27312,23 +32257,38 @@ function buildCmUsageQueryString(path, profileHarvest = null) {
     params.set("metrics", "users");
   }
   params.set("format", "json");
+  const resolvedTenantScope = resolveCmUsageTenantScopeValue(tenantScope);
+  if (resolvedTenantScope) {
+    applyCmUsageTenantScopeToSearchParams(params, resolvedTenantScope);
+  }
   return params.toString();
 }
 
-function buildCmUsageSeedRows(tenant, profileHarvest = null) {
+function buildCmUsageSeedRows(tenant, profileHarvest = null, tenantScope = "") {
   const tenantId = String(tenant?.tenantId || "").trim();
   const tenantName = String(tenant?.tenantName || tenantId).trim();
   const correlation = profileHarvest && typeof profileHarvest === "object" ? profileHarvest : null;
+  const resolvedTenantScope = resolveCmUsageTenantScopeValue(
+    tenantScope,
+    tenantId,
+    tenantName
+  );
   const rows = [];
   const seen = new Set();
-  CM_USAGE_PATH_TEMPLATES.forEach((template, index) => {
+  getCanonicalCmUsageTemplatePaths().forEach((template, index) => {
     const path = String(template || "").trim();
     if (!path) {
       return;
     }
-    const normalizedPath = `/${path.replace(/^\/+/, "").replace(/\?.*$/, "")}`;
-    const queryString = buildCmUsageQueryString(normalizedPath, correlation);
-    const absoluteUrl = normalizeCmUrl(`${CM_REPORTS_BASE_URL}${normalizedPath}?${queryString}`);
+    const normalizedPath = canonicalizeCmuUsagePath(path);
+    if (!normalizedPath) {
+      return;
+    }
+    const queryString = buildCmUsageQueryString(normalizedPath, correlation, resolvedTenantScope);
+    const absoluteUrl = enforceCmUsageTenantScope(
+      normalizeCmUrl(`${CM_REPORTS_BASE_URL}${normalizedPath}?${queryString}`),
+      resolvedTenantScope
+    );
     if (!absoluteUrl || seen.has(absoluteUrl)) {
       return;
     }
@@ -27357,6 +32317,7 @@ function buildCmUsageSeedRows(tenant, profileHarvest = null) {
         correlationSubject: String(correlation?.subject || "").trim(),
         correlationSessionId: String(correlation?.sessionId || "").trim(),
         correlationMvpd: String(correlation?.mvpd || "").trim(),
+        tenantScope: resolvedTenantScope,
       },
     });
   });
@@ -27428,6 +32389,102 @@ function isCmAuthRedirectResponse(response, parsed, text = "") {
   );
 }
 
+function buildCmRequestQueryDebugInfo(urlValue = "") {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return {
+      endpointPath: "",
+      queryString: "",
+      tenantScope: "",
+      hasTenantScope: false,
+      start: "",
+      end: "",
+      limit: "",
+      metrics: "",
+      format: "",
+      isUsagePath: false,
+    };
+  }
+  try {
+    const parsed = new URL(raw, CM_REPORTS_BASE_URL);
+    const tenantScope = resolveCmUsageTenantScopeValue(
+      parsed.searchParams.get("tenant"),
+      parsed.searchParams.get("tenant_id"),
+      parsed.searchParams.get("tenant-id")
+    );
+    const queryString = String(parsed.search || "").replace(/^\?/, "");
+    const endpointPath = String(parsed.pathname || "");
+    return {
+      endpointPath,
+      queryString,
+      tenantScope,
+      hasTenantScope: Boolean(tenantScope),
+      start: String(parsed.searchParams.get("start") || ""),
+      end: String(parsed.searchParams.get("end") || ""),
+      limit: String(parsed.searchParams.get("limit") || ""),
+      metrics: String(parsed.searchParams.get("metrics") || ""),
+      format: String(parsed.searchParams.get("format") || ""),
+      isUsagePath: isClickCmuUsagePath(endpointPath),
+    };
+  } catch {
+    return {
+      endpointPath: "",
+      queryString: "",
+      tenantScope: "",
+      hasTenantScope: false,
+      start: "",
+      end: "",
+      limit: "",
+      metrics: "",
+      format: "",
+      isUsagePath: false,
+    };
+  }
+}
+
+function summarizeCmPayloadForDebug(payload = null) {
+  const result = {
+    payloadType: Array.isArray(payload) ? "array" : payload == null ? "empty" : typeof payload,
+    rowCount: 0,
+    emptyResult: true,
+    collectionKey: "",
+  };
+  if (Array.isArray(payload)) {
+    result.rowCount = payload.length;
+    result.emptyResult = payload.length === 0;
+    result.collectionKey = "array";
+    return result;
+  }
+  if (!payload || typeof payload !== "object") {
+    return result;
+  }
+  const collectionEntries = [
+    ["items", payload.items],
+    ["data", payload.data],
+    ["results", payload.results],
+    ["records", payload.records],
+    ["report", payload.report],
+    ["runningStreams", payload.runningStreams],
+    ["associatedAdvice", payload.associatedAdvice],
+    ["obligations", payload.obligations],
+    ["applications", payload.applications],
+    ["policies", payload.policies],
+    ["usage", payload.usage],
+  ].filter((entry) => Array.isArray(entry[1]));
+  if (collectionEntries.length > 0) {
+    const largest = collectionEntries.sort((left, right) => (Array.isArray(right[1]) ? right[1].length : 0) - (Array.isArray(left[1]) ? left[1].length : 0))[0];
+    result.collectionKey = String(largest?.[0] || "");
+    result.rowCount = Array.isArray(largest?.[1]) ? largest[1].length : 0;
+    result.emptyResult = result.rowCount === 0;
+    return result;
+  }
+  const keys = Object.keys(payload);
+  result.collectionKey = keys.length > 0 ? "object" : "";
+  result.rowCount = keys.length > 0 ? 1 : 0;
+  result.emptyResult = result.rowCount === 0;
+  return result;
+}
+
 async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options = {}) {
   const urls = uniqueSorted((Array.isArray(urlCandidates) ? urlCandidates : []).map((url) => normalizeCmUrl(url)).filter(Boolean));
   if (urls.length === 0) {
@@ -27467,10 +32524,13 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
   let lastError = null;
   let attemptCounter = 0;
   for (const url of urls) {
+    const queryDebugInfo = buildCmRequestQueryDebugInfo(url);
     let tokenRefreshAttempted = false;
     let headerVariants = buildHeaderVariants();
     headersLoop: for (let headerIndex = 0; headerIndex < headerVariants.length; headerIndex += 1) {
       const headers = headerVariants[headerIndex];
+      const authMode = detectCmAuthMode(headers);
+      const credentialsMode = String(options.credentials ?? "include");
       attemptCounter += 1;
       emitCmDebugEvent(
         {
@@ -27479,8 +32539,19 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
           method,
           url,
           attempt: attemptCounter,
-          authMode: detectCmAuthMode(headers),
+          authMode,
+          credentialsMode,
           hasBody: options.body != null,
+          endpointPath: queryDebugInfo.endpointPath,
+          tenantScope: queryDebugInfo.tenantScope,
+          hasTenantScope: queryDebugInfo.hasTenantScope,
+          start: queryDebugInfo.start,
+          end: queryDebugInfo.end,
+          limit: queryDebugInfo.limit,
+          metrics: queryDebugInfo.metrics,
+          format: queryDebugInfo.format,
+          queryString: queryDebugInfo.queryString,
+          isUsagePath: queryDebugInfo.isUsagePath,
         },
         {
           flowId: String(debugMeta.flowId || "").trim(),
@@ -27507,6 +32578,7 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
 
         const text = await response.text().catch(() => "");
         const parsed = parseJsonText(text, null);
+        const payloadSummary = summarizeCmPayloadForDebug(parsed != null ? parsed : text);
         emitCmDebugEvent(
           {
             phase: "cm-response",
@@ -27516,6 +32588,22 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
             attempt: attemptCounter,
             status: Number(response.status || 0),
             statusText: String(response.statusText || ""),
+            authMode,
+            credentialsMode,
+            endpointPath: queryDebugInfo.endpointPath,
+            tenantScope: queryDebugInfo.tenantScope,
+            hasTenantScope: queryDebugInfo.hasTenantScope,
+            start: queryDebugInfo.start,
+            end: queryDebugInfo.end,
+            limit: queryDebugInfo.limit,
+            metrics: queryDebugInfo.metrics,
+            format: queryDebugInfo.format,
+            queryString: queryDebugInfo.queryString,
+            isUsagePath: queryDebugInfo.isUsagePath,
+            payloadType: payloadSummary.payloadType,
+            payloadCollection: payloadSummary.collectionKey,
+            rowCount: payloadSummary.rowCount,
+            emptyResult: payloadSummary.emptyResult,
             responsePreview: truncateDebugText(text, 1600),
           },
           {
@@ -27523,6 +32611,38 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
             context: debugMeta,
           }
         );
+        if (response.ok && queryDebugInfo.isUsagePath && payloadSummary.emptyResult) {
+          emitCmDebugEvent(
+            {
+              phase: "cm-empty-result",
+              contextLabel: String(contextLabel || ""),
+              method,
+              url,
+              attempt: attemptCounter,
+              status: Number(response.status || 0),
+              statusText: String(response.statusText || ""),
+              authMode,
+              credentialsMode,
+              endpointPath: queryDebugInfo.endpointPath,
+              tenantScope: queryDebugInfo.tenantScope,
+              hasTenantScope: queryDebugInfo.hasTenantScope,
+              start: queryDebugInfo.start,
+              end: queryDebugInfo.end,
+              limit: queryDebugInfo.limit,
+              metrics: queryDebugInfo.metrics,
+              format: queryDebugInfo.format,
+              queryString: queryDebugInfo.queryString,
+              rowCount: payloadSummary.rowCount,
+              payloadType: payloadSummary.payloadType,
+              payloadCollection: payloadSummary.collectionKey,
+              summary: "CMU query executed successfully but returned zero rows.",
+            },
+            {
+              flowId: String(debugMeta.flowId || "").trim(),
+              context: debugMeta,
+            }
+          );
+        }
         const authRedirectResponse = isCmAuthRedirectResponse(response, parsed, text);
         const tokenExpiredResponse = isCmTokenExpiredResponse(response.status, parsed, text);
 
@@ -27568,6 +32688,18 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
             status: Number(response.status || 0),
             statusText: String(response.statusText || ""),
             error: message,
+            authMode,
+            credentialsMode,
+            endpointPath: queryDebugInfo.endpointPath,
+            tenantScope: queryDebugInfo.tenantScope,
+            hasTenantScope: queryDebugInfo.hasTenantScope,
+            start: queryDebugInfo.start,
+            end: queryDebugInfo.end,
+            limit: queryDebugInfo.limit,
+            metrics: queryDebugInfo.metrics,
+            format: queryDebugInfo.format,
+            queryString: queryDebugInfo.queryString,
+            isUsagePath: queryDebugInfo.isUsagePath,
             authRedirectResponse,
             tokenExpiredResponse,
           },
@@ -27586,6 +32718,18 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
             url,
             attempt: attemptCounter,
             error: lastError.message,
+            authMode,
+            credentialsMode,
+            endpointPath: queryDebugInfo.endpointPath,
+            tenantScope: queryDebugInfo.tenantScope,
+            hasTenantScope: queryDebugInfo.hasTenantScope,
+            start: queryDebugInfo.start,
+            end: queryDebugInfo.end,
+            limit: queryDebugInfo.limit,
+            metrics: queryDebugInfo.metrics,
+            format: queryDebugInfo.format,
+            queryString: queryDebugInfo.queryString,
+            isUsagePath: queryDebugInfo.isUsagePath,
           },
           {
             flowId: String(debugMeta.flowId || "").trim(),
@@ -27851,7 +32995,137 @@ async function ensureCmServiceForProgrammer(programmer, options = {}) {
   }
 }
 
-function buildCmResourceUrlCandidates(kind, tenant, profileHarvest = null) {
+async function ensureCmServiceForSelectedMvpd(programmer, options = {}) {
+  if (!programmer?.programmerId) {
+    return null;
+  }
+
+  const forceRefresh = options.forceRefresh === true;
+  const mvpdContext = buildSelectedMvpdMatchContext(programmer);
+  if (!mvpdContext?.selectionKey) {
+    return null;
+  }
+
+  if (forceRefresh) {
+    state.cmServiceByMvpdSelectionKey.delete(mvpdContext.selectionKey);
+  }
+
+  if (!forceRefresh && state.cmServiceByMvpdSelectionKey.has(mvpdContext.selectionKey)) {
+    const cachedService = state.cmServiceByMvpdSelectionKey.get(mvpdContext.selectionKey);
+    const cachedMatches = Array.isArray(cachedService?.matchedTenants) ? cachedService.matchedTenants : [];
+    if (cachedMatches.length === 0) {
+      const catalog = state.cmTenantsCatalog && Array.isArray(state.cmTenantsCatalog.tenants) ? state.cmTenantsCatalog : null;
+      if (catalog && catalog.tenants.length > 0) {
+        const rematchedTenants = findCmTenantMatchesForMvpd(mvpdContext.mvpdId, mvpdContext.mvpdName, catalog.tenants, {
+          mvpdMeta: mvpdContext.mvpdMeta,
+          mvpdLabel: mvpdContext.mvpdLabel,
+        });
+        if (rematchedTenants.length > 0) {
+          const refreshedService = {
+            ...(cachedService && typeof cachedService === "object" ? cachedService : {}),
+            serviceType: "cmMvpd",
+            requestorId: mvpdContext.requestorId,
+            mvpdId: mvpdContext.mvpdId,
+            mvpdName: mvpdContext.mvpdName,
+            mvpdLabel: mvpdContext.mvpdLabel,
+            matchedTenants: rematchedTenants,
+            sourceUrl: String(catalog.sourceUrl || cachedService?.sourceUrl || ""),
+            fetchedAt: Number(catalog.fetchedAt || cachedService?.fetchedAt || Date.now()),
+            tenantCount: Number(catalog.tenants.length || cachedService?.tenantCount || rematchedTenants.length),
+            tokenFingerprint: getCmAuthFingerprint(),
+            matchPass: String(rematchedTenants?.[0]?.matchPass || "").trim(),
+          };
+          state.cmServiceByMvpdSelectionKey.set(mvpdContext.selectionKey, refreshedService);
+          emitCmTenantMatchDebugLineForMvpd(programmer, mvpdContext, catalog, rematchedTenants, {
+            cacheState: "cache-rematch",
+          });
+          return refreshedService;
+        }
+      }
+    }
+    if (!shouldRetryCachedCmService(cachedService)) {
+      emitCmTenantMatchDebugLineForMvpd(
+        programmer,
+        mvpdContext,
+        {
+          sourceUrl: String(cachedService?.sourceUrl || ""),
+          tenants: Array.isArray(cachedService?.matchedTenants) ? cachedService.matchedTenants : [],
+        },
+        Array.isArray(cachedService?.matchedTenants) ? cachedService.matchedTenants : [],
+        { cacheState: "cache-hit" }
+      );
+      return cachedService;
+    }
+  }
+
+  if (!forceRefresh && state.cmServiceLoadPromiseByMvpdSelectionKey.has(mvpdContext.selectionKey)) {
+    return state.cmServiceLoadPromiseByMvpdSelectionKey.get(mvpdContext.selectionKey);
+  }
+
+  const loadPromise = (async () => {
+    let catalog = null;
+    try {
+      catalog = await ensureCmTenantsCatalog({ forceRefresh });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      const service = {
+        serviceType: "cmMvpd",
+        requestorId: mvpdContext.requestorId,
+        mvpdId: mvpdContext.mvpdId,
+        mvpdName: mvpdContext.mvpdName,
+        mvpdLabel: mvpdContext.mvpdLabel,
+        matchedTenants: [],
+        sourceUrl: "",
+        fetchedAt: Date.now(),
+        tenantCount: 0,
+        tokenFingerprint: getCmAuthFingerprint(),
+        loadError: reason,
+      };
+      state.cmServiceByMvpdSelectionKey.set(mvpdContext.selectionKey, service);
+      return service;
+    }
+
+    const matchedTenants = findCmTenantMatchesForMvpd(
+      mvpdContext.mvpdId,
+      mvpdContext.mvpdName,
+      catalog?.tenants || [],
+      {
+        mvpdMeta: mvpdContext.mvpdMeta,
+        mvpdLabel: mvpdContext.mvpdLabel,
+      }
+    );
+    emitCmTenantMatchDebugLineForMvpd(programmer, mvpdContext, catalog, matchedTenants, {
+      cacheState: forceRefresh ? "force-refresh" : "live",
+    });
+    const tokenFingerprint = getCmAuthFingerprint();
+    const service = {
+      serviceType: "cmMvpd",
+      requestorId: mvpdContext.requestorId,
+      mvpdId: mvpdContext.mvpdId,
+      mvpdName: mvpdContext.mvpdName,
+      mvpdLabel: mvpdContext.mvpdLabel,
+      matchedTenants,
+      sourceUrl: String(catalog?.sourceUrl || ""),
+      fetchedAt: Number(catalog?.fetchedAt || Date.now()),
+      tenantCount: Number(catalog?.tenants?.length || 0),
+      tokenFingerprint,
+      matchPass: matchedTenants?.[0]?.matchPass || "",
+    };
+    state.cmServiceByMvpdSelectionKey.set(mvpdContext.selectionKey, service);
+    return service;
+  })();
+
+  state.cmServiceLoadPromiseByMvpdSelectionKey.set(mvpdContext.selectionKey, loadPromise);
+  try {
+    return await loadPromise;
+  } finally {
+    if (state.cmServiceLoadPromiseByMvpdSelectionKey.get(mvpdContext.selectionKey) === loadPromise) {
+      state.cmServiceLoadPromiseByMvpdSelectionKey.delete(mvpdContext.selectionKey);
+    }
+  }
+}
+
+function buildCmResourceUrlCandidates(kind, tenant, profileHarvest = null, tenantScope = "") {
   const tenantId = String(tenant?.tenantId || "").trim();
   const tenantLinks = Array.isArray(tenant?.links) ? tenant.links : [];
   const rawLinks = collectCmUrlsFromValue(tenant?.raw, { maxDepth: 5 });
@@ -27872,7 +33146,7 @@ function buildCmResourceUrlCandidates(kind, tenant, profileHarvest = null) {
   }
   if (kindValue === "usage") {
     return uniqueSorted(
-      buildCmUsageSeedRows(tenant, profileHarvest)
+      buildCmUsageSeedRows(tenant, profileHarvest, tenantScope)
         .map((row) => String(row?.sourceUrl || "").trim())
         .filter(Boolean)
     );
@@ -27898,15 +33172,15 @@ function buildCmResourceUrlCandidates(kind, tenant, profileHarvest = null) {
     tenant: CM_TENANT_DETAIL_PATH_TEMPLATES,
     applications: CM_APPLICATIONS_PATH_TEMPLATES,
     policies: CM_POLICIES_PATH_TEMPLATES,
-    usage: CM_USAGE_PATH_TEMPLATES,
+    usage: getCanonicalCmUsageTemplatePaths(),
   };
   const templateUrls = buildCmTemplateUrls(tenantId, templateByKind[kindValue] || []);
   return uniqueSorted([...filteredLinks, ...templateUrls].filter(Boolean));
 }
 
-async function fetchCmTenantResource(kind, tenant, profileHarvest = null) {
+async function fetchCmTenantResource(kind, tenant, profileHarvest = null, tenantScope = "") {
   const kindValue = String(kind || "").trim().toLowerCase();
-  const candidates = buildCmResourceUrlCandidates(kindValue, tenant, profileHarvest);
+  const candidates = buildCmResourceUrlCandidates(kindValue, tenant, profileHarvest, tenantScope);
   if (candidates.length === 0) {
     return {
       kind: kindValue,
@@ -27964,6 +33238,12 @@ async function fetchCmTenantResource(kind, tenant, profileHarvest = null) {
 async function loadCmTenantBundle(tenant, options = {}) {
   const forceRefresh = options.forceRefresh === true;
   const profileHarvest = options?.profileHarvest && typeof options.profileHarvest === "object" ? options.profileHarvest : null;
+  const tenantScope = resolveCmUsageTenantScopeValue(
+    options?.tenantScope,
+    options?.tenantId,
+    tenant?.tenantId,
+    tenant?.tenantName
+  );
   const tenantCacheKey = cmGetTenantCacheKey(tenant);
 
   if (!forceRefresh && tenantCacheKey) {
@@ -27971,7 +33251,7 @@ async function loadCmTenantBundle(tenant, options = {}) {
     if (cachedEntry?.bundle) {
       const mergedTenant =
         tenant && typeof tenant === "object" ? { ...(cachedEntry.bundle.tenant || {}), ...tenant } : cachedEntry.bundle.tenant;
-      const usageRows = buildCmUsageSeedRows(mergedTenant, profileHarvest);
+      const usageRows = buildCmUsageSeedRows(mergedTenant, profileHarvest, tenantScope);
       return {
         ...cachedEntry.bundle,
         tenant: mergedTenant,
@@ -27988,8 +33268,8 @@ async function loadCmTenantBundle(tenant, options = {}) {
 
   const loadPromise = (async () => {
     const [applications, policies] = await Promise.all([
-      fetchCmTenantResource("applications", tenant, profileHarvest),
-      fetchCmTenantResource("policies", tenant, profileHarvest),
+      fetchCmTenantResource("applications", tenant, profileHarvest, tenantScope),
+      fetchCmTenantResource("policies", tenant, profileHarvest, tenantScope),
     ]);
     const tenantDetail = {
       kind: "tenant",
@@ -28004,8 +33284,9 @@ async function loadCmTenantBundle(tenant, options = {}) {
       url: "",
       payload: null,
       lastModified: "",
-      rows: buildCmUsageSeedRows(tenant, profileHarvest),
+      rows: buildCmUsageSeedRows(tenant, profileHarvest, tenantScope),
       error: "",
+      tenantScope,
     };
     const bundle = {
       tenant,
@@ -28370,6 +33651,16 @@ function cmNormalizeCsvCellValue(value) {
   }
 }
 
+function cmParseTimestampCandidateForSort(row) {
+  const tsCandidate = row?.timestamp ?? row?.date ?? row?.time;
+  if (tsCandidate == null || tsCandidate === "") {
+    return Number.NEGATIVE_INFINITY;
+  }
+  const parsed = new Date(tsCandidate);
+  const ms = parsed.getTime();
+  return Number.isFinite(ms) ? ms : Number.NEGATIVE_INFINITY;
+}
+
 function cmGetSortableValue(row, column) {
   const normalizedColumn = String(column || "").trim().toLowerCase();
   if (normalizedColumn === "date") {
@@ -28379,24 +33670,25 @@ function cmGetSortableValue(row, column) {
     const day = Number(row?.day);
     const hour = Number(row?.hour);
     const minute = Number(row?.minute);
-    if (Number.isFinite(year) && Number.isFinite(month) && Number.isFinite(day)) {
-      return Date.UTC(
-        year,
-        Math.max(0, month - 1),
-        day,
+    const hasAnyParts = [year, month, day, hour, minute].some((value) => Number.isFinite(value));
+    if (!hasAnyParts) {
+      return cmParseTimestampCandidateForSort(row);
+    }
+    const nowPst = new Date(Date.now() + sourceUtcOffsetMinutes * 60 * 1000);
+    const fallbackYear = nowPst.getUTCFullYear();
+    const ms =
+      Date.UTC(
+        Number.isFinite(year) ? year : fallbackYear,
+        Math.max(0, (Number.isFinite(month) ? month : 1) - 1),
+        Number.isFinite(day) ? day : 1,
         Number.isFinite(hour) ? hour : 0,
         Number.isFinite(minute) ? minute : 0
-      ) - sourceUtcOffsetMinutes * 60 * 1000;
+      ) -
+      sourceUtcOffsetMinutes * 60 * 1000;
+    if (Number.isFinite(ms)) {
+      return ms;
     }
-    const tsCandidate = row?.timestamp ?? row?.date ?? row?.time;
-    if (tsCandidate != null && tsCandidate !== "") {
-      const parsed = new Date(tsCandidate);
-      const ms = parsed.getTime();
-      if (Number.isFinite(ms)) {
-        return ms;
-      }
-    }
-    return Number.NEGATIVE_INFINITY;
+    return cmParseTimestampCandidateForSort(row);
   }
 
   const value = row?.[column];
@@ -28475,9 +33767,11 @@ function cmDownloadRowsAsCsv(rows, options = {}) {
 
 async function cmDownloadCsvForCard(cmState, record, card, sortRule, requestToken) {
   const normalizedCard = card && typeof card === "object" ? card : {};
-  const requestUrlOverride = String(normalizedCard.requestUrl || normalizedCard.endpointUrl || "").trim();
+  const requestUrlOverrideRaw = String(normalizedCard.requestUrl || normalizedCard.endpointUrl || "").trim();
+  const requestUrlOverride = cmScopeUsageRequestUrl(requestUrlOverrideRaw, cmState, record) || requestUrlOverrideRaw;
+  const recordRequestUrl = cmScopeUsageRequestUrl(String(record?.requestUrl || record?.endpointUrl || "").trim(), cmState, record);
   const hasUrlOverrideDiffersFromRecord =
-    Boolean(requestUrlOverride) && requestUrlOverride !== String(record?.requestUrl || record?.endpointUrl || "").trim();
+    Boolean(requestUrlOverride) && requestUrlOverride !== recordRequestUrl;
   let rows = hasUrlOverrideDiffersFromRecord ? [] : Array.isArray(normalizedCard.rows) ? normalizedCard.rows : [];
   let columns = Array.isArray(normalizedCard.columns) ? normalizedCard.columns : [];
 
@@ -28487,7 +33781,7 @@ async function cmDownloadCsvForCard(cmState, record, card, sortRule, requestToke
   }
 
   if (rows.length === 0 && record && String(record?.kind || "").toLowerCase() !== "cmv2-op") {
-    const requestUrl = requestUrlOverride || String(record.requestUrl || record.endpointUrl || "").trim();
+    const requestUrl = requestUrlOverride || recordRequestUrl;
     if (requestUrl) {
       const response = await fetchCmJsonWithAuthVariants([requestUrl], `CM ${record.kind || "report"} CSV`, {
         debugMeta: {
@@ -28531,6 +33825,112 @@ async function cmDownloadCsvForCard(cmState, record, card, sortRule, requestToke
   return { ok: true, fileName };
 }
 
+function normalizeRestV2MvpdLogoUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  try {
+    const parsed = new URL(raw);
+    if (!/^https?:$/i.test(parsed.protocol)) {
+      return "";
+    }
+    return parsed.toString();
+  } catch {
+    if (raw.startsWith("//")) {
+      return `https:${raw}`;
+    }
+    return "";
+  }
+}
+
+function isRestV2MvpdLogoNodeVisible(node) {
+  const visibleValue = firstNonEmptyString([
+    node?.visible,
+    node?.["@visible"],
+    node?.["@_visible"],
+    node?._visible,
+    node?.attributes?.visible,
+  ]);
+  const normalized = String(visibleValue || "").trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+  return !["false", "0", "no", "hidden"].includes(normalized);
+}
+
+function readRestV2MvpdLogoNodeUrl(value) {
+  if (!value) {
+    return "";
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const normalized = readRestV2MvpdLogoNodeUrl(entry);
+      if (normalized) {
+        return normalized;
+      }
+    }
+    return "";
+  }
+  if (typeof value === "string") {
+    return normalizeRestV2MvpdLogoUrl(value);
+  }
+  if (typeof value !== "object") {
+    return "";
+  }
+  if (!isRestV2MvpdLogoNodeVisible(value)) {
+    return "";
+  }
+  const candidates = [
+    value?.url,
+    value?.href,
+    value?.value,
+    value?.text,
+    value?.["#text"],
+    value?._text,
+    value?._,
+    value?.cdata,
+    value?.src,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeRestV2MvpdLogoUrl(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return "";
+}
+
+function extractRestV2MvpdLogoUrl(item = null) {
+  if (!item || typeof item !== "object") {
+    return "";
+  }
+  const candidates = [
+    item?.logoUrl,
+    item?.logoURL,
+    item?.logo,
+    item?.proxyLogo,
+    item?.proxyLogoUrl,
+    item?.proxyLogoURL,
+    item?.loginImage,
+    item?.loginImageUrl,
+    item?.imageUrl,
+    item?.assets?.logoUrl,
+    item?.images?.logoUrl,
+    item?.branding?.logoUrl,
+    item?.branding?.logo,
+    item?.configuration?.logoUrl,
+    item?.config?.logoUrl,
+  ];
+  for (const candidate of candidates) {
+    const normalized = readRestV2MvpdLogoNodeUrl(candidate);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return "";
+}
+
 function normalizeRestV2MvpdCollection(payload) {
   const collection = payload?.requestor?.mvpds || payload?.mvpds || payload?.requestor?.mvpd || [];
   if (!Array.isArray(collection)) {
@@ -28550,6 +33950,7 @@ function normalizeRestV2MvpdCollection(payload) {
       return {
         id,
         name: firstNonEmptyString([item.displayName, item.name, id]) || id,
+        logoUrl: extractRestV2MvpdLogoUrl(item),
         isProxy: item.isProxy === false ? false : true,
         boardingStatus: firstNonEmptyString([item.boardingStatus]),
       };
@@ -28619,6 +34020,107 @@ function resolveMvpdLoginNavigationUrl(sessionData, serviceProviderId) {
   }
 
   return rawUrl || authUrl;
+}
+
+function extractRestV2SessionCodeFromValue(value, serviceProviderId = "") {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  const normalizedServiceProviderId = String(serviceProviderId || "").trim().toLowerCase();
+  const candidates = [];
+  const pushCandidate = (candidate) => {
+    const normalized = String(candidate || "").trim();
+    if (!normalized) {
+      return;
+    }
+    try {
+      candidates.push(decodeURIComponent(normalized));
+    } catch {
+      candidates.push(normalized);
+    }
+  };
+
+  try {
+    const parsed = new URL(raw, ADOBE_SP_BASE);
+    const pathSegments = String(parsed.pathname || "")
+      .split("/")
+      .map((segment) => String(segment || "").trim())
+      .filter(Boolean);
+
+    for (let index = 0; index < pathSegments.length; index += 1) {
+      const segment = String(pathSegments[index] || "").toLowerCase();
+      if (segment === "sessions" && pathSegments[index + 1]) {
+        pushCandidate(pathSegments[index + 1]);
+      }
+      if (segment === "authenticate") {
+        const serviceProviderSegment = String(pathSegments[index + 1] || "").trim().toLowerCase();
+        const codeSegment = String(pathSegments[index + 2] || "").trim();
+        if (
+          serviceProviderSegment &&
+          codeSegment &&
+          (!normalizedServiceProviderId || serviceProviderSegment === normalizedServiceProviderId)
+        ) {
+          pushCandidate(codeSegment);
+        }
+      }
+    }
+
+    pushCandidate(parsed.searchParams.get("code"));
+    pushCandidate(parsed.searchParams.get("sessionCode"));
+    pushCandidate(parsed.searchParams.get("session"));
+  } catch {
+    // Fall through to regex extraction.
+  }
+
+  const sessionMatch = raw.match(/\/sessions\/([^/?#]+)/i);
+  if (sessionMatch?.[1]) {
+    pushCandidate(sessionMatch[1]);
+  }
+  if (normalizedServiceProviderId) {
+    const authenticateMatch = raw.match(
+      new RegExp(`/authenticate/${normalizedServiceProviderId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/([^/?#]+)`, "i")
+    );
+    if (authenticateMatch?.[1]) {
+      pushCandidate(authenticateMatch[1]);
+    }
+  } else {
+    const authenticateMatch = raw.match(/\/authenticate\/[^/]+\/([^/?#]+)/i);
+    if (authenticateMatch?.[1]) {
+      pushCandidate(authenticateMatch[1]);
+    }
+  }
+
+  return firstNonEmptyString(candidates);
+}
+
+function collectRestV2SessionCodeCandidates(values = [], serviceProviderId = "") {
+  const collection = Array.isArray(values) ? values : [values];
+  const candidates = [];
+  collection.forEach((value) => {
+    const text = String(value || "").trim();
+    if (!text) {
+      return;
+    }
+    if (!text.includes("/") && !text.includes("?") && !text.includes("#")) {
+      candidates.push(text);
+    }
+    const extracted = extractRestV2SessionCodeFromValue(text, serviceProviderId);
+    if (extracted) {
+      candidates.push(extracted);
+    }
+  });
+  return dedupeRestV2CandidateStrings(candidates);
+}
+
+function isRestV2LikelyPartnerSsoContext(context = null) {
+  if (!context || typeof context !== "object") {
+    return false;
+  }
+  const mvpd = String(context.mvpd || "").trim().toLowerCase();
+  const sessionAction = String(context.sessionAction || "").trim().toLowerCase();
+  const sessionPartner = String(context.sessionPartner || "").trim().toLowerCase();
+  return mvpd.includes("sso") || sessionAction.includes("sso") || sessionPartner.includes("sso");
 }
 
 function buildRestV2SessionCreatePayloadCandidates(mvpd) {
@@ -29291,6 +34793,8 @@ function applyProgrammerEntities(entities) {
   state.restV2ProfileHarvestLast = null;
   state.cmServiceByProgrammerId.clear();
   state.cmServiceLoadPromiseByProgrammerId.clear();
+  state.cmServiceByMvpdSelectionKey.clear();
+  state.cmServiceLoadPromiseByMvpdSelectionKey.clear();
   state.cmTenantsCatalog = null;
   state.cmTenantsCatalogPromise = null;
   state.cmConsoleBootstrapSummary = null;
@@ -29306,7 +34810,6 @@ function applyProgrammerEntities(entities) {
   clearRestV2PreparedLoginState();
   clearCmWorkspaceActivityDebugFlow("programmer-entities-reset", { stopFlow: true });
   populateMediaCompanySelect();
-  prefetchCmTenantsCatalogInBackground("programmer-entities");
 }
 
 function createCookieSessionLoginData() {
@@ -29959,6 +35462,7 @@ function registerEventHandlers() {
 
   els.mvpdSelect.addEventListener("change", (event) => {
     state.selectedMvpdId = String(event.target.value || "");
+    void refreshProgrammerPanels({ controllerReason: "mvpd-change" });
     refreshRestV2LoginPanels();
     const esmWorkspaceState = getActiveEsmWorkspaceState();
     if (esmWorkspaceState) {
@@ -30048,6 +35552,10 @@ function init() {
   ensureMvpdWorkspaceTabWatcher();
   ensureRestWorkspaceRuntimeListener();
   ensureRestWorkspaceTabWatcher();
+  ensureBobtoolsWorkspaceRuntimeListener();
+  ensureBobtoolsWorkspaceTabWatcher();
+  ensureRestV2LoginTabWatcher();
+  ensureRestV2BobtoolsRedirectWatcher();
   void renderBuildInfo();
   resetWorkflowForLoggedOut();
   registerEventHandlers();

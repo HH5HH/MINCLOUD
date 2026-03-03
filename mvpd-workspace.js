@@ -1,16 +1,43 @@
 const MVPD_MESSAGE_TYPE = "underpar:mvpd-workspace";
+const WORKSPACE_TEARSHEET_PAYLOAD_ID = "clickmvpdws-payload";
+
+function parseWorkspaceExportPayload() {
+  const payloadNode = document.getElementById(WORKSPACE_TEARSHEET_PAYLOAD_ID);
+  if (!payloadNode) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(String(payloadNode.textContent || "{}"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+const workspaceExportPayload = parseWorkspaceExportPayload();
+const IS_MVPD_WORKSPACE_TEARSHEET_RUNTIME = Boolean(workspaceExportPayload);
 
 const state = {
   windowId: 0,
   controllerOnline: false,
   mvpdReady: false,
+  hasMvpdCmTenant: false,
+  mvpdCmTenantScope: "",
   programmerId: "",
   programmerName: "",
   requestorIds: [],
   mvpdIds: [],
   mvpdLabel: "",
+  requestorMvpdLabel: "",
+  resolvedIntegration: "",
+  integrationRef: "",
+  integrationRecordUrl: "",
   loading: false,
   snapshot: null,
+  cmCardsById: new Map(),
 };
 let cardIdentity = 0;
 
@@ -18,6 +45,8 @@ const els = {
   controllerState: document.getElementById("workspace-controller-state"),
   filterState: document.getElementById("workspace-filter-state"),
   status: document.getElementById("workspace-status"),
+  makeClickMvpdButton: document.getElementById("workspace-make-clickmvpd"),
+  makeClickMvpdWorkspaceButton: document.getElementById("workspace-make-clickmvpdws"),
   rerunIndicator: document.getElementById("workspace-rerun-indicator"),
   rerunAllButton: document.getElementById("workspace-rerun-all"),
   clearButton: document.getElementById("workspace-clear-all"),
@@ -246,14 +275,93 @@ function payloadMatchesCurrentSelection(payload = null) {
   return activeRequestor === payloadRequestor && activeMvpd === payloadMvpd;
 }
 
-function getSelectionLabel() {
+function sanitizeHttpUrl(urlValue = "") {
+  const text = String(urlValue || "").trim();
+  if (!text) {
+    return "";
+  }
+  try {
+    const parsed = new URL(text);
+    const protocol = String(parsed.protocol || "").toLowerCase();
+    if (protocol === "http:" || protocol === "https:") {
+      return parsed.toString();
+    }
+  } catch {
+    // Ignore parse errors.
+  }
+  return "";
+}
+
+function getActiveIntegrationRef() {
+  return firstNonEmptyString([
+    state.resolvedIntegration,
+    state.integrationRef,
+    state.snapshot?.resolvedIntegration,
+    state.snapshot?.integrationRef,
+  ]);
+}
+
+function getActiveIntegrationRecordUrl() {
+  return sanitizeHttpUrl(
+    firstNonEmptyString([
+      state.integrationRecordUrl,
+      state.snapshot?.integrationRecordUrl,
+    ])
+  );
+}
+
+function getRequestorMvpdLabel() {
+  return firstNonEmptyString([
+    state.requestorMvpdLabel,
+    state.snapshot?.requestorMvpdLabel,
+  ]);
+}
+
+function buildSelectionQueueMarkup() {
   const requestor = getSelectedRequestorId();
   const mvpd = getSelectedMvpdId();
-  const mvpdLabel = getSelectedMvpdLabel();
+  const mvpdLabel = getSelectedMvpdLabel() || mvpd;
   if (!requestor || !mvpd) {
-    return "Select Requestor + MVPD in UnderPAR to load details.";
+    return '<span class="workspace-filter-empty">Select Requestor + MVPD in UnderPAR to load details.</span>';
   }
-  return `Requestor: ${requestor} | MVPD: ${mvpdLabel || mvpd}`;
+
+  const queue = [
+    `<span class="workspace-filter-pill workspace-filter-pill--mvpd"><span class="workspace-filter-pill-key">MVPD</span><span class="workspace-filter-pill-value">${escapeHtml(
+      mvpdLabel
+    )}</span></span>`,
+    `<span class="workspace-filter-pill"><span class="workspace-filter-pill-key">RequestorId</span><span class="workspace-filter-pill-value">${escapeHtml(
+      requestor
+    )}</span></span>`,
+  ];
+
+  const relationLabel = getRequestorMvpdLabel();
+  if (relationLabel) {
+    queue.push(
+      `<span class="workspace-filter-pill workspace-filter-pill--relation"><span class="workspace-filter-pill-key">Linkage</span><span class="workspace-filter-pill-value">${escapeHtml(
+        relationLabel
+      )}</span></span>`
+    );
+  }
+
+  const integrationRef = getActiveIntegrationRef();
+  const integrationRecordUrl = getActiveIntegrationRecordUrl();
+  if (integrationRef && integrationRecordUrl) {
+    queue.push(
+      `<a class="workspace-filter-link" href="${escapeHtml(
+        integrationRecordUrl
+      )}" target="_blank" rel="noopener noreferrer" title="Open ${escapeHtml(
+        integrationRef
+      )} record">${escapeHtml(integrationRef)}</a>`
+    );
+  } else if (integrationRef) {
+    queue.push(
+      `<span class="workspace-filter-pill workspace-filter-pill--integration"><span class="workspace-filter-pill-key">Integration</span><span class="workspace-filter-pill-value">${escapeHtml(
+        integrationRef
+      )}</span></span>`
+    );
+  }
+
+  return `<span class="workspace-filter-queue">${queue.join("")}</span>`;
 }
 
 function setStatus(message = "", type = "info") {
@@ -261,15 +369,18 @@ function setStatus(message = "", type = "info") {
   if (!els.status) {
     return;
   }
-  els.status.textContent = text;
-  els.status.classList.remove("error");
-  if (type === "error") {
-    els.status.classList.add("error");
-  }
+  const showError = type === "error" && Boolean(text);
+  els.status.textContent = showError ? text : "";
+  els.status.classList.toggle("error", showError);
+  els.status.hidden = !showError;
 }
 
 function hasSelectionContext() {
   return Boolean(String(state.programmerId || "").trim()) && Boolean(getSelectedRequestorId()) && Boolean(getSelectedMvpdId());
+}
+
+function hasMvpdCmExportContext() {
+  return hasSelectionContext() && state.hasMvpdCmTenant === true && Boolean(String(state.mvpdCmTenantScope || "").trim());
 }
 
 function isWorkspaceNetworkBusy() {
@@ -281,7 +392,7 @@ function syncWorkspaceNetworkIndicator() {
   if (els.rerunAllButton) {
     els.rerunAllButton.classList.toggle("net-busy", isBusy);
     els.rerunAllButton.setAttribute("aria-busy", isBusy ? "true" : "false");
-    els.rerunAllButton.title = isBusy ? "Refresh selected MVPD details (loading...)" : "Refresh selected MVPD details";
+    els.rerunAllButton.title = isBusy ? "Re-run all (loading...)" : "Re-run all";
   }
   if (els.rerunIndicator) {
     els.rerunIndicator.hidden = !isBusy;
@@ -289,24 +400,66 @@ function syncWorkspaceNetworkIndicator() {
 }
 
 function syncActionButtonsDisabled() {
-  const disableRefresh = state.loading || !hasSelectionContext();
-  const disableClear = state.loading || !state.snapshot;
+  const hasSelection = hasSelectionContext();
+  const hasMvpdCm = hasMvpdCmExportContext();
+  const hasSnapshot = Boolean(state.snapshot);
+  const hasCmuCards =
+    state.cmCardsById instanceof Map &&
+    [...state.cmCardsById.values()].some((entry) => Boolean(entry?.exportCard && entry?.exportCard?.requestUrl));
+  const disableReference = state.loading || !hasMvpdCm;
+  const disableWorkspaceTearsheet = state.loading || !hasMvpdCm || !hasCmuCards;
+  const disableRefresh = state.loading || !hasSelection;
+  const disableClear = state.loading || !hasSnapshot;
+  if (els.makeClickMvpdButton) {
+    els.makeClickMvpdButton.disabled = disableReference;
+  }
+  if (els.makeClickMvpdWorkspaceButton) {
+    els.makeClickMvpdWorkspaceButton.disabled = disableWorkspaceTearsheet;
+  }
   if (els.rerunAllButton) {
     els.rerunAllButton.disabled = disableRefresh;
   }
   if (els.clearButton) {
     els.clearButton.disabled = disableClear;
   }
+  if (IS_MVPD_WORKSPACE_TEARSHEET_RUNTIME) {
+    if (els.makeClickMvpdButton) {
+      els.makeClickMvpdButton.disabled = true;
+    }
+    if (els.makeClickMvpdWorkspaceButton) {
+      els.makeClickMvpdWorkspaceButton.disabled = true;
+    }
+    if (els.rerunAllButton) {
+      els.rerunAllButton.disabled = true;
+    }
+    if (els.clearButton) {
+      els.clearButton.disabled = true;
+    }
+  }
   syncWorkspaceNetworkIndicator();
+}
+
+function syncTearsheetButtonsVisibility() {
+  const isVisible = hasMvpdCmExportContext();
+  if (els.makeClickMvpdButton) {
+    els.makeClickMvpdButton.hidden = !isVisible || IS_MVPD_WORKSPACE_TEARSHEET_RUNTIME;
+  }
+  if (els.makeClickMvpdWorkspaceButton) {
+    els.makeClickMvpdWorkspaceButton.hidden = !isVisible || IS_MVPD_WORKSPACE_TEARSHEET_RUNTIME;
+  }
 }
 
 function updateControllerBanner() {
   if (els.controllerState) {
-    els.controllerState.textContent = `MVPD Workspace | ${getProgrammerLabel()}`;
+    const selectedMvpdLabel = getSelectedMvpdLabel() || getSelectedMvpdId();
+    els.controllerState.textContent = selectedMvpdLabel
+      ? `Selected MVPD: ${selectedMvpdLabel} | ${getProgrammerLabel()}`
+      : `MVPD Workspace | ${getProgrammerLabel()}`;
   }
   if (els.filterState) {
-    els.filterState.textContent = getSelectionLabel();
+    els.filterState.innerHTML = buildSelectionQueueMarkup();
   }
+  syncTearsheetButtonsVisibility();
   syncActionButtonsDisabled();
 }
 
@@ -316,6 +469,7 @@ function clearWorkspaceCards() {
   }
   cardIdentity = 0;
   state.snapshot = null;
+  state.cmCardsById.clear();
   syncActionButtonsDisabled();
 }
 
@@ -375,7 +529,8 @@ function createCard(title, subtitle = "", options = {}) {
     event.stopPropagation();
     toggle();
   });
-  setCardCollapsed(article, head, body, toggleButton, options.collapsed === true);
+  // MVPD workspace defaults all containers to collapsed for faster scanning.
+  setCardCollapsed(article, head, body, toggleButton, options.collapsed !== false);
   return {
     article,
     body,
@@ -578,11 +733,245 @@ function renderEntriesCard(title, subtitle, entries = [], options = {}) {
   return article;
 }
 
+function getCmReportNodeLabel(urlValue = "", fallback = "CMU Endpoint") {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return fallback;
+  }
+  try {
+    const parsed = new URL(raw);
+    const parts = String(parsed.pathname || "")
+      .split("/")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (parts.length > 0) {
+      return decodeURIComponent(parts[parts.length - 1]);
+    }
+  } catch {
+    // Fall through to fallback.
+  }
+  return fallback;
+}
+
+function normalizeCmReportRows(rows = []) {
+  return (Array.isArray(rows) ? rows : []).filter((row) => row && typeof row === "object" && !Array.isArray(row));
+}
+
+function collectCmReportColumns(rows = [], explicitColumns = []) {
+  const output = [];
+  const seen = new Set();
+  const push = (value) => {
+    const column = String(value || "").trim();
+    if (!column) {
+      return;
+    }
+    const key = column.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    output.push(column);
+  };
+  (Array.isArray(explicitColumns) ? explicitColumns : []).forEach(push);
+  normalizeCmReportRows(rows).forEach((row) => {
+    Object.keys(row).forEach(push);
+  });
+  return output;
+}
+
+function formatCmReportCellValue(value) {
+  if (value == null) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function getMvpdCmSelectionKey() {
+  const programmerId = String(state.programmerId || "").trim();
+  const requestorId = String(getSelectedRequestorId() || "").trim();
+  const mvpdId = String(getSelectedMvpdId() || "").trim();
+  if (!programmerId || !requestorId || !mvpdId) {
+    return "";
+  }
+  return `${programmerId}|${requestorId}|${mvpdId}`;
+}
+
+function payloadMatchesCurrentMvpdCmSelection(payload = null) {
+  const activeSelectionKey = getMvpdCmSelectionKey();
+  if (!activeSelectionKey) {
+    return true;
+  }
+  const payloadProgrammerId = String(payload?.programmerId || "").trim();
+  const payloadRequestorId = String(payload?.requestorId || "").trim();
+  const payloadMvpdId = String(payload?.mvpdId || "").trim();
+  if (!payloadProgrammerId || !payloadRequestorId || !payloadMvpdId) {
+    return true;
+  }
+  return `${payloadProgrammerId}|${payloadRequestorId}|${payloadMvpdId}` === activeSelectionKey;
+}
+
+function ensureCmReportCard(cardId = "", title = "CMU Report", subtitle = "") {
+  const normalizedCardId = String(cardId || "").trim();
+  if (!normalizedCardId || !els.cardsHost) {
+    return null;
+  }
+  const existing = state.cmCardsById.get(normalizedCardId);
+  if (existing?.article?.isConnected) {
+    const titleNode = existing.article.querySelector(".mvpd-card-title");
+    const subtitleNode = existing.article.querySelector(".mvpd-card-subtitle");
+    if (titleNode && title) {
+      titleNode.textContent = title;
+    }
+    if (subtitleNode && subtitle) {
+      subtitleNode.textContent = subtitle;
+    }
+    return existing;
+  }
+
+  const { article, body } = createCard(title, subtitle, {
+    anchorId: `mvpd-cm-${sanitizeAnchorToken(normalizedCardId, "report")}`,
+    collapsed: false,
+  });
+  const head = article.querySelector(".mvpd-card-head");
+  const toggleButton = article.querySelector(".mvpd-card-toggle");
+  setCardCollapsed(article, head, body, toggleButton, false);
+  article.classList.add("mvpd-cm-report-card");
+  els.cardsHost.appendChild(article);
+  const created = {
+    cardId: normalizedCardId,
+    article,
+    body,
+    exportCard: null,
+  };
+  state.cmCardsById.set(normalizedCardId, created);
+  return created;
+}
+
+function renderMvpdCmReportStart(payload = {}) {
+  if (!payloadMatchesCurrentMvpdCmSelection(payload)) {
+    return;
+  }
+  const cardId = String(payload?.cardId || "").trim();
+  if (!cardId) {
+    return;
+  }
+  const endpointUrl = String(payload?.requestUrl || payload?.endpointUrl || "").trim();
+  const title = `CMU Report: ${getCmReportNodeLabel(endpointUrl, String(payload?.zoomKey || "CMU"))}`;
+  const subtitle = firstNonEmptyString([
+    String(payload?.tenantName || "").trim(),
+    String(payload?.tenantId || "").trim(),
+    "Loading...",
+  ]);
+  const card = ensureCmReportCard(cardId, title, subtitle);
+  if (!card?.body) {
+    return;
+  }
+  card.exportCard = {
+    cardId,
+    endpointUrl: String(payload?.endpointUrl || payload?.requestUrl || "").trim(),
+    requestUrl: String(payload?.requestUrl || payload?.endpointUrl || "").trim(),
+    baseRequestUrl: String(payload?.baseRequestUrl || payload?.requestUrl || payload?.endpointUrl || "").trim(),
+    zoomKey: String(payload?.zoomKey || "cmu").trim(),
+    columns: Array.isArray(payload?.columns) ? payload.columns.map((value) => String(value || "")).filter(Boolean) : [],
+    tenantId: String(payload?.tenantId || getSelectedMvpdId() || "").trim(),
+    tenantName: String(payload?.tenantName || getSelectedMvpdLabel() || getSelectedMvpdId() || "").trim(),
+  };
+  card.body.innerHTML = `<p class="mvpd-empty">Loading ${escapeHtml(title)}...</p>`;
+}
+
+function renderMvpdCmReportResult(payload = {}) {
+  if (!payloadMatchesCurrentMvpdCmSelection(payload)) {
+    return;
+  }
+  const cardId = String(payload?.cardId || "").trim();
+  if (!cardId) {
+    return;
+  }
+  const endpointUrl = String(payload?.requestUrl || payload?.endpointUrl || "").trim();
+  const title = `CMU Report: ${getCmReportNodeLabel(endpointUrl, String(payload?.zoomKey || "CMU"))}`;
+  const rows = normalizeCmReportRows(payload?.rows);
+  const subtitle = `${rows.length} row${rows.length === 1 ? "" : "s"}`;
+  const card = ensureCmReportCard(cardId, title, subtitle);
+  if (!card?.body) {
+    return;
+  }
+
+  if (payload?.ok !== true) {
+    const errorText = String(payload?.error || "Unable to load CM report.").trim();
+    card.exportCard = null;
+    card.body.innerHTML = `<p class="mvpd-empty">${escapeHtml(errorText)}</p>`;
+    return;
+  }
+
+  const columns = collectCmReportColumns(rows, Array.isArray(payload?.columns) ? payload.columns : []);
+  const tableMarkup =
+    rows.length === 0 || columns.length === 0
+      ? '<p class="mvpd-empty">No CM data returned for this endpoint.</p>'
+      : `
+      <div class="mvpd-table-wrap">
+        <table class="mvpd-table">
+          <thead>
+            <tr>${columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map((row) => {
+                const cells = columns
+                  .map((column) => `<td>${escapeHtml(formatCmReportCellValue(row?.[column]))}</td>`)
+                  .join("");
+                return `<tr>${cells}</tr>`;
+              })
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+  const requestorId = String(payload?.requestorId || getSelectedRequestorId() || "").trim();
+  const mvpdId = String(payload?.mvpdId || getSelectedMvpdId() || "").trim();
+  const mvpdLabel = String(payload?.mvpdLabel || getSelectedMvpdLabel() || mvpdId).trim();
+  const metaLine = [requestorId ? `Requestor: ${requestorId}` : "", mvpdLabel ? `MVPD: ${mvpdLabel}` : "", endpointUrl]
+    .filter(Boolean)
+    .join(" | ");
+  const modifiedLabel = String(payload?.lastModified || "").trim();
+  card.exportCard = {
+    cardId,
+    endpointUrl,
+    requestUrl: String(payload?.requestUrl || endpointUrl).trim(),
+    baseRequestUrl: String(payload?.baseRequestUrl || payload?.requestUrl || endpointUrl).trim(),
+    zoomKey: String(payload?.zoomKey || "cmu").trim(),
+    columns: columns.slice(0, 240),
+    tenantId: String(payload?.tenantId || getSelectedMvpdId() || "").trim(),
+    tenantName: String(payload?.tenantName || getSelectedMvpdLabel() || getSelectedMvpdId() || "").trim(),
+  };
+
+  card.body.innerHTML = `
+    <p class="mvpd-card-subtitle">${escapeHtml(metaLine || "CMU report")}</p>
+    ${tableMarkup}
+    ${
+      modifiedLabel
+        ? `<p class="mvpd-card-subtitle">Last-Modified: ${escapeHtml(modifiedLabel)}</p>`
+        : ""
+    }
+  `;
+}
+
 function renderSnapshot(snapshot) {
   if (!els.cardsHost) {
     return;
   }
   els.cardsHost.innerHTML = "";
+  state.cmCardsById.clear();
 
   const tmsCards = [];
   const regularCards = [];
@@ -678,6 +1067,8 @@ function applyControllerState(payload) {
   const previousSelectionKey = getSelectionKey();
   state.controllerOnline = payload?.controllerOnline === true;
   state.mvpdReady = payload?.mvpdReady === true;
+  state.hasMvpdCmTenant = payload?.hasMvpdCmTenant === true;
+  state.mvpdCmTenantScope = String(payload?.mvpdCmTenantScope || "").trim();
   state.programmerId = String(payload?.programmerId || "");
   state.programmerName = String(payload?.programmerName || "");
   state.requestorIds = Array.isArray(payload?.requestorIds)
@@ -687,6 +1078,10 @@ function applyControllerState(payload) {
     ? payload.mvpdIds.map((value) => String(value || "").trim()).filter(Boolean)
     : [];
   state.mvpdLabel = resolvePayloadMvpdLabel(payload);
+  state.requestorMvpdLabel = String(payload?.requestorMvpdLabel || "").trim();
+  state.resolvedIntegration = String(payload?.resolvedIntegration || "").trim();
+  state.integrationRef = String(payload?.integrationRef || "").trim();
+  state.integrationRecordUrl = sanitizeHttpUrl(payload?.integrationRecordUrl || "");
   const nextSelectionKey = getSelectionKey();
   if (previousSelectionKey && previousSelectionKey !== nextSelectionKey) {
     state.loading = false;
@@ -729,12 +1124,19 @@ function handleSnapshotResult(payload) {
     return;
   }
   state.snapshot = payload.snapshot && typeof payload.snapshot === "object" ? payload.snapshot : null;
+  state.requestorMvpdLabel = firstNonEmptyString([payload?.snapshot?.requestorMvpdLabel, state.requestorMvpdLabel]);
+  state.resolvedIntegration = firstNonEmptyString([payload?.snapshot?.resolvedIntegration, state.resolvedIntegration]);
+  state.integrationRef = firstNonEmptyString([payload?.snapshot?.integrationRef, payload?.snapshot?.resolvedIntegration, state.integrationRef]);
+  state.integrationRecordUrl = sanitizeHttpUrl(
+    firstNonEmptyString([payload?.snapshot?.integrationRecordUrl, state.integrationRecordUrl])
+  );
   if (!state.snapshot) {
     clearWorkspaceCards();
     setStatus("No MVPD details were returned.", "error");
     return;
   }
   renderSnapshot(state.snapshot);
+  updateControllerBanner();
   setStatus(`MVPD details loaded at ${formatDateTime(state.snapshot?.fetchedAt)}`);
 }
 
@@ -755,6 +1157,21 @@ function handleWorkspaceEvent(eventName, payload) {
     handleSnapshotResult(payload);
     return;
   }
+  if (event === "cm-report-start") {
+    renderMvpdCmReportStart(payload);
+    setStatus("Loading CM report...");
+    return;
+  }
+  if (event === "cm-report-result") {
+    renderMvpdCmReportResult(payload);
+    const rowCount = Array.isArray(payload?.rows) ? payload.rows.length : 0;
+    if (payload?.ok === true) {
+      setStatus(`CM report loaded (${rowCount} row${rowCount === 1 ? "" : "s"}).`);
+    } else {
+      setStatus(String(payload?.error || "Unable to load CM report."), "error");
+    }
+    return;
+  }
   if (event === "workspace-clear") {
     state.loading = false;
     clearWorkspaceCards();
@@ -762,7 +1179,86 @@ function handleWorkspaceEvent(eventName, payload) {
   }
 }
 
+function hasChromeRuntimeMessaging() {
+  return !IS_MVPD_WORKSPACE_TEARSHEET_RUNTIME && Boolean(chrome?.runtime?.sendMessage);
+}
+
+async function makeClickMvpdDownload() {
+  if (!hasSelectionContext()) {
+    setStatus("Select Requestor + MVPD in UnderPAR first.", "error");
+    return;
+  }
+  try {
+    setStatus("");
+    const result = await sendWorkspaceAction("make-clickcmu");
+    if (!result?.ok) {
+      throw new Error(result?.error || "Unable to generate clickCMU.");
+    }
+    setStatus("");
+  } catch (error) {
+    setStatus(`Unable to generate clickCMU: ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
+}
+
+function collectMvpdCmuWorkspaceExportCards() {
+  const cards = [];
+  if (!(state.cmCardsById instanceof Map) || state.cmCardsById.size === 0) {
+    return cards;
+  }
+  state.cmCardsById.forEach((cardState) => {
+    const exportCard = cardState?.exportCard && typeof cardState.exportCard === "object" ? cardState.exportCard : null;
+    if (!exportCard) {
+      return;
+    }
+    const requestUrl = String(exportCard.requestUrl || exportCard.endpointUrl || "").trim();
+    const endpointUrl = String(exportCard.endpointUrl || requestUrl).trim();
+    if (!requestUrl || !endpointUrl) {
+      return;
+    }
+    cards.push({
+      cardId: String(exportCard.cardId || ""),
+      requestUrl,
+      endpointUrl,
+      baseRequestUrl: String(exportCard.baseRequestUrl || requestUrl).trim(),
+      zoomKey: String(exportCard.zoomKey || "cmu").trim(),
+      columns: Array.isArray(exportCard.columns)
+        ? exportCard.columns.map((value) => String(value || "").trim()).filter(Boolean)
+        : [],
+      tenantId: String(exportCard.tenantId || getSelectedMvpdId() || "").trim(),
+      tenantName: String(exportCard.tenantName || getSelectedMvpdLabel() || getSelectedMvpdId() || "").trim(),
+    });
+  });
+  return cards;
+}
+
+async function makeClickMvpdWorkspaceDownload() {
+  if (!hasSelectionContext()) {
+    setStatus("Select Requestor + MVPD in UnderPAR first.", "error");
+    return;
+  }
+  const cards = collectMvpdCmuWorkspaceExportCards();
+  if (cards.length === 0) {
+    setStatus("Open at least one MVPD CMU table before generating clickCMUWS_TEARSHEET.", "error");
+    return;
+  }
+  try {
+    setStatus("");
+    const result = await sendWorkspaceAction("make-clickcmuws", {
+      cards,
+    });
+    if (!result?.ok) {
+      throw new Error(result?.error || "Unable to generate clickCMUWS_TEARSHEET.");
+    }
+    setStatus("");
+  } catch (error) {
+    setStatus(`Unable to generate clickCMUWS_TEARSHEET: ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
+}
+
 async function sendWorkspaceAction(action, payload = {}) {
+  if (!hasChromeRuntimeMessaging()) {
+    return { ok: false, error: "Runtime messaging is unavailable in standalone clickMVPDWS." };
+  }
   try {
     return await chrome.runtime.sendMessage({
       type: MVPD_MESSAGE_TYPE,
@@ -798,10 +1294,24 @@ async function refreshSnapshot(forceRefresh = true) {
 
 function clearWorkspaceView() {
   clearWorkspaceCards();
-  void sendWorkspaceAction("clear-all");
+  if (hasChromeRuntimeMessaging()) {
+    void sendWorkspaceAction("clear-all");
+  }
 }
 
 function registerEventHandlers() {
+  if (els.makeClickMvpdButton) {
+    els.makeClickMvpdButton.addEventListener("click", () => {
+      void makeClickMvpdDownload();
+    });
+  }
+
+  if (els.makeClickMvpdWorkspaceButton) {
+    els.makeClickMvpdWorkspaceButton.addEventListener("click", () => {
+      void makeClickMvpdWorkspaceDownload();
+    });
+  }
+
   if (els.rerunAllButton) {
     els.rerunAllButton.addEventListener("click", () => {
       void refreshSnapshot(true);
@@ -814,17 +1324,58 @@ function registerEventHandlers() {
     });
   }
 
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type !== MVPD_MESSAGE_TYPE || message?.channel !== "workspace-event") {
+  if (hasChromeRuntimeMessaging()) {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message?.type !== MVPD_MESSAGE_TYPE || message?.channel !== "workspace-event") {
+        return false;
+      }
+      const targetWindowId = Number(message?.targetWindowId || 0);
+      if (targetWindowId > 0 && Number(state.windowId || 0) > 0 && targetWindowId !== Number(state.windowId)) {
+        return false;
+      }
+      handleWorkspaceEvent(message?.event, message?.payload || {});
       return false;
-    }
-    const targetWindowId = Number(message?.targetWindowId || 0);
-    if (targetWindowId > 0 && Number(state.windowId || 0) > 0 && targetWindowId !== Number(state.windowId)) {
-      return false;
-    }
-    handleWorkspaceEvent(message?.event, message?.payload || {});
-    return false;
+    });
+  }
+}
+
+function hydrateWorkspaceFromExportPayload(payload = workspaceExportPayload) {
+  if (!payload || typeof payload !== "object") {
+    return;
+  }
+
+  const controllerStatePayload =
+    payload.controllerState && typeof payload.controllerState === "object"
+      ? payload.controllerState
+      : {};
+  applyControllerState({
+    controllerOnline: true,
+    mvpdReady: true,
+    programmerId: String(controllerStatePayload.programmerId || ""),
+    programmerName: String(controllerStatePayload.programmerName || ""),
+    requestorIds: Array.isArray(controllerStatePayload.requestorIds)
+      ? controllerStatePayload.requestorIds
+      : [],
+    mvpdIds: Array.isArray(controllerStatePayload.mvpdIds) ? controllerStatePayload.mvpdIds : [],
+    mvpdLabel: String(controllerStatePayload.mvpdLabel || ""),
+    requestorMvpdLabel: String(controllerStatePayload.requestorMvpdLabel || ""),
+    resolvedIntegration: String(controllerStatePayload.resolvedIntegration || ""),
+    integrationRef: String(controllerStatePayload.integrationRef || ""),
+    integrationRecordUrl: String(controllerStatePayload.integrationRecordUrl || ""),
   });
+
+  const snapshot = payload.snapshot && typeof payload.snapshot === "object" ? payload.snapshot : null;
+  if (snapshot) {
+    handleSnapshotResult({
+      ok: true,
+      snapshot,
+      requestorId: String(snapshot.requestorId || controllerStatePayload.requestorId || ""),
+      mvpdId: String(snapshot.mvpdId || controllerStatePayload.mvpdId || ""),
+      mvpdLabel: String(snapshot.mvpdLabel || controllerStatePayload.mvpdLabel || ""),
+    });
+  } else {
+    clearWorkspaceCards();
+  }
 }
 
 async function init() {
@@ -837,6 +1388,17 @@ async function init() {
 
   registerEventHandlers();
   updateControllerBanner();
+
+  if (IS_MVPD_WORKSPACE_TEARSHEET_RUNTIME) {
+    hydrateWorkspaceFromExportPayload(workspaceExportPayload);
+    if (els.rerunAllButton) {
+      els.rerunAllButton.hidden = true;
+    }
+    if (els.clearButton) {
+      els.clearButton.hidden = true;
+    }
+    return;
+  }
 
   const readyResult = await sendWorkspaceAction("workspace-ready");
   if (!readyResult?.ok) {
