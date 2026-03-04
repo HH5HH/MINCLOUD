@@ -24,6 +24,7 @@ const CONSOLE_AUTH_CALLBACK_PREFIX = "https://console.auth.adobe.com/oauth2/call
 const ADOBE_CONSOLE_BASE = "https://console.auth.adobe.com";
 const ADOBE_MGMT_BASE = "https://mgmt.auth.adobe.com";
 const ADOBE_SP_BASE = "https://sp.auth.adobe.com";
+const DEGRADATION_API_BASE = `${ADOBE_MGMT_BASE}/control/v3/degradation`;
 const REST_V2_BASE = `${ADOBE_SP_BASE}/api/v2`;
 const PROGRAMMER_ENDPOINTS = [
   `${ADOBE_CONSOLE_BASE}/rest/api/entity/Programmer?configurationVersion=3522`,
@@ -39,6 +40,14 @@ const PREMIUM_SERVICE_SCOPE_BY_KEY = {
   esm: "analytics:client",
   restV2: "api:client:v2",
 };
+const DEGRADATION_SCOPE_CANDIDATES = [PREMIUM_SERVICE_SCOPE_BY_KEY.degradation];
+const KNOWN_PREMIUM_SERVICE_SCOPES = Array.from(
+  new Set(
+    [...Object.values(PREMIUM_SERVICE_SCOPE_BY_KEY), ...DEGRADATION_SCOPE_CANDIDATES]
+      .map((scope) => String(scope || "").trim().toLowerCase())
+      .filter(Boolean)
+  )
+);
 const REST_V2_SCOPE = PREMIUM_SERVICE_SCOPE_BY_KEY.restV2;
 const PREMIUM_SERVICE_TITLE_BY_KEY = {
   cm: "Concurrency Monitoring",
@@ -140,6 +149,9 @@ const LEGACY_MVPD_WORKSPACE_MESSAGE_TYPE = "mincloud:mvpd-workspace";
 const REST_WORKSPACE_PATH = "rest-workspace.html";
 const REST_WORKSPACE_MESSAGE_TYPE = "underpar:rest-workspace";
 const LEGACY_REST_WORKSPACE_MESSAGE_TYPE = "mincloud:rest-workspace";
+const DEGRADATION_WORKSPACE_PATH = "degradation-workspace.html";
+const DEGRADATION_WORKSPACE_MESSAGE_TYPE = "underpar:degradation-workspace";
+const LEGACY_DEGRADATION_WORKSPACE_MESSAGE_TYPE = "mincloud:degradation-workspace";
 const BOBTOOLS_WORKSPACE_PATH = "bobtools-workspace.html";
 const BOBTOOLS_WORKSPACE_MESSAGE_TYPE = "underpar:bobtools-workspace";
 const LEGACY_BOBTOOLS_WORKSPACE_MESSAGE_TYPE = "mincloud:bobtools-workspace";
@@ -744,7 +756,49 @@ const LOGIN_HELPER_RESULT_MESSAGE_TYPES = new Set([
 const ESM_WORKSPACE_MESSAGE_TYPES = new Set([ESM_WORKSPACE_MESSAGE_TYPE, LEGACY_ESM_WORKSPACE_MESSAGE_TYPE]);
 const MVPD_WORKSPACE_MESSAGE_TYPES = new Set([MVPD_WORKSPACE_MESSAGE_TYPE, LEGACY_MVPD_WORKSPACE_MESSAGE_TYPE]);
 const REST_WORKSPACE_MESSAGE_TYPES = new Set([REST_WORKSPACE_MESSAGE_TYPE, LEGACY_REST_WORKSPACE_MESSAGE_TYPE]);
+const DEGRADATION_WORKSPACE_MESSAGE_TYPES = new Set([
+  DEGRADATION_WORKSPACE_MESSAGE_TYPE,
+  LEGACY_DEGRADATION_WORKSPACE_MESSAGE_TYPE,
+]);
 const BOBTOOLS_WORKSPACE_MESSAGE_TYPES = new Set([BOBTOOLS_WORKSPACE_MESSAGE_TYPE, LEGACY_BOBTOOLS_WORKSPACE_MESSAGE_TYPE]);
+const DEGRADATION_STATUS_ENDPOINT_SPECS = [
+  {
+    key: "authnall",
+    path: "authnAll",
+    measureId: "authn-all",
+    title: "Authenticate All - Status",
+    targetType: "programmer",
+    targetKey: "programmer",
+    targetIdKey: "id",
+  },
+  {
+    key: "authzall",
+    path: "authzAll",
+    measureId: "authz-all",
+    title: "Authorize All - Status",
+    targetType: "resource",
+    targetKey: "resource",
+    targetIdKey: "id",
+  },
+  {
+    key: "authznone",
+    path: "authzNone",
+    measureId: "authz-none",
+    title: "Authorize None - Status",
+    targetType: "channel",
+    targetKey: "channel",
+    targetIdKey: "id",
+  },
+];
+const DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC = {
+  key: "all",
+  path: "all",
+  measureId: "all-rules",
+  title: "All Rules - Status",
+  targetType: "aggregate",
+  targetKey: "",
+  targetIdKey: "",
+};
 
 const state = {
   busy: false,
@@ -804,6 +858,7 @@ const state = {
   applicationsByProgrammerId: new Map(),
   premiumAppsByProgrammerId: new Map(),
   premiumAppsLoadPromiseByProgrammerId: new Map(),
+  premiumAppScopeHydrationPromiseByProgrammerId: new Map(),
   cmServiceByProgrammerId: new Map(),
   cmServiceLoadPromiseByProgrammerId: new Map(),
   cmServiceByMvpdSelectionKey: new Map(),
@@ -876,6 +931,24 @@ const state = {
   restWorkspaceLastSelectionKey: "",
   restWorkspaceLastReportBySelectionKey: new Map(),
   restWorkspaceLastQueryContextBySelectionKey: new Map(),
+  degradationWorkspaceTabId: 0,
+  degradationWorkspaceWindowId: 0,
+  degradationWorkspaceTabIdByWindowId: new Map(),
+  degradationWorkspaceRuntimeListenerBound: false,
+  degradationWorkspaceTabWatcherBound: false,
+  degradationWorkspaceDebugFlowId: "",
+  degradationWorkspaceActivityDebugFlowId: "",
+  degradationWorkspaceActivityDebugFlowPromise: null,
+  degradationWorkspaceActivityDebugTargetTabId: 0,
+  degradationWorkspaceRecordingActive: false,
+  degradationWorkspaceRecordingStartedAt: 0,
+  degradationWorkspaceRecordingContext: null,
+  degradationWorkspaceStopping: false,
+  degradationWorkspaceTraceViewerWindowId: 0,
+  degradationWorkspaceTraceViewerTabId: 0,
+  degradationWorkspaceLastSelectionKey: "",
+  degradationWorkspaceReportsBySelectionKey: new Map(),
+  degradationWorkspaceQueryStateBySelectionKey: new Map(),
   bobtoolsWorkspaceTabId: 0,
   bobtoolsWorkspaceWindowId: 0,
   bobtoolsWorkspaceTabIdByWindowId: new Map(),
@@ -1334,6 +1407,9 @@ function normalizeWorkspaceDebugKey(value = "") {
   if (raw.includes("esm")) {
     return "esm-workspace";
   }
+  if (raw.includes("degrad")) {
+    return "degradation-workspace";
+  }
   return raw;
 }
 
@@ -1347,6 +1423,9 @@ function getWorkspaceDebugLabel(workspaceKey = "") {
   }
   if (normalized === "mvpd-workspace") {
     return "MVPD Workspace";
+  }
+  if (normalized === "degradation-workspace") {
+    return "DEGRADATION Workspace";
   }
   return "";
 }
@@ -1630,6 +1709,30 @@ function parseJsonText(text, fallback = {}) {
   } catch {
     return fallback;
   }
+}
+
+function parseJsonOrFormText(text, fallback = {}) {
+  const raw = String(text || "");
+  const parsedJson = parseJsonText(raw, null);
+  if (parsedJson && typeof parsedJson === "object") {
+    return parsedJson;
+  }
+
+  const parsedForm = new URLSearchParams(raw);
+  const entries = [...parsedForm.entries()];
+  if (entries.length === 0) {
+    return fallback;
+  }
+
+  const output = {};
+  entries.forEach(([key, value]) => {
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey) {
+      return;
+    }
+    output[normalizedKey] = value;
+  });
+  return Object.keys(output).length > 0 ? output : fallback;
 }
 
 function redactSensitiveTokenValues(value) {
@@ -6754,6 +6857,14 @@ async function openOrFocusEsmWorkspaceTraceViewer(tabId, flowId = "") {
     source: "esm-recording",
     traceTabStateKey: "esmWorkspaceTraceViewerTabId",
     traceWindowStateKey: "esmWorkspaceTraceViewerWindowId",
+  });
+}
+
+async function openOrFocusDegradationWorkspaceTraceViewer(tabId, flowId = "") {
+  return openOrFocusUPTraceViewerWithState(tabId, flowId, {
+    source: "degradation-recording",
+    traceTabStateKey: "degradationWorkspaceTraceViewerTabId",
+    traceWindowStateKey: "degradationWorkspaceTraceViewerWindowId",
   });
 }
 
@@ -14490,7 +14601,7 @@ async function resolveClickCmuDownloadContext(cmState = null, options = {}) {
   if (!cmService) {
     return null;
   }
-  const resolvedMvpdId = String(options?.mvpdId || cmService?.mvpdId || state.selectedMvpdId || "").trim();
+  const resolvedMvpdId = String(options?.mvpdId || state.selectedMvpdId || cmService?.mvpdId || "").trim();
   const resolvedTenantScope = resolveCmUsageTenantScopeValue(
     preferMvpdService ? resolvedMvpdId : "",
     options?.tenantScope,
@@ -19748,6 +19859,21 @@ function cmBuildOperationRequest(record, formValues = {}) {
   };
 }
 
+function cmResolveRequestorMvpdContext(cmState = null) {
+  const selectedRequestorId = String(state.selectedRequestorId || "").trim();
+  const selectedMvpdId = String(state.selectedMvpdId || "").trim();
+  const serviceRequestorId = String(cmState?.cmService?.requestorId || "").trim();
+  const serviceMvpdId = String(cmState?.cmService?.mvpdId || "").trim();
+  const requestorId = firstNonEmptyString([selectedRequestorId, serviceRequestorId]);
+  const mvpdId = firstNonEmptyString([selectedMvpdId, serviceMvpdId]);
+  const mvpdLabel = mvpdId ? firstNonEmptyString([getRestV2MvpdPickerLabel(requestorId, mvpdId), mvpdId]) : "";
+  return {
+    requestorId,
+    mvpdId,
+    mvpdLabel,
+  };
+}
+
 async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, options = {}) {
   if (!cmState || !record) {
     return;
@@ -19767,9 +19893,10 @@ async function cmRunOperationRecordToWorkspace(cmState, record, requestToken, op
     Number(options.targetWindowId || 0) ||
     Number(cmState.controllerWindowId || 0) ||
     Number(targetWorkspace === "mvpd" ? state.mvpdWorkspaceWindowId : state.cmWorkspaceWindowId || 0);
-  const targetRequestorId = String(cmState?.cmService?.requestorId || state.selectedRequestorId || "");
-  const targetMvpdId = String(cmState?.cmService?.mvpdId || state.selectedMvpdId || "");
-  const targetMvpdLabel = targetMvpdId ? getRestV2MvpdPickerLabel(targetRequestorId, targetMvpdId) : "";
+  const requestContext = cmResolveRequestorMvpdContext(cmState);
+  const targetRequestorId = String(requestContext.requestorId || "").trim();
+  const targetMvpdId = String(requestContext.mvpdId || "").trim();
+  const targetMvpdLabel = String(requestContext.mvpdLabel || "").trim();
   const cmWorkspaceKey = targetWorkspace === "mvpd" ? "mvpd-workspace" : "cmu-workspace";
   const cmWorkspaceOrigin = targetWorkspace === "mvpd" ? "MVPD Workspace" : "CMU Workspace";
   const cmWorkspaceDebugContext = {
@@ -20098,19 +20225,44 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
   }
 
   const cardId = String(options.cardId || record.cardId || generateRequestId());
+  const targetWorkspace = cmResolveWorkspaceTarget(cmState, options);
+  const requestContext = cmResolveRequestorMvpdContext(cmState);
+  const targetRequestorId = String(requestContext.requestorId || "").trim();
+  const targetMvpdId = String(requestContext.mvpdId || "").trim();
+  const targetMvpdLabel = String(requestContext.mvpdLabel || "").trim();
+  const scopedRecord =
+    targetWorkspace === "mvpd"
+      ? {
+          ...(record && typeof record === "object" ? record : {}),
+          tenantId: firstNonEmptyString([targetMvpdId, String(record?.tenantId || "").trim()]),
+          tenantName: firstNonEmptyString([
+            targetMvpdLabel,
+            targetMvpdId,
+            String(record?.tenantName || "").trim(),
+            "MVPD",
+          ]),
+        }
+      : record;
+  const reportTenantId = String(
+    firstNonEmptyString([String(scopedRecord?.tenantId || "").trim(), String(cmState?.programmer?.programmerId || "").trim()])
+  ).trim();
+  const reportTenantName = String(
+    firstNonEmptyString([
+      String(scopedRecord?.tenantName || "").trim(),
+      String(cmState?.programmer?.programmerName || "").trim(),
+      String(cmState?.programmer?.programmerId || "").trim(),
+      "MVPD",
+    ])
+  ).trim();
   const endpointUrl = String(record.endpointUrl || record.requestUrl || "").trim();
   const baseRequestUrlRaw = String(options.baseRequestUrl || record.requestUrl || endpointUrl).trim();
-  const baseRequestUrl = cmScopeUsageRequestUrl(baseRequestUrlRaw, cmState, record) || baseRequestUrlRaw;
+  const baseRequestUrl = cmScopeUsageRequestUrl(baseRequestUrlRaw, cmState, scopedRecord) || baseRequestUrlRaw;
   const requestUrlOverride = String(options.requestUrlOverride || "").trim();
   let requestUrl = requestUrlOverride || baseRequestUrl;
-  requestUrl = cmResolveApplicationDetailUrl(record, requestUrl);
-  requestUrl = cmScopeUsageRequestUrl(requestUrl, cmState, record) || requestUrl;
-  const targetWorkspace = cmResolveWorkspaceTarget(cmState, options);
+  requestUrl = cmResolveApplicationDetailUrl(scopedRecord, requestUrl);
+  requestUrl = cmScopeUsageRequestUrl(requestUrl, cmState, scopedRecord) || requestUrl;
   const normalizedLocalColumnFilters =
     options.localColumnFilters && typeof options.localColumnFilters === "object" ? { ...options.localColumnFilters } : {};
-  const targetRequestorId = String(cmState?.cmService?.requestorId || state.selectedRequestorId || "");
-  const targetMvpdId = String(cmState?.cmService?.mvpdId || state.selectedMvpdId || "");
-  const targetMvpdLabel = targetMvpdId ? getRestV2MvpdPickerLabel(targetRequestorId, targetMvpdId) : "";
   const cmWorkspaceKey = targetWorkspace === "mvpd" ? "mvpd-workspace" : "cmu-workspace";
   const cmWorkspaceOrigin = targetWorkspace === "mvpd" ? "MVPD Workspace" : "CMU Workspace";
   const targetWindowId =
@@ -20129,8 +20281,8 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
         zoomKey: String(record.kind || "").toUpperCase(),
         columns: Array.isArray(record.columns) ? record.columns : [],
         localColumnFilters: normalizedLocalColumnFilters,
-        tenantId: String(record?.tenantId || cmState?.programmer?.programmerId || ""),
-        tenantName: String(record?.tenantName || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""),
+        tenantId: reportTenantId,
+        tenantName: reportTenantName,
         programmerId: String(cmState?.programmer?.programmerId || ""),
         requestorId: targetRequestorId,
         mvpdId: targetMvpdId,
@@ -20142,7 +20294,7 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
 
   let payload = record.payload;
   let lastModified = String(record.lastModified || "");
-  const recordRequestUrl = cmScopeUsageRequestUrl(String(record.requestUrl || endpointUrl || "").trim(), cmState, record);
+  const recordRequestUrl = cmScopeUsageRequestUrl(String(record.requestUrl || endpointUrl || "").trim(), cmState, scopedRecord);
   const hasUrlOverrideDiffersFromRecord =
     Boolean(requestUrlOverride) && requestUrl !== recordRequestUrl;
   const recordKind = String(record?.kind || "").trim().toLowerCase();
@@ -20162,9 +20314,9 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
       cardId,
       shouldRefetch,
       hasUrlOverride: Boolean(requestUrlOverride),
-      tenantId: String(record?.tenantId || cmState?.programmer?.programmerId || ""),
-      tenantName: String(record?.tenantName || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""),
-      tenantScope: cmResolveUsageTenantScope(cmState, record),
+      tenantId: reportTenantId,
+      tenantName: reportTenantName,
+      tenantScope: cmResolveUsageTenantScope(cmState, scopedRecord),
       workspaceKey: cmWorkspaceKey,
       workspaceOrigin: cmWorkspaceOrigin,
     },
@@ -20179,9 +20331,9 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
         mvpd: targetMvpdId,
         workspaceKey: cmWorkspaceKey,
         workspaceOrigin: cmWorkspaceOrigin,
-        tenantId: String(record?.tenantId || ""),
-        tenantName: String(record?.tenantName || ""),
-        tenantScope: cmResolveUsageTenantScope(cmState, record),
+        tenantId: reportTenantId,
+        tenantName: reportTenantName,
+        tenantScope: cmResolveUsageTenantScope(cmState, scopedRecord),
       },
     }
   );
@@ -20217,8 +20369,8 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
             requestUrl,
             baseRequestUrl,
             localColumnFilters: normalizedLocalColumnFilters,
-            tenantId: String(record?.tenantId || cmState?.programmer?.programmerId || ""),
-            tenantName: String(record?.tenantName || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""),
+            tenantId: reportTenantId,
+            tenantName: reportTenantName,
             error: error instanceof Error ? error.message : String(error),
             programmerId: String(cmState?.programmer?.programmerId || ""),
             requestorId: targetRequestorId,
@@ -20246,9 +20398,9 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
       rowCount: rows.length,
       columnCount: columns.length,
       emptyResult: rows.length === 0,
-      tenantId: String(record?.tenantId || cmState?.programmer?.programmerId || ""),
-      tenantName: String(record?.tenantName || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""),
-      tenantScope: cmResolveUsageTenantScope(cmState, record),
+      tenantId: reportTenantId,
+      tenantName: reportTenantName,
+      tenantScope: cmResolveUsageTenantScope(cmState, scopedRecord),
       workspaceKey: cmWorkspaceKey,
       workspaceOrigin: cmWorkspaceOrigin,
     },
@@ -20263,9 +20415,9 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
         mvpd: targetMvpdId,
         workspaceKey: cmWorkspaceKey,
         workspaceOrigin: cmWorkspaceOrigin,
-        tenantId: String(record?.tenantId || ""),
-        tenantName: String(record?.tenantName || ""),
-        tenantScope: cmResolveUsageTenantScope(cmState, record),
+        tenantId: reportTenantId,
+        tenantName: reportTenantName,
+        tenantScope: cmResolveUsageTenantScope(cmState, scopedRecord),
       },
     }
   );
@@ -20283,8 +20435,8 @@ async function cmRunRecordToWorkspace(cmState, record, requestToken, options = {
       rows,
       lastModified,
       localColumnFilters: normalizedLocalColumnFilters,
-      tenantId: String(record?.tenantId || cmState?.programmer?.programmerId || ""),
-      tenantName: String(record?.tenantName || cmState?.programmer?.programmerName || cmState?.programmer?.programmerId || ""),
+      tenantId: reportTenantId,
+      tenantName: reportTenantName,
       programmerId: String(cmState?.programmer?.programmerId || ""),
       requestorId: targetRequestorId,
       mvpdId: targetMvpdId,
@@ -21380,19 +21532,46 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
   }
 
   const tmsEntityIds = new Set();
+  const selectedMvpdId = String(context.mvpdId || "").trim().toLowerCase();
+  const addSelectedTmsEntityRef = (entityRef = "") => {
+    const normalizedRef = mvpdWorkspaceNormalizeEntityRef(entityRef);
+    if (!normalizedRef) {
+      return;
+    }
+    const split = mvpdWorkspaceSplitEntityRef(normalizedRef);
+    if (String(split.type || "").toLowerCase() !== "tmsidmap" || !split.id) {
+      return;
+    }
+    const candidateId = String(split.id || "").trim().toLowerCase();
+    if (!candidateId) {
+      return;
+    }
+    if (candidateId === "default" || (selectedMvpdId && candidateId === selectedMvpdId)) {
+      tmsEntityIds.add(`TMSIdMap:${split.id}`);
+    }
+  };
   const rootEntityIds = Array.isArray(tmsRootPayload?.entityData?.rootEntityIds)
     ? tmsRootPayload.entityData.rootEntityIds
     : [];
-  rootEntityIds.forEach((entityId) => {
-    const normalized = mvpdWorkspaceNormalizeEntityRef(entityId);
-    if (normalized) {
-      tmsEntityIds.add(normalized);
-    }
-  });
+  rootEntityIds.forEach((entityId) => addSelectedTmsEntityRef(entityId));
   if (context.mvpdId) {
     tmsEntityIds.add(`TMSIdMap:${context.mvpdId}`);
   }
   tmsEntityIds.add("TMSIdMap:default");
+  const tmsEntityRefs = new Set();
+  mvpdWorkspaceCollectEntityRefs(selectedMvpdEntity?.entityData || null, tmsEntityRefs, {
+    maxRefs: 160,
+    maxDepth: 6,
+  });
+  mvpdWorkspaceCollectEntityRefs(selectedMvpdProxyEntity?.entityData || null, tmsEntityRefs, {
+    maxRefs: 160,
+    maxDepth: 6,
+  });
+  mvpdWorkspaceCollectEntityRefs(selectedIntegrationEntity?.entityData || null, tmsEntityRefs, {
+    maxRefs: 160,
+    maxDepth: 6,
+  });
+  [...tmsEntityRefs].forEach((entityRef) => addSelectedTmsEntityRef(entityRef));
   const tmsKeySeen = new Set();
   [...tmsEntityIds].forEach((entityId) => {
     const split = mvpdWorkspaceSplitEntityRef(entityId);
@@ -21929,8 +22108,14 @@ async function handleMvpdWorkspaceAction(message, sender = null) {
           payload: null,
           columns: Array.isArray(card?.columns) ? card.columns : [],
           lastModified: "",
-          tenantId: String(card?.tenantId || cmState?.tenantScope || state.selectedMvpdId || ""),
-          tenantName: String(card?.tenantName || state.selectedMvpdId || "MVPD"),
+          tenantId: String(state.selectedMvpdId || card?.tenantId || cmState?.tenantScope || ""),
+          tenantName: String(
+            getRestV2MvpdPickerLabel(String(state.selectedRequestorId || "").trim(), String(state.selectedMvpdId || "").trim()) ||
+              state.selectedMvpdId ||
+              card?.tenantName ||
+              card?.tenantId ||
+              "MVPD"
+          ),
         },
         requestToken,
         {
@@ -22024,8 +22209,14 @@ async function handleMvpdWorkspaceAction(message, sender = null) {
       payload: null,
       columns: Array.isArray(card?.columns) ? card.columns.map((value) => String(value || "")).filter(Boolean) : [],
       lastModified: "",
-      tenantId: String(card?.tenantId || cmState?.tenantScope || state.selectedMvpdId || "mvpd"),
-      tenantName: String(card?.tenantName || state.selectedMvpdId || "MVPD"),
+      tenantId: String(state.selectedMvpdId || card?.tenantId || cmState?.tenantScope || "mvpd"),
+      tenantName: String(
+        getRestV2MvpdPickerLabel(String(state.selectedRequestorId || "").trim(), String(state.selectedMvpdId || "").trim()) ||
+          state.selectedMvpdId ||
+          card?.tenantName ||
+          card?.tenantId ||
+          "MVPD"
+      ),
     };
     const record = matchedRecord || fallbackRecord;
     if (!matchedRecord && !fallbackUrl && (!Array.isArray(card?.rows) || card.rows.length === 0)) {
@@ -22338,6 +22529,11 @@ function refreshMvpdWorkspaceTools() {
     const selectionContext = restWorkspaceGetSelectionContextFromCurrentSelection(selectedProgrammer);
     restWorkspaceBroadcastControllerState(selectedProgrammer, selectionContext);
   }
+  if (degradationWorkspaceHasOpenTab()) {
+    const selectionContext = degradationWorkspaceGetSelectionContext(selectedProgrammer, selectedServices);
+    degradationWorkspaceBroadcastControllerState(selectedProgrammer, selectedServices);
+    degradationWorkspaceBroadcastReports(selectionContext.selectionKey);
+  }
   if (bobtoolsWorkspaceHasOpenTab()) {
     const selectionContext = buildBobtoolsWorkspaceSelectionContext(selectedProgrammer);
     bobtoolsWorkspaceBroadcastControllerState(selectedProgrammer, selectionContext);
@@ -22371,6 +22567,442 @@ async function mvpdWorkspaceOpenFromRestV2(programmer = null, services = null, o
     surfaceMissingSelectionError: true,
   });
   return workspaceTab;
+}
+
+function buildDegradationWorkspaceSelectionKey(context = null) {
+  const programmerId = String(context?.programmerId || "").trim();
+  const requestorId = String(context?.requestorId || "").trim();
+  const mvpd = String(context?.mvpd || "").trim();
+  if (!programmerId) {
+    return "";
+  }
+  return [programmerId, requestorId || "*", mvpd || "*"].join("|");
+}
+
+function degradationWorkspaceGetSelectionContext(programmer = null, services = null) {
+  const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  const programmerId = String(resolvedProgrammer?.programmerId || "").trim();
+  const programmerName = String(resolvedProgrammer?.programmerName || resolvedProgrammer?.mediaCompanyName || "").trim();
+  const requestorId = String(state.selectedRequestorId || "").trim();
+  const mvpd = String(state.selectedMvpdId || "").trim();
+  const mvpdLabel = mvpd ? getRestV2MvpdPickerLabel(requestorId, mvpd) || mvpd : "";
+  let resolvedServices = services;
+  if (!resolvedServices && programmerId) {
+    resolvedServices = state.premiumAppsByProgrammerId.get(programmerId) || null;
+  }
+  const degradationApp = resolvedServices?.degradation || null;
+  const selectionContext = {
+    programmerId,
+    programmerName,
+    requestorId,
+    mvpd,
+    mvpdLabel,
+    mvpdScopeLabel: mvpd ? (mvpdLabel && mvpdLabel !== mvpd ? `${mvpdLabel} (${mvpd})` : mvpd) : "ALL MVPDs",
+    degradationReady: Boolean(programmerId && degradationApp?.guid),
+    appGuid: String(degradationApp?.guid || "").trim(),
+    appName: String(degradationApp?.appName || degradationApp?.guid || "").trim(),
+  };
+  selectionContext.selectionKey = buildDegradationWorkspaceSelectionKey(selectionContext);
+  return selectionContext;
+}
+
+function degradationWorkspaceGetSelectedControllerStatePayload(programmer = null, services = null, selectionContext = null) {
+  const context =
+    selectionContext && typeof selectionContext === "object"
+      ? selectionContext
+      : degradationWorkspaceGetSelectionContext(programmer, services);
+  return {
+    controllerOnline: true,
+    degradationReady: context.degradationReady === true,
+    programmerId: String(context.programmerId || "").trim(),
+    programmerName: String(context.programmerName || "").trim(),
+    requestorId: String(context.requestorId || "").trim(),
+    mvpd: String(context.mvpd || "").trim(),
+    mvpdLabel: String(context.mvpdLabel || "").trim(),
+    mvpdScopeLabel: String(context.mvpdScopeLabel || "").trim(),
+    selectionKey: String(context.selectionKey || "").trim(),
+    appGuid: String(context.appGuid || "").trim(),
+    appName: String(context.appName || "").trim(),
+    updatedAt: Date.now(),
+  };
+}
+
+function degradationWorkspaceGetWorkspaceUrl() {
+  return chrome.runtime.getURL(DEGRADATION_WORKSPACE_PATH);
+}
+
+function degradationWorkspaceIsWorkspaceTab(tabLike) {
+  return String(tabLike?.url || "").startsWith(degradationWorkspaceGetWorkspaceUrl());
+}
+
+function degradationWorkspaceBindWorkspaceTab(windowId, tabId) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId > 0 && normalizedTabId > 0) {
+    state.degradationWorkspaceTabIdByWindowId.set(normalizedWindowId, normalizedTabId);
+  }
+  if (normalizedWindowId > 0) {
+    state.degradationWorkspaceWindowId = normalizedWindowId;
+  }
+  if (normalizedTabId > 0) {
+    state.degradationWorkspaceTabId = normalizedTabId;
+  }
+}
+
+function degradationWorkspaceUnbindWorkspaceTab(tabId) {
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedTabId > 0) {
+    for (const [windowId, mappedTabId] of state.degradationWorkspaceTabIdByWindowId.entries()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        state.degradationWorkspaceTabIdByWindowId.delete(windowId);
+      }
+    }
+  }
+  if (!normalizedTabId || Number(state.degradationWorkspaceTabId || 0) === normalizedTabId) {
+    state.degradationWorkspaceTabId = 0;
+    state.degradationWorkspaceWindowId = 0;
+  }
+}
+
+function degradationWorkspaceGetBoundWorkspaceTabId(windowId) {
+  const normalizedWindowId = Number(windowId || 0);
+  if (normalizedWindowId > 0) {
+    const mapped = Number(state.degradationWorkspaceTabIdByWindowId.get(normalizedWindowId) || 0);
+    if (mapped > 0) {
+      return mapped;
+    }
+  }
+  return Number(state.degradationWorkspaceTabId || 0);
+}
+
+async function degradationWorkspaceSendWorkspaceMessage(event, payload = {}, options = {}) {
+  const targetWindowId = Number(options.targetWindowId || 0);
+  try {
+    const message = {
+      type: DEGRADATION_WORKSPACE_MESSAGE_TYPE,
+      channel: "workspace-event",
+      event: String(event || ""),
+      payload,
+    };
+    if (targetWindowId > 0) {
+      message.targetWindowId = targetWindowId;
+    }
+    await chrome.runtime.sendMessage(message);
+  } catch {
+    // Ignore when DEGRADATION workspace listener is inactive.
+  }
+}
+
+function degradationWorkspaceBroadcastControllerState(programmer = null, services = null, targetWindowId = 0) {
+  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.degradationWorkspaceWindowId || 0);
+  void degradationWorkspaceSendWorkspaceMessage(
+    "controller-state",
+    degradationWorkspaceGetSelectedControllerStatePayload(programmer, services),
+    {
+      targetWindowId: resolvedWindowId,
+    }
+  );
+}
+
+function degradationWorkspaceHasOpenTab() {
+  return Number(state.degradationWorkspaceTabId || 0) > 0 || state.degradationWorkspaceTabIdByWindowId.size > 0;
+}
+
+async function degradationWorkspaceEnsureWorkspaceTab(options = {}) {
+  const shouldActivate = options.activate !== false;
+  const requestedWindowId = Number(options.windowId || 0);
+  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await esmWorkspaceGetCurrentWindowId();
+  const useWindowFilter = targetWindowId > 0;
+  let workspaceTab = null;
+
+  const boundTabId = degradationWorkspaceGetBoundWorkspaceTabId(targetWindowId);
+  if (boundTabId > 0) {
+    try {
+      const existing = await chrome.tabs.get(boundTabId);
+      if (degradationWorkspaceIsWorkspaceTab(existing) && (!useWindowFilter || Number(existing.windowId || 0) === targetWindowId)) {
+        workspaceTab = existing;
+      }
+    } catch {
+      degradationWorkspaceUnbindWorkspaceTab(boundTabId);
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    try {
+      const allTabs = await chrome.tabs.query(useWindowFilter ? { windowId: targetWindowId } : { currentWindow: true });
+      workspaceTab = allTabs.find((tab) => degradationWorkspaceIsWorkspaceTab(tab)) || null;
+    } catch {
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    workspaceTab = await chrome.tabs.create({
+      url: degradationWorkspaceGetWorkspaceUrl(),
+      active: shouldActivate,
+      ...(useWindowFilter ? { windowId: targetWindowId } : {}),
+    });
+  } else if (shouldActivate && workspaceTab.id) {
+    try {
+      workspaceTab = await chrome.tabs.update(workspaceTab.id, { active: true });
+      if (Number(workspaceTab?.windowId || 0) > 0) {
+        await chrome.windows.update(Number(workspaceTab.windowId), { focused: true });
+      }
+    } catch {
+      // Ignore activation failures.
+    }
+  }
+
+  degradationWorkspaceBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+  return workspaceTab;
+}
+
+function degradationWorkspaceTrimCacheMaps(limit = 80) {
+  const maxSize = Math.max(10, Number(limit || 80));
+  while (state.degradationWorkspaceReportsBySelectionKey.size > maxSize) {
+    const firstKey = state.degradationWorkspaceReportsBySelectionKey.keys().next().value;
+    if (!firstKey) {
+      break;
+    }
+    state.degradationWorkspaceReportsBySelectionKey.delete(firstKey);
+  }
+  while (state.degradationWorkspaceQueryStateBySelectionKey.size > maxSize) {
+    const firstKey = state.degradationWorkspaceQueryStateBySelectionKey.keys().next().value;
+    if (!firstKey) {
+      break;
+    }
+    state.degradationWorkspaceQueryStateBySelectionKey.delete(firstKey);
+  }
+}
+
+function degradationWorkspaceStoreReport(reportPayload = null, queryState = null) {
+  const clonedReport = cloneJsonLikeValue(reportPayload, null);
+  if (!clonedReport || typeof clonedReport !== "object") {
+    return "";
+  }
+  const selectionKey = firstNonEmptyString([clonedReport.selectionKey, state.degradationWorkspaceLastSelectionKey]);
+  if (!selectionKey) {
+    return "";
+  }
+  clonedReport.selectionKey = selectionKey;
+  if (!Number.isFinite(Number(clonedReport.fetchedAt || 0)) || Number(clonedReport.fetchedAt || 0) <= 0) {
+    clonedReport.fetchedAt = Date.now();
+  }
+  const queryKey = firstNonEmptyString([clonedReport.queryKey, clonedReport.reportId]);
+  const existingReports = Array.isArray(state.degradationWorkspaceReportsBySelectionKey.get(selectionKey))
+    ? state.degradationWorkspaceReportsBySelectionKey.get(selectionKey)
+    : [];
+  const mergedReports = [];
+  if (queryKey) {
+    mergedReports.push(clonedReport);
+    existingReports.forEach((item) => {
+      const existingQueryKey = firstNonEmptyString([item?.queryKey, item?.reportId]);
+      if (existingQueryKey !== queryKey) {
+        mergedReports.push(item);
+      }
+    });
+  } else {
+    mergedReports.push(clonedReport, ...existingReports);
+  }
+  const cappedReports = mergedReports.slice(0, 30);
+  state.degradationWorkspaceReportsBySelectionKey.set(selectionKey, cappedReports);
+  if (queryState && typeof queryState === "object") {
+    state.degradationWorkspaceQueryStateBySelectionKey.set(selectionKey, cloneJsonLikeValue(queryState, null));
+  }
+  state.degradationWorkspaceLastSelectionKey = selectionKey;
+  degradationWorkspaceTrimCacheMaps(80);
+  return selectionKey;
+}
+
+function degradationWorkspaceGetReports(selectionKey = "") {
+  const normalizedSelectionKey = String(selectionKey || "").trim();
+  if (normalizedSelectionKey && state.degradationWorkspaceReportsBySelectionKey.has(normalizedSelectionKey)) {
+    return cloneJsonLikeValue(state.degradationWorkspaceReportsBySelectionKey.get(normalizedSelectionKey), []);
+  }
+  const fallbackSelectionKey = String(state.degradationWorkspaceLastSelectionKey || "").trim();
+  if (fallbackSelectionKey && state.degradationWorkspaceReportsBySelectionKey.has(fallbackSelectionKey)) {
+    return cloneJsonLikeValue(state.degradationWorkspaceReportsBySelectionKey.get(fallbackSelectionKey), []);
+  }
+  for (const reports of state.degradationWorkspaceReportsBySelectionKey.values()) {
+    return cloneJsonLikeValue(reports, []);
+  }
+  return [];
+}
+
+function degradationWorkspaceBroadcastReports(selectionKey = "", targetWindowId = 0) {
+  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.degradationWorkspaceWindowId || 0);
+  const reports = degradationWorkspaceGetReports(selectionKey);
+  const resolvedSelectionKey = firstNonEmptyString([selectionKey, state.degradationWorkspaceLastSelectionKey]);
+  void degradationWorkspaceSendWorkspaceMessage(
+    "reports-sync",
+    {
+      selectionKey: resolvedSelectionKey,
+      reports,
+      updatedAt: Date.now(),
+    },
+    { targetWindowId: resolvedWindowId }
+  );
+}
+
+async function handleDegradationWorkspaceAction(message, sender = null) {
+  const action = String(message?.action || "").trim().toLowerCase();
+  const senderWindowId = Number(sender?.tab?.windowId || 0);
+  const senderTabId = Number(sender?.tab?.id || 0);
+  const mappedSenderTabId =
+    senderWindowId > 0 ? Number(state.degradationWorkspaceTabIdByWindowId.get(senderWindowId) || 0) : 0;
+  if (senderWindowId > 0 && senderTabId > 0 && mappedSenderTabId > 0 && senderTabId !== mappedSenderTabId) {
+    return { ok: false, error: "This is not the bound DEGRADATION workspace tab for the window." };
+  }
+  if (senderWindowId > 0 && senderTabId > 0 && (!mappedSenderTabId || mappedSenderTabId <= 0)) {
+    degradationWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
+  }
+
+  if (action === "workspace-ready") {
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: "workspace-ready",
+      source: "workspace",
+      requestScope: "degradation-workspace",
+      windowId: senderWindowId,
+      tabId: senderTabId,
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+    });
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    const selectionContext = degradationWorkspaceGetSelectionContext(selectedProgrammer, selectedServices);
+    if (senderWindowId > 0) {
+      degradationWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
+    }
+    degradationWorkspaceBroadcastControllerState(selectedProgrammer, selectedServices, senderWindowId);
+    degradationWorkspaceBroadcastReports(selectionContext.selectionKey, senderWindowId);
+    return { ok: true };
+  }
+
+  if (action === "open-workspace") {
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: "workspace-action",
+      action: "open-workspace",
+      source: "workspace",
+      requestScope: "degradation-workspace",
+      windowId: senderWindowId,
+      tabId: senderTabId,
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+    });
+    const workspaceTab = await degradationWorkspaceEnsureWorkspaceTab({
+      activate: true,
+      windowId: senderWindowId || undefined,
+    });
+    const targetWindowId = Number(workspaceTab?.windowId || senderWindowId || state.degradationWorkspaceWindowId || 0);
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    const selectionContext = degradationWorkspaceGetSelectionContext(selectedProgrammer, selectedServices);
+    degradationWorkspaceBroadcastControllerState(selectedProgrammer, selectedServices, targetWindowId);
+    degradationWorkspaceBroadcastReports(selectionContext.selectionKey, targetWindowId);
+    return { ok: true };
+  }
+
+  if (action === "clear-all") {
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: "workspace-action",
+      action: "clear-all",
+      source: "workspace",
+      requestScope: "degradation-workspace",
+      windowId: senderWindowId,
+      tabId: senderTabId,
+      selectionKey: firstNonEmptyString([message?.selectionKey, message?.selection?.selectionKey]),
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+    });
+    const selectionKey = firstNonEmptyString([message?.selectionKey, message?.selection?.selectionKey]);
+    if (selectionKey) {
+      state.degradationWorkspaceReportsBySelectionKey.delete(selectionKey);
+      state.degradationWorkspaceQueryStateBySelectionKey.delete(selectionKey);
+      if (state.degradationWorkspaceLastSelectionKey === selectionKey) {
+        state.degradationWorkspaceLastSelectionKey = "";
+      }
+    } else {
+      state.degradationWorkspaceReportsBySelectionKey.clear();
+      state.degradationWorkspaceQueryStateBySelectionKey.clear();
+      state.degradationWorkspaceLastSelectionKey = "";
+    }
+    const targetWindowId = Number(senderWindowId || state.degradationWorkspaceWindowId || 0);
+    void degradationWorkspaceSendWorkspaceMessage("workspace-clear", {}, { targetWindowId });
+    return { ok: true };
+  }
+
+  return { ok: false, error: `Unsupported DEGRADATION workspace action: ${action}` };
+}
+
+function ensureDegradationWorkspaceRuntimeListener() {
+  if (state.degradationWorkspaceRuntimeListenerBound) {
+    return;
+  }
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!DEGRADATION_WORKSPACE_MESSAGE_TYPES.has(String(message?.type || "")) || message?.channel !== "workspace-action") {
+      return false;
+    }
+    void handleDegradationWorkspaceAction(message, sender)
+      .then((result) => {
+        sendResponse(result && typeof result === "object" ? result : { ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+    return true;
+  });
+  state.degradationWorkspaceRuntimeListenerBound = true;
+}
+
+function ensureDegradationWorkspaceTabWatcher() {
+  if (state.degradationWorkspaceTabWatcherBound) {
+    return;
+  }
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    const removedTabId = Number(tabId || 0);
+    if (removedTabId > 0) {
+      const isBoundWorkspaceTab =
+        removedTabId === Number(state.degradationWorkspaceTabId || 0) ||
+        [...state.degradationWorkspaceTabIdByWindowId.values()].some((mappedTabId) => Number(mappedTabId || 0) === removedTabId);
+      if (isBoundWorkspaceTab) {
+        emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+          phase: "workspace-tab-closed",
+          requestScope: "degradation-workspace",
+          tabId: removedTabId,
+          workspaceKey: "degradation-workspace",
+          workspaceOrigin: "DEGRADATION Workspace",
+        });
+      }
+    }
+    degradationWorkspaceUnbindWorkspaceTab(tabId);
+  });
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const normalizedTabId = Number(tabId || 0);
+    if (!normalizedTabId || !changeInfo?.url) {
+      return;
+    }
+    if (degradationWorkspaceIsWorkspaceTab(tab)) {
+      degradationWorkspaceBindWorkspaceTab(tab?.windowId, normalizedTabId);
+      return;
+    }
+    const boundTabId = Number(state.degradationWorkspaceTabId || 0);
+    let isMappedTab = false;
+    for (const mappedTabId of state.degradationWorkspaceTabIdByWindowId.values()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        isMappedTab = true;
+        break;
+      }
+    }
+    if (isMappedTab || normalizedTabId === boundTabId) {
+      degradationWorkspaceUnbindWorkspaceTab(normalizedTabId);
+    }
+  });
+  state.degradationWorkspaceTabWatcherBound = true;
 }
 
 function restWorkspaceGetWorkspaceUrl() {
@@ -24724,8 +25356,8 @@ async function loadCmService(programmer, cmService, section, contentElement, req
         .map((tenant) => String(tenant?.tenantName || "").trim())
         .filter(Boolean)
         .slice(0, 12),
-      requestorId: String(cmService?.requestorId || state.selectedRequestorId || ""),
-      mvpd: String(cmService?.mvpdId || state.selectedMvpdId || ""),
+      requestorId: String(state.selectedRequestorId || cmService?.requestorId || ""),
+      mvpd: String(state.selectedMvpdId || cmService?.mvpdId || ""),
       workspaceKey,
       workspaceOrigin,
     });
@@ -24851,8 +25483,8 @@ async function loadCmService(programmer, cmService, section, contentElement, req
           if (!clickCmuContext) {
             throw new Error("Select a media company with Concurrency Monitoring access to generate clickCMU.");
           }
-          const selectedRequestorId = String(cmService?.requestorId || state.selectedRequestorId || "").trim();
-          const selectedMvpdId = String(cmService?.mvpdId || state.selectedMvpdId || "").trim();
+          const selectedRequestorId = String(state.selectedRequestorId || cmService?.requestorId || "").trim();
+          const selectedMvpdId = String(state.selectedMvpdId || cmService?.mvpdId || "").trim();
           const resolvedMvpdScope = resolveCmUsageTenantScopeValue(
             selectedMvpdId,
             cmState?.tenantScope,
@@ -25169,6 +25801,2082 @@ async function maybeAutoRefreshPremiumService(section, programmer, serviceKey, r
   }
 }
 
+function getDegradationStatusEndpointSpec(endpointKey = "") {
+  const normalized = String(endpointKey || "").trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  return DEGRADATION_STATUS_ENDPOINT_SPECS.find((item) => item.key === normalized) || null;
+}
+
+function getDegradationAppCandidatesForProgrammer(programmerId = "", seedAppInfo = null) {
+  const normalizedProgrammerId = String(programmerId || "").trim();
+  const candidates = [];
+  const seen = new Set();
+  const pushCandidate = (appInfo) => {
+    const guid = String(appInfo?.guid || "").trim();
+    if (!guid || seen.has(guid)) {
+      return;
+    }
+    seen.add(guid);
+    candidates.push(appInfo);
+  };
+
+  if (normalizedProgrammerId) {
+    const services = state.premiumAppsByProgrammerId.get(normalizedProgrammerId) || null;
+    if (Array.isArray(services?.degradationApps) && services.degradationApps.length > 0) {
+      services.degradationApps.forEach((appInfo) => pushCandidate(appInfo));
+    } else {
+      pushCandidate(services?.degradation || null);
+    }
+  }
+  pushCandidate(seedAppInfo);
+  return candidates;
+}
+
+function collectDegradationScopesFromApp(appInfo = null) {
+  const scopeSet = new Set();
+  const append = (scopeList) => {
+    (Array.isArray(scopeList) ? scopeList : []).forEach((scope) => {
+      const normalized = normalizeScope(scope);
+      if (!normalized) {
+        return;
+      }
+      if (DEGRADATION_SCOPE_CANDIDATES.includes(normalized)) {
+        scopeSet.add(normalized);
+      }
+    });
+  };
+
+  append(appInfo?.scopes);
+  append(getScopesFromApplication(appInfo?.appData || null));
+  return [...scopeSet];
+}
+
+function getPreferredDegradationScopeForApp(appInfo = null) {
+  const scopeSet = new Set(collectDegradationScopesFromApp(appInfo));
+  for (const scope of DEGRADATION_SCOPE_CANDIDATES) {
+    if (scopeSet.has(scope)) {
+      return scope;
+    }
+  }
+  return "";
+}
+
+function degradationAppHasRequiredScope(appInfo) {
+  return Boolean(getPreferredDegradationScopeForApp(appInfo));
+}
+
+function compareDegradationAppPriority(leftApp, rightApp) {
+  const leftScope = getPreferredDegradationScopeForApp(leftApp);
+  const rightScope = getPreferredDegradationScopeForApp(rightApp);
+  const leftRank = DEGRADATION_SCOPE_CANDIDATES.indexOf(leftScope);
+  const rightRank = DEGRADATION_SCOPE_CANDIDATES.indexOf(rightScope);
+  const normalizedLeftRank = leftRank >= 0 ? leftRank : Number.MAX_SAFE_INTEGER;
+  const normalizedRightRank = rightRank >= 0 ? rightRank : Number.MAX_SAFE_INTEGER;
+  if (normalizedLeftRank !== normalizedRightRank) {
+    return normalizedLeftRank - normalizedRightRank;
+  }
+
+  const leftIndex = Number.isFinite(Number(leftApp?.index)) ? Number(leftApp.index) : Number.MAX_SAFE_INTEGER;
+  const rightIndex = Number.isFinite(Number(rightApp?.index)) ? Number(rightApp.index) : Number.MAX_SAFE_INTEGER;
+  if (leftIndex !== rightIndex) {
+    return leftIndex - rightIndex;
+  }
+
+  return String(leftApp?.appName || leftApp?.guid || "").localeCompare(
+    String(rightApp?.appName || rightApp?.guid || ""),
+    undefined,
+    {
+      sensitivity: "base",
+    }
+  );
+}
+
+function resolveDegradationAppCandidates(programmerId = "", seedAppInfo = null, options = {}) {
+  const normalizedProgrammerId = String(programmerId || "").trim();
+  const candidates = getDegradationAppCandidatesForProgrammer(normalizedProgrammerId, seedAppInfo);
+  return candidates.filter((appInfo) => degradationAppHasRequiredScope(appInfo)).sort(compareDegradationAppPriority);
+}
+
+function promoteDegradationAppForProgrammer(programmerId = "", appInfo = null) {
+  const normalizedProgrammerId = String(programmerId || "").trim();
+  if (!normalizedProgrammerId || !appInfo?.guid) {
+    return;
+  }
+
+  const services = state.premiumAppsByProgrammerId.get(normalizedProgrammerId) || null;
+  if (!services || typeof services !== "object") {
+    return;
+  }
+
+  const nextCandidates = resolveDegradationAppCandidates(normalizedProgrammerId, appInfo);
+  services.degradation = nextCandidates[0] || null;
+  services.degradationApps = nextCandidates;
+  state.premiumAppsByProgrammerId.set(normalizedProgrammerId, services);
+}
+
+function setDegradationPanelActiveApp(panelState, appInfo, options = {}) {
+  if (!panelState || !appInfo?.guid) {
+    return false;
+  }
+
+  const previousGuid = String(panelState?.appInfo?.guid || "").trim();
+  const nextCandidates = resolveDegradationAppCandidates(
+    String(panelState?.programmer?.programmerId || "").trim(),
+    appInfo
+  );
+  const canonicalApp = nextCandidates[0] || null;
+  const nextGuid = String(canonicalApp?.guid || "").trim();
+  if (!nextGuid || !canonicalApp) {
+    return false;
+  }
+
+  panelState.appInfo = canonicalApp;
+  panelState.appCandidates = nextCandidates;
+
+  const appLabelElement = panelState?.appLabelElement || null;
+  if (appLabelElement) {
+    const appLabel = firstNonEmptyString([
+      String(canonicalApp?.appName || "").trim(),
+      String(canonicalApp?.guid || "").trim(),
+      "DEGRADATION app",
+    ]);
+    appLabelElement.textContent = appLabel;
+    appLabelElement.title = String(canonicalApp?.guid || "").trim() ? `GUID: ${String(canonicalApp.guid).trim()}` : "";
+  }
+
+  const programmerId = String(panelState?.programmer?.programmerId || "").trim();
+  if (programmerId) {
+    promoteDegradationAppForProgrammer(programmerId, canonicalApp);
+    const services = state.premiumAppsByProgrammerId.get(programmerId) || { degradation: canonicalApp };
+    const targetWindowId = Number(options?.targetWindowId || panelState?.controllerWindowId || 0);
+    degradationWorkspaceBroadcastControllerState(panelState.programmer, services, targetWindowId);
+  }
+
+  const changed = previousGuid !== nextGuid;
+  if (changed && options?.emitEvent !== false) {
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: "degradation-app-selected",
+      requestScope: String(options?.requestScope || "degradation-app-selection"),
+      appGuid: nextGuid,
+      appName: String(canonicalApp?.appName || canonicalApp?.guid || ""),
+      previousAppGuid: previousGuid,
+      programmerId,
+      requestorId: String(options?.requestorId || state.selectedRequestorId || "").trim(),
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+    });
+  }
+
+  return changed;
+}
+
+function getDegradationWorkspaceRecordingSelections() {
+  return getGlobalRequestorMvpdSelections();
+}
+
+function toDegradationWorkspaceRecordingContext(panelState) {
+  const selections = getDegradationWorkspaceRecordingSelections();
+  return {
+    serviceType: "degradation",
+    programmerId: String(panelState?.programmer?.programmerId || ""),
+    programmerName: String(panelState?.programmer?.programmerName || ""),
+    requestorIds: selections.requestorIds.slice(0, 24),
+    mvpdIds: selections.mvpdIds.slice(0, 24),
+    requestorId: String(selections.requestorIds[0] || ""),
+    mvpd: String(selections.mvpdIds[0] || ""),
+    appInfo: panelState?.appInfo
+      ? {
+          guid: String(panelState.appInfo.guid || ""),
+          appName: String(panelState.appInfo.appName || panelState.appInfo.guid || ""),
+          scopes: Array.isArray(panelState.appInfo.scopes) ? panelState.appInfo.scopes.slice(0, 12) : [],
+        }
+      : null,
+    startedAt: Date.now(),
+  };
+}
+
+function getActiveDegradationWorkspaceDebugFlowId() {
+  if (!state.degradationWorkspaceRecordingActive) {
+    return "";
+  }
+  return String(state.degradationWorkspaceDebugFlowId || "").trim();
+}
+
+function getActiveDegradationWorkspaceState() {
+  const sections = document.querySelectorAll(".premium-service-section.service-degradation");
+  for (const section of sections) {
+    const degradationState = section?.__underparDegradationState || null;
+    if (degradationState?.section?.isConnected) {
+      return degradationState;
+    }
+  }
+  return null;
+}
+
+function buildDegradationWorkspaceDebugContext(panelState = null) {
+  const selections = getGlobalRequestorMvpdSelections();
+  const programmer = panelState?.programmer || resolveSelectedProgrammer() || null;
+  return {
+    serviceType: "degradation",
+    programmerId: String(programmer?.programmerId || ""),
+    programmerName: String(programmer?.programmerName || ""),
+    requestorId: String(selections.requestorIds[0] || ""),
+    mvpd: String(selections.mvpdIds[0] || ""),
+    requestorIds: selections.requestorIds.slice(0, 24),
+    mvpdIds: selections.mvpdIds.slice(0, 24),
+  };
+}
+
+async function ensureDegradationWorkspaceActivityDebugFlow(options = {}) {
+  const activeRecordingFlowId = getActiveDegradationWorkspaceDebugFlowId();
+  if (activeRecordingFlowId) {
+    return activeRecordingFlowId;
+  }
+
+  const preferredWindowId = Number(options.preferredWindowId || 0);
+  const fallbackTabId = Number(options.fallbackTabId || 0);
+  const existingFlowId = String(state.degradationWorkspaceActivityDebugFlowId || "").trim();
+
+  if (existingFlowId) {
+    const previousTargetTabId = Number(state.degradationWorkspaceActivityDebugTargetTabId || 0);
+    const targetTabId = await resolveEsmWorkspaceDebugTargetTabId({
+      preferredWindowId,
+      fallbackTabId,
+    });
+    if (targetTabId > 0 && targetTabId !== previousTargetTabId) {
+      const context = buildDegradationWorkspaceDebugContext(getActiveDegradationWorkspaceState());
+      const bound = await bindRestV2DebugFlowToTab(existingFlowId, targetTabId, {
+        requestorId: context.requestorId,
+        mvpd: context.mvpd,
+        serviceType: "degradation",
+        eventsOnly: true,
+        captureNetwork: false,
+      });
+      if (bound) {
+        state.degradationWorkspaceActivityDebugTargetTabId = targetTabId;
+      }
+    }
+    return existingFlowId;
+  }
+
+  if (state.degradationWorkspaceActivityDebugFlowPromise) {
+    return state.degradationWorkspaceActivityDebugFlowPromise;
+  }
+
+  const createPromise = (async () => {
+    const context = buildDegradationWorkspaceDebugContext(getActiveDegradationWorkspaceState());
+    if (!context.programmerId) {
+      return "";
+    }
+
+    const flowId = await startRestV2DebugFlow(context, "degradation-activity");
+    if (!flowId) {
+      return "";
+    }
+
+    state.degradationWorkspaceActivityDebugFlowId = flowId;
+
+    const targetTabId = await resolveEsmWorkspaceDebugTargetTabId({
+      preferredWindowId,
+      fallbackTabId,
+    });
+    if (targetTabId > 0) {
+      const bound = await bindRestV2DebugFlowToTab(flowId, targetTabId, {
+        requestorId: context.requestorId,
+        mvpd: context.mvpd,
+        serviceType: "degradation",
+        eventsOnly: true,
+        captureNetwork: false,
+      });
+      if (bound) {
+        state.degradationWorkspaceActivityDebugTargetTabId = targetTabId;
+      }
+    }
+
+    emitRestV2DebugEvent(flowId, {
+      source: "extension",
+      service: "degradation",
+      phase: "activity-flow-start",
+      trigger: String(options.reason || "degradation-activity"),
+      programmerId: context.programmerId,
+      requestorId: context.requestorId,
+      mvpd: context.mvpd,
+      tabId: Number(state.degradationWorkspaceActivityDebugTargetTabId || 0),
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+      requestScope: "degradation-workspace",
+    });
+
+    return flowId;
+  })()
+    .catch(() => "")
+    .finally(() => {
+      state.degradationWorkspaceActivityDebugFlowPromise = null;
+    });
+
+  state.degradationWorkspaceActivityDebugFlowPromise = createPromise;
+  return createPromise;
+}
+
+function clearDegradationWorkspaceActivityDebugFlow(reason = "state-reset", options = {}) {
+  const normalizedReason = String(reason || "state-reset").trim() || "state-reset";
+  const flowId = String(state.degradationWorkspaceActivityDebugFlowId || "").trim();
+  const shouldStopFlow = options?.stopFlow === true;
+
+  if (flowId && shouldStopFlow) {
+    void stopRestV2DebugFlowAndSnapshot(flowId, normalizedReason);
+  }
+
+  state.degradationWorkspaceActivityDebugFlowId = "";
+  state.degradationWorkspaceActivityDebugFlowPromise = null;
+  state.degradationWorkspaceActivityDebugTargetTabId = 0;
+}
+
+function emitDegradationWorkspaceDebugEvent(flowId, event = {}) {
+  const workspaceKey = normalizeWorkspaceDebugKey(firstNonEmptyString([event?.workspaceKey, "degradation-workspace"]));
+  const workspaceOrigin = firstNonEmptyString([event?.workspaceOrigin, getWorkspaceDebugLabel(workspaceKey)]);
+  const payload = {
+    source: "extension",
+    service: "degradation",
+    requestScope: String(event?.requestScope || "degradation-workspace"),
+    workspaceKey,
+    workspaceOrigin,
+    ...event,
+  };
+
+  const explicitFlowId = String(flowId || "").trim();
+  if (explicitFlowId) {
+    emitRestV2DebugEvent(explicitFlowId, payload);
+    return;
+  }
+
+  const activityFlowId = String(state.degradationWorkspaceActivityDebugFlowId || "").trim();
+  if (activityFlowId) {
+    emitRestV2DebugEvent(activityFlowId, payload);
+    void ensureDegradationWorkspaceActivityDebugFlow({
+      reason: String(event?.phase || "degradation-activity"),
+      preferredWindowId: Number(event?.windowId || event?.controllerWindowId || 0),
+      fallbackTabId: Number(event?.tabId || event?.workspaceTabId || 0),
+    });
+    return;
+  }
+
+  void ensureDegradationWorkspaceActivityDebugFlow({
+    reason: String(event?.phase || "degradation-activity"),
+    preferredWindowId: Number(event?.windowId || event?.controllerWindowId || 0),
+    fallbackTabId: Number(event?.tabId || event?.workspaceTabId || 0),
+  }).then((resolvedFlowId) => {
+    const normalizedFlowId = String(resolvedFlowId || "").trim();
+    if (!normalizedFlowId) {
+      return;
+    }
+    emitRestV2DebugEvent(normalizedFlowId, payload);
+  });
+}
+
+function setDegradationWorkspaceRecordingStatus(panelState, message = "", type = "info") {
+  const statusElement = panelState?.recordingStatusElement || panelState?.statusElement || null;
+  if (!statusElement) {
+    return;
+  }
+  statusElement.textContent = String(message || "").trim();
+  statusElement.classList.remove("success", "error");
+  if (type === "success") {
+    statusElement.classList.add("success");
+  } else if (type === "error") {
+    statusElement.classList.add("error");
+  }
+}
+
+function syncDegradationWorkspaceRecordingControls(panelState) {
+  if (!panelState) {
+    return;
+  }
+
+  const toggleButton = panelState.recordingToggleButton;
+  const context = toDegradationWorkspaceRecordingContext(panelState);
+  const hasProgrammer = Boolean(context.programmerId);
+  if (!toggleButton) {
+    return;
+  }
+
+  const icon = toggleButton.querySelector(".degradation-record-btn-icon");
+  const label = toggleButton.querySelector(".degradation-record-btn-label");
+  const setToggleState = (mode = "idle") => {
+    const isRecording = mode === "recording" || mode === "stopping";
+    const isStopping = mode === "stopping";
+    toggleButton.classList.toggle("is-recording", isRecording);
+    toggleButton.classList.toggle("is-stopping", isStopping);
+    toggleButton.classList.toggle("is-idle", !isRecording);
+    if (label) {
+      label.textContent = isRecording ? "STOP" : "LOG";
+    }
+    if (icon) {
+      icon.classList.remove("degradation-record-btn-icon--record", "degradation-record-btn-icon--stop");
+      icon.classList.add(isRecording ? "degradation-record-btn-icon--stop" : "degradation-record-btn-icon--record");
+    }
+  };
+
+  if (state.degradationWorkspaceStopping) {
+    setToggleState("stopping");
+    toggleButton.disabled = true;
+    toggleButton.title = "Finalizing DEGRADATION recording...";
+    toggleButton.setAttribute("aria-label", "Finalizing DEGRADATION recording");
+    setDegradationWorkspaceRecordingStatus(panelState, "Finalizing DEGRADATION recording...");
+    return;
+  }
+
+  const activeFlowId = getActiveDegradationWorkspaceDebugFlowId();
+  if (activeFlowId) {
+    setToggleState("recording");
+    toggleButton.disabled = false;
+    toggleButton.title = "Stop DEGRADATION recording";
+    toggleButton.setAttribute("aria-label", "Stop DEGRADATION recording");
+    const requestorLabel = context.requestorIds.length > 0 ? context.requestorIds.join(", ") : "all requestors";
+    const mvpdLabel = context.mvpdIds.length > 0 ? context.mvpdIds.join(", ") : "all MVPDs";
+    setDegradationWorkspaceRecordingStatus(
+      panelState,
+      `Recording DEGRADATION flow for ${requestorLabel} / ${mvpdLabel}. Click STOP to end capture.`,
+      "success"
+    );
+    return;
+  }
+
+  setToggleState("idle");
+  toggleButton.disabled = !hasProgrammer || panelState.busy === true;
+  toggleButton.title = "Record DEGRADATION log";
+  toggleButton.setAttribute("aria-label", "Record DEGRADATION log");
+  if (!hasProgrammer) {
+    setDegradationWorkspaceRecordingStatus(panelState, "Select a Media Company first.");
+    return;
+  }
+  if (panelState.busy === true) {
+    setDegradationWorkspaceRecordingStatus(panelState, "Wait for the current DEGRADATION request to finish.");
+    return;
+  }
+  setDegradationWorkspaceRecordingStatus(
+    panelState,
+    "Click RECORD DEGRADATION LOG to capture DEGRADATION activity and export HAR on STOP."
+  );
+}
+
+function buildDegradationWorkspaceHarFilename(recordingContext = null) {
+  const programmer = sanitizeHarFileSegment(recordingContext?.programmerId || "programmer", "programmer");
+  const requestors = sanitizeHarFileSegment(
+    Array.isArray(recordingContext?.requestorIds) && recordingContext.requestorIds.length > 0
+      ? recordingContext.requestorIds.join("-")
+      : "all-requestors",
+    "all-requestors"
+  );
+  const mvpds = sanitizeHarFileSegment(
+    Array.isArray(recordingContext?.mvpdIds) && recordingContext.mvpdIds.length > 0
+      ? recordingContext.mvpdIds.join("-")
+      : "all-mvpds",
+    "all-mvpds"
+  );
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  return `underpar-degradation-${programmer}-${requestors}-${mvpds}-${stamp}.har`;
+}
+
+function clearDegradationWorkspaceRecordingState(reason = "state-reset", options = {}) {
+  const shouldStopFlow = options?.stopFlow !== false;
+  const activeFlowId = String(state.degradationWorkspaceDebugFlowId || "").trim();
+  if (activeFlowId && shouldStopFlow) {
+    emitDegradationWorkspaceDebugEvent(activeFlowId, {
+      phase: "recording-force-stop",
+      reason: String(reason || "state-reset"),
+      requestScope: "degradation-recording",
+    });
+    void stopRestV2DebugFlowAndSnapshot(activeFlowId, String(reason || "state-reset"));
+  }
+
+  state.degradationWorkspaceDebugFlowId = "";
+  state.degradationWorkspaceRecordingActive = false;
+  state.degradationWorkspaceRecordingStartedAt = 0;
+  state.degradationWorkspaceRecordingContext = null;
+  state.degradationWorkspaceStopping = false;
+  state.degradationWorkspaceTraceViewerWindowId = 0;
+  state.degradationWorkspaceTraceViewerTabId = 0;
+}
+
+async function degradationPrimeAccessTokenForSelectedApp(panelState, debugMeta = {}) {
+  const programmerId = String(panelState?.programmer?.programmerId || "").trim();
+  if (!programmerId) {
+    throw new Error("Programmer identifier is required.");
+  }
+
+  const appInfo = panelState?.appInfo || null;
+  if (!appInfo?.guid) {
+    throw new Error("No DEGRADATION scoped registered application is selected.");
+  }
+
+  const requestorId = String(debugMeta?.requestorId || state.selectedRequestorId || "").trim();
+  emitDegradationWorkspaceDebugEvent(String(debugMeta?.flowId || "").trim(), {
+    phase: "degradation-token-prime",
+    requestScope: String(debugMeta?.scope || "degradation-access-token"),
+    appGuid: String(appInfo?.guid || ""),
+    appName: String(appInfo?.appName || appInfo?.guid || ""),
+    programmerId,
+    requestorId,
+    mvpd: String(debugMeta?.mvpd || ""),
+    workspaceKey: "degradation-workspace",
+    workspaceOrigin: "DEGRADATION Workspace",
+  });
+  await ensureDcrAccessToken(programmerId, appInfo, true, {
+    ...debugMeta,
+    service: "degradation",
+    requiredServiceScope: getPreferredDegradationScopeForApp(appInfo) || PREMIUM_SERVICE_SCOPE_BY_KEY.degradation,
+    requestorId,
+  });
+  emitDegradationWorkspaceDebugEvent(String(debugMeta?.flowId || "").trim(), {
+    phase: "degradation-token-prime-ready",
+    requestScope: String(debugMeta?.scope || "degradation-access-token"),
+    appGuid: String(appInfo?.guid || ""),
+    appName: String(appInfo?.appName || appInfo?.guid || ""),
+    programmerId,
+    requestorId,
+    mvpd: String(debugMeta?.mvpd || ""),
+    workspaceKey: "degradation-workspace",
+    workspaceOrigin: "DEGRADATION Workspace",
+  });
+  return appInfo;
+}
+
+async function startDegradationWorkspaceRecording(panelState, requestToken) {
+  if (!panelState) {
+    return;
+  }
+  if (state.degradationWorkspaceStopping) {
+    return;
+  }
+  if (state.degradationWorkspaceRecordingActive && state.degradationWorkspaceDebugFlowId) {
+    syncDegradationWorkspaceRecordingControls(panelState);
+    return;
+  }
+  if (!isDegradationServiceRequestActive(panelState.section, requestToken, panelState.programmer?.programmerId)) {
+    setDegradationWorkspaceRecordingStatus(panelState, "DEGRADATION view is stale. Refresh this panel first.", "error");
+    return;
+  }
+
+  const recordingContext = toDegradationWorkspaceRecordingContext(panelState);
+  if (!recordingContext.programmerId || !recordingContext.appInfo?.guid) {
+    setDegradationWorkspaceRecordingStatus(panelState, "Missing DEGRADATION app context for recording.", "error");
+    return;
+  }
+
+  state.degradationWorkspaceStopping = true;
+  syncDegradationWorkspaceRecordingControls(panelState);
+
+  try {
+    const workspaceResult = await degradationOpenWorkspaceFromPanel(panelState, {
+      activate: true,
+    });
+    const workspaceTabId = Number(
+      workspaceResult?.workspaceTab?.id || degradationWorkspaceGetBoundWorkspaceTabId(panelState.controllerWindowId)
+    );
+    if (!Number.isFinite(workspaceTabId) || workspaceTabId <= 0) {
+      throw new Error("Unable to open DEGRADATION Workspace tab.");
+    }
+
+    const flowId = await startRestV2DebugFlow(
+      {
+        serviceType: "degradation",
+        programmerId: recordingContext.programmerId,
+        programmerName: recordingContext.programmerName,
+        requestorId: recordingContext.requestorId,
+        mvpd: recordingContext.mvpd,
+        requestorIds: recordingContext.requestorIds,
+        mvpdIds: recordingContext.mvpdIds,
+      },
+      "start-degradation-recording"
+    );
+    if (!flowId) {
+      throw new Error("Unable to start UP DEGRADATION recording flow.");
+    }
+
+    state.degradationWorkspaceDebugFlowId = flowId;
+    state.degradationWorkspaceRecordingActive = true;
+    state.degradationWorkspaceRecordingStartedAt = Date.now();
+    state.degradationWorkspaceRecordingContext = recordingContext;
+
+    const debugTargetTabId = await resolveEsmWorkspaceDebugTargetTabId({
+      preferredWindowId: Number(panelState.controllerWindowId || 0),
+      fallbackTabId: workspaceTabId,
+    });
+    const flowBoundTabId = Number(debugTargetTabId || workspaceTabId);
+
+    emitDegradationWorkspaceDebugEvent(flowId, {
+      phase: "recording-start",
+      requestScope: "degradation-recording",
+      workspaceTabId,
+      flowBoundTabId,
+      programmerId: recordingContext.programmerId,
+      requestorIds: recordingContext.requestorIds,
+      mvpdIds: recordingContext.mvpdIds,
+    });
+
+    const bound = await bindRestV2DebugFlowToTab(flowId, flowBoundTabId, {
+      requestorId: recordingContext.requestorId,
+      mvpd: recordingContext.mvpd,
+      serviceType: "degradation",
+    });
+    if (!bound) {
+      emitDegradationWorkspaceDebugEvent(flowId, {
+        phase: "workspace-bind-failed",
+        requestScope: "degradation-recording",
+        workspaceTabId,
+        flowBoundTabId,
+      });
+    }
+
+    const traceViewerResult = await openOrFocusDegradationWorkspaceTraceViewer(flowBoundTabId, flowId);
+    if (traceViewerResult.ok) {
+      emitDegradationWorkspaceDebugEvent(flowId, {
+        phase: "trace-view-opened",
+        requestScope: "degradation-recording",
+        traceTabId: traceViewerResult.tabId || 0,
+        traceWindowId: traceViewerResult.windowId || 0,
+        traceMode: traceViewerResult.mode || (traceViewerResult.reused ? "reuse" : "unknown"),
+      });
+    } else {
+      emitDegradationWorkspaceDebugEvent(flowId, {
+        phase: "trace-view-open-failed",
+        requestScope: "degradation-recording",
+        error: traceViewerResult.error || "Unable to open UP trace viewer.",
+      });
+    }
+
+    try {
+      const selectedApp = degradationRefreshSelectedAppForRequest(panelState, {
+        requestorId: recordingContext.requestorId,
+        requestScope: "degradation-access-token",
+        targetWindowId: Number(panelState?.controllerWindowId || 0),
+      });
+      if (!selectedApp?.guid) {
+        throw new Error("No DEGRADATION scoped registered application is selected for this media company.");
+      }
+      const activeApp = await degradationPrimeAccessTokenForSelectedApp(panelState, {
+        flowId,
+        scope: "degradation-access-token",
+        requestorId: recordingContext.requestorId,
+        mvpd: recordingContext.mvpd,
+        service: "degradation",
+        workspaceKey: "degradation-workspace",
+        workspaceOrigin: "DEGRADATION Workspace",
+      });
+      if (activeApp?.guid) {
+        recordingContext.appInfo = {
+          guid: String(activeApp.guid || ""),
+          appName: String(activeApp.appName || activeApp.guid || ""),
+          scopes: Array.isArray(activeApp.scopes) ? activeApp.scopes.slice(0, 12) : [],
+        };
+        state.degradationWorkspaceRecordingContext = recordingContext;
+      }
+      emitDegradationWorkspaceDebugEvent(flowId, {
+        phase: "access-token-ready",
+        requestScope: "degradation-recording",
+        appGuid: String(activeApp?.guid || recordingContext?.appInfo?.guid || ""),
+      });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      emitDegradationWorkspaceDebugEvent(flowId, {
+        phase: "access-token-prime-failed",
+        requestScope: "degradation-recording",
+        error: reason,
+      });
+      throw new Error(`Unable to fetch a fresh DEGRADATION access token: ${reason}`);
+    }
+
+    state.degradationWorkspaceStopping = false;
+    syncDegradationWorkspaceRecordingControls(panelState);
+    setDegradationWorkspaceRecordingStatus(
+      panelState,
+      "DEGRADATION recording started. Run GET calls and watch events live in the UP tab.",
+      "success"
+    );
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    emitDegradationWorkspaceDebugEvent(state.degradationWorkspaceDebugFlowId, {
+      phase: "recording-start-failed",
+      requestScope: "degradation-recording",
+      error: reason,
+    });
+    clearDegradationWorkspaceRecordingState("start-failed");
+    state.degradationWorkspaceStopping = false;
+    syncDegradationWorkspaceRecordingControls(panelState);
+    setDegradationWorkspaceRecordingStatus(panelState, reason, "error");
+  }
+}
+
+async function stopDegradationWorkspaceRecording(panelState) {
+  if (state.degradationWorkspaceStopping) {
+    return;
+  }
+
+  const activeFlowId = String(state.degradationWorkspaceDebugFlowId || "").trim();
+  if (!activeFlowId) {
+    clearDegradationWorkspaceRecordingState("stop-empty");
+    syncDegradationWorkspaceRecordingControls(panelState);
+    setDegradationWorkspaceRecordingStatus(panelState, "No active DEGRADATION recording session was found.");
+    return;
+  }
+
+  state.degradationWorkspaceStopping = true;
+  syncDegradationWorkspaceRecordingControls(panelState);
+
+  const recordingContext =
+    state.degradationWorkspaceRecordingContext && typeof state.degradationWorkspaceRecordingContext === "object"
+      ? state.degradationWorkspaceRecordingContext
+      : toDegradationWorkspaceRecordingContext(panelState);
+
+  emitDegradationWorkspaceDebugEvent(activeFlowId, {
+    phase: "recording-stop-request",
+    requestScope: "degradation-recording",
+    requestorIds: recordingContext?.requestorIds || [],
+    mvpdIds: recordingContext?.mvpdIds || [],
+  });
+
+  try {
+    await waitForDelay(400);
+    const stopResult = await stopRestV2DebugFlowAndSnapshot(activeFlowId, "degradation-user-stop");
+    clearDegradationWorkspaceRecordingState("stop-complete", { stopFlow: false });
+    state.degradationWorkspaceStopping = false;
+    syncDegradationWorkspaceRecordingControls(panelState);
+
+    if (stopResult?.flow) {
+      const harPayload = buildHarLogFromFlowSnapshot(stopResult.flow, recordingContext, null);
+      const fileName = buildDegradationWorkspaceHarFilename(recordingContext);
+      downloadHarFile(harPayload, fileName);
+      setDegradationWorkspaceRecordingStatus(
+        panelState,
+        `DEGRADATION recording stopped. HAR downloaded as ${fileName}.`,
+        "success"
+      );
+      return;
+    }
+
+    setDegradationWorkspaceRecordingStatus(
+      panelState,
+      `Recording stopped, but snapshot export failed: ${stopResult?.error || "unknown error"}.`,
+      "error"
+    );
+  } catch (error) {
+    clearDegradationWorkspaceRecordingState("stop-failed");
+    state.degradationWorkspaceStopping = false;
+    syncDegradationWorkspaceRecordingControls(panelState);
+    setDegradationWorkspaceRecordingStatus(panelState, error instanceof Error ? error.message : String(error), "error");
+  }
+}
+
+async function resolveDegradationDebugFlowIdForRequest(panelState, options = {}) {
+  const activeFlowId = getActiveDegradationWorkspaceDebugFlowId();
+  if (activeFlowId) {
+    return activeFlowId;
+  }
+  const existingActivityFlowId = String(state.degradationWorkspaceActivityDebugFlowId || "").trim();
+  if (existingActivityFlowId) {
+    void ensureDegradationWorkspaceActivityDebugFlow({
+      reason: String(options.reason || "degradation-request"),
+      preferredWindowId: Number(options.preferredWindowId || panelState?.controllerWindowId || 0),
+      fallbackTabId: Number(options.fallbackTabId || state.degradationWorkspaceTabId || 0),
+    });
+    return existingActivityFlowId;
+  }
+  return ensureDegradationWorkspaceActivityDebugFlow({
+    reason: String(options.reason || "degradation-request"),
+    preferredWindowId: Number(options.preferredWindowId || panelState?.controllerWindowId || 0),
+    fallbackTabId: Number(options.fallbackTabId || state.degradationWorkspaceTabId || 0),
+  });
+}
+
+function isDegradationServiceRequestActive(section, requestToken, programmerId) {
+  if (!section || !section.isConnected) {
+    return false;
+  }
+  if (requestToken !== state.premiumPanelRequestToken) {
+    return false;
+  }
+  const selected = resolveSelectedProgrammer();
+  return Boolean(selected && String(selected.programmerId || "").trim() === String(programmerId || "").trim());
+}
+
+function getDegradationDefaultReportColumns() {
+  return [
+    "Rule",
+    "Measure ID",
+    "Programmer",
+    "MVPD",
+    "Target Type",
+    "Target",
+    "Enabled",
+    "Status",
+    "Active",
+    "TTL (s)",
+    "Message",
+    "Activation Time",
+  ];
+}
+
+function degradationBuildScopeLabel(queryValues = {}) {
+  if (queryValues.includeAllMvpd === true || !queryValues.mvpd) {
+    return "ALL MVPDs";
+  }
+  const requestorId = String(state.selectedRequestorId || "").trim();
+  const mvpd = String(queryValues.mvpd || "").trim();
+  const mvpdLabel = mvpd ? getRestV2MvpdPickerLabel(requestorId, mvpd) : "";
+  return mvpdLabel && mvpdLabel !== mvpd ? `${mvpdLabel} (${mvpd})` : mvpd;
+}
+
+function degradationSetControllerStatus(panelState, message = "", type = "info") {
+  const statusElement = panelState?.statusElement || null;
+  if (!statusElement) {
+    return;
+  }
+  const text = String(message || "").trim();
+  statusElement.textContent = text;
+  statusElement.classList.toggle("success", type === "success");
+  statusElement.classList.toggle("error", type === "error");
+}
+
+function degradationSyncMvpdScopeControls(panelState) {
+  if (!panelState) {
+    return;
+  }
+  const allMvpdChecked = panelState.allMvpdCheckbox?.checked === true;
+  if (panelState.mvpdInput) {
+    panelState.mvpdInput.disabled = panelState.busy === true || allMvpdChecked;
+  }
+}
+
+function degradationSetBusy(panelState, busy) {
+  if (!panelState) {
+    return;
+  }
+  panelState.busy = busy === true;
+  const controls = [
+    panelState.endpointSelect,
+    panelState.mvpdInput,
+    panelState.apiVersionInput,
+    panelState.allMvpdCheckbox,
+    panelState.recordingToggleButton,
+    panelState.megaGetButton,
+    panelState.runGoButton,
+  ];
+  controls.forEach((control) => {
+    if (control) {
+      control.disabled = panelState.busy === true;
+    }
+  });
+  degradationSyncMvpdScopeControls(panelState);
+  syncDegradationWorkspaceRecordingControls(panelState);
+}
+
+function degradationCollectFormValues(panelState) {
+  const requestorId = String(state.selectedRequestorId || "").trim();
+  const programmerId = requestorId;
+  const endpointKey = firstNonEmptyString([String(panelState?.endpointSelect?.value || "").trim().toLowerCase(), "authnall"]);
+  const rawMvpd = String(panelState?.mvpdInput?.value || "").trim();
+  const includeAllMvpd = panelState?.allMvpdCheckbox?.checked === true || !rawMvpd;
+  const mvpd = includeAllMvpd ? "" : rawMvpd;
+  const apiVersion = firstNonEmptyString([String(panelState?.apiVersionInput?.value || "").trim(), "3.0"]);
+  return {
+    requestorId,
+    programmerId,
+    endpointKey,
+    includeAllMvpd,
+    mvpd,
+    apiVersion,
+  };
+}
+
+function degradationRequireSelectedRequestor(panelState, queryValues = {}) {
+  const requestorId = String(queryValues?.requestorId || state.selectedRequestorId || "").trim();
+  if (requestorId) {
+    return true;
+  }
+  degradationSetControllerStatus(
+    panelState,
+    "Select a global RequestorId first, then retry this DEGRADATION call.",
+    "error"
+  );
+  return false;
+}
+
+function degradationNormalizeObjectKeys(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => degradationNormalizeObjectKeys(item));
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  const output = {};
+  Object.entries(value).forEach(([rawKey, rawValue]) => {
+    const normalizedKey = String(rawKey || "").trim();
+    if (!normalizedKey) {
+      return;
+    }
+    output[normalizedKey] = degradationNormalizeObjectKeys(rawValue);
+  });
+  return output;
+}
+
+function degradationGetObjectValueByKeys(source, keyCandidates = []) {
+  if (!source || typeof source !== "object") {
+    return undefined;
+  }
+  const targetKeys = new Set(
+    (Array.isArray(keyCandidates) ? keyCandidates : [])
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean)
+  );
+  if (targetKeys.size === 0) {
+    return undefined;
+  }
+  for (const [rawKey, rawValue] of Object.entries(source)) {
+    const normalizedKey = String(rawKey || "").trim().toLowerCase();
+    if (targetKeys.has(normalizedKey)) {
+      return rawValue;
+    }
+  }
+  return undefined;
+}
+
+function degradationToArray(value) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (value == null) {
+    return [];
+  }
+  return [value];
+}
+
+function degradationResolveIdValue(value, fallback = "") {
+  if (value == null) {
+    return String(fallback || "").trim();
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return firstNonEmptyString([String(value).trim(), String(fallback || "").trim()]);
+  }
+  if (typeof value === "object") {
+    return firstNonEmptyString([
+      String(value.id || "").trim(),
+      String(value.identifier || "").trim(),
+      String(value.name || "").trim(),
+      String(value.value || "").trim(),
+      String(fallback || "").trim(),
+    ]);
+  }
+  return String(fallback || "").trim();
+}
+
+function degradationCoerceBooleanValue(value) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  const normalized = String(value == null ? "" : value).trim().toLowerCase();
+  if (normalized === "true" || normalized === "1" || normalized === "yes") {
+    return true;
+  }
+  if (normalized === "false" || normalized === "0" || normalized === "no") {
+    return false;
+  }
+  return null;
+}
+
+function degradationFormatActivationTimeValue(value) {
+  if (value == null) {
+    return "N/A";
+  }
+  const trimmed = String(value).trim();
+  if (!trimmed) {
+    return "N/A";
+  }
+  const numeric = Number(trimmed);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    const asMs = numeric > 1_000_000_000_000 ? numeric : numeric > 1_000_000_000 ? numeric * 1000 : numeric;
+    try {
+      return new Date(asMs).toLocaleString();
+    } catch {
+      return trimmed;
+    }
+  }
+  return trimmed;
+}
+
+function degradationBuildPremiumErrorMessage(status = 0, statusText = "", responseText = "") {
+  const statusCode = Number(status || 0);
+  const normalizedStatusText = String(statusText || "").trim();
+  const messageByStatusCode = {
+    400: "Bad request. Check Programmer/MVPD parameters and retry.",
+    401: "Unauthorized. Refresh DCR auth and verify IP allowlist access.",
+    403: "Forbidden for this DEGRADATION app scope.",
+    404: "DEGRADATION endpoint not found for this environment.",
+    405: "Method not allowed for this DEGRADATION endpoint.",
+    429: "Rate limited by DEGRADATION API (max 2 calls/minute per client IP).",
+    500: "DEGRADATION service internal error.",
+    502: "DEGRADATION service gateway error.",
+    503: "DEGRADATION service temporarily unavailable.",
+    504: "DEGRADATION service timeout.",
+  };
+  const baseMessage = messageByStatusCode[statusCode] || "DEGRADATION request failed.";
+  const rawReason = normalizeHttpErrorMessage(responseText) || normalizedStatusText;
+  const compactReason = String(rawReason || "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const hasRawPayloadMarkers = /[<>{}\[\]]/.test(compactReason);
+  const safeReason =
+    compactReason &&
+    !hasRawPayloadMarkers &&
+    compactReason.length <= 140 &&
+    compactReason.toLowerCase() !== normalizedStatusText.toLowerCase()
+      ? compactReason
+      : "";
+  const httpLabel = statusCode > 0 ? `HTTP ${statusCode}` : "Request Error";
+  if (safeReason) {
+    return `${httpLabel}: ${baseMessage} ${safeReason}`;
+  }
+  return `${httpLabel}: ${baseMessage}`;
+}
+
+function degradationBuildStatusRow(endpointSpec, baseValues, targetNode, targetType, targetIdFallback = "") {
+  const detail = targetNode && typeof targetNode === "object" ? targetNode : {};
+  const enabledRaw = degradationGetObjectValueByKeys(detail, [
+    "degradation-measure-enable",
+    "degradationmeasureenable",
+    "enabled",
+  ]);
+  const statusRaw = degradationGetObjectValueByKeys(detail, [
+    "degradation-measure-status",
+    "degradationmeasurestatus",
+    "status",
+  ]);
+  const ttlRaw = degradationGetObjectValueByKeys(detail, ["ttl"]);
+  const errMsg = firstNonEmptyString([
+    String(degradationGetObjectValueByKeys(detail, ["err-msg", "errmsg", "message"]) || "").trim(),
+  ]);
+  const activationRaw = degradationGetObjectValueByKeys(detail, [
+    "activation-time",
+    "activation_time",
+    "activationtime",
+  ]);
+  const enabled = degradationCoerceBooleanValue(enabledRaw);
+  const status = String(statusRaw == null ? "" : statusRaw).trim().toUpperCase();
+  const active =
+    enabled === true && (!status || status === "APPLIED" || status === "PENDING" || status === "ACTIVE");
+  const ttlNumeric = Number(ttlRaw);
+  const ttlLabel = Number.isFinite(ttlNumeric) && ttlNumeric > 0 ? String(ttlNumeric) : "N/A";
+  const resolvedTargetId = firstNonEmptyString([
+    degradationResolveIdValue(detail, ""),
+    String(targetIdFallback || "").trim(),
+  ]);
+  return {
+    Rule: endpointSpec.title,
+    "Measure ID": String(baseValues.measureId || endpointSpec.measureId || endpointSpec.path || "").trim(),
+    Programmer: String(baseValues.programmerId || "").trim() || "N/A",
+    MVPD: String(baseValues.mvpdId || "").trim() || "N/A",
+    "Target Type": String(targetType || endpointSpec.targetType || "").trim() || "N/A",
+    Target: resolvedTargetId || "N/A",
+    Enabled: enabled == null ? "N/A" : enabled ? "true" : "false",
+    Status: status || "N/A",
+    Active: active ? "YES" : "NO",
+    "TTL (s)": ttlLabel,
+    Message: errMsg || "N/A",
+    "Activation Time": degradationFormatActivationTimeValue(activationRaw),
+  };
+}
+
+function degradationExtractRowsFromMegaPayload(parsedPayload, queryValues = {}) {
+  const normalizedPayload = degradationNormalizeObjectKeys(parsedPayload);
+  const payloadObject = normalizedPayload && typeof normalizedPayload === "object" ? normalizedPayload : {};
+  const rootMeasure =
+    degradationGetObjectValueByKeys(payloadObject, ["degradation-measure", "degradation_measure", "degradationmeasure"]) ||
+    payloadObject;
+  const root = rootMeasure && typeof rootMeasure === "object" ? rootMeasure : {};
+
+  const rows = [];
+  const pushRowsFromRuleCollection = (ruleCollection, endpointTitle, targetType, targetKey) => {
+    const rules = degradationToArray(ruleCollection);
+    rules.forEach((ruleNode) => {
+      const ruleObject = ruleNode && typeof ruleNode === "object" ? ruleNode : {};
+      const measure =
+        degradationGetObjectValueByKeys(ruleObject, ["degradation-measure", "degradation_measure", "degradationmeasure"]) ||
+        ruleObject;
+      const measureObject = measure && typeof measure === "object" ? measure : {};
+      const programmerNode = degradationGetObjectValueByKeys(measureObject, ["programmer"]);
+      const programmerList = degradationToArray(programmerNode);
+      const programmerTarget = programmerList[0] && typeof programmerList[0] === "object" ? programmerList[0] : programmerNode;
+      const programmerId = degradationResolveIdValue(programmerTarget, queryValues.programmerId);
+      const mvpdNode = degradationGetObjectValueByKeys(measureObject, ["mvpd"]);
+      const mvpdFallback = queryValues.includeAllMvpd ? "ALL" : queryValues.mvpd;
+      const mvpdId = degradationResolveIdValue(mvpdNode, mvpdFallback);
+      const baseValues = {
+        measureId: firstNonEmptyString([
+          String(measureObject.id || "").trim(),
+          String(endpointTitle || "").trim().toLowerCase().replace(/\s+/g, "-"),
+        ]),
+        programmerId,
+        mvpdId,
+      };
+      const endpointSpec = {
+        title: endpointTitle,
+        measureId: baseValues.measureId,
+        path: DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.path,
+        targetType,
+        targetKey,
+      };
+
+      if (targetType === "programmer") {
+        const detailNode =
+          programmerTarget && typeof programmerTarget === "object" ? programmerTarget : measureObject;
+        rows.push(
+          degradationBuildStatusRow(
+            endpointSpec,
+            baseValues,
+            detailNode,
+            targetType,
+            degradationResolveIdValue(programmerTarget, programmerId)
+          )
+        );
+        return;
+      }
+
+      const targets = degradationToArray(degradationGetObjectValueByKeys(measureObject, [targetKey]));
+      if (targets.length === 0) {
+        rows.push(
+          degradationBuildStatusRow(endpointSpec, baseValues, measureObject, targetType, String(queryValues.mvpd || "").trim())
+        );
+        return;
+      }
+      targets.forEach((targetNode) => {
+        rows.push(
+          degradationBuildStatusRow(
+            endpointSpec,
+            baseValues,
+            targetNode && typeof targetNode === "object" ? targetNode : {},
+            targetType,
+            degradationResolveIdValue(targetNode, "")
+          )
+        );
+      });
+    });
+  };
+
+  pushRowsFromRuleCollection(root?.authnRules, "Authenticate All - Status", "programmer", "programmer");
+  pushRowsFromRuleCollection(root?.authzRules, "Authorize All - Status", "resource", "resource");
+  pushRowsFromRuleCollection(root?.authzNoneRules, "Authorize None - Status", "channel", "channel");
+
+  return rows;
+}
+
+function degradationExtractRows(endpointSpec, parsedPayload, queryValues = {}) {
+  if (String(endpointSpec?.key || "").trim().toLowerCase() === DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.key) {
+    return degradationExtractRowsFromMegaPayload(parsedPayload, queryValues);
+  }
+
+  const normalizedPayload = degradationNormalizeObjectKeys(parsedPayload);
+  const payloadObject = normalizedPayload && typeof normalizedPayload === "object" ? normalizedPayload : {};
+  const measureContainer =
+    degradationGetObjectValueByKeys(payloadObject, ["degradation-measure", "degradation_measure", "degradationmeasure"]) ||
+    payloadObject;
+  const measures = degradationToArray(measureContainer);
+  const rows = [];
+
+  measures.forEach((measureNode) => {
+    const measureObject = measureNode && typeof measureNode === "object" ? measureNode : {};
+    const programmerNode = degradationGetObjectValueByKeys(measureObject, ["programmer"]);
+    const programmerId = degradationResolveIdValue(programmerNode, queryValues.programmerId);
+    const mvpdNode = degradationGetObjectValueByKeys(measureObject, ["mvpd"]);
+    const mvpdFallback = queryValues.includeAllMvpd ? "ALL" : queryValues.mvpd;
+    const mvpdId = degradationResolveIdValue(mvpdNode, mvpdFallback);
+    const baseValues = {
+      measureId: firstNonEmptyString([
+        String(measureObject.id || "").trim(),
+        String(endpointSpec.measureId || endpointSpec.path || "").trim(),
+      ]),
+      programmerId,
+      mvpdId,
+    };
+
+    if (endpointSpec.targetType === "programmer") {
+      const detailNode = programmerNode && typeof programmerNode === "object" ? programmerNode : measureObject;
+      rows.push(
+        degradationBuildStatusRow(
+          endpointSpec,
+          baseValues,
+          detailNode,
+          endpointSpec.targetType,
+          degradationResolveIdValue(programmerNode, programmerId)
+        )
+      );
+      return;
+    }
+
+    const targetList = degradationToArray(degradationGetObjectValueByKeys(measureObject, [endpointSpec.targetKey]));
+    if (targetList.length === 0) {
+      rows.push(
+        degradationBuildStatusRow(endpointSpec, baseValues, measureObject, endpointSpec.targetType, queryValues.mvpd || "")
+      );
+      return;
+    }
+    targetList.forEach((targetNode) => {
+      rows.push(
+        degradationBuildStatusRow(
+          endpointSpec,
+          baseValues,
+          targetNode && typeof targetNode === "object" ? targetNode : {},
+          endpointSpec.targetType,
+          degradationResolveIdValue(targetNode, "")
+        )
+      );
+    });
+  });
+
+  return rows;
+}
+
+function degradationBuildReportPayload(endpointSpec, queryValues, result = {}) {
+  const rows = Array.isArray(result.rows) ? result.rows : [];
+  const columns = rows.length > 0 ? Object.keys(rows[0]) : getDegradationDefaultReportColumns();
+  const activeCount = rows.reduce(
+    (count, row) => count + (String(row?.Active || "").trim().toUpperCase() === "YES" ? 1 : 0),
+    0
+  );
+  const selectionKey = String(result.selectionKey || "").trim();
+  const queryKey = [
+    String(endpointSpec?.key || "").trim(),
+    `programmer=${String(queryValues?.programmerId || "").trim()}`,
+    `mvpd=${String(queryValues?.mvpd || "*").trim() || "*"}`,
+    `api_version=${String(queryValues?.apiVersion || "*").trim() || "*"}`,
+  ].join("|");
+  return {
+    reportId: `degradation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
+    queryKey,
+    selectionKey,
+    endpointKey: String(endpointSpec?.key || "").trim(),
+    endpointPath: String(endpointSpec?.path || "").trim(),
+    endpointTitle: String(endpointSpec?.title || "").trim(),
+    requestUrl: String(result.requestUrl || "").trim(),
+    method: "GET",
+    programmerId: String(queryValues?.programmerId || "").trim(),
+    mvpd: String(queryValues?.mvpd || "").trim(),
+    mvpdScopeLabel: degradationBuildScopeLabel(queryValues),
+    apiVersion: String(queryValues?.apiVersion || "").trim(),
+    ok: result.ok === true,
+    status: Number(result.status || 0),
+    statusText: String(result.statusText || "").trim(),
+    error: String(result.error || "").trim(),
+    columns,
+    rows,
+    rowCount: rows.length,
+    activeCount,
+    fetchedAt: Number(result.fetchedAt || Date.now()),
+    durationMs: Number(result.durationMs || 0),
+  };
+}
+
+function degradationRefreshSelectedAppForRequest(panelState, options = {}) {
+  const programmerId = String(panelState?.programmer?.programmerId || "").trim();
+  if (!programmerId) {
+    return null;
+  }
+
+  const requestorId = String(options?.requestorId || state.selectedRequestorId || "").trim();
+  const appCandidates = resolveDegradationAppCandidates(programmerId, panelState?.appInfo || null, {
+    preferredGuid: String(panelState?.appInfo?.guid || "").trim(),
+    requestorId,
+  });
+  panelState.appCandidates = appCandidates;
+  const selectedApp = appCandidates[0] || null;
+  if (selectedApp?.guid) {
+    setDegradationPanelActiveApp(panelState, selectedApp, {
+      requestScope: String(options?.requestScope || "degradation-app-selection"),
+      requestorId,
+      targetWindowId: Number(options?.targetWindowId || panelState?.controllerWindowId || 0),
+      emitEvent: String(panelState?.appInfo?.guid || "") !== String(selectedApp.guid || ""),
+    });
+  } else {
+    panelState.appInfo = null;
+    const appLabelElement = panelState?.appLabelElement || null;
+    if (appLabelElement) {
+      appLabelElement.textContent = "No DEGRADATION app selected";
+      appLabelElement.title = "";
+    }
+  }
+  return panelState?.appInfo || null;
+}
+
+function degradationBuildRequestUrl(panelState, endpointSpec, queryValues = {}) {
+  const mediaCompanyId = String(panelState?.programmer?.programmerId || "").trim();
+  if (!mediaCompanyId) {
+    throw new Error("Selected Media Company is required for DEGRADATION.");
+  }
+
+  const endpointPath = String(endpointSpec?.path || "").trim();
+  if (!endpointPath) {
+    throw new Error("DEGRADATION endpoint path is missing.");
+  }
+
+  const requestUrl = new URL(
+    `${DEGRADATION_API_BASE}/${encodeURIComponent(mediaCompanyId)}/${encodeURIComponent(endpointPath)}`
+  );
+  requestUrl.searchParams.set("programmer", String(queryValues.programmerId || "").trim());
+  if (queryValues.includeAllMvpd !== true && queryValues.mvpd) {
+    requestUrl.searchParams.set("mvpd", String(queryValues.mvpd || "").trim());
+  }
+  requestUrl.searchParams.set("format", "json");
+
+  if (String(endpointSpec?.key || "").trim().toLowerCase() === DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.key) {
+    requestUrl.searchParams.set("media-company", mediaCompanyId);
+    requestUrl.searchParams.set("resource", "");
+    requestUrl.searchParams.set("channel", "");
+    requestUrl.searchParams.set("includeHistory", "false");
+  }
+
+  return requestUrl;
+}
+
+async function degradationExecuteStatusRequest(panelState, endpointSpec, options = {}) {
+  const queryValues =
+    options?.queryValues && typeof options.queryValues === "object"
+      ? {
+          ...options.queryValues,
+        }
+      : degradationCollectFormValues(panelState);
+  const requestorId = String(queryValues.requestorId || state.selectedRequestorId || "").trim();
+  if (!requestorId) {
+    throw new Error("Select a global RequestorId first.");
+  }
+  if (!queryValues.programmerId) {
+    throw new Error("Programmer value could not be derived from the selected RequestorId.");
+  }
+
+  const requestUrl = degradationBuildRequestUrl(panelState, endpointSpec, queryValues);
+
+  const requestHeaders = {};
+  if (queryValues.apiVersion) {
+    requestHeaders.api_version = String(queryValues.apiVersion).trim();
+  }
+
+  let debugFlowId = "";
+  try {
+    debugFlowId = String(
+      (await resolveDegradationDebugFlowIdForRequest(panelState, {
+        reason: `degradation:${endpointSpec.path}`,
+        preferredWindowId: Number(panelState?.controllerWindowId || 0),
+        fallbackTabId: Number(state.degradationWorkspaceTabId || 0),
+      })) || ""
+    ).trim();
+  } catch {
+    debugFlowId = "";
+  }
+  const debugMeta = {
+    flowId: debugFlowId,
+    service: "degradation",
+    scope: `degradation:${endpointSpec.path}`,
+    requestorId,
+    mvpd: queryValues.includeAllMvpd ? "" : String(queryValues.mvpd || "").trim(),
+    requestorIds: requestorId ? [requestorId] : [],
+    mvpdIds: queryValues.mvpd ? [queryValues.mvpd] : [],
+    endpointUrl: requestUrl.toString(),
+    workspaceKey: "degradation-workspace",
+    workspaceOrigin: "DEGRADATION Workspace",
+  };
+
+  const requestStartedAt = Date.now();
+  const selectedApp = degradationRefreshSelectedAppForRequest(panelState, {
+    requestorId,
+    requestScope: `degradation:${endpointSpec.path}`,
+    targetWindowId: Number(options?.targetWindowId || panelState?.controllerWindowId || 0),
+  });
+  if (!selectedApp?.guid) {
+    throw new Error("No DEGRADATION scoped registered application is selected for this media company.");
+  }
+  const response = await fetchWithPremiumAuth(
+    panelState.programmer.programmerId,
+    selectedApp,
+    requestUrl.toString(),
+    {
+      method: "GET",
+      headers: requestHeaders,
+    },
+    "refresh",
+    {
+      ...debugMeta,
+      requiredServiceScope: getPreferredDegradationScopeForApp(selectedApp) || PREMIUM_SERVICE_SCOPE_BY_KEY.degradation,
+    }
+  );
+  const responseText = await response.text().catch(() => "");
+  const fetchedAt = Date.now();
+  const durationMs = fetchedAt - requestStartedAt;
+
+  if (!response.ok) {
+    const reason = degradationBuildPremiumErrorMessage(response.status, response.statusText, responseText);
+    return degradationBuildReportPayload(endpointSpec, queryValues, {
+      selectionKey: String(options.selectionKey || "").trim(),
+      ok: false,
+      status: Number(response.status || 0),
+      statusText: String(response.statusText || "").trim(),
+      error: reason,
+      rows: [],
+      requestUrl: requestUrl.toString(),
+      fetchedAt,
+      durationMs,
+    });
+  }
+
+  if (response.status === 204 || !responseText.trim()) {
+    return degradationBuildReportPayload(endpointSpec, queryValues, {
+      selectionKey: String(options.selectionKey || "").trim(),
+      ok: true,
+      status: Number(response.status || 0),
+      statusText: String(response.statusText || "").trim(),
+      rows: [],
+      requestUrl: requestUrl.toString(),
+      fetchedAt,
+      durationMs,
+    });
+  }
+
+  const parsedPayload = parseJsonText(responseText, null);
+  if (!parsedPayload || typeof parsedPayload !== "object") {
+    throw new Error(`DEGRADATION status response is not valid JSON (HTTP ${response.status}).`);
+  }
+  const rows = degradationExtractRows(endpointSpec, parsedPayload, queryValues);
+  return degradationBuildReportPayload(endpointSpec, queryValues, {
+    selectionKey: String(options.selectionKey || "").trim(),
+    ok: true,
+    status: Number(response.status || 0),
+    statusText: String(response.statusText || "").trim(),
+    rows,
+    requestUrl: requestUrl.toString(),
+    fetchedAt,
+    durationMs,
+  });
+}
+
+function degradationBuildControllerHtml(programmer, appInfo) {
+  const requestorId = String(state.selectedRequestorId || "").trim();
+  const mediaCompanyId = String(programmer?.programmerId || "").trim() || "N/A";
+  const derivedProgrammerId = requestorId || "N/A";
+  const requestorNotice = requestorId
+    ? `Global RequestorId selected: ${requestorId}`
+    : "No global RequestorId selected. Pick one above, then retry.";
+  const selectedMvpdId = String(state.selectedMvpdId || "").trim();
+  const selectedMvpdLabel = selectedMvpdId ? getRestV2MvpdPickerLabel(requestorId, selectedMvpdId) || selectedMvpdId : "";
+  const resolvedMvpdValue = selectedMvpdId || "";
+  const allMvpdChecked = resolvedMvpdValue ? "" : " checked";
+  const mvpdPlaceholder = resolvedMvpdValue
+    ? "Selected MVPD (toggle All MVPDs to omit this value)"
+    : "Leave empty to query all MVPD rules";
+  const appLabel = firstNonEmptyString([
+    String(appInfo?.appName || "").trim(),
+    String(appInfo?.guid || "").trim(),
+    "DEGRADATION app",
+  ]);
+  return `
+    <section class="degradation-controller-shell">
+      <div class="degradation-controller-head">
+        <p class="degradation-controller-title">DEGRADATION API Controller</p>
+      </div>
+      <p class="degradation-controller-subtitle">Registered app: <strong class="degradation-app-label">${escapeHtml(
+        appLabel
+      )}</strong> | Requestor: <strong>${escapeHtml(requestorId || "N/A")}</strong> | Media Company: <strong>${escapeHtml(
+        mediaCompanyId
+      )}</strong> | programmer query: <strong>${escapeHtml(derivedProgrammerId)}</strong></p>
+      <p class="degradation-controller-note">${escapeHtml(requestorNotice)}</p>
+      <div class="degradation-recording-actions">
+        <button
+          type="button"
+          class="degradation-record-toggle-btn"
+          title="Record DEGRADATION log"
+          aria-label="Record DEGRADATION log"
+        >
+          <span class="degradation-record-btn-icon degradation-record-btn-icon--record" aria-hidden="true"></span>
+          <span class="degradation-record-btn-label">LOG</span>
+        </button>
+      </div>
+      <p class="degradation-recording-status" aria-live="polite"></p>
+      <button type="button" class="degradation-mega-get-btn">BIG RED GET DEGRADATION</button>
+      <p class="degradation-mega-get-note">Single-call media-company snapshot via <code>/control/v3/degradation/{media-company}/all</code>.</p>
+      <div class="degradation-runner-form">
+        <label class="degradation-field">
+          <span class="degradation-field-label">GET Method</span>
+          <select class="degradation-endpoint-select">
+            <option value="authnall">Authenticate All - Status</option>
+            <option value="authzall">Authorize All - Status</option>
+            <option value="authznone">Authorize None - Status</option>
+          </select>
+        </label>
+        <label class="degradation-field">
+          <span class="degradation-field-label">MVPD</span>
+          <input
+            type="text"
+            class="degradation-mvpd-input"
+            value="${escapeHtml(resolvedMvpdValue)}"
+            placeholder="${escapeHtml(mvpdPlaceholder)}"
+            title="${escapeHtml(selectedMvpdLabel ? `Selected MVPD: ${selectedMvpdLabel}` : "Query all MVPDs when blank")}"
+            spellcheck="false"
+          />
+        </label>
+        <label class="degradation-field">
+          <span class="degradation-field-label">API Version Header</span>
+          <input type="text" class="degradation-api-version-input" value="3.0" placeholder="3.0" spellcheck="false" />
+        </label>
+      </div>
+      <label class="degradation-field-check">
+        <input type="checkbox" class="degradation-all-mvpd-checkbox"${allMvpdChecked} />
+        <span>All MVPDs (omit <code>mvpd</code> query parameter)</span>
+      </label>
+      <div class="degradation-runner-actions">
+        <button type="button" class="degradation-run-go-btn">GO</button>
+      </div>
+      <p class="degradation-controller-status" aria-live="polite"></p>
+    </section>
+  `;
+}
+
+async function degradationOpenWorkspaceFromPanel(panelState, options = {}) {
+  const workspaceTab = await degradationWorkspaceEnsureWorkspaceTab({
+    activate: options.activate !== false,
+    windowId: panelState?.controllerWindowId || undefined,
+  });
+  const targetWindowId = Number(workspaceTab?.windowId || state.degradationWorkspaceWindowId || 0);
+  const services = {
+    degradation: panelState?.appInfo || null,
+  };
+  const selectionContext = degradationWorkspaceGetSelectionContext(panelState?.programmer || null, services);
+  degradationWorkspaceBroadcastControllerState(panelState?.programmer || null, services, targetWindowId);
+  degradationWorkspaceBroadcastReports(selectionContext.selectionKey, targetWindowId);
+  emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+    phase: "open-workspace",
+    source: "sidepanel",
+    requestScope: "degradation-workspace",
+    workspaceTabId: Number(workspaceTab?.id || 0),
+    windowId: Number(workspaceTab?.windowId || targetWindowId || 0),
+    workspaceKey: "degradation-workspace",
+    workspaceOrigin: "DEGRADATION Workspace",
+  });
+  return {
+    workspaceTab,
+    targetWindowId,
+    selectionContext,
+  };
+}
+
+async function degradationRunStatusEndpointFromPanel(panelState, endpointKey, options = {}) {
+  const endpointSpec = getDegradationStatusEndpointSpec(endpointKey);
+  if (!endpointSpec || !panelState) {
+    return null;
+  }
+  const requestToken = Number(options.requestToken || panelState.requestToken || 0);
+  if (!isDegradationServiceRequestActive(panelState.section, requestToken, panelState.programmer?.programmerId)) {
+    return null;
+  }
+
+  const manageBusy = options.manageBusy !== false;
+  const queryValues =
+    options.queryValues && typeof options.queryValues === "object"
+      ? {
+          ...options.queryValues,
+        }
+      : degradationCollectFormValues(panelState);
+  if (!degradationRequireSelectedRequestor(panelState, queryValues)) {
+    return null;
+  }
+  if (!queryValues.programmerId) {
+    degradationSetControllerStatus(
+      panelState,
+      "Programmer value could not be derived from the selected RequestorId.",
+      "error"
+    );
+    return null;
+  }
+
+  if (manageBusy) {
+    degradationSetBusy(panelState, true);
+  }
+
+  let targetWindowId = Number(options.targetWindowId || 0);
+  try {
+    if (options.openWorkspace !== false) {
+      const workspaceResult = await degradationOpenWorkspaceFromPanel(panelState, {
+        activate: options.activateWorkspace !== false,
+      });
+      targetWindowId = Number(workspaceResult?.targetWindowId || targetWindowId || 0);
+    } else if (!targetWindowId && degradationWorkspaceHasOpenTab()) {
+      targetWindowId = Number(state.degradationWorkspaceWindowId || 0);
+    }
+
+    const selectionContext = degradationWorkspaceGetSelectionContext(panelState.programmer, {
+      degradation: panelState.appInfo,
+    });
+    const selectionKey = String(selectionContext.selectionKey || "").trim();
+    let endpointUrl = `${DEGRADATION_API_BASE}/${endpointSpec.path}`;
+    try {
+      endpointUrl = degradationBuildRequestUrl(panelState, endpointSpec, queryValues).toString();
+    } catch {
+      endpointUrl = `${DEGRADATION_API_BASE}/${endpointSpec.path}`;
+    }
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: "report-start",
+      requestScope: `degradation:${endpointSpec.path}`,
+      endpointKey: endpointSpec.key,
+      endpointUrl,
+      selectionKey,
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+      controllerWindowId: Number(panelState.controllerWindowId || 0),
+      targetWindowId,
+      programmerId: String(queryValues.programmerId || ""),
+      mvpd: String(queryValues.mvpd || ""),
+      includeAllMvpd: queryValues.includeAllMvpd === true,
+    });
+    const report = await degradationExecuteStatusRequest(panelState, endpointSpec, {
+      queryValues,
+      selectionKey,
+    });
+    degradationWorkspaceStoreReport(report, queryValues);
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: report.ok ? "report-result" : "report-error",
+      requestScope: `degradation:${endpointSpec.path}`,
+      endpointKey: endpointSpec.key,
+      endpointUrl: String(report.requestUrl || `${DEGRADATION_API_BASE}/${endpointSpec.path}`),
+      selectionKey: String(report.selectionKey || selectionKey),
+      rowCount: Number(report.rowCount || 0),
+      activeCount: Number(report.activeCount || 0),
+      status: Number(report.status || 0),
+      statusText: String(report.statusText || ""),
+      error: String(report.error || ""),
+      targetWindowId,
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+    });
+    if (targetWindowId > 0) {
+      void degradationWorkspaceSendWorkspaceMessage("report-result", report, { targetWindowId });
+    }
+    const scopeLabel = report.mvpdScopeLabel || degradationBuildScopeLabel(queryValues);
+    if (report.ok) {
+      const rowSummary =
+        report.rowCount > 0
+          ? `${report.activeCount}/${report.rowCount} active rule rows`
+          : "no rule rows returned";
+      degradationSetControllerStatus(
+        panelState,
+        `${report.endpointTitle} | ${scopeLabel} | HTTP ${report.status}: ${rowSummary}.`,
+        "success"
+      );
+    } else {
+      degradationSetControllerStatus(
+        panelState,
+        `${report.endpointTitle} | ${scopeLabel} | HTTP ${report.status}: ${report.error || "Request failed."}`,
+        "error"
+      );
+    }
+    return report;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const selectionContext = degradationWorkspaceGetSelectionContext(panelState.programmer, {
+      degradation: panelState.appInfo,
+    });
+    const errorReport = degradationBuildReportPayload(endpointSpec, queryValues, {
+      selectionKey: String(selectionContext.selectionKey || "").trim(),
+      ok: false,
+      status: 0,
+      statusText: "",
+      error: degradationBuildPremiumErrorMessage(0, "", message),
+      rows: [],
+      requestUrl: "",
+      fetchedAt: Date.now(),
+      durationMs: 0,
+    });
+    degradationWorkspaceStoreReport(errorReport, queryValues);
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: "report-error",
+      requestScope: `degradation:${endpointSpec.path}`,
+      endpointKey: endpointSpec.key,
+      endpointUrl: String(errorReport.requestUrl || ""),
+      selectionKey: String(errorReport.selectionKey || selectionContext.selectionKey || ""),
+      error: message,
+      status: Number(errorReport.status || 0),
+      statusText: String(errorReport.statusText || ""),
+      targetWindowId,
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+    });
+    if (targetWindowId > 0) {
+      void degradationWorkspaceSendWorkspaceMessage("report-result", errorReport, { targetWindowId });
+    }
+    degradationSetControllerStatus(panelState, `${endpointSpec.title}: ${message}`, "error");
+    return errorReport;
+  } finally {
+    if (manageBusy) {
+      degradationSetBusy(panelState, false);
+    }
+  }
+}
+
+async function degradationRunAllStatusEndpointsFromPanel(panelState, options = {}) {
+  if (!panelState) {
+    return [];
+  }
+  const requestToken = Number(options.requestToken || panelState.requestToken || 0);
+  if (!isDegradationServiceRequestActive(panelState.section, requestToken, panelState.programmer?.programmerId)) {
+    return [];
+  }
+
+  const queryValues =
+    options?.queryValues && typeof options.queryValues === "object"
+      ? {
+          ...options.queryValues,
+        }
+      : degradationCollectFormValues(panelState);
+  if (!degradationRequireSelectedRequestor(panelState, queryValues)) {
+    return [];
+  }
+  if (!queryValues.programmerId) {
+    degradationSetControllerStatus(
+      panelState,
+      "Programmer value could not be derived from the selected RequestorId.",
+      "error"
+    );
+    return [];
+  }
+
+  degradationSetBusy(panelState, true);
+  const reports = [];
+  try {
+    let targetWindowId = Number(options.targetWindowId || 0);
+    if (options.openWorkspace !== false) {
+      const workspaceResult = await degradationOpenWorkspaceFromPanel(panelState, {
+        activate: options.activateWorkspace !== false,
+      });
+      targetWindowId = Number(workspaceResult?.targetWindowId || targetWindowId || 0);
+    }
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: options?.megaMode === true ? "mega-sweep-start" : "sweep-start",
+      requestScope: "degradation-run-all",
+      programmerId: String(queryValues.programmerId || ""),
+      mvpd: String(queryValues.mvpd || ""),
+      includeAllMvpd: queryValues.includeAllMvpd === true,
+      endpointCount: DEGRADATION_STATUS_ENDPOINT_SPECS.length,
+      targetWindowId,
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+    });
+    for (const endpointSpec of DEGRADATION_STATUS_ENDPOINT_SPECS) {
+      const report = await degradationRunStatusEndpointFromPanel(panelState, endpointSpec.key, {
+        requestToken,
+        queryValues,
+        manageBusy: false,
+        openWorkspace: false,
+        targetWindowId,
+      });
+      if (report) {
+        reports.push(report);
+      }
+    }
+    const okCount = reports.filter((report) => report?.ok === true).length;
+    const totalRows = reports.reduce((count, report) => count + Number(report?.rowCount || 0), 0);
+    const totalActive = reports.reduce((count, report) => count + Number(report?.activeCount || 0), 0);
+    const summaryPrefix =
+      options?.megaMode === true
+        ? "BIG RED GET DEGRADATION completed"
+        : "DEGRADATION GET sweep completed";
+    degradationSetControllerStatus(
+      panelState,
+      `${summaryPrefix} (${okCount}/${reports.length} successful) | Active rows: ${totalActive}/${totalRows}.`,
+      okCount === reports.length ? "success" : "error"
+    );
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: options?.megaMode === true ? "mega-sweep-complete" : "sweep-complete",
+      requestScope: "degradation-run-all",
+      programmerId: String(queryValues.programmerId || ""),
+      mvpd: String(queryValues.mvpd || ""),
+      includeAllMvpd: queryValues.includeAllMvpd === true,
+      okCount,
+      totalEndpoints: reports.length,
+      totalRows,
+      totalActive,
+      targetWindowId,
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+    });
+    return reports;
+  } finally {
+    degradationSetBusy(panelState, false);
+  }
+}
+
+async function degradationRunMegaProgrammerSweepFromPanel(panelState, options = {}) {
+  if (!panelState) {
+    return [];
+  }
+  const queryValues = degradationCollectFormValues(panelState);
+  if (!degradationRequireSelectedRequestor(panelState, queryValues)) {
+    return [];
+  }
+  queryValues.includeAllMvpd = true;
+  queryValues.mvpd = "";
+  if (panelState.allMvpdCheckbox) {
+    panelState.allMvpdCheckbox.checked = true;
+  }
+  if (panelState.mvpdInput) {
+    panelState.mvpdInput.value = "";
+  }
+  degradationSyncMvpdScopeControls(panelState);
+  degradationSetControllerStatus(
+    panelState,
+    "BIG RED GET DEGRADATION started (single-call media-company snapshot)...",
+    "info"
+  );
+  emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+    phase: "mega-button-clicked",
+    requestScope: "degradation-all",
+    programmerId: String(queryValues.programmerId || ""),
+    mediaCompanyId: String(panelState?.programmer?.programmerId || "").trim(),
+    includeAllMvpd: true,
+    workspaceKey: "degradation-workspace",
+    workspaceOrigin: "DEGRADATION Workspace",
+  });
+
+  const endpointSpec = DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC;
+  const requestToken = Number(options?.requestToken || panelState.requestToken || 0);
+  if (!isDegradationServiceRequestActive(panelState.section, requestToken, panelState.programmer?.programmerId)) {
+    degradationSetControllerStatus(panelState, "DEGRADATION panel context is stale. Refresh and retry.", "error");
+    return [];
+  }
+
+  let targetWindowId = 0;
+  degradationSetBusy(panelState, true);
+  try {
+    if (options.openWorkspace !== false) {
+      const workspaceResult = await degradationOpenWorkspaceFromPanel(panelState, {
+        activate: options.activateWorkspace !== false,
+      });
+      targetWindowId = Number(workspaceResult?.targetWindowId || workspaceResult?.workspaceTab?.windowId || 0);
+    } else if (degradationWorkspaceHasOpenTab()) {
+      targetWindowId = Number(state.degradationWorkspaceWindowId || 0);
+    }
+
+    const selectionContext = degradationWorkspaceGetSelectionContext(panelState.programmer, {
+      degradation: panelState.appInfo,
+    });
+    const report = await degradationExecuteStatusRequest(panelState, endpointSpec, {
+      queryValues,
+      selectionKey: selectionContext.selectionKey,
+      targetWindowId,
+    });
+    degradationWorkspaceStoreReport(report, queryValues);
+
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: "mega-report-result",
+      requestScope: "degradation-all",
+      endpoint: endpointSpec.path,
+      ok: report.ok === true,
+      status: Number(report.status || 0),
+      rows: Number(report.rowCount || 0),
+      activeRows: Number(report.activeCount || 0),
+      mediaCompanyId: String(panelState?.programmer?.programmerId || "").trim(),
+      programmerId: String(queryValues.programmerId || ""),
+      includeAllMvpd: true,
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+    });
+
+    if (targetWindowId > 0) {
+      void degradationWorkspaceSendWorkspaceMessage("report-result", report, { targetWindowId });
+    }
+
+    if (report.ok) {
+      degradationSetControllerStatus(
+        panelState,
+        `BIG RED GET DEGRADATION complete. Loaded ${Number(report.rowCount || 0)} rows (${Number(
+          report.activeCount || 0
+        )} active).`,
+        "success"
+      );
+    } else {
+      degradationSetControllerStatus(panelState, `${endpointSpec.title}: ${report.error || "Request failed."}`, "error");
+    }
+    return [report];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const selectionContext = degradationWorkspaceGetSelectionContext(panelState.programmer, {
+      degradation: panelState.appInfo,
+    });
+    const errorReport = degradationBuildReportPayload(endpointSpec, queryValues, {
+      selectionKey: selectionContext.selectionKey,
+      ok: false,
+      status: 0,
+      statusText: "",
+      error: degradationBuildPremiumErrorMessage(0, "", message),
+      rows: [],
+      requestUrl: "",
+      fetchedAt: Date.now(),
+      durationMs: 0,
+    });
+    degradationWorkspaceStoreReport(errorReport, queryValues);
+    if (targetWindowId > 0) {
+      void degradationWorkspaceSendWorkspaceMessage("report-result", errorReport, { targetWindowId });
+    }
+    degradationSetControllerStatus(panelState, `${endpointSpec.title}: ${message}`, "error");
+    return [errorReport];
+  } finally {
+    degradationSetBusy(panelState, false);
+  }
+}
+
+function wireDegradationPanelInteractions(panelState, requestToken) {
+  if (!panelState) {
+    return;
+  }
+  panelState.requestToken = Number(requestToken || 0);
+  degradationSyncMvpdScopeControls(panelState);
+  syncDegradationWorkspaceRecordingControls(panelState);
+  degradationSetControllerStatus(
+    panelState,
+    String(state.selectedRequestorId || "").trim()
+      ? "Pick a DEGRADATION status method and click GO."
+      : "Select a global RequestorId first, then run DEGRADATION GET calls."
+  );
+
+  if (panelState.allMvpdCheckbox) {
+    panelState.allMvpdCheckbox.addEventListener("change", (event) => {
+      event.stopPropagation();
+      degradationSyncMvpdScopeControls(panelState);
+    });
+  }
+
+  if (panelState.runGoButton) {
+    panelState.runGoButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const endpointKey = firstNonEmptyString([
+        String(panelState.endpointSelect?.value || "").trim().toLowerCase(),
+        "authnall",
+      ]);
+      await degradationRunStatusEndpointFromPanel(panelState, endpointKey, {
+        requestToken: panelState.requestToken,
+        openWorkspace: true,
+        activateWorkspace: true,
+      });
+    });
+  }
+
+  if (panelState.megaGetButton) {
+    panelState.megaGetButton.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      await degradationRunMegaProgrammerSweepFromPanel(panelState, {
+        requestToken: panelState.requestToken,
+        openWorkspace: true,
+        activateWorkspace: true,
+      });
+    });
+  }
+
+  if (panelState.recordingToggleButton) {
+    panelState.recordingToggleButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (state.degradationWorkspaceStopping) {
+        return;
+      }
+      if (getActiveDegradationWorkspaceDebugFlowId()) {
+        void stopDegradationWorkspaceRecording(panelState);
+        return;
+      }
+      void startDegradationWorkspaceRecording(panelState, panelState.requestToken);
+    });
+  }
+
+}
+
+async function loadDegradationService(programmer, appInfo, section, contentElement, requestToken) {
+  if (!contentElement) {
+    return;
+  }
+  if (!programmer?.programmerId || !appInfo?.guid) {
+    contentElement.innerHTML = "";
+    return;
+  }
+
+  section.__underparDegradationState = null;
+  if (
+    state.degradationWorkspaceRecordingActive &&
+    state.degradationWorkspaceRecordingContext &&
+    String(state.degradationWorkspaceRecordingContext.programmerId || "") &&
+    String(state.degradationWorkspaceRecordingContext.programmerId || "") !== String(programmer.programmerId || "")
+  ) {
+    clearDegradationWorkspaceRecordingState("programmer-change");
+  }
+
+  contentElement.innerHTML = '<div class="loading">Loading DEGRADATION...</div>';
+  try {
+    const controllerWindowId = await esmWorkspaceGetCurrentWindowId();
+    if (!isDegradationServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      return;
+    }
+    const initialCandidates = resolveDegradationAppCandidates(
+      String(programmer?.programmerId || "").trim(),
+      appInfo,
+      {
+        preferredGuid: String(appInfo?.guid || "").trim(),
+        requestorId: String(state.selectedRequestorId || "").trim(),
+      }
+    );
+    const resolvedInitialApp = initialCandidates[0] || null;
+    if (!resolvedInitialApp?.guid) {
+      contentElement.innerHTML =
+        '<div class="service-error">No properly scoped DEGRADATION software statement was found for this media company.</div>';
+      return;
+    }
+    contentElement.innerHTML = degradationBuildControllerHtml(programmer, resolvedInitialApp);
+    const panelState = {
+      serviceType: "degradation",
+      section,
+      contentElement,
+      programmer,
+      appInfo: resolvedInitialApp,
+      appCandidates: initialCandidates,
+      requestToken,
+      controllerWindowId: Number(controllerWindowId || 0),
+      busy: false,
+      appLabelElement: contentElement.querySelector(".degradation-app-label"),
+      endpointSelect: contentElement.querySelector(".degradation-endpoint-select"),
+      mvpdInput: contentElement.querySelector(".degradation-mvpd-input"),
+      apiVersionInput: contentElement.querySelector(".degradation-api-version-input"),
+      allMvpdCheckbox: contentElement.querySelector(".degradation-all-mvpd-checkbox"),
+      recordingToggleButton: contentElement.querySelector(".degradation-record-toggle-btn"),
+      recordingStatusElement: contentElement.querySelector(".degradation-recording-status"),
+      megaGetButton: contentElement.querySelector(".degradation-mega-get-btn"),
+      runGoButton: contentElement.querySelector(".degradation-run-go-btn"),
+      statusElement: contentElement.querySelector(".degradation-controller-status"),
+    };
+    section.__underparDegradationState = panelState;
+    setDegradationPanelActiveApp(panelState, resolvedInitialApp, {
+      requestScope: "degradation-panel-load",
+      requestorId: String(state.selectedRequestorId || "").trim(),
+      targetWindowId: Number(controllerWindowId || 0),
+      emitEvent: false,
+    });
+    wireDegradationPanelInteractions(panelState, requestToken);
+    syncDegradationWorkspaceRecordingControls(panelState);
+    ensureDegradationWorkspaceRuntimeListener();
+    ensureDegradationWorkspaceTabWatcher();
+    degradationWorkspaceBroadcastControllerState(programmer, { degradation: panelState.appInfo });
+  } catch (error) {
+    if (!isDegradationServiceRequestActive(section, requestToken, programmer.programmerId)) {
+      return;
+    }
+    contentElement.innerHTML = `<div class="service-error">${escapeHtml(
+      error instanceof Error ? error.message : String(error)
+    )}</div>`;
+  }
+}
+
 function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const title = PREMIUM_SERVICE_TITLE_BY_KEY[serviceKey] || serviceKey;
   const servicesForProgrammer =
@@ -25243,6 +27951,8 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const serviceBodyHtml =
     serviceKey === "esmWorkspace"
       ? '<div class="loading">Loading ESM...</div>'
+      : serviceKey === "degradation"
+        ? '<div class="loading">Loading DEGRADATION...</div>'
       : serviceKey === "cm" || serviceKey === "cmMvpd"
         ? '<div class="loading">Loading Concurrency Monitoring...</div>'
         : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
@@ -25276,6 +27986,9 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     if (!collapsed && serviceKey === "esmWorkspace" && typeof section.__underparRefreshEsmWorkspace === "function") {
       void section.__underparRefreshEsmWorkspace();
     }
+    if (!collapsed && serviceKey === "degradation" && typeof section.__underparRefreshDegradation === "function") {
+      void section.__underparRefreshDegradation();
+    }
     if (!collapsed && (serviceKey === "cm" || serviceKey === "cmMvpd") && typeof section.__underparRefreshCm === "function") {
       void section.__underparRefreshCm();
     }
@@ -25287,6 +28000,12 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       return loadEsmWorkspaceService(programmer, appInfo, section, contentElement, requestToken);
     };
     void section.__underparRefreshEsmWorkspace();
+  } else if (serviceKey === "degradation") {
+    section.__underparRefreshDegradation = () => {
+      const requestToken = state.premiumPanelRequestToken;
+      return loadDegradationService(programmer, appInfo, section, contentElement, requestToken);
+    };
+    void section.__underparRefreshDegradation();
   } else if (serviceKey === "cm" || serviceKey === "cmMvpd") {
     section.__underparRefreshCm = () => {
       const requestToken = state.premiumPanelRequestToken;
@@ -25378,6 +28097,7 @@ function renderPremiumServicesLoading(programmer, options = {}) {
   esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
   cmBroadcastSelectedControllerState(programmer, null);
   mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
+  degradationWorkspaceBroadcastControllerState(programmer, null);
 
   const label = programmer?.programmerName
     ? `Loading premium services for ${programmer.programmerName}...`
@@ -25394,6 +28114,7 @@ function renderPremiumServicesError(error, options = {}) {
   esmWorkspaceBroadcastSelectedControllerState(resolveSelectedProgrammer(), null, 0, { controllerReason });
   cmBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
   mvpdWorkspaceBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
+  degradationWorkspaceBroadcastControllerState(resolveSelectedProgrammer(), null);
   const reason = error instanceof Error ? error.message : String(error);
   els.premiumServicesContainer.innerHTML = `<p class="metadata-empty service-error">${escapeHtml(reason)}</p>`;
 }
@@ -25418,6 +28139,7 @@ function renderPremiumServices(services, programmer = null, options = {}) {
     esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
     cmBroadcastSelectedControllerState(programmer, null);
     mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
+    degradationWorkspaceBroadcastControllerState(programmer, null);
     bobtoolsWorkspaceBroadcastControllerState(programmer, {
       programmerId: String(programmer?.programmerId || "").trim(),
       programmerName: String(programmer?.programmerName || "").trim(),
@@ -25447,6 +28169,7 @@ function renderPremiumServices(services, programmer = null, options = {}) {
   esmWorkspaceBroadcastSelectedControllerState(programmer, services, 0, { controllerReason });
   cmBroadcastSelectedControllerState(programmer, services);
   mvpdWorkspaceBroadcastSelectedControllerState(programmer, services);
+  degradationWorkspaceBroadcastControllerState(programmer, services);
 
   const availableKeys = PREMIUM_SERVICE_DISPLAY_ORDER.filter((serviceKey) => {
     if (serviceKey === "esmWorkspace") {
@@ -25483,6 +28206,7 @@ function resetWorkflowForLoggedOut() {
   state.applicationsByProgrammerId.clear();
   state.premiumAppsByProgrammerId.clear();
   state.premiumAppsLoadPromiseByProgrammerId.clear();
+  state.premiumAppScopeHydrationPromiseByProgrammerId.clear();
   state.cmServiceByProgrammerId.clear();
   state.cmServiceLoadPromiseByProgrammerId.clear();
   state.cmServiceByMvpdSelectionKey.clear();
@@ -25514,6 +28238,12 @@ function resetWorkflowForLoggedOut() {
   state.restWorkspaceLastSelectionKey = "";
   state.restWorkspaceLastReportBySelectionKey.clear();
   state.restWorkspaceLastQueryContextBySelectionKey.clear();
+  state.degradationWorkspaceTabId = 0;
+  state.degradationWorkspaceWindowId = 0;
+  state.degradationWorkspaceTabIdByWindowId.clear();
+  state.degradationWorkspaceLastSelectionKey = "";
+  state.degradationWorkspaceReportsBySelectionKey.clear();
+  state.degradationWorkspaceQueryStateBySelectionKey.clear();
   state.bobtoolsWorkspaceTabId = 0;
   state.bobtoolsWorkspaceWindowId = 0;
   state.bobtoolsWorkspaceTabIdByWindowId.clear();
@@ -25532,6 +28262,8 @@ function resetWorkflowForLoggedOut() {
   clearRestV2PreparedLoginState();
   clearEsmWorkspaceRecordingState("logout-reset");
   clearEsmWorkspaceActivityDebugFlow("logout-reset", { stopFlow: true });
+  clearDegradationWorkspaceRecordingState("logout-reset");
+  clearDegradationWorkspaceActivityDebugFlow("logout-reset", { stopFlow: true });
   clearCmWorkspaceActivityDebugFlow("logout-reset", { stopFlow: true });
   state.consoleContextReady = false;
   state.esmWorkspaceWorkspaceTabId = 0;
@@ -25587,6 +28319,21 @@ function resetWorkflowForLoggedOut() {
     updatedAt: Date.now(),
   });
   void restWorkspaceSendWorkspaceMessage("workspace-clear", {});
+  void degradationWorkspaceSendWorkspaceMessage("controller-state", {
+    controllerOnline: false,
+    degradationReady: false,
+    programmerId: "",
+    programmerName: "",
+    requestorId: "",
+    mvpd: "",
+    mvpdLabel: "",
+    mvpdScopeLabel: "",
+    selectionKey: "",
+    appGuid: "",
+    appName: "",
+    updatedAt: Date.now(),
+  });
+  void degradationWorkspaceSendWorkspaceMessage("workspace-clear", {});
   void bobtoolsWorkspaceSendWorkspaceMessage("controller-state", {
     controllerOnline: false,
     bobtoolsReady: false,
@@ -31305,11 +34052,43 @@ async function refreshProgrammerPanels(options = {}) {
 
 function extractApplicationGuid(appReference) {
   const value = String(appReference || "").trim();
-  const match = value.match(/^@RegisteredApplication:(.+)$/);
+  const match = value.match(/^@?RegisteredApplication:(.+)$/i);
   if (match) {
     return match[1];
   }
+  const tokenMatch = value.match(/@?RegisteredApplication:([A-Za-z0-9-]+)/i);
+  if (tokenMatch) {
+    return tokenMatch[1];
+  }
   return value || null;
+}
+
+function resolveApplicationGuidFromEntityData(applicationData = null) {
+  if (!applicationData || typeof applicationData !== "object") {
+    return "";
+  }
+
+  const candidates = [
+    applicationData.id,
+    applicationData.guid,
+    applicationData.applicationId,
+    applicationData.application_id,
+    applicationData.appId,
+    applicationData.registeredApplicationId,
+    applicationData.registered_application_id,
+    applicationData.entityId,
+    applicationData.__underparEntityKey,
+    applicationData.key,
+  ];
+
+  for (const candidate of candidates) {
+    const guid = extractApplicationGuid(candidate);
+    if (guid) {
+      return guid;
+    }
+  }
+
+  return "";
 }
 
 function normalizeEntityToken(value) {
@@ -31398,12 +34177,34 @@ function normalizeScope(scope) {
   return String(scope || "").trim().toLowerCase();
 }
 
+function tokenizeScopeCandidate(value = "") {
+  return String(value || "")
+    .split(/[\s,\n,;]+/)
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+}
+
+function getScopesFromSoftwareStatement(appData) {
+  if (!appData || typeof appData !== "object") {
+    return [];
+  }
+
+  const softwareStatement = extractSoftwareStatementFromAppData(appData);
+  if (!softwareStatement) {
+    return [];
+  }
+
+  const claims = parseJwtPayload(softwareStatement);
+  return extractScopeValuesFromTokenClaims(claims);
+}
+
 function getScopesFromApplication(appData) {
   if (!appData || typeof appData !== "object") {
     return [];
   }
 
   const rawCandidates = [];
+  const seenObjects = new Set();
   const pushCandidate = (value) => {
     if (value == null) {
       return;
@@ -31413,22 +34214,20 @@ function getScopesFromApplication(appData) {
       return;
     }
     if (typeof value === "object") {
+      if (seenObjects.has(value)) {
+        return;
+      }
+      seenObjects.add(value);
       if (typeof value.value === "string") {
         pushCandidate(value.value);
       }
       Object.values(value).forEach((item) => {
-        if (typeof item === "string" || Array.isArray(item)) {
-          pushCandidate(item);
-        }
+        pushCandidate(item);
       });
       return;
     }
     if (typeof value === "string") {
-      value
-        .split(/[,\n;]+/)
-        .map((part) => part.trim())
-        .filter(Boolean)
-        .forEach((part) => rawCandidates.push(part));
+      tokenizeScopeCandidate(value).forEach((part) => rawCandidates.push(part));
     }
   };
 
@@ -31436,9 +34235,12 @@ function getScopesFromApplication(appData) {
   pushCandidate(appData.scope);
   pushCandidate(appData.scopeSet);
   pushCandidate(appData.scopeList);
+  pushCandidate(appData.client?.scopes);
+  pushCandidate(appData.clientApplication?.scopes);
   pushCandidate(appData.permissions);
   pushCandidate(appData.__rawEnvelope?.entityData?.scopes);
   pushCandidate(appData.__rawEnvelope?.scopes);
+  pushCandidate(getScopesFromSoftwareStatement(appData));
 
   const normalized = Array.from(new Set(rawCandidates.map((scope) => normalizeScope(scope)).filter(Boolean)));
   if (normalized.length > 0) {
@@ -31447,8 +34249,9 @@ function getScopesFromApplication(appData) {
 
   try {
     const serialized = JSON.stringify(appData).toLowerCase();
-    if (serialized.includes(REST_V2_SCOPE)) {
-      return [REST_V2_SCOPE];
+    const serializedScopes = KNOWN_PREMIUM_SERVICE_SCOPES.filter((scope) => serialized.includes(scope));
+    if (serializedScopes.length > 0) {
+      return serializedScopes;
     }
   } catch {
     // Ignore serialization issues.
@@ -31558,18 +34361,31 @@ function extractSoftwareStatementFromAppData(appData) {
 }
 
 function normalizeApplicationsResponse(payload) {
+  const normalizeEntity = (item) => {
+    const entity = item?.entityData || item;
+    if (!entity || typeof entity !== "object") {
+      return null;
+    }
+    const entityKey = String(item?.key || entity?.key || "").trim();
+    if (!entityKey) {
+      return entity;
+    }
+    return {
+      ...entity,
+      __underparEntityKey: entityKey,
+    };
+  };
+
   if (Array.isArray(payload)) {
-    return payload.map((item) => item.entityData || item).filter((item) => item && typeof item === "object");
+    return payload.map((item) => normalizeEntity(item)).filter((item) => item && typeof item === "object");
   }
 
   if (Array.isArray(payload?.entities)) {
-    return payload.entities
-      .map((item) => item?.entityData || item)
-      .filter((item) => item && typeof item === "object");
+    return payload.entities.map((item) => normalizeEntity(item)).filter((item) => item && typeof item === "object");
   }
 
   if (payload && typeof payload === "object") {
-    const single = payload.entityData || payload;
+    const single = normalizeEntity(payload);
     if (single && typeof single === "object") {
       return [single];
     }
@@ -31764,8 +34580,15 @@ async function fetchApplicationDetailsByGuid(guid) {
   if (!guid) {
     return null;
   }
-  const url = `${ADOBE_CONSOLE_BASE}/rest/api/applications/${encodeURIComponent(guid)}`;
-  const { parsed } = await fetchAdobeConsoleJsonWithAuthVariants([url], "Application detail");
+  const encodedGuid = encodeURIComponent(guid);
+  const urlCandidates = [
+    `${ADOBE_CONSOLE_BASE}/rest/api/applications/${encodedGuid}`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/entity/RegisteredApplication/${encodedGuid}?configurationVersion=3522`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/entity/RegisteredApplication/${encodedGuid}`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/registeredApplications/${encodedGuid}`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/registered-applications/${encodedGuid}`,
+  ];
+  const { parsed } = await fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, "Application detail");
   return parsed?.entityData || parsed || null;
 }
 
@@ -31773,8 +34596,15 @@ async function fetchApplicationRawByGuid(guid) {
   if (!guid) {
     return { text: "", parsed: null };
   }
-  const url = `${ADOBE_CONSOLE_BASE}/rest/api/applications/${encodeURIComponent(guid)}`;
-  const payload = await fetchAdobeConsoleJsonWithAuthVariants([url], "Application raw fetch");
+  const encodedGuid = encodeURIComponent(guid);
+  const urlCandidates = [
+    `${ADOBE_CONSOLE_BASE}/rest/api/applications/${encodedGuid}`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/entity/RegisteredApplication/${encodedGuid}?configurationVersion=3522`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/entity/RegisteredApplication/${encodedGuid}`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/registeredApplications/${encodedGuid}`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/registered-applications/${encodedGuid}`,
+  ];
+  const payload = await fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, "Application raw fetch");
   const parsed = payload?.parsed?.entityData || payload?.parsed || null;
   return {
     text: String(payload?.text || ""),
@@ -31875,61 +34705,108 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
   const urlCandidates = [
     `${ADOBE_CONSOLE_BASE}/rest/api/applications?programmer=${encodeURIComponent(programmerId)}&configurationVersion=3522`,
     `${ADOBE_CONSOLE_BASE}/rest/api/applications?programmer=${encodeURIComponent(programmerId)}`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/entity/RegisteredApplication?programmer=${encodeURIComponent(
+      programmerId
+    )}&configurationVersion=3522`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/entity/RegisteredApplication?programmer=${encodeURIComponent(programmerId)}`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/registeredApplications?programmer=${encodeURIComponent(programmerId)}`,
+    `${ADOBE_CONSOLE_BASE}/rest/api/registered-applications?programmer=${encodeURIComponent(programmerId)}`,
   ];
+  const uniqueUrlCandidates = [...new Set(urlCandidates)];
+  const expectedGuidSet = new Set(
+    (Array.isArray(resolvedProgrammer?.applications) ? resolvedProgrammer.applications : [])
+      .map((appReference) => extractApplicationGuid(appReference))
+      .filter(Boolean)
+  );
+  const expectedCount = expectedGuidSet.size;
 
   emitPremiumDecisionDebugEvent(
     {
       phase: "premium-applications-request",
       method: "GET",
       programmerId: String(programmerId || ""),
-      lookupUrls: urlCandidates.slice(0, 6),
+      lookupUrls: uniqueUrlCandidates.slice(0, 12),
       forceRefresh,
+      expectedCount,
     },
     {
       programmer: resolvedProgrammer,
     }
   );
 
-  let payload = null;
-  try {
-    payload = await fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, "Applications load");
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
+  const byGuid = {};
+  let successCount = 0;
+  let lastError = null;
+  for (const lookupUrl of uniqueUrlCandidates) {
+    let payload = null;
+    try {
+      payload = await fetchAdobeConsoleJsonWithAuthVariants([lookupUrl], "Applications load");
+      successCount += 1;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      emitPremiumDecisionDebugEvent(
+        {
+          phase: "premium-applications-endpoint-error",
+          programmerId: String(programmerId || ""),
+          method: "GET",
+          url: String(lookupUrl || ""),
+          error: lastError.message,
+        },
+        {
+          programmer: resolvedProgrammer,
+        }
+      );
+      continue;
+    }
+
+    emitPremiumDecisionDebugEvent(
+      {
+        phase: "premium-applications-response",
+        programmerId: String(programmerId || ""),
+        method: "GET",
+        status: Number(payload?.status || 0),
+        url: String(payload?.url || lookupUrl || ""),
+      },
+      {
+        programmer: resolvedProgrammer,
+      }
+    );
+
+    const items = normalizeApplicationsResponse(payload?.parsed || payload);
+    for (const item of items) {
+      const guid = resolveApplicationGuidFromEntityData(item);
+      if (!guid) {
+        continue;
+      }
+      const existing = byGuid[guid];
+      const merged = {
+        ...(existing && typeof existing === "object" ? existing : {}),
+        ...(item && typeof item === "object" ? item : {}),
+        id: guid,
+      };
+      byGuid[guid] = merged;
+    }
+
+    if (expectedCount > 0 && Object.keys(byGuid).length >= expectedCount) {
+      break;
+    }
+  }
+
+  if (successCount === 0) {
+    const reason = lastError instanceof Error ? lastError.message : String(lastError || "Request failed.");
     emitPremiumDecisionDebugEvent(
       {
         phase: "premium-applications-error",
         programmerId: String(programmerId || ""),
         method: "GET",
-        lookupUrls: urlCandidates.slice(0, 6),
+        lookupUrls: uniqueUrlCandidates.slice(0, 12),
         error: reason,
       },
       {
         programmer: resolvedProgrammer,
       }
     );
-    throw error;
-  }
-
-  emitPremiumDecisionDebugEvent(
-    {
-      phase: "premium-applications-response",
-      programmerId: String(programmerId || ""),
-      method: "GET",
-      status: Number(payload?.status || 0),
-      url: String(payload?.url || ""),
-    },
-    {
-      programmer: resolvedProgrammer,
-    }
-  );
-  const items = normalizeApplicationsResponse(payload?.parsed || payload);
-  const byGuid = {};
-  for (const item of items) {
-    const guid = item?.id;
-    if (!guid) {
-      continue;
-    }
-    byGuid[guid] = item;
+    throw (lastError instanceof Error ? lastError : new Error(reason));
   }
 
   state.applicationsByProgrammerId.set(programmerId, byGuid);
@@ -31938,6 +34815,8 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
       phase: "premium-applications-normalized",
       programmerId: String(programmerId || ""),
       applicationCount: Object.keys(byGuid).length,
+      expectedCount,
+      lookupCount: successCount,
     },
     {
       programmer: resolvedProgrammer,
@@ -31946,9 +34825,231 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
   return byGuid;
 }
 
+async function hydrateApplicationScopesForProgrammer(programmer, applicationsData, options = {}) {
+  const byGuid =
+    applicationsData && typeof applicationsData === "object" && !Array.isArray(applicationsData)
+      ? applicationsData
+      : {};
+  const forceRefresh = options.forceRefresh === true;
+  const programmerId = String(programmer?.programmerId || "").trim();
+
+  const guidSet = new Set(Object.keys(byGuid).filter(Boolean));
+  if (Array.isArray(programmer?.applications)) {
+    programmer.applications.forEach((appRef) => {
+      const guid = extractApplicationGuid(appRef);
+      if (guid) {
+        guidSet.add(guid);
+      }
+    });
+  }
+
+  if (guidSet.size === 0) {
+    return byGuid;
+  }
+
+  const retryAfterMs = Math.max(10 * 1000, Number(options.retryAfterMs || 2 * 60 * 1000));
+  const now = Date.now();
+  const pendingGuids = [];
+  for (const guid of guidSet) {
+    const current = byGuid[guid];
+    const currentScopes = getScopesFromApplication(current);
+    const hydratedAt = Number(current?.__underparScopeHydratedAt || 0);
+    const alreadyHydrated = hydratedAt > 0;
+    const isFreshHydration = alreadyHydrated && now - hydratedAt < retryAfterMs;
+    if (!forceRefresh && currentScopes.length > 0) {
+      continue;
+    }
+    if (!forceRefresh && isFreshHydration) {
+      continue;
+    }
+    pendingGuids.push(guid);
+  }
+
+  if (pendingGuids.length === 0) {
+    return byGuid;
+  }
+
+  const hydrationGuids = pendingGuids.slice();
+  const requestTimeoutMs = Math.max(1000, Number(options.requestTimeoutMs || 4000));
+  const concurrency = Math.max(1, Math.min(8, Number(options.concurrency || 4)));
+  const withTimeout = async (promiseFactory) => {
+    let timeoutId = 0;
+    try {
+      return await Promise.race([
+        Promise.resolve().then(() => promiseFactory()),
+        new Promise((_, reject) => {
+          timeoutId = window.setTimeout(() => reject(new Error("timeout")), requestTimeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+    }
+  };
+
+  emitPremiumDecisionDebugEvent(
+    {
+      phase: "premium-app-scope-hydration-start",
+      programmerId,
+      candidateCount: hydrationGuids.length,
+      forceRefresh,
+      concurrency,
+      retryAfterMs,
+    },
+    {
+      programmer,
+    }
+  );
+
+  let hydratedCount = 0;
+  let scopedCount = 0;
+  const counters = {
+    index: 0,
+  };
+  const hydrateOne = async (guid) => {
+    const existing =
+      byGuid[guid] && typeof byGuid[guid] === "object" && !Array.isArray(byGuid[guid]) ? byGuid[guid] : { id: guid };
+    let merged = {
+      ...existing,
+      id: existing.id || guid,
+    };
+
+    try {
+      const details = await withTimeout(() => fetchApplicationDetailsByGuid(guid));
+      if (details && typeof details === "object") {
+        merged = {
+          ...merged,
+          ...details,
+          id: details.id || merged.id || guid,
+        };
+      }
+    } catch {
+      // Best-effort: continue with existing payload.
+    }
+
+    let scopes = getScopesFromApplication(merged);
+    if (scopes.length === 0) {
+      try {
+        const softwareStatement = await withTimeout(() => fetchSoftwareStatementForAppGuid(guid));
+        if (softwareStatement) {
+          merged.softwareStatement = softwareStatement;
+          if (!merged.software_statement) {
+            merged.software_statement = softwareStatement;
+          }
+          scopes = getScopesFromApplication(merged);
+        }
+      } catch {
+        // Best-effort: continue without software statement.
+      }
+    }
+
+    if (scopes.length > 0) {
+      scopedCount += 1;
+    }
+    hydratedCount += 1;
+    byGuid[guid] = {
+      ...merged,
+      __underparScopeHydratedAt: Date.now(),
+    };
+  };
+
+  const workers = Array.from({ length: Math.min(concurrency, hydrationGuids.length) }, () =>
+    (async () => {
+      while (true) {
+        const currentIndex = counters.index;
+        counters.index += 1;
+        if (currentIndex >= hydrationGuids.length) {
+          break;
+        }
+        const guid = hydrationGuids[currentIndex];
+        await hydrateOne(guid);
+      }
+    })()
+  );
+  await Promise.all(workers);
+
+  emitPremiumDecisionDebugEvent(
+    {
+      phase: "premium-app-scope-hydration-done",
+      programmerId,
+      candidateCount: hydrationGuids.length,
+      hydratedCount,
+      scopedCount,
+      concurrency,
+    },
+    {
+      programmer,
+    }
+  );
+
+  return byGuid;
+}
+
+function schedulePremiumAppScopeHydration(programmer, options = {}) {
+  const programmerId = String(programmer?.programmerId || "").trim();
+  if (!programmerId) {
+    return;
+  }
+
+  const forceRefresh = options.forceRefresh === true;
+  if (!forceRefresh && state.premiumAppScopeHydrationPromiseByProgrammerId.has(programmerId)) {
+    return;
+  }
+
+  const seedApplicationsData = state.applicationsByProgrammerId.get(programmerId) || {};
+  const hydrationPromise = (async () => {
+    try {
+      const hydratedApplications = await hydrateApplicationScopesForProgrammer(programmer, seedApplicationsData, {
+        forceRefresh,
+      });
+      state.applicationsByProgrammerId.set(programmerId, hydratedApplications || {});
+
+      const refreshedPremiumApps = findPremiumServiceApplications(programmer.applications || [], hydratedApplications || {});
+      const existingServices = state.premiumAppsByProgrammerId.get(programmerId) || null;
+      const mergedServices = {
+        ...refreshedPremiumApps,
+        degradation: refreshedPremiumApps?.degradation || null,
+        degradationApps: Array.isArray(refreshedPremiumApps?.degradationApps)
+          ? refreshedPremiumApps.degradationApps.filter((appInfo) => appInfo?.guid)
+          : [],
+        cm: existingServices?.cm ?? null,
+        cmMvpd: existingServices?.cmMvpd ?? null,
+        cmMvpdSelectionKey: String(existingServices?.cmMvpdSelectionKey || "").trim(),
+      };
+      state.premiumAppsByProgrammerId.set(programmerId, mergedServices);
+
+      const selectedProgrammer = resolveSelectedProgrammer();
+      if (String(selectedProgrammer?.programmerId || "").trim() === programmerId) {
+        renderPremiumServices(mergedServices, selectedProgrammer, {
+          controllerReason: String(options.controllerReason || "scope-hydration"),
+        });
+      }
+    } catch (error) {
+      emitPremiumDecisionDebugEvent(
+        {
+          phase: "premium-app-scope-hydration-error",
+          programmerId,
+          error: error instanceof Error ? error.message : String(error),
+        },
+        {
+          programmer,
+        }
+      );
+    } finally {
+      if (state.premiumAppScopeHydrationPromiseByProgrammerId.get(programmerId) === hydrationPromise) {
+        state.premiumAppScopeHydrationPromiseByProgrammerId.delete(programmerId);
+      }
+    }
+  })();
+
+  state.premiumAppScopeHydrationPromiseByProgrammerId.set(programmerId, hydrationPromise);
+}
+
 function findPremiumServiceApplications(applicationsArray, applicationsData) {
   const services = {
     degradation: null,
+    degradationApps: [],
     esm: null,
     restV2: null,
     restV2Apps: [],
@@ -32001,8 +35102,8 @@ function findPremiumServiceApplications(applicationsArray, applicationsData) {
   });
 
   for (const appInfo of candidates) {
-    if (!services.degradation && appInfo.scopes.includes(PREMIUM_SERVICE_SCOPE_BY_KEY.degradation)) {
-      services.degradation = appInfo;
+    if (degradationAppHasRequiredScope(appInfo)) {
+      services.degradationApps.push(appInfo);
     }
     if (!services.esm && appInfo.scopes.includes(PREMIUM_SERVICE_SCOPE_BY_KEY.esm)) {
       services.esm = appInfo;
@@ -32013,6 +35114,13 @@ function findPremiumServiceApplications(applicationsArray, applicationsData) {
       }
       services.restV2Apps.push(appInfo);
     }
+  }
+
+  if (services.degradationApps.length > 0) {
+    services.degradationApps.sort(compareDegradationAppPriority);
+    services.degradation = services.degradationApps[0];
+  } else {
+    services.degradation = null;
   }
 
   return services;
@@ -32190,6 +35298,7 @@ function loadDcrCache(programmerId, appGuid) {
       clientSecret: parsed.clientSecret || parsed.client_secret || "",
       accessToken: parsed.accessToken || parsed.access_token || "",
       tokenExpiresAt: Number(parsed.tokenExpiresAt || parsed.expires_at || 0),
+      tokenScope: String(parsed.tokenScope || parsed.scope || "").trim(),
     };
   } catch {
     return null;
@@ -32204,11 +35313,107 @@ function saveDcrCache(programmerId, appGuid, value) {
       clientSecret: value?.clientSecret || value?.client_secret || "",
       accessToken: value?.accessToken || value?.access_token || "",
       tokenExpiresAt: Number(value?.tokenExpiresAt || value?.expires_at || 0),
+      tokenScope: String(value?.tokenScope || value?.scope || "").trim(),
     };
     localStorage.setItem(getDcrCacheKey(programmerId, appGuid), JSON.stringify(normalized));
   } catch {
     // Ignore localStorage cache failures.
   }
+}
+
+function tokenizeOAuthScopeValue(scopeValue = "") {
+  return String(scopeValue || "")
+    .split(/[\s,]+/)
+    .map((scope) => normalizeScope(scope))
+    .filter(Boolean);
+}
+
+function extractScopeValuesFromTokenClaims(claims) {
+  if (!claims || typeof claims !== "object") {
+    return [];
+  }
+
+  const values = new Set();
+  const append = (value) => {
+    if (value == null) {
+      return;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((item) => append(item));
+      return;
+    }
+    if (typeof value === "object") {
+      if (typeof value.value === "string") {
+        append(value.value);
+      }
+      Object.values(value).forEach((item) => append(item));
+      return;
+    }
+    if (typeof value === "string") {
+      tokenizeOAuthScopeValue(value).forEach((scope) => values.add(scope));
+    }
+  };
+
+  append(claims.scope);
+  append(claims.scopes);
+  append(claims.scopeSet);
+  append(claims.permissions);
+  return [...values];
+}
+
+function tokenScopeSatisfiesRequiredScope(tokenScope = "", accessToken = "", requiredScope = "", options = {}) {
+  const normalizedRequiredScope = normalizeScope(requiredScope);
+  if (!normalizedRequiredScope) {
+    return true;
+  }
+  const strictUnknown = options?.strictUnknown === true;
+  const requestedScopeHint = normalizeScope(firstNonEmptyString([options?.requestedScopeHint]));
+
+  const granted = new Set(tokenizeOAuthScopeValue(tokenScope));
+  const claims = parseJwtPayload(accessToken);
+  extractScopeValuesFromTokenClaims(claims).forEach((scope) => granted.add(scope));
+
+  // Some endpoints require explicit token scope evidence (ex: DEGRADATION).
+  if (granted.size === 0) {
+    if (strictUnknown && requestedScopeHint) {
+      return requestedScopeHint === normalizedRequiredScope;
+    }
+    return !strictUnknown;
+  }
+
+  return granted.has(normalizedRequiredScope);
+}
+
+function resolveRequiredPremiumServiceScope(appInfo, debugMeta = null) {
+  const explicit = normalizeScope(firstNonEmptyString([debugMeta?.requiredServiceScope]));
+  if (explicit) {
+    return explicit;
+  }
+
+  const serviceHint = normalizeScope(firstNonEmptyString([debugMeta?.service]));
+  if (serviceHint.includes("degradation")) {
+    return getPreferredDegradationScopeForApp(appInfo) || PREMIUM_SERVICE_SCOPE_BY_KEY.degradation;
+  }
+  if (serviceHint.includes("esm")) {
+    return PREMIUM_SERVICE_SCOPE_BY_KEY.esm;
+  }
+  if (serviceHint.includes("rest") || serviceHint.includes("profile") || serviceHint.includes("bobtools")) {
+    return REST_V2_SCOPE;
+  }
+
+  const appScopes = Array.isArray(appInfo?.scopes) ? appInfo.scopes : [];
+  const normalizedAppScopes = appScopes.map((scope) => normalizeScope(scope)).filter(Boolean);
+  const knownPremiumScopes = new Set(
+    [...Object.values(PREMIUM_SERVICE_SCOPE_BY_KEY), ...DEGRADATION_SCOPE_CANDIDATES]
+      .map((scope) => normalizeScope(scope))
+      .filter(Boolean)
+  );
+  for (const scope of normalizedAppScopes) {
+    if (knownPremiumScopes.has(scope)) {
+      return scope;
+    }
+  }
+  return "";
 }
 
 function clearDcrCache(programmerId, appGuid) {
@@ -32220,9 +35425,93 @@ function clearDcrCache(programmerId, appGuid) {
   }
 }
 
+function clearDcrTokenCache(programmerId, appGuid) {
+  const existing = loadDcrCache(programmerId, appGuid);
+  if (!existing) {
+    return;
+  }
+  saveDcrCache(programmerId, appGuid, {
+    ...existing,
+    accessToken: "",
+    tokenExpiresAt: 0,
+    tokenScope: "",
+  });
+}
+
+function toNonEmptyStringOrEmpty(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim();
+  return trimmed || "";
+}
+
+function extractDcrAccessTokenValue(payload) {
+  if (!payload || typeof payload !== "object") {
+    return "";
+  }
+
+  const candidates = [
+    payload?.access_token,
+    payload?.accessToken,
+    payload?.token?.access_token,
+    payload?.token?.accessToken,
+    payload?.token?.value,
+    payload?.token?.token,
+    payload?.data?.access_token,
+    payload?.data?.accessToken,
+    payload?.data?.token,
+    payload?.value,
+    payload?.tokenValue,
+  ];
+
+  for (const candidate of candidates) {
+    const text = toNonEmptyStringOrEmpty(candidate);
+    if (text) {
+      return text;
+    }
+  }
+
+  return "";
+}
+
 async function registerClientWithSoftwareStatement(softwareStatement) {
   const dcrDeviceInfo = buildDcrDeviceInfo();
   const attempts = [];
+
+  attempts.push(async () => {
+    const response = await fetchWithRateLimitRetry(
+      () =>
+        fetch(`${ADOBE_SP_BASE}/o/client/register`, {
+          method: "POST",
+          mode: "cors",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            software_statement: softwareStatement,
+          }),
+        }),
+      "DCR JSON register (minimal)",
+      {
+        onRetry: ({ attempt, maxRetries, delayMs }) => {
+          const delaySeconds = Math.max(1, Math.ceil(delayMs / 1000));
+          setStatus(
+            `DCR registration rate-limited. Retrying in ${delaySeconds}s (${attempt}/${maxRetries})...`,
+            "info"
+          );
+        },
+      }
+    );
+
+    const text = await response.text().catch(() => "");
+    const parsed = parseJsonOrFormText(text, {});
+    if (!response.ok) {
+      const reason = normalizeHttpErrorMessage(text) || response.statusText;
+      throw new Error(`DCR JSON register minimal failed (${response.status}): ${reason}`);
+    }
+    return parsed || {};
+  });
 
   attempts.push(async () => {
     const response = await fetchWithRateLimitRetry(
@@ -32255,7 +35544,7 @@ async function registerClientWithSoftwareStatement(softwareStatement) {
     );
 
     const text = await response.text().catch(() => "");
-    const parsed = parseJsonText(text, {});
+    const parsed = parseJsonOrFormText(text, {});
     if (!response.ok) {
       const reason = normalizeHttpErrorMessage(text) || response.statusText;
       throw new Error(`DCR JSON register failed (${response.status}): ${reason}`);
@@ -32292,7 +35581,7 @@ async function registerClientWithSoftwareStatement(softwareStatement) {
     );
 
     const text = await response.text().catch(() => "");
-    const parsed = parseJsonText(text, {});
+    const parsed = parseJsonOrFormText(text, {});
     if (!response.ok) {
       const reason = normalizeHttpErrorMessage(text) || response.statusText;
       throw new Error(`DCR form register failed (${response.status}): ${reason}`);
@@ -32304,8 +35593,20 @@ async function registerClientWithSoftwareStatement(softwareStatement) {
   for (const attempt of attempts) {
     try {
       const data = await attempt();
-      const clientId = data.client_id || data.clientId || data.clientID;
-      const clientSecret = data.client_secret || data.clientSecret || data.clientSECRET;
+      const clientId = firstNonEmptyString([
+        String(data?.client_id || "").trim(),
+        String(data?.clientId || "").trim(),
+        String(data?.clientID || "").trim(),
+        String(data?.client?.client_id || "").trim(),
+        String(data?.client?.clientId || "").trim(),
+      ]);
+      const clientSecret = firstNonEmptyString([
+        String(data?.client_secret || "").trim(),
+        String(data?.clientSecret || "").trim(),
+        String(data?.clientSECRET || "").trim(),
+        String(data?.client?.client_secret || "").trim(),
+        String(data?.client?.clientSecret || "").trim(),
+      ]);
       if (!clientId || !clientSecret) {
         throw new Error("DCR response missing client_id/client_secret.");
       }
@@ -32318,9 +35619,30 @@ async function registerClientWithSoftwareStatement(softwareStatement) {
   throw new Error(lastError);
 }
 
-async function requestClientCredentialsToken(clientId, clientSecret, debugMeta = null) {
+async function requestClientCredentialsToken(clientId, clientSecret, debugMeta = null, requestedScope = "") {
   const debugFlowId = String(debugMeta?.flowId || "").trim();
   const tokenEndpointUrl = `${ADOBE_SP_BASE}/o/client/token`;
+  const normalizedRequestedScope = normalizeScope(requestedScope);
+  const normalizedServiceHint = normalizeScope(firstNonEmptyString([debugMeta?.service, debugMeta?.scope]));
+  // Mirror the same tolerance used by working REST/ESM flows: tokens may omit explicit scope text.
+  const strictScopeValidation = false;
+  const scopeAttemptOrder = [];
+  const appendScopeAttempt = (scopeValue) => {
+    const normalized = normalizeScope(scopeValue);
+    if (!normalized) {
+      return;
+    }
+    if (!scopeAttemptOrder.includes(normalized)) {
+      scopeAttemptOrder.push(normalized);
+    }
+  };
+  if (normalizedRequestedScope) {
+    appendScopeAttempt(normalizedRequestedScope);
+  }
+  if (normalizedServiceHint.includes("degradation")) {
+    DEGRADATION_SCOPE_CANDIDATES.forEach((candidate) => appendScopeAttempt(candidate));
+  }
+  scopeAttemptOrder.push("");
   const createTokenAttemptId = (transport) =>
     `token-${String(transport || "attempt")}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   const emitTokenDebugEvent = (phase, details = {}) => {
@@ -32337,172 +35659,175 @@ async function requestClientCredentialsToken(clientId, clientSecret, debugMeta =
   };
 
   const attempts = [];
+  const addTokenAttempt = (transport = "query", scopeValue = "", options = {}) => {
+    const minimal = options?.minimal === true;
+    const normalizedAttemptScope = normalizeScope(scopeValue);
+    attempts.push(async () => {
+      const attemptId = createTokenAttemptId(minimal ? `${transport}-minimal` : transport);
+      const requestHeaders =
+        transport === "form"
+          ? minimal
+            ? {
+                "Content-Type": "application/x-www-form-urlencoded",
+              }
+            : {
+                "Content-Type": "application/x-www-form-urlencoded",
+                Accept: "application/json",
+              }
+          : {
+              ...(minimal ? {} : { Accept: "application/json" }),
+            };
 
-  attempts.push(async () => {
-    const attemptId = createTokenAttemptId("query");
-    const requestUrl = `${tokenEndpointUrl}?grant_type=client_credentials&client_id=${encodeURIComponent(clientId)}&client_secret=${encodeURIComponent(clientSecret)}`;
-    const requestHeaders = {
-      Accept: "application/json",
-    };
-    emitTokenDebugEvent("token-request-attempt", {
-      attemptId,
-      transport: "query",
-      method: "POST",
-      url: requestUrl,
-      requestHeaders,
-      requestBodyPreview: "",
-    });
-    const response = await fetchWithRateLimitRetry(
-      () =>
-        fetch(requestUrl, {
-          method: "POST",
-          mode: "cors",
-          headers: requestHeaders,
-        }),
-      "DCR token query",
-      {
-        onRetry: ({ attempt, maxRetries, delayMs }) => {
-          const delaySeconds = Math.max(1, Math.ceil(delayMs / 1000));
-          setStatus(
-            `DCR token rate-limited. Retrying in ${delaySeconds}s (${attempt}/${maxRetries})...`,
-            "info"
-          );
-        },
+      let requestUrl = tokenEndpointUrl;
+      let requestBodyPreview = "";
+      if (transport === "query") {
+        const queryParams = new URLSearchParams();
+        queryParams.set("grant_type", "client_credentials");
+        queryParams.set("client_id", clientId);
+        queryParams.set("client_secret", clientSecret);
+        if (!minimal && scopeValue) {
+          queryParams.set("scope", scopeValue);
+        }
+        requestUrl = `${tokenEndpointUrl}?${queryParams.toString()}`;
+      } else {
+        const body = new URLSearchParams();
+        body.set("grant_type", "client_credentials");
+        body.set("client_id", clientId);
+        body.set("client_secret", clientSecret);
+        if (!minimal && scopeValue) {
+          body.set("scope", scopeValue);
+        }
+        requestBodyPreview = body.toString();
       }
-    );
-    const text = await response.text().catch(() => "");
-    const parsed = parseJsonText(text, {});
-    if (!response.ok) {
-      const reason = normalizeHttpErrorMessage(text) || response.statusText;
-      emitTokenDebugEvent("token-request-attempt-failed", {
+
+      emitTokenDebugEvent("token-request-attempt", {
         attemptId,
-        transport: "query",
+        transport,
         method: "POST",
         url: requestUrl,
         requestHeaders,
-        requestBodyPreview: "",
-        status: Number(response.status || 0),
-        statusText: String(response.statusText || ""),
-        responseHeaders: toDebugHeadersObject(response.headers),
-        responsePreview: text ? truncateDebugText(text, 4000) : "",
-        error: reason,
+        requestBodyPreview,
+        oauthScope: scopeValue,
       });
-      throw new Error(`DCR token query failed (${response.status}): ${reason}`);
-    }
-    const responseSummary = JSON.stringify({
-      token_type: String(parsed?.token_type || parsed?.tokenType || ""),
-      expires_in: Number(parsed?.expires_in || parsed?.expiresIn || 0),
-      scope: String(parsed?.scope || ""),
-    });
-    emitTokenDebugEvent("token-request-attempt-succeeded", {
-      attemptId,
-      transport: "query",
-      method: "POST",
-      url: requestUrl,
-      requestHeaders,
-      requestBodyPreview: "",
-      status: Number(response.status || 0),
-      statusText: String(response.statusText || ""),
-      responseHeaders: toDebugHeadersObject(response.headers),
-      responsePreview: responseSummary,
-    });
-    return parsed || {};
-  });
 
-  attempts.push(async () => {
-    const attemptId = createTokenAttemptId("form");
-    const body = new URLSearchParams();
-    body.set("grant_type", "client_credentials");
-    body.set("client_id", clientId);
-    body.set("client_secret", clientSecret);
-    const requestBodyPreview = body.toString();
-    const requestHeaders = {
-      "Content-Type": "application/x-www-form-urlencoded",
-      Accept: "application/json",
-    };
-    emitTokenDebugEvent("token-request-attempt", {
-      attemptId,
-      transport: "form",
-      method: "POST",
-      url: tokenEndpointUrl,
-      requestHeaders,
-      requestBodyPreview,
-    });
-    const response = await fetchWithRateLimitRetry(
-      () =>
-        fetch(tokenEndpointUrl, {
+      const response = await fetchWithRateLimitRetry(
+        () =>
+          fetch(requestUrl, {
+            method: "POST",
+            mode: "cors",
+            headers: requestHeaders,
+            ...(transport === "form" ? { body: requestBodyPreview } : {}),
+          }),
+        transport === "form" ? "DCR token form" : "DCR token query",
+        {
+          onRetry: ({ attempt, maxRetries, delayMs }) => {
+            const delaySeconds = Math.max(1, Math.ceil(delayMs / 1000));
+            setStatus(
+              `DCR token rate-limited. Retrying in ${delaySeconds}s (${attempt}/${maxRetries})...`,
+              "info"
+            );
+          },
+        }
+      );
+      const text = await response.text().catch(() => "");
+      const parsed = parseJsonOrFormText(text, {});
+      if (!response.ok) {
+        const reason = normalizeHttpErrorMessage(text) || response.statusText;
+        emitTokenDebugEvent("token-request-attempt-failed", {
+          attemptId,
+          transport,
           method: "POST",
-          mode: "cors",
-          headers: requestHeaders,
-          body: requestBodyPreview,
-        }),
-      "DCR token form",
-      {
-        onRetry: ({ attempt, maxRetries, delayMs }) => {
-          const delaySeconds = Math.max(1, Math.ceil(delayMs / 1000));
-          setStatus(
-            `DCR token rate-limited. Retrying in ${delaySeconds}s (${attempt}/${maxRetries})...`,
-            "info"
-          );
-        },
+          url: requestUrl,
+          requestHeaders,
+          requestBodyPreview,
+          status: Number(response.status || 0),
+          statusText: String(response.statusText || ""),
+          responseHeaders: toDebugHeadersObject(response.headers),
+          responsePreview: text ? truncateDebugText(text, 4000) : "",
+          error: reason,
+          oauthScope: scopeValue,
+        });
+        throw new Error(
+          `DCR token ${transport === "form" ? "form" : "query"} failed (${response.status}): ${reason}`
+        );
       }
-    );
-    const text = await response.text().catch(() => "");
-    const parsed = parseJsonText(text, {});
-    if (!response.ok) {
-      const reason = normalizeHttpErrorMessage(text) || response.statusText;
-      emitTokenDebugEvent("token-request-attempt-failed", {
+      const responseSummary = JSON.stringify({
+        token_type: String(parsed?.token_type || parsed?.tokenType || ""),
+        expires_in: Number(parsed?.expires_in || parsed?.expiresIn || 0),
+        scope: String(parsed?.scope || ""),
+        has_access_token: Boolean(extractDcrAccessTokenValue(parsed)),
+      });
+      emitTokenDebugEvent("token-request-attempt-succeeded", {
         attemptId,
-        transport: "form",
+        transport,
         method: "POST",
-        url: tokenEndpointUrl,
+        url: requestUrl,
         requestHeaders,
         requestBodyPreview,
         status: Number(response.status || 0),
         statusText: String(response.statusText || ""),
         responseHeaders: toDebugHeadersObject(response.headers),
-        responsePreview: text ? truncateDebugText(text, 4000) : "",
-        error: reason,
+        responsePreview: responseSummary,
+        oauthScope: scopeValue,
       });
-      throw new Error(`DCR token form failed (${response.status}): ${reason}`);
-    }
-    const responseSummary = JSON.stringify({
-      token_type: String(parsed?.token_type || parsed?.tokenType || ""),
-      expires_in: Number(parsed?.expires_in || parsed?.expiresIn || 0),
-      scope: String(parsed?.scope || ""),
+      return {
+        payload: parsed || {},
+        attemptedScope: normalizedAttemptScope,
+      };
     });
-    emitTokenDebugEvent("token-request-attempt-succeeded", {
-      attemptId,
-      transport: "form",
-      method: "POST",
-      url: tokenEndpointUrl,
-      requestHeaders,
-      requestBodyPreview,
-      status: Number(response.status || 0),
-      statusText: String(response.statusText || ""),
-      responseHeaders: toDebugHeadersObject(response.headers),
-      responsePreview: responseSummary,
-    });
-    return parsed || {};
-  });
+  };
+
+  // Mirror the known-working premium flow first: form token call without scope.
+  addTokenAttempt("form", "", { minimal: true });
+  scopeAttemptOrder.forEach((scopeValue) => addTokenAttempt("query", scopeValue));
+  scopeAttemptOrder.forEach((scopeValue) => addTokenAttempt("form", scopeValue));
 
   let lastError = "Token request failed.";
   for (const attempt of attempts) {
     try {
-      const data = await attempt();
-      const accessToken = data.access_token || data.accessToken;
+      const attemptResult = await attempt();
+      const data = attemptResult?.payload || {};
+      const attemptedScope = normalizeScope(firstNonEmptyString([attemptResult?.attemptedScope]));
+      const accessToken = extractDcrAccessTokenValue(data);
       if (!accessToken) {
         throw new Error("Token response missing access_token.");
       }
 
-      const expiresInSeconds = Number(data.expires_in || data.expiresIn);
+      const expiresInSeconds = Number(
+        data?.expires_in ||
+          data?.expiresIn ||
+          data?.token?.expires_in ||
+          data?.token?.expiresIn ||
+          0
+      );
       const ttlSeconds = Number.isFinite(expiresInSeconds) && expiresInSeconds > 0 ? expiresInSeconds : 6 * 60 * 60;
+      const tokenClaims = parseJwtPayload(accessToken);
+      const tokenScope = firstNonEmptyString([
+        String(data?.scope || "").trim(),
+        String(data?.token?.scope || "").trim(),
+        String(tokenClaims?.scope || "").trim(),
+      ]);
+      const scopeSatisfied = tokenScopeSatisfiesRequiredScope(
+        tokenScope,
+        accessToken,
+        normalizedRequestedScope,
+        {
+          strictUnknown: strictScopeValidation,
+          requestedScopeHint: attemptedScope,
+        }
+      );
+      if (!scopeSatisfied) {
+        throw new Error(`Token response missing required scope "${normalizedRequestedScope}".`);
+      }
       emitTokenDebugEvent("token-response", {
         ttlSeconds,
+        oauthScope: tokenScope,
       });
       return {
         accessToken,
         tokenExpiresAt: Date.now() + ttlSeconds * 1000,
+        tokenScope,
+        attemptedScope,
       };
     } catch (error) {
       lastError = error?.message || String(error);
@@ -32511,6 +35836,7 @@ async function requestClientCredentialsToken(clientId, clientSecret, debugMeta =
 
   emitTokenDebugEvent("token-request-failed", {
     error: String(lastError || "Token request failed."),
+    oauthScope: normalizedRequestedScope,
   });
   throw new Error(lastError);
 }
@@ -32524,12 +35850,16 @@ async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false,
   }
 
   const debugFlowId = String(debugMeta?.flowId || "").trim();
+  const requiredServiceScope = resolveRequiredPremiumServiceScope(appInfo, debugMeta);
+  const normalizedServiceHint = normalizeScope(firstNonEmptyString([debugMeta?.service, debugMeta?.scope]));
+  const strictScopeValidation = false;
   const emitDcrDebugEvent = (phase, details = {}) => {
     emitRestV2DebugEvent(debugFlowId, {
       source: "extension",
       service: String(debugMeta?.service || ""),
       phase,
       requestScope: String(debugMeta?.scope || ""),
+      requiredServiceScope: String(requiredServiceScope || ""),
       requestorId: String(debugMeta?.requestorId || ""),
       mvpd: String(debugMeta?.mvpd || ""),
       programmerId: String(programmerId || ""),
@@ -32546,26 +35876,42 @@ async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false,
   }
 
   const workPromise = (async () => {
-    let cache = loadDcrCache(programmerId, appInfo.guid) || {};
+    const cache = loadDcrCache(programmerId, appInfo.guid) || {};
 
-    if (!cache.clientId || !cache.clientSecret) {
-      emitDcrDebugEvent("dcr-registration-required");
+    const ensureSoftwareStatement = async () => {
+      const currentStatement = String(appInfo?.softwareStatement || "").trim();
+      if (currentStatement) {
+        return currentStatement;
+      }
+
+      try {
+        const details = await fetchApplicationDetailsByGuid(appInfo.guid);
+        const extracted = extractSoftwareStatementFromAppData(details);
+        if (extracted) {
+          appInfo.softwareStatement = extracted;
+        }
+      } catch {
+        // Continue to direct software statement fallback.
+      }
+
       if (!appInfo.softwareStatement) {
         try {
-          const details = await fetchApplicationDetailsByGuid(appInfo.guid);
-          appInfo.softwareStatement = extractSoftwareStatementFromAppData(details);
+          appInfo.softwareStatement = await fetchSoftwareStatementForAppGuid(appInfo.guid);
         } catch {
           // Continue and fail below if still missing.
         }
       }
-      if (!appInfo.softwareStatement) {
-        appInfo.softwareStatement = await fetchSoftwareStatementForAppGuid(appInfo.guid);
-      }
-      if (!appInfo.softwareStatement) {
+      return String(appInfo?.softwareStatement || "").trim();
+    };
+
+    if (!cache.clientId || !cache.clientSecret) {
+      emitDcrDebugEvent("dcr-registration-required");
+      const softwareStatement = await ensureSoftwareStatement();
+      if (!softwareStatement) {
         throw new Error(`No software statement found on app ${appInfo.appName || appInfo.guid}`);
       }
 
-      const registered = await registerClientWithSoftwareStatement(appInfo.softwareStatement);
+      const registered = await registerClientWithSoftwareStatement(softwareStatement);
       cache.clientId = registered.clientId;
       cache.clientSecret = registered.clientSecret;
       emitDcrDebugEvent("dcr-registration-succeeded");
@@ -32573,21 +35919,48 @@ async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false,
 
     const tokenMissing = !cache.accessToken || !cache.tokenExpiresAt;
     const tokenExpired = Date.now() >= Number(cache.tokenExpiresAt) - 60 * 1000;
-    if (forceRefresh || tokenMissing || tokenExpired) {
+    const cachedServiceScope = normalizeScope(String(cache.serviceScope || cache.tokenRequestedScope || ""));
+    const cacheServiceScopeMismatch = Boolean(
+      normalizeScope(requiredServiceScope) && cachedServiceScope !== normalizeScope(requiredServiceScope)
+    );
+    const tokenScopeMismatch = !tokenScopeSatisfiesRequiredScope(
+      String(cache.tokenScope || ""),
+      String(cache.accessToken || ""),
+      requiredServiceScope,
+      {
+        strictUnknown: strictScopeValidation,
+        requestedScopeHint: String(cache.tokenRequestedScope || cache.serviceScope || ""),
+      }
+    );
+    if (forceRefresh || tokenMissing || tokenExpired || tokenScopeMismatch || cacheServiceScopeMismatch) {
       emitDcrDebugEvent("token-refresh-required", {
         forceRefresh: forceRefresh === true,
         tokenMissing: tokenMissing === true,
         tokenExpired: tokenExpired === true,
+        tokenScopeMismatch: tokenScopeMismatch === true,
+        cacheServiceScopeMismatch: cacheServiceScopeMismatch === true,
+        cachedServiceScope,
+        cachedTokenScope: String(cache.tokenScope || ""),
       });
-      const token = await requestClientCredentialsToken(cache.clientId, cache.clientSecret, {
-        ...debugMeta,
-        appGuid: String(appInfo?.guid || ""),
-      });
+      const token = await requestClientCredentialsToken(
+        cache.clientId,
+        cache.clientSecret,
+        {
+          ...debugMeta,
+          appGuid: String(appInfo?.guid || ""),
+        },
+        requiredServiceScope
+      );
       cache.accessToken = token.accessToken;
       cache.tokenExpiresAt = token.tokenExpiresAt;
+      cache.tokenScope = String(token.tokenScope || "");
+      cache.tokenRequestedScope = String(token.attemptedScope || requiredServiceScope || "").trim();
+      cache.serviceScope = String(requiredServiceScope || cache.serviceScope || "").trim();
     } else {
       emitDcrDebugEvent("token-cache-hit", {
         tokenExpiresAt: Number(cache.tokenExpiresAt || 0),
+        tokenScope: String(cache.tokenScope || ""),
+        serviceScope: String(cache.serviceScope || ""),
       });
     }
 
@@ -32612,7 +35985,8 @@ async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, re
   const debugFlowId = String(debugMeta?.flowId || "").trim();
   const workspaceKey = normalizeWorkspaceDebugKey(debugMeta?.workspaceKey || debugMeta?.workspaceOrigin || "");
   const workspaceOrigin = firstNonEmptyString([debugMeta?.workspaceOrigin, getWorkspaceDebugLabel(workspaceKey)]);
-  const token = await ensureDcrAccessToken(programmerId, appInfo, false, debugMeta);
+  const forceFreshDcrToken = debugMeta?.forceFreshToken === true;
+  const token = await ensureDcrAccessToken(programmerId, appInfo, forceFreshDcrToken, debugMeta);
   const headers = new Headers(options.headers || {});
   headers.set("Authorization", `Bearer ${token}`);
   if (!headers.has("Accept")) {
@@ -32732,7 +36106,7 @@ async function fetchWithPremiumAuth(programmerId, appInfo, url, options = {}, re
       workspaceKey,
       workspaceOrigin,
     });
-    clearDcrCache(programmerId, appInfo.guid);
+    clearDcrTokenCache(programmerId, appInfo.guid);
     await ensureDcrAccessToken(programmerId, appInfo, true, debugMeta);
     return fetchWithPremiumAuth(programmerId, appInfo, url, options, "none", debugMeta);
   }
@@ -32763,17 +36137,24 @@ function getProgrammerCandidatesForRequestor(requestorId) {
 
 async function ensurePremiumAppsForProgrammer(programmer, options = {}) {
   if (!programmer || !programmer.programmerId) {
-    return { degradation: null, esm: null, restV2: null, restV2Apps: [], cm: null };
+    return { degradation: null, degradationApps: [], esm: null, restV2: null, restV2Apps: [], cm: null };
   }
 
   const forceRefresh = options.forceRefresh === true;
   if (forceRefresh) {
     state.premiumAppsByProgrammerId.delete(programmer.programmerId);
     state.applicationsByProgrammerId.delete(programmer.programmerId);
+    state.premiumAppScopeHydrationPromiseByProgrammerId.delete(programmer.programmerId);
   }
 
   const existing = state.premiumAppsByProgrammerId.get(programmer.programmerId);
   if (!forceRefresh && existing) {
+    if (!existing?.degradation?.guid) {
+      schedulePremiumAppScopeHydration(programmer, {
+        forceRefresh: false,
+        controllerReason: String(options?.controllerReason || "scope-hydration-cache-hit"),
+      });
+    }
     emitPremiumDecisionDebugEvent(
       {
         phase: "premium-service-cache-hit",
@@ -32793,6 +36174,12 @@ async function ensurePremiumAppsForProgrammer(programmer, options = {}) {
   const loadPromise = (async () => {
     const applicationsData = await fetchApplicationsForProgrammer(programmer.programmerId, { forceRefresh });
     const premiumApps = findPremiumServiceApplications(programmer.applications || [], applicationsData || {});
+    if (!premiumApps?.degradation?.guid) {
+      schedulePremiumAppScopeHydration(programmer, {
+        forceRefresh,
+        controllerReason: String(options?.controllerReason || "scope-hydration"),
+      });
+    }
     emitPremiumDecisionDebugEvent(
       {
         phase: "premium-service-decision",
@@ -32813,8 +36200,13 @@ async function ensurePremiumAppsForProgrammer(programmer, options = {}) {
       });
     });
     const existingServices = state.premiumAppsByProgrammerId.get(programmer.programmerId) || null;
+    const resolvedDegradationApps = Array.isArray(premiumApps?.degradationApps)
+      ? premiumApps.degradationApps.filter((appInfo) => appInfo?.guid)
+      : [];
     const mergedServices = {
       ...premiumApps,
+      degradation: premiumApps?.degradation || null,
+      degradationApps: resolvedDegradationApps,
       cm: existingServices?.cm ?? null,
       cmMvpd: existingServices?.cmMvpd ?? null,
       cmMvpdSelectionKey: String(existingServices?.cmMvpdSelectionKey || "").trim(),
@@ -36557,9 +39949,27 @@ function cmDownloadRowsAsCsv(rows, options = {}) {
 
 async function cmDownloadCsvForCard(cmState, record, card, sortRule, requestToken) {
   const normalizedCard = card && typeof card === "object" ? card : {};
+  const isMvpdCmContext = String(cmState?.serviceType || "").trim().toLowerCase() === "cmmvpd";
+  const requestContext = cmResolveRequestorMvpdContext(cmState);
+  const scopedRecord =
+    isMvpdCmContext
+      ? {
+          ...(record && typeof record === "object" ? record : {}),
+          tenantId: firstNonEmptyString([String(requestContext.mvpdId || "").trim(), String(record?.tenantId || "").trim()]),
+          tenantName: firstNonEmptyString([
+            String(requestContext.mvpdLabel || "").trim(),
+            String(requestContext.mvpdId || "").trim(),
+            String(record?.tenantName || "").trim(),
+          ]),
+        }
+      : record;
   const requestUrlOverrideRaw = String(normalizedCard.requestUrl || normalizedCard.endpointUrl || "").trim();
-  const requestUrlOverride = cmScopeUsageRequestUrl(requestUrlOverrideRaw, cmState, record) || requestUrlOverrideRaw;
-  const recordRequestUrl = cmScopeUsageRequestUrl(String(record?.requestUrl || record?.endpointUrl || "").trim(), cmState, record);
+  const requestUrlOverride = cmScopeUsageRequestUrl(requestUrlOverrideRaw, cmState, scopedRecord) || requestUrlOverrideRaw;
+  const recordRequestUrl = cmScopeUsageRequestUrl(
+    String(record?.requestUrl || record?.endpointUrl || "").trim(),
+    cmState,
+    scopedRecord
+  );
   const hasUrlOverrideDiffersFromRecord =
     Boolean(requestUrlOverride) && requestUrlOverride !== recordRequestUrl;
   let rows = hasUrlOverrideDiffersFromRecord ? [] : Array.isArray(normalizedCard.rows) ? normalizedCard.rows : [];
@@ -36579,10 +39989,10 @@ async function cmDownloadCsvForCard(cmState, record, card, sortRule, requestToke
           endpointUrl: requestUrl,
           cardId: String(normalizedCard?.cardId || record?.cardId || ""),
           programmerId: String(cmState?.programmer?.programmerId || ""),
-          requestorId: String(state.selectedRequestorId || ""),
-          mvpd: String(state.selectedMvpdId || ""),
-          workspaceKey: "cmu-workspace",
-          workspaceOrigin: "CMU Workspace",
+          requestorId: String(requestContext.requestorId || state.selectedRequestorId || ""),
+          mvpd: String(requestContext.mvpdId || state.selectedMvpdId || ""),
+          workspaceKey: isMvpdCmContext ? "mvpd-workspace" : "cmu-workspace",
+          workspaceOrigin: isMvpdCmContext ? "MVPD Workspace" : "CMU Workspace",
         },
       });
       if (!isCmServiceRequestActive(cmState.section, requestToken, cmState.programmer?.programmerId)) {
@@ -36603,7 +40013,7 @@ async function cmDownloadCsvForCard(cmState, record, card, sortRule, requestToke
     return { ok: false, error: "No CM rows are available to export as CSV." };
   }
 
-  const fileName = cmBuildCsvFileName(cmState, record, normalizedCard);
+  const fileName = cmBuildCsvFileName(cmState, scopedRecord, normalizedCard);
   const started = cmDownloadRowsAsCsv(rows, {
     columns,
     sortRule,
@@ -37848,6 +41258,7 @@ function applyProgrammerEntities(entities) {
   state.applicationsByProgrammerId.clear();
   state.premiumAppsByProgrammerId.clear();
   state.premiumAppsLoadPromiseByProgrammerId.clear();
+  state.premiumAppScopeHydrationPromiseByProgrammerId.clear();
   state.restV2ProfileHarvestBySelectionKey.clear();
   state.restV2ProfileHarvestByProgrammerId.clear();
   state.restV2ProfileHarvestBucketByProgrammerId.clear();
@@ -38546,6 +41957,10 @@ function registerEventHandlers() {
       esmWorkspaceBroadcastControllerState(esmWorkspaceState);
       syncEsmWorkspaceRecordingControls(esmWorkspaceState);
     }
+    const degradationState = getActiveDegradationWorkspaceState();
+    if (degradationState) {
+      syncDegradationWorkspaceRecordingControls(degradationState);
+    }
     const cmState = getActiveCmState();
     if (cmState) {
       cmBroadcastControllerState(cmState);
@@ -38607,6 +42022,10 @@ function registerEventHandlers() {
     if (esmWorkspaceState) {
       esmWorkspaceBroadcastControllerState(esmWorkspaceState);
       syncEsmWorkspaceRecordingControls(esmWorkspaceState);
+    }
+    const degradationState = getActiveDegradationWorkspaceState();
+    if (degradationState) {
+      syncDegradationWorkspaceRecordingControls(degradationState);
     }
     const cmState = getActiveCmState();
     if (cmState) {
@@ -38690,6 +42109,8 @@ function init() {
   ensureMvpdWorkspaceTabWatcher();
   ensureRestWorkspaceRuntimeListener();
   ensureRestWorkspaceTabWatcher();
+  ensureDegradationWorkspaceRuntimeListener();
+  ensureDegradationWorkspaceTabWatcher();
   ensureBobtoolsWorkspaceRuntimeListener();
   ensureBobtoolsWorkspaceTabWatcher();
   ensureRestV2LoginTabWatcher();

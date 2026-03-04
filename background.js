@@ -61,6 +61,9 @@ const BUILD_FINGERPRINT_FILES = [
   "rest-workspace.html",
   "rest-workspace.css",
   "rest-workspace.js",
+  "degradation-workspace.html",
+  "degradation-workspace.css",
+  "degradation-workspace.js",
   "devtools.html",
   "devtools.js",
   "up-devtools-panel.html",
@@ -1610,7 +1613,8 @@ function shouldMirrorPassEventToAllPorts(event) {
     workspaceHint.includes("cm") ||
     workspaceHint.includes("esm") ||
     workspaceHint.includes("mvpd") ||
-    workspaceHint.includes("rest")
+    workspaceHint.includes("rest") ||
+    workspaceHint.includes("degrad")
   ) {
     return true;
   }

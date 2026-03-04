@@ -358,7 +358,10 @@ function getPayloadSelectionKey(payload = null) {
 function payloadMatchesCurrentSelection(payload = null) {
   const expectedSelectionKey = String(state.expectedSelectionKey || "").trim();
   const payloadSelectionKey = getPayloadSelectionKey(payload);
-  if (expectedSelectionKey && payloadSelectionKey) {
+  if (expectedSelectionKey) {
+    if (!payloadSelectionKey) {
+      return false;
+    }
     return expectedSelectionKey === payloadSelectionKey;
   }
   const activeProgrammer = String(state.programmerId || "").trim();
@@ -869,7 +872,7 @@ function payloadMatchesCurrentMvpdCmSelection(payload = null) {
   const payloadRequestorId = String(payload?.requestorId || "").trim();
   const payloadMvpdId = String(payload?.mvpdId || "").trim();
   if (!payloadProgrammerId || !payloadRequestorId || !payloadMvpdId) {
-    return true;
+    return false;
   }
   return `${payloadProgrammerId}|${payloadRequestorId}|${payloadMvpdId}` === activeSelectionKey;
 }
@@ -3538,15 +3541,17 @@ function handleWorkspaceEvent(eventName, payload) {
     if (payloadProgrammerId) {
       state.programmerId = payloadProgrammerId;
     }
-    if (payloadRequestorId) {
-      state.requestorIds = [payloadRequestorId];
+    if (Object.prototype.hasOwnProperty.call(payload || {}, "requestorId")) {
+      state.requestorIds = payloadRequestorId ? [payloadRequestorId] : [];
     }
-    if (payloadMvpdId) {
-      state.mvpdIds = [payloadMvpdId];
+    if (Object.prototype.hasOwnProperty.call(payload || {}, "mvpdId")) {
+      state.mvpdIds = payloadMvpdId ? [payloadMvpdId] : [];
     }
     const payloadMvpdLabel = resolvePayloadMvpdLabel(payload);
-    if (payloadMvpdLabel) {
+    if (Object.prototype.hasOwnProperty.call(payload || {}, "mvpdLabel")) {
       state.mvpdLabel = payloadMvpdLabel;
+    } else if (!payloadMvpdId) {
+      state.mvpdLabel = "";
     }
     state.expectedSelectionKey = getSelectionKey();
     state.loading = false;

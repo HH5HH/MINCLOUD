@@ -44,6 +44,7 @@ const EVENT_WORKSPACE_LABELS = Object.freeze({
   "esm-workspace": "ESM Workspace",
   "cmu-workspace": "CMU Workspace",
   "mvpd-workspace": "MVPD Workspace",
+  "degradation-workspace": "DEGRADATION Workspace",
 });
 
 const port = chrome.runtime.connect({ name: "underpardebug-devtools" });
@@ -110,7 +111,11 @@ function classifyEventService(event) {
   }
 
   const requestScope = String(event?.requestScope || "").trim().toLowerCase();
-  if (requestScope.includes("degrad") || requestScope === "decisions:owner") {
+  if (
+    requestScope.includes("degrad") ||
+    requestScope === "decisions:client" ||
+    requestScope === "decisions:owner"
+  ) {
     return "degradation";
   }
   if (requestScope.includes("cm")) {
@@ -147,6 +152,9 @@ function classifyEventService(event) {
     .map((value) => String(value || "").trim().toLowerCase())
     .filter(Boolean)
     .join(" ");
+  if (urlHints.includes("/control/v3/degradation") || urlHints.includes("mgmt.auth.adobe.com/control/v3/degradation")) {
+    return "degradation";
+  }
   if (/(cm-reports|config)\.adobeprimetime\.com|streams-stage\.adobeprimetime\.com|\/cmu?\//i.test(urlHints)) {
     return "cm";
   }
@@ -171,6 +179,9 @@ function normalizeWorkspaceKey(value) {
   if (raw.includes("esm")) {
     return "esm-workspace";
   }
+  if (raw.includes("degrad")) {
+    return "degradation-workspace";
+  }
   return "";
 }
 
@@ -190,10 +201,16 @@ function classifyEventWorkspace(event) {
   if (requestScope.includes("esm-workspace")) {
     return "esm-workspace";
   }
+  if (requestScope.includes("degrad")) {
+    return "degradation-workspace";
+  }
 
   const phase = String(event?.phase || "").trim().toLowerCase();
   if (phase.includes("mvpd-workspace")) {
     return "mvpd-workspace";
+  }
+  if (phase.includes("degrad")) {
+    return "degradation-workspace";
   }
   if (phase.includes("cmu") || phase.includes("cm-v2")) {
     return "cmu-workspace";
@@ -202,6 +219,14 @@ function classifyEventWorkspace(event) {
     if (classifyEventService(event) === "esm") {
       return "esm-workspace";
     }
+  }
+
+  const urlHints = [event?.url, event?.endpointUrl, event?.loginUrl]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean)
+    .join(" ");
+  if (urlHints.includes("/control/v3/degradation") || urlHints.includes("mgmt.auth.adobe.com/control/v3/degradation")) {
+    return "degradation-workspace";
   }
   return "";
 }
