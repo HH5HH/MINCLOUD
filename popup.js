@@ -25639,6 +25639,43 @@ function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
     return summaryItems.join("");
   }
 
+  if (serviceKey === "restV2") {
+    const appName = String(appInfo?.appName || appInfo?.guid || "").trim() || "N/A";
+    const appGuid = String(appInfo?.guid || "").trim() || "N/A";
+    const scopeLabel = Array.isArray(appInfo?.scopes) && appInfo.scopes.length > 0 ? appInfo.scopes.join(", ") : "N/A";
+    const requestorCount = Array.isArray(programmer?.requestorIds) ? programmer.requestorIds.length : 0;
+    const selectedRequestorId = String(state.selectedRequestorId || "").trim() || "Not selected";
+    const selectedMvpdId = String(state.selectedMvpdId || "").trim();
+    const selectedMvpdLabel = selectedMvpdId
+      ? firstNonEmptyString([
+          getRestV2MvpdPickerLabel(String(state.selectedRequestorId || "").trim(), selectedMvpdId),
+          selectedMvpdId,
+        ])
+      : "Not selected";
+    const harvestCount = getRestV2ProfileHarvestBucketForProgrammer(programmer).length;
+    const summaryItems = [
+      buildMetadataItemHtml("Registered Application", appName),
+      buildMetadataItemHtml("Application GUID", appGuid),
+      buildMetadataItemHtml("Scopes", scopeLabel),
+      buildMetadataItemHtml("Mapped RequestorIds", String(requestorCount)),
+      buildMetadataItemHtml("Selected RequestorId", selectedRequestorId),
+      buildMetadataItemHtml("Selected MVPD", selectedMvpdLabel),
+      buildMetadataItemHtml("Captured MVPD Profiles", String(harvestCount)),
+    ];
+    return summaryItems.join("");
+  }
+
+  if (serviceKey === "esmWorkspace" || serviceKey === "degradation") {
+    const appName = String(appInfo?.appName || appInfo?.guid || "").trim() || "N/A";
+    const appGuid = String(appInfo?.guid || "").trim() || "N/A";
+    const scopeLabel = Array.isArray(appInfo?.scopes) && appInfo.scopes.length > 0 ? appInfo.scopes.join(", ") : "N/A";
+    return [
+      buildMetadataItemHtml("Registered Application", appName),
+      buildMetadataItemHtml("Application GUID", appGuid),
+      buildMetadataItemHtml("Scopes", scopeLabel),
+    ].join("");
+  }
+
   return "";
 }
 
