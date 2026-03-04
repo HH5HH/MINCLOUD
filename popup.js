@@ -7156,10 +7156,11 @@ function syncRestV2BobtoolsLauncher(section, programmer, appInfo) {
   button.setAttribute("aria-label", actionLabel);
 }
 
-function hideRestV2MvpdDependentControls(section) {
+function hideRestV2MvpdDependentControls(section, options = {}) {
   if (!section) {
     return;
   }
+  const preserveLoginTool = options?.preserveLoginTool === true;
   const loginTool = section.querySelector(".rest-v2-login-tool");
   const loginButton = section.querySelector(".rest-v2-test-login-btn");
   const stopButton = section.querySelector(".rest-v2-close-login-btn");
@@ -7169,7 +7170,7 @@ function hideRestV2MvpdDependentControls(section) {
   const bobtoolsTool = section.querySelector(".rest-v2-bobtools-tool");
 
   if (loginTool) {
-    loginTool.hidden = true;
+    loginTool.hidden = !preserveLoginTool;
   }
   if (loginButton) {
     loginButton.hidden = true;
@@ -7203,7 +7204,11 @@ function syncRestV2LoginPanel(section, programmer, appInfo) {
   const showMvpdUi = hasSelectedMvpd || state.restV2RecordingActive === true || state.restV2Stopping === true;
 
   if (!showMvpdUi) {
-    hideRestV2MvpdDependentControls(section);
+    hideRestV2MvpdDependentControls(section, { preserveLoginTool: true });
+    if (loginTool) {
+      loginTool.hidden = false;
+    }
+    setRestV2LoginPanelStatus(section, "Select an MVPD to enable REST V2 LOGIN.");
     return;
   }
   if (loginTool) {
@@ -25640,29 +25645,7 @@ function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
   }
 
   if (serviceKey === "restV2") {
-    const appName = String(appInfo?.appName || appInfo?.guid || "").trim() || "N/A";
-    const appGuid = String(appInfo?.guid || "").trim() || "N/A";
-    const scopeLabel = Array.isArray(appInfo?.scopes) && appInfo.scopes.length > 0 ? appInfo.scopes.join(", ") : "N/A";
-    const requestorCount = Array.isArray(programmer?.requestorIds) ? programmer.requestorIds.length : 0;
-    const selectedRequestorId = String(state.selectedRequestorId || "").trim() || "Not selected";
-    const selectedMvpdId = String(state.selectedMvpdId || "").trim();
-    const selectedMvpdLabel = selectedMvpdId
-      ? firstNonEmptyString([
-          getRestV2MvpdPickerLabel(String(state.selectedRequestorId || "").trim(), selectedMvpdId),
-          selectedMvpdId,
-        ])
-      : "Not selected";
-    const harvestCount = getRestV2ProfileHarvestBucketForProgrammer(programmer).length;
-    const summaryItems = [
-      buildMetadataItemHtml("Registered Application", appName),
-      buildMetadataItemHtml("Application GUID", appGuid),
-      buildMetadataItemHtml("Scopes", scopeLabel),
-      buildMetadataItemHtml("Mapped RequestorIds", String(requestorCount)),
-      buildMetadataItemHtml("Selected RequestorId", selectedRequestorId),
-      buildMetadataItemHtml("Selected MVPD", selectedMvpdLabel),
-      buildMetadataItemHtml("Captured MVPD Profiles", String(harvestCount)),
-    ];
-    return summaryItems.join("");
+    return "";
   }
 
   if (serviceKey === "esmWorkspace" || serviceKey === "degradation") {
