@@ -8,7 +8,7 @@ const CM_WORKSPACE_RUNTIME_CLIENT_IDS_INPUT_NAME = "cm_client_ids";
 const CM_WORKSPACE_RUNTIME_USER_ID_INPUT_NAME = "cm_user_id";
 const CM_WORKSPACE_RUNTIME_SCOPE_INPUT_NAME = "cm_scope";
 const CM_WORKSPACE_IMS_DEFAULT_SCOPE =
-  "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
+  "AdobeID,openid,read_organizations,additional_info.projectedProductContext";
 const CM_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
 const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const WORKSPACE_TABLE_VISIBLE_ROW_CAP = 10;

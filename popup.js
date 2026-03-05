@@ -117,20 +117,36 @@ const EXPERIENCE_CLOUD_SSO_TOKEN_ENDPOINT =
   "https://auth.services.adobe.com/signin/v2/tokens?credential=sso&checkReauth=false&puser=&t2Only=false&euid=&pbaPolicy=";
 const EXPERIENCE_CLOUD_SSO_CLIENT_ID = "exc_app";
 const EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER =
-  '{"findFirst":true, "fallbackToAA":true, "preferForwardProfile":true}; hasPC("dma_tartan")';
+  '{"findFirst":true, "preferForwardProfile":true}';
 const CLICK_ESM_ENDPOINTS_PATH = "click-esm-endpoints.json";
 const CLICK_CMU_ENDPOINTS_PATH = "click-cmu-endpoints.json";
 const CLICK_ESM_TEMPLATE_PATH = "clickESM-template.html";
+const CLICK_DGR_TEMPLATE_PATH = "clickDGR-template.html";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_TITLE = "__UP_CLICK_ESM_TITLE__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_CID = "__UP_CID__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_CSC = "__UP_CSC__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN = "__UP_ACCESS_TOKEN__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_REQUESTOR_IDS_JSON = "__UP_REQUESTOR_IDS_JSON__";
 const CLICK_ESM_TEMPLATE_PLACEHOLDER_THEME_SCOPE = "__UP_THEME_SCOPE__";
+const CLICK_DGR_TEMPLATE_PLACEHOLDER_CID = CLICK_ESM_TEMPLATE_PLACEHOLDER_CID;
+const CLICK_DGR_TEMPLATE_PLACEHOLDER_CSC = CLICK_ESM_TEMPLATE_PLACEHOLDER_CSC;
+const CLICK_DGR_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN = CLICK_ESM_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN;
+const CLICK_DGR_TEMPLATE_PLACEHOLDER_REQUESTOR_IDS_JSON = CLICK_ESM_TEMPLATE_PLACEHOLDER_REQUESTOR_IDS_JSON;
+const CLICK_DGR_TEMPLATE_PLACEHOLDER_THEME_SCOPE = CLICK_ESM_TEMPLATE_PLACEHOLDER_THEME_SCOPE;
+const CLICK_DGR_TEMPLATE_PLACEHOLDER_MEDIA_COMPANY_ID = "__UP_MEDIA_COMPANY_ID__";
+const CLICK_DGR_TEMPLATE_PLACEHOLDER_MEDIA_COMPANY_NAME = "__UP_MEDIA_COMPANY_NAME__";
+const CLICK_DGR_TEMPLATE_PLACEHOLDER_DEFAULT_REQUESTOR_ID = "__UP_DEFAULT_REQUESTOR_ID__";
+const CLICK_DGR_TEMPLATE_PLACEHOLDER_DEFAULT_MVPD_ID = "__UP_DEFAULT_MVPD_ID__";
 const CLICK_ESM_TEMPLATE_REQUIRED_MARKERS = [
   "const __localColumnFilterStateByDl = new WeakMap();",
   "function __appendLocalColumnFilterParams(url, dl)",
   "function __applyLocalColumnFiltersToRows(rows, dl)",
+  "--zip-theme-vibe-body-radial-alpha",
+];
+const CLICK_DGR_TEMPLATE_REQUIRED_MARKERS = [
+  "window.__UNDERPAR_CLICK_DGR_RUNTIME__ = true;",
+  "function runSelectedMethod(",
+  "function loadRequestorPicker(",
   "--zip-theme-vibe-body-radial-alpha",
 ];
 const ESM_WORKSPACE_INLINE_RESULT_LIMIT = 100;
@@ -658,7 +674,7 @@ const CM_BASE_URL_CANDIDATES = [
 const CM_V2_API_BASE_DEFAULT = "https://streams-stage.adobeprimetime.com";
 const CM_IMS_CHECK_TOKEN_ENDPOINT = "https://adobeid-na1.services.adobe.com/ims/check/v6/token";
 const CM_IMS_CHECK_DEFAULT_SCOPE =
-  "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
+  "AdobeID,openid,read_organizations,additional_info.projectedProductContext";
 const CM_IMS_VALIDATE_CLIENT_IDS = ["cm-console-ui", "AdobePass1", IMS_CLIENT_ID];
 const CM_IMS_CHECK_CLIENT_IDS = ["cm-console-ui", "AdobePass1", IMS_CLIENT_ID];
 const CM_IMS_FORCE_REFRESH_SKEW_MS = 30 * 1000;
@@ -799,6 +815,7 @@ const DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC = {
   targetKey: "",
   targetIdKey: "",
 };
+const DEGRADATION_API_VERSION = "3.0";
 
 const state = {
   busy: false,
@@ -998,6 +1015,8 @@ let clickCmuEndpoints = [];
 let clickCmuEndpointsPromise = null;
 let clickEsmTemplateHtml = "";
 let clickEsmTemplatePromise = null;
+let clickDgrTemplateHtml = "";
+let clickDgrTemplatePromise = null;
 
 function log(message, details = null) {
   if (details === null) {
@@ -12768,6 +12787,19 @@ function clickEsmReplaceHiddenInputHotspot(templateHtml, inputName, value, place
   throw new Error(`clickESM template is missing hidden input "${safeName}".`);
 }
 
+function replaceTemplateTokenHotspot(templateHtml, placeholderToken, value, label = "") {
+  const output = String(templateHtml || "");
+  const token = String(placeholderToken || "").trim();
+  if (!token) {
+    throw new Error("Template placeholder token is required.");
+  }
+  if (!output.includes(token)) {
+    const labelText = String(label || token).trim();
+    throw new Error(`Template is missing placeholder "${labelText}".`);
+  }
+  return output.replaceAll(token, escapeHtml(String(value == null ? "" : value)));
+}
+
 function buildClickEsmHtmlFromTemplate(templateHtml, context = {}) {
   const programmerLabel = String(context.programmerLabel || "").trim();
   const titleText = `${programmerLabel || "Media Company"} CLICK ESM`;
@@ -12961,6 +12993,296 @@ async function makeClickEsmDownload(context, requestToken, options = {}) {
     clientSecret: authContext.clientSecret,
     accessToken: authContext.accessToken,
     requestorCatalogIds: Array.isArray(context?.requestorCatalogIds) ? context.requestorCatalogIds : [],
+  });
+  downloadClickEsmHtmlFile(downloadHtml, fileName);
+  return {
+    fileName,
+    programmerLabel: authContext.programmerLabel,
+  };
+}
+
+function isModernClickDgrTemplate(templateHtml) {
+  const text = String(templateHtml || "");
+  if (!text.trim()) {
+    return false;
+  }
+  if (
+    !text.includes(CLICK_DGR_TEMPLATE_PLACEHOLDER_CID) ||
+    !text.includes(CLICK_DGR_TEMPLATE_PLACEHOLDER_CSC) ||
+    !text.includes(CLICK_DGR_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN) ||
+    !text.includes(CLICK_DGR_TEMPLATE_PLACEHOLDER_REQUESTOR_IDS_JSON) ||
+    !text.includes(CLICK_DGR_TEMPLATE_PLACEHOLDER_MEDIA_COMPANY_ID)
+  ) {
+    return false;
+  }
+  return CLICK_DGR_TEMPLATE_REQUIRED_MARKERS.every((marker) => text.includes(marker));
+}
+
+function buildClickDgrTemplateResourceUrl({ forceBypassCache = false } = {}) {
+  const manifestVersion = String(chrome?.runtime?.getManifest?.()?.version || "").trim();
+  const params = new URLSearchParams();
+  if (manifestVersion) {
+    params.set("v", manifestVersion);
+  }
+  if (forceBypassCache) {
+    params.set("t", String(Date.now()));
+  }
+  const base = chrome.runtime.getURL(CLICK_DGR_TEMPLATE_PATH);
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
+async function fetchClickDgrTemplateHtml({ forceBypassCache = false } = {}) {
+  const resourceUrl = buildClickDgrTemplateResourceUrl({ forceBypassCache });
+  const response = await fetch(resourceUrl, {
+    method: "GET",
+    credentials: "omit",
+    cache: forceBypassCache ? "reload" : "no-cache",
+  });
+  if (!response.ok) {
+    throw new Error(`Unable to load clickDGR template (${response.status}).`);
+  }
+  return await response.text();
+}
+
+async function loadClickDgrTemplateHtml() {
+  if (isModernClickDgrTemplate(clickDgrTemplateHtml)) {
+    return clickDgrTemplateHtml;
+  }
+  if (clickDgrTemplatePromise) {
+    return clickDgrTemplatePromise;
+  }
+
+  clickDgrTemplatePromise = (async () => {
+    let templateHtml = await fetchClickDgrTemplateHtml({ forceBypassCache: false });
+    if (!isModernClickDgrTemplate(templateHtml)) {
+      templateHtml = await fetchClickDgrTemplateHtml({ forceBypassCache: true });
+    }
+    if (!isModernClickDgrTemplate(templateHtml)) {
+      throw new Error("clickDGR template is not the latest skinned/export build.");
+    }
+    clickDgrTemplateHtml = templateHtml;
+    return clickDgrTemplateHtml;
+  })();
+
+  try {
+    return await clickDgrTemplatePromise;
+  } finally {
+    clickDgrTemplatePromise = null;
+  }
+}
+
+function buildClickDgrHtmlFromTemplate(templateHtml, context = {}) {
+  const programmerLabel = String(context.programmerLabel || "").trim();
+  const titleText = `${programmerLabel || "Media Company"} CLICK DGR`;
+  const themeScope = String(context.themeScope || context.programmerId || programmerLabel || "MediaCompany").trim();
+  const requestorCatalog = uniqueSorted(
+    (Array.isArray(context.requestorCatalogIds) ? context.requestorCatalogIds : [])
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  );
+  const defaultRequestorId = String(
+    firstNonEmptyString([
+      context.defaultRequestorId,
+      requestorCatalog[0],
+    ]) || ""
+  ).trim();
+  const defaultMvpdId = String(context.defaultMvpdId || "").trim();
+  const encodedRequestorCatalog = encodeURIComponent(JSON.stringify(requestorCatalog));
+  let output = clickEsmReplaceTitleHotspot(templateHtml, titleText);
+  output = clickEsmReplaceHiddenInputHotspot(output, "cid", context.clientId, CLICK_DGR_TEMPLATE_PLACEHOLDER_CID);
+  output = clickEsmReplaceHiddenInputHotspot(output, "csc", context.clientSecret, CLICK_DGR_TEMPLATE_PLACEHOLDER_CSC);
+  output = clickEsmReplaceHiddenInputHotspot(
+    output,
+    "access_token",
+    context.accessToken,
+    CLICK_DGR_TEMPLATE_PLACEHOLDER_ACCESS_TOKEN
+  );
+  output = clickEsmReplaceHiddenInputHotspot(
+    output,
+    "requestor_ids_json",
+    encodedRequestorCatalog,
+    CLICK_DGR_TEMPLATE_PLACEHOLDER_REQUESTOR_IDS_JSON
+  );
+  output = clickEsmReplaceHiddenInputHotspot(
+    output,
+    "theme_scope",
+    themeScope,
+    CLICK_DGR_TEMPLATE_PLACEHOLDER_THEME_SCOPE
+  );
+  output = replaceTemplateTokenHotspot(
+    output,
+    CLICK_DGR_TEMPLATE_PLACEHOLDER_MEDIA_COMPANY_ID,
+    String(context.mediaCompanyId || "").trim(),
+    "media_company_id"
+  );
+  output = replaceTemplateTokenHotspot(
+    output,
+    CLICK_DGR_TEMPLATE_PLACEHOLDER_MEDIA_COMPANY_NAME,
+    String(context.mediaCompanyName || programmerLabel || "").trim(),
+    "media_company_name"
+  );
+  output = replaceTemplateTokenHotspot(
+    output,
+    CLICK_DGR_TEMPLATE_PLACEHOLDER_DEFAULT_REQUESTOR_ID,
+    defaultRequestorId,
+    "default_requestor_id"
+  );
+  output = replaceTemplateTokenHotspot(
+    output,
+    CLICK_DGR_TEMPLATE_PLACEHOLDER_DEFAULT_MVPD_ID,
+    defaultMvpdId,
+    "default_mvpd_id"
+  );
+  return output;
+}
+
+function buildClickDgrDownloadFileName(programmer) {
+  const label = firstNonEmptyString([
+    programmer?.programmerName,
+    programmer?.mediaCompanyName,
+    programmer?.programmerId,
+  ]);
+  const base = sanitizeDownloadFileSegment(label, "MediaCompany");
+  return `${base}_clickDGR_${Date.now()}.html`;
+}
+
+async function resolveClickDgrDownloadContext(panelState = null) {
+  const globalSelections = getGlobalRequestorMvpdSelections();
+  const selectedProgrammer = resolveSelectedProgrammer();
+  if (!selectedProgrammer?.programmerId) {
+    return null;
+  }
+
+  const selectedServices = state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null;
+  const cachedDegradationApp = Boolean(String(selectedServices?.degradation?.guid || "").trim())
+    ? selectedServices.degradation
+    : null;
+  const controllerDegradationApp = panelState?.appInfo?.guid ? panelState.appInfo : null;
+  const requestorId = String(globalSelections.requestorIds[0] || state.selectedRequestorId || "").trim();
+  const degradationAppCandidates = resolveDegradationAppCandidates(
+    selectedProgrammer.programmerId,
+    cachedDegradationApp || controllerDegradationApp,
+    {
+      requestorId,
+    }
+  );
+  const degradationApp = degradationAppCandidates[0] || cachedDegradationApp || controllerDegradationApp;
+  if (!degradationApp?.guid) {
+    return null;
+  }
+
+  const requestorCatalogIds = uniqueSorted(
+    [
+      ...getGlobalRequestorCatalogIds(),
+      ...globalSelections.requestorIds,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  );
+
+  return {
+    programmer: selectedProgrammer,
+    appInfo: degradationApp,
+    panelState: panelState || null,
+    requestorIds: globalSelections.requestorIds,
+    requestorCatalogIds,
+    mvpdIds: globalSelections.mvpdIds,
+    defaultRequestorId: requestorId,
+    defaultMvpdId: String(globalSelections.mvpdIds[0] || state.selectedMvpdId || "").trim(),
+  };
+}
+
+async function resolveClickDgrAuthContext(context, requestToken, options = {}) {
+  const programmer = context?.programmer || null;
+  let appInfo = context?.appInfo || null;
+  const panelState = context?.panelState || null;
+  if (!programmer?.programmerId) {
+    throw new Error("Media company is required to generate clickDGR.");
+  }
+
+  const selectedProgrammer = resolveSelectedProgrammer();
+  if (!selectedProgrammer?.programmerId || selectedProgrammer.programmerId !== programmer.programmerId) {
+    throw new Error("Selected media company changed. Retry export with the active selection.");
+  }
+
+  if (
+    panelState?.section &&
+    !isDegradationServiceRequestActive(panelState.section, requestToken, programmer.programmerId)
+  ) {
+    throw new Error("DEGRADATION controller is no longer active for the selected media company.");
+  }
+
+  const selectedServices = state.premiumAppsByProgrammerId.get(programmer.programmerId) || null;
+  const requestorId = String(context?.defaultRequestorId || context?.requestorIds?.[0] || state.selectedRequestorId || "").trim();
+  const degradationAppCandidates = resolveDegradationAppCandidates(
+    programmer.programmerId,
+    selectedServices?.degradation || appInfo,
+    {
+      requestorId,
+    }
+  );
+  const selectedDegradationApp = degradationAppCandidates[0] || null;
+  if (!selectedDegradationApp?.guid) {
+    throw new Error("DEGRADATION application details are required to generate clickDGR.");
+  }
+  appInfo = selectedDegradationApp;
+
+  const programmerLabel = firstNonEmptyString([
+    programmer?.programmerName,
+    programmer?.mediaCompanyName,
+    programmer?.programmerId,
+  ]) || "Media Company";
+
+  const requiredScope = getPreferredDegradationScopeForApp(appInfo) || PREMIUM_SERVICE_SCOPE_BY_KEY.degradation;
+  const accessToken = await ensureDcrAccessToken(programmer.programmerId, appInfo, false, {
+    service: "degradation-clickdgr",
+    scope: requiredScope,
+    requestorIds: Array.isArray(context?.requestorIds) ? context.requestorIds.slice(0, 24) : [],
+    mvpdIds: Array.isArray(context?.mvpdIds) ? context.mvpdIds.slice(0, 24) : [],
+    requestorId: String(context?.requestorIds?.[0] || ""),
+    mvpd: String(context?.mvpdIds?.[0] || ""),
+    appGuid: String(appInfo?.guid || ""),
+    appName: String(appInfo?.appName || appInfo?.guid || ""),
+    source: String(options.source || "sidepanel"),
+  });
+
+  const dcrCache = loadDcrCache(programmer.programmerId, appInfo.guid) || {};
+  const clientId = String(dcrCache.clientId || "");
+  const clientSecret = String(dcrCache.clientSecret || "");
+  const resolvedAccessToken = String(accessToken || dcrCache.accessToken || "");
+  if (!clientId || !clientSecret || !resolvedAccessToken) {
+    throw new Error("Unable to resolve DEGRADATION credentials/token for clickDGR generation.");
+  }
+
+  return {
+    programmerLabel,
+    mediaCompanyId: String(programmer?.programmerId || "").trim(),
+    mediaCompanyName: String(firstNonEmptyString([programmer?.programmerName, programmer?.mediaCompanyName]) || "").trim(),
+    clientId,
+    clientSecret,
+    accessToken: resolvedAccessToken,
+  };
+}
+
+async function makeClickDgrDownload(context, requestToken, options = {}) {
+  const programmer = context?.programmer || null;
+  const authContext = await resolveClickDgrAuthContext(context, requestToken, options);
+
+  const templateHtml = await loadClickDgrTemplateHtml();
+  const fileName = buildClickDgrDownloadFileName(programmer);
+  const downloadHtml = buildClickDgrHtmlFromTemplate(templateHtml, {
+    programmerLabel: authContext.programmerLabel,
+    programmerId: String(programmer?.programmerId || ""),
+    themeScope: String(programmer?.programmerId || programmer?.programmerName || authContext.programmerLabel || "").trim(),
+    mediaCompanyId: authContext.mediaCompanyId,
+    mediaCompanyName: authContext.mediaCompanyName,
+    clientId: authContext.clientId,
+    clientSecret: authContext.clientSecret,
+    accessToken: authContext.accessToken,
+    requestorCatalogIds: Array.isArray(context?.requestorCatalogIds) ? context.requestorCatalogIds : [],
+    defaultRequestorId: String(context?.defaultRequestorId || ""),
+    defaultMvpdId: String(context?.defaultMvpdId || ""),
   });
   downloadClickEsmHtmlFile(downloadHtml, fileName);
   return {
@@ -13486,7 +13808,7 @@ body[data-theme="dark"]{
   const CM_REPORTS_BASE_URL = "https://cm-reports.adobeprimetime.com";
   const IMS_VALIDATE_TOKEN_URL = "https://ims-na1.adobelogin.com/ims/validate_token/v1?jslVersion=underpar-clickcmu";
   const IMS_CHECK_TOKEN_URL = "https://adobeid-na1.services.adobe.com/ims/check/v6/token";
-  const DEFAULT_SCOPE = "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
+  const DEFAULT_SCOPE = "AdobeID,openid,read_organizations,additional_info.projectedProductContext";
   const TOKEN_FRESH_SKEW_MS = 45 * 1000;
   const REQUEST_TIMEOUT_MS = 45 * 1000;
 
@@ -13581,7 +13903,7 @@ body[data-theme="dark"]{
       return true;
     }
     const scopes = new Set(tokenizeScopeSet(claims.scope || "").map((scope) => scope.toLowerCase()));
-    return scopes.has("read_organizations") || scopes.has("dma_group_mapping");
+    return scopes.has("read_organizations");
   }
 
   function extractTokenFromPayload(payload) {
@@ -15183,6 +15505,8 @@ function esmWorkspaceGetControllerStatePayload(esmWorkspaceState) {
   return {
     controllerOnline: Boolean(esmWorkspaceState?.section?.isConnected),
     esmAvailable: true,
+    esmAvailabilityResolved: true,
+    esmContainerVisible: true,
     programmerId: String(esmWorkspaceState?.programmer?.programmerId || ""),
     programmerName: String(esmWorkspaceState?.programmer?.programmerName || ""),
     requestorIds,
@@ -15203,6 +15527,14 @@ function esmWorkspaceGetControllerStatePayload(esmWorkspaceState) {
   };
 }
 
+function hasResolvedPremiumServiceSnapshotForEsm(services = null) {
+  if (!services || typeof services !== "object") {
+    return false;
+  }
+  const keys = ["degradation", "degradationApps", "esm", "restV2", "restV2Apps", "cm", "cmMvpd"];
+  return keys.some((key) => Object.prototype.hasOwnProperty.call(services, key));
+}
+
 function esmWorkspaceGetSelectedControllerStatePayload(programmer = null, services = null, options = {}) {
   const resolvedProgrammer =
     programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
@@ -15211,14 +15543,30 @@ function esmWorkspaceGetSelectedControllerStatePayload(programmer = null, servic
     resolvedServices = state.premiumAppsByProgrammerId.get(resolvedProgrammer.programmerId) || null;
   }
   const controllerReason = String(options?.controllerReason || "").trim();
+  const hasResolvedSnapshot = hasResolvedPremiumServiceSnapshotForEsm(resolvedServices);
 
   const selections = getGlobalRequestorMvpdSelections();
   const requestorIds = selections.requestorIds;
   const mvpdIds = selections.mvpdIds;
   let esmAvailable = null;
-  if (resolvedServices && typeof resolvedServices === "object") {
-    esmAvailable = Boolean(String(resolvedServices?.esm?.guid || "").trim());
+  if (hasResolvedSnapshot) {
+    esmAvailable = hasEsmScopedApp(resolvedServices);
   }
+  let esmContainerVisible = null;
+  if (options?.esmContainerVisible === true) {
+    esmContainerVisible = true;
+  } else if (options?.esmContainerVisible === false) {
+    esmContainerVisible = false;
+  } else if (hasResolvedSnapshot) {
+    esmContainerVisible = hasEsmScopedApp(resolvedServices);
+  }
+  if (esmContainerVisible === true) {
+    esmAvailable = true;
+  }
+  const esmAvailabilityResolved =
+    options?.esmAvailabilityResolved === true || options?.esmAvailabilityResolved === false
+      ? options.esmAvailabilityResolved === true
+      : hasResolvedSnapshot || esmContainerVisible === true || esmContainerVisible === false;
   const profileHarvestContext = {
     programmerId: String(resolvedProgrammer?.programmerId || ""),
     requestorId: String(requestorIds[0] || ""),
@@ -15230,6 +15578,8 @@ function esmWorkspaceGetSelectedControllerStatePayload(programmer = null, servic
   return {
     controllerOnline: false,
     esmAvailable,
+    esmAvailabilityResolved,
+    esmContainerVisible,
     programmerId: String(resolvedProgrammer?.programmerId || ""),
     programmerName: String(resolvedProgrammer?.programmerName || ""),
     requestorIds,
@@ -22912,6 +23262,88 @@ async function handleDegradationWorkspaceAction(message, sender = null) {
     return { ok: true };
   }
 
+  if (action === "rerun-all") {
+    const panelState = getActiveDegradationWorkspaceState();
+    if (!panelState) {
+      return { ok: false, error: "Open DEGRADATION in the UnderPAR side panel before re-running reports." };
+    }
+    const requestToken = Number(state.premiumPanelRequestToken || 0);
+    if (!isDegradationServiceRequestActive(panelState.section, requestToken, panelState.programmer?.programmerId)) {
+      return { ok: false, error: "DEGRADATION controller is no longer active for the selected media company." };
+    }
+    const cards = Array.isArray(message?.cards) ? message.cards : [];
+    if (cards.length === 0) {
+      return { ok: false, error: "No DEGRADATION reports are available to re-run." };
+    }
+
+    const targetWindowId = Number(senderWindowId || state.degradationWorkspaceWindowId || panelState.controllerWindowId || 0);
+    emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+      phase: "workspace-action",
+      action: "rerun-all",
+      source: "workspace",
+      requestScope: "degradation-workspace",
+      windowId: senderWindowId,
+      tabId: senderTabId,
+      cardCount: cards.length,
+      workspaceKey: "degradation-workspace",
+      workspaceOrigin: "DEGRADATION Workspace",
+    });
+
+    void degradationWorkspaceSendWorkspaceMessage(
+      "batch-start",
+      {
+        total: cards.length,
+        startedAt: Date.now(),
+      },
+      { targetWindowId }
+    );
+
+    degradationSetBusy(panelState, true);
+    try {
+      for (const card of cards) {
+        const endpointKey = firstNonEmptyString([
+          String(card?.endpointKey || "").trim().toLowerCase(),
+          String(card?.endpointPath || "").trim().toLowerCase(),
+        ]);
+        if (!endpointKey) {
+          continue;
+        }
+        const cardRequestor = firstNonEmptyString([
+          String(card?.programmerId || "").trim(),
+          String(state.selectedRequestorId || "").trim(),
+        ]);
+        const cardMvpd = String(card?.mvpd || "").trim();
+        const includeAllMvpd = endpointKey === "all" || card?.includeAllMvpd === true || !cardMvpd;
+        const queryValues = {
+          requestorId: cardRequestor,
+          programmerId: cardRequestor,
+          endpointKey,
+          includeAllMvpd,
+          mvpd: includeAllMvpd ? "" : cardMvpd,
+          apiVersion: DEGRADATION_API_VERSION,
+        };
+        await degradationRunStatusEndpointFromPanel(panelState, endpointKey, {
+          requestToken,
+          queryValues,
+          manageBusy: false,
+          openWorkspace: false,
+          targetWindowId,
+        });
+      }
+    } finally {
+      degradationSetBusy(panelState, false);
+      void degradationWorkspaceSendWorkspaceMessage(
+        "batch-end",
+        {
+          total: cards.length,
+          completedAt: Date.now(),
+        },
+        { targetWindowId }
+      );
+    }
+    return { ok: true };
+  }
+
   if (action === "clear-all") {
     emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
       phase: "workspace-action",
@@ -25826,6 +26258,9 @@ function getDegradationStatusEndpointSpec(endpointKey = "") {
   if (!normalized) {
     return null;
   }
+  if (normalized === DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.key) {
+    return DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC;
+  }
   return DEGRADATION_STATUS_ENDPOINT_SPECS.find((item) => item.key === normalized) || null;
 }
 
@@ -26218,6 +26653,7 @@ function syncDegradationWorkspaceRecordingControls(panelState) {
   const toggleButton = panelState.recordingToggleButton;
   const context = toDegradationWorkspaceRecordingContext(panelState);
   const hasProgrammer = Boolean(context.programmerId);
+  const hasRequestor = Boolean(String(state.selectedRequestorId || "").trim());
   if (!toggleButton) {
     return;
   }
@@ -26231,7 +26667,7 @@ function syncDegradationWorkspaceRecordingControls(panelState) {
     toggleButton.classList.toggle("is-stopping", isStopping);
     toggleButton.classList.toggle("is-idle", !isRecording);
     if (label) {
-      label.textContent = isRecording ? "STOP" : "LOG";
+      label.textContent = isRecording ? "STOP" : "DEGRADATION";
     }
     if (icon) {
       icon.classList.remove("degradation-record-btn-icon--record", "degradation-record-btn-icon--stop");
@@ -26251,7 +26687,7 @@ function syncDegradationWorkspaceRecordingControls(panelState) {
   const activeFlowId = getActiveDegradationWorkspaceDebugFlowId();
   if (activeFlowId) {
     setToggleState("recording");
-    toggleButton.disabled = false;
+    toggleButton.disabled = !hasRequestor;
     toggleButton.title = "Stop DEGRADATION recording";
     toggleButton.setAttribute("aria-label", "Stop DEGRADATION recording");
     const requestorLabel = context.requestorIds.length > 0 ? context.requestorIds.join(", ") : "all requestors";
@@ -26265,20 +26701,16 @@ function syncDegradationWorkspaceRecordingControls(panelState) {
   }
 
   setToggleState("idle");
-  toggleButton.disabled = !hasProgrammer || panelState.busy === true;
-  toggleButton.title = "Record DEGRADATION log";
-  toggleButton.setAttribute("aria-label", "Record DEGRADATION log");
-  if (!hasProgrammer) {
-    setDegradationWorkspaceRecordingStatus(panelState, "Select a Media Company first.");
-    return;
-  }
-  if (panelState.busy === true) {
-    setDegradationWorkspaceRecordingStatus(panelState, "Wait for the current DEGRADATION request to finish.");
+  toggleButton.disabled = !hasProgrammer || !hasRequestor;
+  toggleButton.title = "Record DEGRADATION";
+  toggleButton.setAttribute("aria-label", "Record DEGRADATION");
+  if (!hasProgrammer || !hasRequestor) {
+    setDegradationWorkspaceRecordingStatus(panelState, "");
     return;
   }
   setDegradationWorkspaceRecordingStatus(
     panelState,
-    "Click RECORD DEGRADATION LOG to capture DEGRADATION activity and export HAR on STOP."
+    ""
   );
 }
 
@@ -26660,16 +27092,6 @@ function degradationSetControllerStatus(panelState, message = "", type = "info")
   statusElement.classList.toggle("error", type === "error");
 }
 
-function degradationSyncMvpdScopeControls(panelState) {
-  if (!panelState) {
-    return;
-  }
-  const allMvpdChecked = panelState.allMvpdCheckbox?.checked === true;
-  if (panelState.mvpdInput) {
-    panelState.mvpdInput.disabled = panelState.busy === true || allMvpdChecked;
-  }
-}
-
 function degradationSetBusy(panelState, busy) {
   if (!panelState) {
     return;
@@ -26677,30 +27099,26 @@ function degradationSetBusy(panelState, busy) {
   panelState.busy = busy === true;
   const controls = [
     panelState.endpointSelect,
-    panelState.mvpdInput,
-    panelState.apiVersionInput,
-    panelState.allMvpdCheckbox,
     panelState.recordingToggleButton,
-    panelState.megaGetButton,
-    panelState.runGoButton,
+    panelState.makeClickDgrButton,
   ];
   controls.forEach((control) => {
     if (control) {
       control.disabled = panelState.busy === true;
     }
   });
-  degradationSyncMvpdScopeControls(panelState);
+  degradationSyncGoButtonLabel(panelState);
   syncDegradationWorkspaceRecordingControls(panelState);
 }
 
 function degradationCollectFormValues(panelState) {
   const requestorId = String(state.selectedRequestorId || "").trim();
   const programmerId = requestorId;
-  const endpointKey = firstNonEmptyString([String(panelState?.endpointSelect?.value || "").trim().toLowerCase(), "authnall"]);
-  const rawMvpd = String(panelState?.mvpdInput?.value || "").trim();
-  const includeAllMvpd = panelState?.allMvpdCheckbox?.checked === true || !rawMvpd;
+  const endpointKey = firstNonEmptyString([String(panelState?.endpointSelect?.value || "").trim().toLowerCase(), "all"]);
+  const rawMvpd = String(state.selectedMvpdId || "").trim();
+  const includeAllMvpd = !rawMvpd;
   const mvpd = includeAllMvpd ? "" : rawMvpd;
-  const apiVersion = firstNonEmptyString([String(panelState?.apiVersionInput?.value || "").trim(), "3.0"]);
+  const apiVersion = DEGRADATION_API_VERSION;
   return {
     requestorId,
     programmerId,
@@ -26711,16 +27129,52 @@ function degradationCollectFormValues(panelState) {
   };
 }
 
+function degradationBuildGoButtonLabel(options = {}) {
+  const requestorId = String(options?.requestorId || state.selectedRequestorId || "").trim();
+  const mvpdId = String(options?.mvpdId || state.selectedMvpdId || "").trim();
+  const requestorLabel = requestorId || "{RequestorId}";
+  const mvpdLabel = mvpdId || "All MVPDs";
+  return `GO ${requestorLabel} X ${mvpdLabel}`;
+}
+
+function degradationSyncGoButtonLabel(panelState) {
+  const requestorId = String(state.selectedRequestorId || "").trim();
+  const mvpdId = String(state.selectedMvpdId || "").trim();
+  const hasRequestor = Boolean(requestorId);
+  const runnerForm = panelState?.runnerForm || null;
+  const recordingToggleButton = panelState?.recordingToggleButton || null;
+
+  if (runnerForm) {
+    runnerForm.hidden = !hasRequestor;
+  }
+  if (recordingToggleButton) {
+    recordingToggleButton.hidden = !hasRequestor;
+  }
+
+  const goButton = panelState?.runGoButton || null;
+  if (!goButton) {
+    return;
+  }
+  goButton.hidden = !hasRequestor;
+  goButton.disabled = panelState?.busy === true || !hasRequestor;
+  goButton.textContent = degradationBuildGoButtonLabel({
+    requestorId,
+    mvpdId,
+  });
+  const mvpdTitleLabel = mvpdId
+    ? firstNonEmptyString([getRestV2MvpdPickerLabel(requestorId, mvpdId), mvpdId])
+    : "All MVPDs";
+  goButton.title = requestorId
+    ? `Run DEGRADATION for ${requestorId} X ${mvpdTitleLabel}`
+    : "Select RequestorId first";
+}
+
 function degradationRequireSelectedRequestor(panelState, queryValues = {}) {
   const requestorId = String(queryValues?.requestorId || state.selectedRequestorId || "").trim();
   if (requestorId) {
     return true;
   }
-  degradationSetControllerStatus(
-    panelState,
-    "Select a global RequestorId first, then retry this DEGRADATION call.",
-    "error"
-  );
+  degradationSetControllerStatus(panelState, "Select RequestorId first", "error");
   return false;
 }
 
@@ -26956,7 +27410,7 @@ function degradationExtractRowsFromMegaPayload(parsedPayload, queryValues = {}) 
         programmerId,
         mvpdId,
       };
-      const endpointSpec = {
+      const rowEndpointSpec = {
         title: endpointTitle,
         measureId: baseValues.measureId,
         path: DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.path,
@@ -26969,7 +27423,7 @@ function degradationExtractRowsFromMegaPayload(parsedPayload, queryValues = {}) 
           programmerTarget && typeof programmerTarget === "object" ? programmerTarget : measureObject;
         rows.push(
           degradationBuildStatusRow(
-            endpointSpec,
+            rowEndpointSpec,
             baseValues,
             detailNode,
             targetType,
@@ -26982,14 +27436,20 @@ function degradationExtractRowsFromMegaPayload(parsedPayload, queryValues = {}) 
       const targets = degradationToArray(degradationGetObjectValueByKeys(measureObject, [targetKey]));
       if (targets.length === 0) {
         rows.push(
-          degradationBuildStatusRow(endpointSpec, baseValues, measureObject, targetType, String(queryValues.mvpd || "").trim())
+          degradationBuildStatusRow(
+            rowEndpointSpec,
+            baseValues,
+            measureObject,
+            targetType,
+            String(queryValues.mvpd || "").trim()
+          )
         );
         return;
       }
       targets.forEach((targetNode) => {
         rows.push(
           degradationBuildStatusRow(
-            endpointSpec,
+            rowEndpointSpec,
             baseValues,
             targetNode && typeof targetNode === "object" ? targetNode : {},
             targetType,
@@ -27181,7 +27641,6 @@ function degradationBuildRequestUrl(panelState, endpointSpec, queryValues = {}) 
     requestUrl.searchParams.set("mvpd", String(queryValues.mvpd || "").trim());
   }
   requestUrl.searchParams.set("format", "json");
-
   if (String(endpointSpec?.key || "").trim().toLowerCase() === DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.key) {
     requestUrl.searchParams.set("media-company", mediaCompanyId);
     requestUrl.searchParams.set("resource", "");
@@ -27209,10 +27668,9 @@ async function degradationExecuteStatusRequest(panelState, endpointSpec, options
 
   const requestUrl = degradationBuildRequestUrl(panelState, endpointSpec, queryValues);
 
-  const requestHeaders = {};
-  if (queryValues.apiVersion) {
-    requestHeaders.api_version = String(queryValues.apiVersion).trim();
-  }
+  const requestHeaders = {
+    api_version: DEGRADATION_API_VERSION,
+  };
 
   let debugFlowId = "";
   try {
@@ -27312,62 +27770,50 @@ async function degradationExecuteStatusRequest(panelState, endpointSpec, options
 }
 
 function degradationBuildControllerHtml(programmer, appInfo) {
-  const requestorId = String(state.selectedRequestorId || "").trim();
-  const selectedMvpdId = String(state.selectedMvpdId || "").trim();
-  const selectedMvpdLabel = selectedMvpdId ? getRestV2MvpdPickerLabel(requestorId, selectedMvpdId) || selectedMvpdId : "";
-  const resolvedMvpdValue = selectedMvpdId || "";
-  const allMvpdChecked = resolvedMvpdValue ? "" : " checked";
-  const mvpdPlaceholder = resolvedMvpdValue
-    ? "Selected MVPD (toggle All MVPDs to omit this value)"
-    : "Leave empty to query all MVPD rules";
+  const hasRequestor = Boolean(String(state.selectedRequestorId || "").trim());
+  const goHiddenAttr = hasRequestor ? "" : " hidden";
+  const requestorControlsHiddenAttr = hasRequestor ? "" : " hidden";
+  const goButtonLabel = degradationBuildGoButtonLabel();
   return `
     <section class="degradation-controller-shell">
-      <div class="degradation-recording-actions">
+      <div class="degradation-runner-actions">
         <button
           type="button"
           class="degradation-record-toggle-btn"
-          title="Record DEGRADATION log"
-          aria-label="Record DEGRADATION log"
+          ${requestorControlsHiddenAttr}
+          title="Record DEGRADATION"
+          aria-label="Record DEGRADATION"
         >
           <span class="degradation-record-btn-icon degradation-record-btn-icon--record" aria-hidden="true"></span>
-          <span class="degradation-record-btn-label">LOG</span>
+          <span class="degradation-record-btn-label">DEGRADATION</span>
+        </button>
+        <button
+          type="button"
+          class="degradation-make-clickdgr-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"
+          title="Click to generate DEGRADATION Tearsheet ( clickDGR )"
+          aria-label="Click to generate DEGRADATION Tearsheet ( clickDGR )"
+        >
+          <span class="esm-workspace-toolbar-icon esm-workspace-toolbar-icon--tearsheet" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
+              <path d="M14.25 3.75V8.5H19" />
+              <path d="M9.5 12.75 10 14.25 11.5 14.75 10 15.25 9.5 16.75 9 15.25 7.5 14.75 9 14.25 9.5 12.75Z" />
+              <path d="M14 12.25 14.3 13.1 15.2 13.4 14.3 13.7 14 14.55 13.7 13.7 12.8 13.4 13.7 13.1 14 12.25Z" />
+            </svg>
+          </span>
         </button>
       </div>
-      <p class="degradation-recording-status" aria-live="polite"></p>
-      <button type="button" class="degradation-mega-get-btn">GET ACTIVE</button>
-      <div class="degradation-runner-form">
-        <label class="degradation-field">
-          <span class="degradation-field-label">GET Method</span>
-          <select class="degradation-endpoint-select">
-            <option value="authnall">Authenticate All - Status</option>
-            <option value="authzall">Authorize All - Status</option>
-            <option value="authznone">Authorize None - Status</option>
+      <div class="degradation-runner-form"${requestorControlsHiddenAttr}>
+        <div class="degradation-method-row">
+          <select class="degradation-endpoint-select" aria-label="DEGRADATION method">
+            <option value="all">GET ALL</option>
+            <option value="authnall">authN ALL</option>
+            <option value="authzall">authZ ALL</option>
+            <option value="authznone">authZ NONE</option>
           </select>
-        </label>
-        <label class="degradation-field">
-          <span class="degradation-field-label">MVPD</span>
-          <input
-            type="text"
-            class="degradation-mvpd-input"
-            value="${escapeHtml(resolvedMvpdValue)}"
-            placeholder="${escapeHtml(mvpdPlaceholder)}"
-            title="${escapeHtml(selectedMvpdLabel ? `Selected MVPD: ${selectedMvpdLabel}` : "Query all MVPDs when blank")}"
-            spellcheck="false"
-          />
-        </label>
-        <label class="degradation-field">
-          <span class="degradation-field-label">API Version Header</span>
-          <input type="text" class="degradation-api-version-input" value="3.0" placeholder="3.0" spellcheck="false" />
-        </label>
+          <button type="button" class="degradation-run-go-btn"${goHiddenAttr}>${escapeHtml(goButtonLabel)}</button>
+        </div>
       </div>
-      <label class="degradation-field-check">
-        <input type="checkbox" class="degradation-all-mvpd-checkbox"${allMvpdChecked} />
-        <span>All MVPDs (omit <code>mvpd</code> query parameter)</span>
-      </label>
-      <div class="degradation-runner-actions">
-        <button type="button" class="degradation-run-go-btn">GO</button>
-      </div>
-      <p class="degradation-controller-status" aria-live="polite"></p>
     </section>
   `;
 }
@@ -27428,6 +27874,7 @@ async function degradationRunStatusEndpointFromPanel(panelState, endpointKey, op
     );
     return null;
   }
+  degradationSetControllerStatus(panelState, "");
 
   if (manageBusy) {
     degradationSetBusy(panelState, true);
@@ -27493,15 +27940,7 @@ async function degradationRunStatusEndpointFromPanel(panelState, endpointKey, op
     }
     const scopeLabel = report.mvpdScopeLabel || degradationBuildScopeLabel(queryValues);
     if (report.ok) {
-      const rowSummary =
-        report.rowCount > 0
-          ? `${report.activeCount}/${report.rowCount} active rule rows`
-          : "no rule rows returned";
-      degradationSetControllerStatus(
-        panelState,
-        `${report.endpointTitle} | ${scopeLabel} | HTTP ${report.status}: ${rowSummary}.`,
-        "success"
-      );
+      degradationSetControllerStatus(panelState, "");
     } else {
       degradationSetControllerStatus(
         panelState,
@@ -27579,6 +28018,7 @@ async function degradationRunAllStatusEndpointsFromPanel(panelState, options = {
     return [];
   }
 
+  degradationSetControllerStatus(panelState, "");
   degradationSetBusy(panelState, true);
   const reports = [];
   try {
@@ -27590,7 +28030,7 @@ async function degradationRunAllStatusEndpointsFromPanel(panelState, options = {
       targetWindowId = Number(workspaceResult?.targetWindowId || targetWindowId || 0);
     }
     emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
-      phase: options?.megaMode === true ? "mega-sweep-start" : "sweep-start",
+      phase: "sweep-start",
       requestScope: "degradation-run-all",
       programmerId: String(queryValues.programmerId || ""),
       mvpd: String(queryValues.mvpd || ""),
@@ -27615,17 +28055,17 @@ async function degradationRunAllStatusEndpointsFromPanel(panelState, options = {
     const okCount = reports.filter((report) => report?.ok === true).length;
     const totalRows = reports.reduce((count, report) => count + Number(report?.rowCount || 0), 0);
     const totalActive = reports.reduce((count, report) => count + Number(report?.activeCount || 0), 0);
-    const summaryPrefix =
-      options?.megaMode === true
-        ? "GET ACTIVE completed"
-        : "DEGRADATION GET sweep completed";
-    degradationSetControllerStatus(
-      panelState,
-      `${summaryPrefix} (${okCount}/${reports.length} successful) | Active rows: ${totalActive}/${totalRows}.`,
-      okCount === reports.length ? "success" : "error"
-    );
+    if (okCount !== reports.length) {
+      degradationSetControllerStatus(
+        panelState,
+        `DEGRADATION GET sweep completed (${okCount}/${reports.length} successful) | Active rows: ${totalActive}/${totalRows}.`,
+        "error"
+      );
+    } else {
+      degradationSetControllerStatus(panelState, "");
+    }
     emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
-      phase: options?.megaMode === true ? "mega-sweep-complete" : "sweep-complete",
+      phase: "sweep-complete",
       requestScope: "degradation-run-all",
       programmerId: String(queryValues.programmerId || ""),
       mvpd: String(queryValues.mvpd || ""),
@@ -27654,18 +28094,7 @@ async function degradationRunMegaProgrammerSweepFromPanel(panelState, options = 
   }
   queryValues.includeAllMvpd = true;
   queryValues.mvpd = "";
-  if (panelState.allMvpdCheckbox) {
-    panelState.allMvpdCheckbox.checked = true;
-  }
-  if (panelState.mvpdInput) {
-    panelState.mvpdInput.value = "";
-  }
-  degradationSyncMvpdScopeControls(panelState);
-  degradationSetControllerStatus(
-    panelState,
-    "GET ACTIVE started...",
-    "info"
-  );
+  degradationSetControllerStatus(panelState, "");
   emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
     phase: "mega-button-clicked",
     requestScope: "degradation-all",
@@ -27725,13 +28154,7 @@ async function degradationRunMegaProgrammerSweepFromPanel(panelState, options = 
     }
 
     if (report.ok) {
-      degradationSetControllerStatus(
-        panelState,
-        `GET ACTIVE complete. Loaded ${Number(report.rowCount || 0)} rows (${Number(
-          report.activeCount || 0
-        )} active).`,
-        "success"
-      );
+      degradationSetControllerStatus(panelState, "");
     } else {
       degradationSetControllerStatus(panelState, `${endpointSpec.title}: ${report.error || "Request failed."}`, "error");
     }
@@ -27763,46 +28186,62 @@ async function degradationRunMegaProgrammerSweepFromPanel(panelState, options = 
   }
 }
 
+async function degradationMakeClickDgrFromUi(panelState, requestToken, source = "sidepanel") {
+  if (!panelState) {
+    return;
+  }
+  const triggerButton = panelState.makeClickDgrButton;
+  if (triggerButton) {
+    triggerButton.disabled = true;
+  }
+  try {
+    const context = await resolveClickDgrDownloadContext(panelState);
+    if (!context) {
+      throw new Error("Select a media company with DEGRADATION access to generate clickDGR.");
+    }
+    const result = await makeClickDgrDownload(context, requestToken, { source });
+    degradationSetControllerStatus(panelState, `Generated ${result.fileName}.`, "success");
+  } catch (error) {
+    degradationSetControllerStatus(
+      panelState,
+      `Unable to generate clickDGR: ${error instanceof Error ? error.message : String(error)}`,
+      "error"
+    );
+  } finally {
+    if (
+      triggerButton &&
+      isDegradationServiceRequestActive(panelState.section, Number(requestToken || 0), panelState.programmer?.programmerId)
+    ) {
+      triggerButton.disabled = false;
+    }
+  }
+}
+
 function wireDegradationPanelInteractions(panelState, requestToken) {
   if (!panelState) {
     return;
   }
   panelState.requestToken = Number(requestToken || 0);
-  degradationSyncMvpdScopeControls(panelState);
   syncDegradationWorkspaceRecordingControls(panelState);
-  degradationSetControllerStatus(
-    panelState,
-    String(state.selectedRequestorId || "").trim()
-      ? "Pick a DEGRADATION status method and click GO."
-      : "Select a global RequestorId first, then run DEGRADATION GET calls."
-  );
-
-  if (panelState.allMvpdCheckbox) {
-    panelState.allMvpdCheckbox.addEventListener("change", (event) => {
-      event.stopPropagation();
-      degradationSyncMvpdScopeControls(panelState);
-    });
-  }
+  degradationSetControllerStatus(panelState, "");
+  degradationSyncGoButtonLabel(panelState);
 
   if (panelState.runGoButton) {
     panelState.runGoButton.addEventListener("click", async (event) => {
       event.stopPropagation();
       const endpointKey = firstNonEmptyString([
         String(panelState.endpointSelect?.value || "").trim().toLowerCase(),
-        "authnall",
+        "all",
       ]);
+      if (endpointKey === "all") {
+        await degradationRunMegaProgrammerSweepFromPanel(panelState, {
+          requestToken: panelState.requestToken,
+          openWorkspace: true,
+          activateWorkspace: true,
+        });
+        return;
+      }
       await degradationRunStatusEndpointFromPanel(panelState, endpointKey, {
-        requestToken: panelState.requestToken,
-        openWorkspace: true,
-        activateWorkspace: true,
-      });
-    });
-  }
-
-  if (panelState.megaGetButton) {
-    panelState.megaGetButton.addEventListener("click", async (event) => {
-      event.stopPropagation();
-      await degradationRunMegaProgrammerSweepFromPanel(panelState, {
         requestToken: panelState.requestToken,
         openWorkspace: true,
         activateWorkspace: true,
@@ -27822,6 +28261,14 @@ function wireDegradationPanelInteractions(panelState, requestToken) {
         return;
       }
       void startDegradationWorkspaceRecording(panelState, panelState.requestToken);
+    });
+  }
+
+  if (panelState.makeClickDgrButton) {
+    panelState.makeClickDgrButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void degradationMakeClickDgrFromUi(panelState, panelState.requestToken, "sidepanel");
     });
   }
 
@@ -27878,15 +28325,11 @@ async function loadDegradationService(programmer, appInfo, section, contentEleme
       controllerWindowId: Number(controllerWindowId || 0),
       busy: false,
       appLabelElement: contentElement.querySelector(".degradation-app-label"),
+      runnerForm: contentElement.querySelector(".degradation-runner-form"),
       endpointSelect: contentElement.querySelector(".degradation-endpoint-select"),
-      mvpdInput: contentElement.querySelector(".degradation-mvpd-input"),
-      apiVersionInput: contentElement.querySelector(".degradation-api-version-input"),
-      allMvpdCheckbox: contentElement.querySelector(".degradation-all-mvpd-checkbox"),
       recordingToggleButton: contentElement.querySelector(".degradation-record-toggle-btn"),
-      recordingStatusElement: contentElement.querySelector(".degradation-recording-status"),
-      megaGetButton: contentElement.querySelector(".degradation-mega-get-btn"),
+      makeClickDgrButton: contentElement.querySelector(".degradation-make-clickdgr-btn"),
       runGoButton: contentElement.querySelector(".degradation-run-go-btn"),
-      statusElement: contentElement.querySelector(".degradation-controller-status"),
     };
     section.__underparDegradationState = panelState;
     setDegradationPanelActiveApp(panelState, resolvedInitialApp, {
@@ -28127,7 +28570,11 @@ function renderPremiumServicesLoading(programmer, options = {}) {
   }
   clearPremiumServiceAutoRefreshTimers();
   const controllerReason = String(options?.controllerReason || "").trim();
-  esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
+  esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, {
+    controllerReason,
+    esmAvailabilityResolved: false,
+    esmContainerVisible: null,
+  });
   cmBroadcastSelectedControllerState(programmer, null);
   mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
   degradationWorkspaceBroadcastControllerState(programmer, null);
@@ -28144,7 +28591,11 @@ function renderPremiumServicesError(error, options = {}) {
   }
   clearPremiumServiceAutoRefreshTimers();
   const controllerReason = String(options?.controllerReason || "").trim();
-  esmWorkspaceBroadcastSelectedControllerState(resolveSelectedProgrammer(), null, 0, { controllerReason });
+  esmWorkspaceBroadcastSelectedControllerState(resolveSelectedProgrammer(), null, 0, {
+    controllerReason,
+    esmAvailabilityResolved: false,
+    esmContainerVisible: null,
+  });
   cmBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
   mvpdWorkspaceBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
   degradationWorkspaceBroadcastControllerState(resolveSelectedProgrammer(), null);
@@ -28169,7 +28620,11 @@ function renderPremiumServices(services, programmer = null, options = {}) {
   const controllerReason = String(options?.controllerReason || "").trim();
 
   if (!services) {
-    esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
+    esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, {
+      controllerReason,
+      esmAvailabilityResolved: false,
+      esmContainerVisible: null,
+    });
     cmBroadcastSelectedControllerState(programmer, null);
     mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
     degradationWorkspaceBroadcastControllerState(programmer, null);
@@ -28199,7 +28654,6 @@ function renderPremiumServices(services, programmer = null, options = {}) {
       '<p class="metadata-empty">No premium scoped applications loaded yet.</p>';
     return;
   }
-  esmWorkspaceBroadcastSelectedControllerState(programmer, services, 0, { controllerReason });
   cmBroadcastSelectedControllerState(programmer, services);
   mvpdWorkspaceBroadcastSelectedControllerState(programmer, services);
   degradationWorkspaceBroadcastControllerState(programmer, services);
@@ -28212,6 +28666,12 @@ function renderPremiumServices(services, programmer = null, options = {}) {
       return shouldShowCmService(services?.[serviceKey]);
     }
     return Boolean(services?.[serviceKey]);
+  });
+  const hasEsmContainer = availableKeys.includes("esmWorkspace");
+  esmWorkspaceBroadcastSelectedControllerState(programmer, services, 0, {
+    controllerReason,
+    esmAvailabilityResolved: true,
+    esmContainerVisible: hasEsmContainer,
   });
   if (availableKeys.length === 0) {
     els.premiumServicesContainer.innerHTML =
@@ -28306,6 +28766,8 @@ function resetWorkflowForLoggedOut() {
   void esmWorkspaceSendWorkspaceMessage("controller-state", {
     controllerOnline: false,
     esmAvailable: null,
+    esmAvailabilityResolved: false,
+    esmContainerVisible: null,
     programmerId: "",
     programmerName: "",
     requestorIds: [],
@@ -30274,12 +30736,33 @@ function isLikelyImageAssetPath(value) {
   );
 }
 
+function isBlockedAudienceManagerAvatarReference(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (normalized.includes("audiencemanager")) {
+    return true;
+  }
+  if (/^dma[_-]/i.test(normalized)) {
+    return true;
+  }
+  return (
+    /^\/?ims\/avatar\/download\/dma[_-]/i.test(normalized) ||
+    /^\/?avatar\/download\/dma[_-]/i.test(normalized) ||
+    /\/ims\/avatar\/download\/dma[_-]/i.test(normalized)
+  );
+}
+
 function isLikelyImsAvatarId(value) {
   if (typeof value !== "string") {
     return false;
   }
 
   const trimmed = value.trim();
+  if (isBlockedAudienceManagerAvatarReference(trimmed)) {
+    return false;
+  }
   if (!/^[a-z0-9_-]{8,}$/i.test(trimmed)) {
     return false;
   }
@@ -30299,6 +30782,9 @@ function normalizeAvatarCandidate(value) {
 
   const trimmed = value.trim().replace(/^['"]+|['"]+$/g, "");
   if (!trimmed) {
+    return "";
+  }
+  if (isBlockedAudienceManagerAvatarReference(trimmed)) {
     return "";
   }
 
@@ -30700,6 +31186,9 @@ function toImsAvatarDownloadUrl(identity, size = 128) {
   if (!raw) {
     return "";
   }
+  if (isBlockedAudienceManagerAvatarReference(raw)) {
+    return "";
+  }
 
   const normalized = normalizeAvatarCandidate(raw);
   if (normalized) {
@@ -30993,28 +31482,43 @@ function getAvatarUrl(loginData) {
   return getAvatarCandidates(loginData)[0] || DEFAULT_AVATAR;
 }
 
+function isAvatarUiSafeUrl(url = "") {
+  const normalized = normalizeAvatarCandidate(url) || normalizeInlineAvatarData(url);
+  if (!normalized) {
+    return false;
+  }
+  return (
+    normalized.startsWith("data:image/") ||
+    normalized.startsWith("blob:") ||
+    normalized.startsWith("chrome-extension://") ||
+    normalized.startsWith("moz-extension://")
+  );
+}
+
 function getAvatarRenderUrl(loginData) {
-  const resolved = normalizeAvatarCandidate(state.avatarResolvedUrl);
-  if (resolved) {
+  const resolved = normalizeAvatarCandidate(state.avatarResolvedUrl) || normalizeInlineAvatarData(state.avatarResolvedUrl);
+  if (resolved && isAvatarUiSafeUrl(resolved)) {
     return resolved;
   }
 
   const persistedCandidate = readPersistedAvatarCandidate(loginData);
   const persisted = normalizeAvatarCandidate(persistedCandidate) || normalizeInlineAvatarData(persistedCandidate);
-  if (persisted && persisted.startsWith("data:image/")) {
+  if (persisted && isAvatarUiSafeUrl(persisted)) {
     return persisted;
   }
 
-  const provisional = normalizeAvatarCandidate(resolveLoginImageUrl(loginData));
-  if (provisional) {
+  const loginImageUrl = resolveLoginImageUrl(loginData);
+  const provisional = normalizeAvatarCandidate(loginImageUrl) || normalizeInlineAvatarData(loginImageUrl);
+  if (provisional && isAvatarUiSafeUrl(provisional)) {
     return provisional;
   }
 
-  if (persisted) {
-    return persisted;
-  }
-
   return FALLBACK_AVATAR;
+}
+
+function getSafeAvatarRenderUrl(loginData) {
+  const candidate = getAvatarRenderUrl(loginData);
+  return isAvatarUiSafeUrl(candidate) ? candidate : FALLBACK_AVATAR;
 }
 
 function firstNonEmptyString(values) {
@@ -32182,8 +32686,19 @@ function canUseDirectAvatarLoad(url) {
     return Promise.resolve(false);
   }
 
-  if (normalized.startsWith("chrome-extension://") || normalized.startsWith("moz-extension://")) {
+  if (
+    normalized.startsWith("chrome-extension://") ||
+    normalized.startsWith("moz-extension://") ||
+    normalized.startsWith("data:image/") ||
+    normalized.startsWith("blob:")
+  ) {
     return Promise.resolve(true);
+  }
+
+  // Avoid direct remote image loads from extension pages; these can emit noisy CORS/PNA
+  // console errors in sidepanel/popup contexts. Remote avatars are resolved via background.
+  if (/^https?:\/\//i.test(normalized)) {
+    return Promise.resolve(false);
   }
 
   return new Promise((resolve) => {
@@ -32221,6 +32736,11 @@ async function fetchAvatarBlobUrl(url) {
     url.startsWith("chrome-extension://") ||
     url.startsWith("moz-extension://")
   ) {
+    return null;
+  }
+
+  // Keep remote avatar network I/O in background.js to avoid sidepanel/popup CORS/PNA noise.
+  if (/^https?:\/\//i.test(String(url || "").trim())) {
     return null;
   }
 
@@ -32548,7 +33068,7 @@ function renderAvatarMenu() {
     return;
   }
 
-  const avatarUrl = getAvatarRenderUrl(state.loginData).replace(/"/g, "");
+  const avatarUrl = getSafeAvatarRenderUrl(state.loginData).replace(/"/g, "");
   const profile = resolveLoginProfile(state.loginData) || {};
   const name = getProfileDisplayName(profile);
   const email = getProfileEmail(profile) || "No email available";
@@ -33853,21 +34373,90 @@ async function attemptSilentBootstrapLogin() {
 }
 
 function normalizeProgrammersResponse(data) {
+  const normalizeEntityList = (items) =>
+    items
+      .map((item, index) => ({
+        key: item?.key || `Programmer:${item?.entityData?.id || item?.id || item?.programmerId || index}`,
+        entityData: item?.entityData || item,
+      }))
+      .filter((entry) => entry.entityData && typeof entry.entityData === "object");
+
+  const looksLikeProgrammerEntity = (candidate) => {
+    if (!candidate || typeof candidate !== "object") {
+      return false;
+    }
+    return Boolean(
+      candidate.id ||
+        candidate.programmerId ||
+        candidate["programmer-id"] ||
+        candidate.displayName ||
+        candidate["display-name"] ||
+        candidate.name ||
+        candidate.contentProviders ||
+        candidate.applications ||
+        candidate["media-company"] ||
+        candidate.media_company ||
+        candidate.mediaCompany ||
+        candidate.mediaCompanyName
+    );
+  };
+
   if (Array.isArray(data)) {
-    return data.map((item, index) => ({
-      key: item.key || `Programmer:${item.entityData?.id || item.id || index}`,
-      entityData: item.entityData || item,
-    }));
+    return normalizeEntityList(data);
   }
 
   if (Array.isArray(data?.entities)) {
-    return data.entities.map((item, index) => ({
-      key: item.key || `Programmer:${item.entityData?.id || item.id || index}`,
-      entityData: item.entityData || item,
-    }));
+    return normalizeEntityList(data.entities);
   }
 
-  if (data && typeof data === "object") {
+  if (!data || typeof data !== "object") {
+    return [];
+  }
+
+  const collectionCandidates = [
+    data.items,
+    data.results,
+    data.programmers,
+    data.rows,
+    data.data,
+    data.list,
+  ];
+  for (const candidate of collectionCandidates) {
+    if (Array.isArray(candidate)) {
+      const normalized = normalizeEntityList(candidate);
+      if (normalized.length > 0) {
+        return normalized;
+      }
+    }
+  }
+
+  if (data.entities && typeof data.entities === "object") {
+    const normalized = normalizeEntityList(Object.values(data.entities));
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  const nestedPayloadCandidates = [data.payload, data.response, data.result];
+  for (const candidate of nestedPayloadCandidates) {
+    if (!candidate || typeof candidate !== "object") {
+      continue;
+    }
+    const normalized = normalizeProgrammersResponse(candidate);
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  const firstArrayValue = Object.values(data).find((value) => Array.isArray(value));
+  if (Array.isArray(firstArrayValue)) {
+    const normalized = normalizeEntityList(firstArrayValue);
+    if (normalized.length > 0) {
+      return normalized;
+    }
+  }
+
+  if (looksLikeProgrammerEntity(data)) {
     return [
       {
         key: data.key || `Programmer:${data.entityData?.id || data.id || "single"}`,
@@ -37463,7 +38052,7 @@ function tokenSupportsCmTenantCatalog(accessToken = "") {
   }
 
   const scopes = new Set(tokenizeScopeSet(firstNonEmptyString([claims.scope])));
-  return scopes.has("read_organizations") || scopes.has("dma_group_mapping");
+  return scopes.has("read_organizations");
 }
 
 function resolveCmImsTokenHints(seedToken = "") {
@@ -41182,6 +41771,8 @@ async function fetchProgrammersFromApi(options = {}) {
 
   let lastError = null;
   let denied = false;
+  let bestEntities = null;
+  let bestEndpoint = "";
   for (const endpoint of endpoints) {
     try {
       const baseHeaders = {
@@ -41239,12 +41830,24 @@ async function fetchProgrammersFromApi(options = {}) {
           continue;
         }
 
-        state.programmersApiEndpoint = endpoint;
-        return normalizedEntities;
+        if (normalizedEntities.length > Number(bestEntities?.length || 0)) {
+          bestEntities = normalizedEntities;
+          bestEndpoint = endpoint;
+        }
+
+        if (normalizedEntities.length > 1) {
+          state.programmersApiEndpoint = endpoint;
+          return normalizedEntities;
+        }
       }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
     }
+  }
+
+  if (bestEntities && bestEntities.length > 0) {
+    state.programmersApiEndpoint = bestEndpoint || null;
+    return bestEntities;
   }
 
   if (denied) {
@@ -41623,7 +42226,7 @@ function render() {
     return;
   }
 
-  const avatarUrl = getAvatarRenderUrl(state.loginData).replace(/"/g, "");
+  const avatarUrl = getSafeAvatarRenderUrl(state.loginData).replace(/"/g, "");
   els.authBtn.classList.add("avatar");
   els.authBtn.classList.toggle("avatar-loading", state.avatarResolving);
   els.authBtn.classList.toggle("avatar-ready", !state.avatarResolving);
@@ -41992,6 +42595,7 @@ function registerEventHandlers() {
     }
     const degradationState = getActiveDegradationWorkspaceState();
     if (degradationState) {
+      degradationSyncGoButtonLabel(degradationState);
       syncDegradationWorkspaceRecordingControls(degradationState);
     }
     const cmState = getActiveCmState();
@@ -42058,6 +42662,7 @@ function registerEventHandlers() {
     }
     const degradationState = getActiveDegradationWorkspaceState();
     if (degradationState) {
+      degradationSyncGoButtonLabel(degradationState);
       syncDegradationWorkspaceRecordingControls(degradationState);
     }
     const cmState = getActiveCmState();

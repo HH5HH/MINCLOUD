@@ -87,6 +87,8 @@ const state = {
   windowId: 0,
   controllerOnline: false,
   esmAvailable: null,
+  esmAvailabilityResolved: false,
+  esmContainerVisible: null,
   programmerId: "",
   programmerName: "",
   requestorIds: [],
@@ -999,7 +1001,12 @@ function hasProgrammerContext() {
 }
 
 function shouldShowNonEsmMode() {
-  return state.esmAvailable === false && hasProgrammerContext();
+  return (
+    state.esmAvailabilityResolved === true &&
+    state.esmAvailable === false &&
+    state.esmContainerVisible === false &&
+    hasProgrammerContext()
+  );
 }
 
 function clearWorkspaceCards() {
@@ -1166,7 +1173,7 @@ function maybeConsumePendingAutoRerun() {
     return;
   }
 
-  if (state.esmAvailable === false) {
+  if (state.esmAvailabilityResolved === true && state.esmAvailable === false) {
     clearPendingProgrammerSwitchTransition();
     return;
   }
@@ -2439,6 +2446,20 @@ function applyControllerState(payload) {
     state.esmAvailable = false;
   } else {
     state.esmAvailable = null;
+  }
+  if (payload?.esmAvailabilityResolved === true) {
+    state.esmAvailabilityResolved = true;
+  } else if (payload?.esmAvailabilityResolved === false) {
+    state.esmAvailabilityResolved = false;
+  } else {
+    state.esmAvailabilityResolved = state.esmAvailable === true || state.esmAvailable === false;
+  }
+  if (payload?.esmContainerVisible === true) {
+    state.esmContainerVisible = true;
+  } else if (payload?.esmContainerVisible === false) {
+    state.esmContainerVisible = false;
+  } else {
+    state.esmContainerVisible = null;
   }
   state.programmerId = String(payload?.programmerId || "");
   state.programmerName = String(payload?.programmerName || "");

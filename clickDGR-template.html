@@ -1,0 +1,2760 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>__UP_CLICK_DGR_TITLE__</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --zip-accent-500: 181, 92, 92;
+        --zip-accent-600: 167, 61, 61;
+        --zip-accent-700: 153, 31, 31;
+        --zip-accent-800: 139, 0, 0;
+        --zip-accent-900: 124, 0, 0;
+        --zip-accent-1000: 108, 0, 0;
+        --zip-accent-1100: 92, 0, 0;
+        --zip-accent-focus: 139, 0, 0;
+
+        --zip-theme-vibe-body-radial-alpha: 0.189;
+        --zip-theme-vibe-body-start-mix: 44.8%;
+        --zip-theme-vibe-body-end-mix: 34.22%;
+        --zip-theme-vibe-shell-mix: 36.95%;
+        --zip-theme-vibe-border-mix: 46.36%;
+        --zip-theme-vibe-menu-a-mix: 20.44%;
+        --zip-theme-vibe-menu-b-mix: 17.15%;
+        --zip-theme-vibe-zebra-contrast: 16.08%;
+        --zip-theme-vibe-zebra-hover: 9.16%;
+
+        --zip-gray-25-rgb: 255, 255, 255;
+        --zip-gray-50-rgb: 248, 248, 248;
+        --zip-gray-75-rgb: 243, 243, 243;
+        --zip-gray-100-rgb: 233, 233, 233;
+        --zip-gray-200-rgb: 225, 225, 225;
+        --zip-gray-300-rgb: 218, 218, 218;
+        --zip-gray-400-rgb: 198, 198, 198;
+        --zip-gray-500-rgb: 143, 143, 143;
+        --zip-gray-600-rgb: 113, 113, 113;
+        --zip-gray-700-rgb: 80, 80, 80;
+        --zip-gray-800-rgb: 41, 41, 41;
+        --zip-gray-900-rgb: 19, 19, 19;
+        --zip-gray-1000-rgb: 0, 0, 0;
+        --danger-rgb: 186, 54, 54;
+        --danger-strong-rgb: 159, 37, 37;
+
+        --radius-panel: 16px;
+        --radius-control: 9px;
+        --radius-pill: 999px;
+        --control-height: 32px;
+
+        --zip-shell-surface-bg: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-50-rgb)) calc(100% - var(--zip-theme-vibe-shell-mix)),
+          rgb(var(--zip-accent-1000)) var(--zip-theme-vibe-shell-mix)
+        );
+        --zip-surface-border-accent: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-300-rgb)) calc(100% - var(--zip-theme-vibe-border-mix)),
+          rgb(var(--zip-accent-900)) var(--zip-theme-vibe-border-mix)
+        );
+        --zip-body-grad-start: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-25-rgb)) calc(100% - var(--zip-theme-vibe-body-start-mix)),
+          rgb(var(--zip-accent-900)) var(--zip-theme-vibe-body-start-mix)
+        );
+        --zip-body-grad-end: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-25-rgb)) calc(100% - var(--zip-theme-vibe-body-end-mix)),
+          rgb(var(--zip-accent-1100)) var(--zip-theme-vibe-body-end-mix)
+        );
+        --zip-menu-grad-a: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-50-rgb)) calc(100% - var(--zip-theme-vibe-menu-a-mix)),
+          rgb(var(--zip-accent-1000)) var(--zip-theme-vibe-menu-a-mix)
+        );
+        --zip-menu-grad-b: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-75-rgb)) calc(100% - var(--zip-theme-vibe-menu-b-mix)),
+          rgb(var(--zip-accent-900)) var(--zip-theme-vibe-menu-b-mix)
+        );
+
+        --zip-table-zebra-contrast: var(--zip-theme-vibe-zebra-contrast);
+        --zip-table-zebra-hover-boost: var(--zip-theme-vibe-zebra-hover);
+        --zip-table-row-odd-base: rgb(var(--zip-gray-50-rgb));
+        --zip-table-row-even-base: rgb(var(--zip-gray-75-rgb));
+        --zip-table-row-hover-base: rgb(var(--zip-gray-100-rgb));
+        --zip-table-zebra-odd-accent: calc(var(--zip-table-zebra-contrast) * 0.9);
+        --zip-table-zebra-even-accent: calc(var(--zip-table-zebra-contrast) * 1.22);
+        --zip-table-zebra-hover-accent: calc(var(--zip-table-zebra-even-accent) + var(--zip-table-zebra-hover-boost));
+
+        --bg: rgb(var(--zip-gray-25-rgb));
+        --bg-gradient:
+          radial-gradient(
+            120% 70% at 8% 0%,
+            rgba(var(--zip-accent-800), var(--zip-theme-vibe-body-radial-alpha)) 0%,
+            transparent 52%
+          ),
+          linear-gradient(
+            180deg,
+            var(--zip-body-grad-start) 0%,
+            var(--zip-shell-surface-bg) 54%,
+            var(--zip-body-grad-end) 100%
+          );
+        --panel: var(--zip-shell-surface-bg);
+        --surface-frost: color-mix(in srgb, var(--panel) 92%, rgb(var(--zip-gray-25-rgb)) 8%);
+        --card-shadow: 0 1px 2px var(--shadow), 0 10px 24px color-mix(in srgb, var(--shadow) 54%, transparent);
+        --text-primary: rgb(var(--zip-gray-800-rgb));
+        --text-muted: rgb(var(--zip-gray-700-rgb));
+        --accent: rgb(var(--zip-accent-900));
+        --accent-strong: rgb(var(--zip-accent-1100));
+        --border: var(--zip-surface-border-accent);
+        --line: var(--zip-surface-border-accent);
+        --line-soft: color-mix(in srgb, var(--zip-surface-border-accent) 74%, rgb(var(--zip-gray-25-rgb)) 26%);
+        --field-bg: color-mix(in srgb, rgb(var(--zip-gray-25-rgb)) 90%, rgb(var(--zip-accent-1000)) 10%);
+        --field-border: color-mix(in srgb, rgb(var(--zip-gray-300-rgb)) 80%, rgb(var(--zip-accent-900)) 20%);
+        --field-focus-ring: rgba(var(--zip-accent-900), 0.22);
+        --button-bg: linear-gradient(180deg, var(--zip-menu-grad-a) 0%, var(--zip-menu-grad-b) 100%);
+        --button-hover: linear-gradient(
+          180deg,
+          color-mix(
+            in srgb,
+            rgb(var(--zip-gray-50-rgb)) calc(100% - calc(var(--zip-theme-vibe-menu-a-mix) + 4%)),
+            rgb(var(--zip-accent-1000)) calc(var(--zip-theme-vibe-menu-a-mix) + 4%)
+          )
+            0%,
+          color-mix(
+            in srgb,
+            rgb(var(--zip-gray-75-rgb)) calc(100% - calc(var(--zip-theme-vibe-menu-b-mix) + 3%)),
+            rgb(var(--zip-accent-900)) calc(var(--zip-theme-vibe-menu-b-mix) + 3%)
+          )
+            100%
+        );
+        --button-border: var(--zip-surface-border-accent);
+        --button-text: rgb(var(--zip-gray-900-rgb));
+        --table-head: color-mix(
+          in srgb,
+          var(--zip-table-row-hover-base) calc(100% - calc(var(--zip-table-zebra-even-accent) + 6%)),
+          rgb(var(--zip-accent-900)) calc(var(--zip-table-zebra-even-accent) + 6%)
+        );
+        --table-row: color-mix(
+          in srgb,
+          var(--zip-table-row-odd-base) calc(100% - var(--zip-table-zebra-odd-accent)),
+          rgb(var(--zip-accent-800)) var(--zip-table-zebra-odd-accent)
+        );
+        --table-alt: color-mix(
+          in srgb,
+          var(--zip-table-row-even-base) calc(100% - var(--zip-table-zebra-even-accent)),
+          rgb(var(--zip-accent-900)) var(--zip-table-zebra-even-accent)
+        );
+        --row-hover: color-mix(
+          in srgb,
+          var(--zip-table-row-hover-base) calc(100% - var(--zip-table-zebra-hover-accent)),
+          rgb(var(--zip-accent-900)) var(--zip-table-zebra-hover-accent)
+        );
+        --ok: #166534;
+        --err: #b91c1c;
+        --shadow: rgba(0, 0, 0, 0.18);
+        --theme-preview: linear-gradient(180deg, rgb(var(--zip-gray-25-rgb)) 0%, rgb(var(--zip-gray-75-rgb)) 100%);
+        --theme-ring: rgb(var(--zip-accent-1000));
+        --theme-halo: rgba(var(--zip-accent-900), 0.24);
+        --theme-shadow: rgba(17, 26, 35, 0.24);
+      }
+
+      body[data-theme="dark"] {
+        color-scheme: dark;
+        --zip-accent-500: 92, 0, 0;
+        --zip-accent-600: 108, 0, 0;
+        --zip-accent-700: 124, 0, 0;
+        --zip-accent-800: 139, 0, 0;
+        --zip-accent-900: 153, 31, 31;
+        --zip-accent-1000: 167, 61, 61;
+        --zip-accent-1100: 181, 92, 92;
+        --zip-accent-focus: 167, 61, 61;
+
+        --zip-theme-vibe-body-radial-alpha: 0.316;
+        --zip-theme-vibe-body-start-mix: 53.84%;
+        --zip-theme-vibe-body-end-mix: 46.12%;
+        --zip-theme-vibe-shell-mix: 46.52%;
+        --zip-theme-vibe-border-mix: 51.12%;
+        --zip-theme-vibe-menu-a-mix: 24.84%;
+        --zip-theme-vibe-menu-b-mix: 22.22%;
+        --zip-theme-vibe-zebra-contrast: 18.2%;
+        --zip-theme-vibe-zebra-hover: 10.05%;
+
+        --zip-gray-25-rgb: 17, 17, 17;
+        --zip-gray-50-rgb: 27, 27, 27;
+        --zip-gray-75-rgb: 34, 34, 34;
+        --zip-gray-100-rgb: 44, 44, 44;
+        --zip-gray-200-rgb: 50, 50, 50;
+        --zip-gray-300-rgb: 57, 57, 57;
+        --zip-gray-400-rgb: 68, 68, 68;
+        --zip-gray-500-rgb: 109, 109, 109;
+        --zip-gray-600-rgb: 138, 138, 138;
+        --zip-gray-700-rgb: 175, 175, 175;
+        --zip-gray-800-rgb: 219, 219, 219;
+        --zip-gray-900-rgb: 242, 242, 242;
+        --zip-gray-1000-rgb: 255, 255, 255;
+        --danger-rgb: 183, 56, 56;
+        --danger-strong-rgb: 198, 84, 84;
+
+        --zip-shell-surface-bg: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-50-rgb)) calc(100% - var(--zip-theme-vibe-shell-mix)),
+          rgb(var(--zip-accent-1000)) var(--zip-theme-vibe-shell-mix)
+        );
+        --zip-surface-border-accent: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-300-rgb)) calc(100% - var(--zip-theme-vibe-border-mix)),
+          rgb(var(--zip-accent-1000)) var(--zip-theme-vibe-border-mix)
+        );
+        --zip-body-grad-start: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-25-rgb)) calc(100% - var(--zip-theme-vibe-body-start-mix)),
+          rgb(var(--zip-accent-1100)) var(--zip-theme-vibe-body-start-mix)
+        );
+        --zip-body-grad-end: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-25-rgb)) calc(100% - var(--zip-theme-vibe-body-end-mix)),
+          rgb(var(--zip-accent-900)) var(--zip-theme-vibe-body-end-mix)
+        );
+        --zip-menu-grad-a: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-75-rgb)) calc(100% - var(--zip-theme-vibe-menu-a-mix)),
+          rgb(var(--zip-accent-1000)) var(--zip-theme-vibe-menu-a-mix)
+        );
+        --zip-menu-grad-b: color-mix(
+          in srgb,
+          rgb(var(--zip-gray-50-rgb)) calc(100% - var(--zip-theme-vibe-menu-b-mix)),
+          rgb(var(--zip-accent-900)) var(--zip-theme-vibe-menu-b-mix)
+        );
+
+        --zip-table-zebra-contrast: var(--zip-theme-vibe-zebra-contrast);
+        --zip-table-zebra-hover-boost: var(--zip-theme-vibe-zebra-hover);
+        --zip-table-row-odd-base: rgb(var(--zip-gray-75-rgb));
+        --zip-table-row-even-base: rgb(var(--zip-gray-100-rgb));
+        --zip-table-row-hover-base: rgb(var(--zip-gray-200-rgb));
+        --zip-table-zebra-odd-accent: calc(var(--zip-table-zebra-contrast) * 0.9);
+        --zip-table-zebra-even-accent: calc(var(--zip-table-zebra-contrast) * 1.22);
+        --zip-table-zebra-hover-accent: calc(var(--zip-table-zebra-even-accent) + var(--zip-table-zebra-hover-boost));
+
+        --bg: rgb(var(--zip-gray-25-rgb));
+        --bg-gradient:
+          radial-gradient(
+            120% 70% at 8% 0%,
+            rgba(var(--zip-accent-900), var(--zip-theme-vibe-body-radial-alpha)) 0%,
+            transparent 52%
+          ),
+          linear-gradient(
+            180deg,
+            var(--zip-body-grad-start) 0%,
+            var(--zip-shell-surface-bg) 54%,
+            var(--zip-body-grad-end) 100%
+          );
+        --panel: var(--zip-shell-surface-bg);
+        --surface-frost: color-mix(in srgb, var(--panel) 90%, rgb(var(--zip-gray-50-rgb)) 10%);
+        --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.42), 0 18px 34px rgba(0, 0, 0, 0.56);
+        --text-primary: rgb(var(--zip-gray-800-rgb));
+        --text-muted: rgb(var(--zip-gray-700-rgb));
+        --accent: rgb(var(--zip-accent-900));
+        --accent-strong: rgb(var(--zip-accent-1100));
+        --border: var(--zip-surface-border-accent);
+        --line: var(--zip-surface-border-accent);
+        --line-soft: color-mix(in srgb, var(--zip-surface-border-accent) 72%, rgb(var(--zip-gray-50-rgb)) 28%);
+        --field-bg: color-mix(in srgb, rgb(var(--zip-gray-50-rgb)) 88%, rgb(var(--zip-accent-1000)) 12%);
+        --field-border: color-mix(in srgb, rgb(var(--zip-gray-300-rgb)) 70%, rgb(var(--zip-accent-1000)) 30%);
+        --field-focus-ring: rgba(var(--zip-accent-1000), 0.32);
+        --button-bg: linear-gradient(180deg, var(--zip-menu-grad-a) 0%, var(--zip-menu-grad-b) 100%);
+        --button-hover: linear-gradient(
+          180deg,
+          color-mix(
+            in srgb,
+            rgb(var(--zip-gray-100-rgb)) calc(100% - calc(var(--zip-theme-vibe-menu-a-mix) + 4%)),
+            rgb(var(--zip-accent-1000)) calc(var(--zip-theme-vibe-menu-a-mix) + 4%)
+          )
+            0%,
+          color-mix(
+            in srgb,
+            rgb(var(--zip-gray-75-rgb)) calc(100% - calc(var(--zip-theme-vibe-menu-b-mix) + 3%)),
+            rgb(var(--zip-accent-900)) calc(var(--zip-theme-vibe-menu-b-mix) + 3%)
+          )
+            100%
+        );
+        --button-border: var(--zip-surface-border-accent);
+        --button-text: rgb(var(--zip-gray-900-rgb));
+        --table-head: color-mix(
+          in srgb,
+          var(--zip-table-row-hover-base) calc(100% - calc(var(--zip-table-zebra-even-accent) + 6%)),
+          rgb(var(--zip-accent-900)) calc(var(--zip-table-zebra-even-accent) + 6%)
+        );
+        --table-row: color-mix(
+          in srgb,
+          var(--zip-table-row-odd-base) calc(100% - var(--zip-table-zebra-odd-accent)),
+          rgb(var(--zip-accent-800)) var(--zip-table-zebra-odd-accent)
+        );
+        --table-alt: color-mix(
+          in srgb,
+          var(--zip-table-row-even-base) calc(100% - var(--zip-table-zebra-even-accent)),
+          rgb(var(--zip-accent-900)) var(--zip-table-zebra-even-accent)
+        );
+        --row-hover: color-mix(
+          in srgb,
+          var(--zip-table-row-hover-base) calc(100% - var(--zip-table-zebra-hover-accent)),
+          rgb(var(--zip-accent-900)) var(--zip-table-zebra-hover-accent)
+        );
+        --ok: #7ee4a8;
+        --err: #f5a3a3;
+        --shadow: rgba(0, 0, 0, 0.48);
+        --theme-preview: linear-gradient(180deg, rgb(var(--zip-gray-50-rgb)) 0%, rgb(var(--zip-gray-25-rgb)) 100%);
+        --theme-ring: rgb(var(--zip-accent-1100));
+        --theme-halo: rgba(var(--zip-accent-900), 0.3);
+        --theme-shadow: rgba(0, 0, 0, 0.56);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background-color: var(--bg);
+        background-image: var(--bg-gradient);
+        background-attachment: fixed;
+        color: var(--text-primary);
+        font-family: adobe-clean, "Adobe Clean", "Source Sans Pro", "Segoe UI", system-ui, sans-serif;
+        transition: background-color 180ms ease, color 180ms ease;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+      }
+
+      .app-shell {
+        width: min(1580px, 100%);
+        margin: 0 auto;
+        padding: 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .page-title {
+        margin: 0 0 2px;
+        font-size: 16px;
+        font-weight: 800;
+        letter-spacing: 0.012em;
+      }
+
+      .search-container {
+        display: flex;
+        align-items: center;
+        flex-wrap: nowrap;
+        gap: clamp(4px, 0.7vw, 12px);
+        background:
+          linear-gradient(180deg, color-mix(in srgb, var(--surface-frost) 95%, transparent) 0%, var(--panel) 100%),
+          var(--panel);
+        border: 1px solid color-mix(in srgb, var(--border) 78%, rgb(var(--zip-accent-900)) 22%);
+        border-radius: var(--radius-panel);
+        padding: clamp(6px, 0.8vw, 12px) clamp(8px, 1vw, 14px);
+        box-shadow: var(--card-shadow);
+        overflow: hidden;
+        min-width: 0;
+      }
+
+      .search-left {
+        display: flex;
+        align-items: center;
+        gap: clamp(3px, 0.6vw, 8px);
+        flex-wrap: nowrap;
+        margin: 0;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .search-right {
+        margin-left: clamp(4px, 0.8vw, 12px);
+        display: flex;
+        align-items: center;
+        gap: 0;
+        flex: 0 0 auto;
+      }
+
+      .theme-toggle {
+        width: var(--control-height);
+        height: var(--control-height);
+        padding: 0;
+        border-radius: var(--radius-pill);
+        border: 1.5px solid var(--theme-ring);
+        background: var(--theme-preview);
+        box-shadow: 0 0 0 3px var(--theme-halo), 0 3px 10px var(--theme-shadow);
+        cursor: pointer;
+        transition: border-color 120ms ease, box-shadow 120ms ease;
+      }
+
+      .theme-toggle:hover {
+        transform: none;
+        filter: none;
+        border-color: var(--accent-strong);
+      }
+
+      .theme-toggle:active {
+        transform: none;
+      }
+
+      .theme-toggle:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--field-focus-ring);
+      }
+
+      #netIndicator {
+        display: none;
+        width: 14px;
+        height: 14px;
+        margin-left: 6px;
+        border: 2px solid color-mix(in srgb, var(--line-soft) 70%, transparent);
+        border-top-color: rgb(var(--zip-accent-900));
+        border-radius: 50%;
+        animation: netSpin 0.8s linear infinite;
+      }
+
+      @keyframes netSpin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      body.net-busy {
+        cursor: progress;
+      }
+
+      body.net-busy button,
+      body.net-busy select,
+      body.net-busy input {
+        cursor: progress;
+      }
+
+      #runnerForm select {
+        height: var(--control-height);
+        min-height: var(--control-height);
+        border: 1px solid var(--field-border);
+        border-radius: var(--radius-control);
+        background: var(--field-bg);
+        color: var(--text-primary);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1;
+        padding: 0 7px;
+        width: auto;
+        max-width: none;
+        flex: 0 1 auto;
+        min-width: 0;
+        appearance: auto;
+        box-shadow: inset 0 1px 0 color-mix(in srgb, var(--panel) 66%, transparent);
+      }
+
+      #methodPicker {
+        flex: 0 1 150px;
+      }
+
+      #requestorPicker {
+        flex: 0 1 170px;
+      }
+
+      #mvpdPicker {
+        flex: 1 1 280px;
+      }
+
+      #runnerForm select:focus {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--field-focus-ring);
+      }
+
+      .go-btn {
+        appearance: none;
+        height: var(--control-height);
+        min-height: var(--control-height);
+        min-width: 62px;
+        border-radius: 999px;
+        border: 1px solid var(--button-border);
+        background: var(--button-bg);
+        color: var(--button-text);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        box-shadow: 0 1px 0 color-mix(in srgb, var(--text-primary) 12%, transparent);
+        transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+        flex: 0 1 108px;
+        padding: 0 clamp(8px, 1vw, 14px);
+      }
+
+      .go-btn:hover:not(:disabled) {
+        border-color: color-mix(in srgb, var(--button-border) 70%, rgb(var(--zip-accent-900)) 30%);
+        box-shadow: 0 3px 10px color-mix(in srgb, var(--shadow) 48%, transparent);
+        background: var(--button-hover);
+      }
+
+      .go-btn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--field-focus-ring);
+      }
+
+      .go-btn:disabled,
+      #runnerForm select:disabled {
+        opacity: 0.64;
+        cursor: default;
+      }
+
+      .status-line {
+        margin: 0;
+        min-height: 18px;
+        font-size: 11px;
+        color: var(--text-muted);
+      }
+
+      .status-line.success {
+        color: var(--ok);
+      }
+
+      .status-line.error {
+        color: var(--err);
+      }
+
+      .results-host {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        min-height: 0;
+      }
+
+      .report-card {
+        border: 1px solid color-mix(in srgb, var(--border) 84%, rgb(var(--zip-accent-900)) 16%);
+        border-radius: 18px;
+        overflow: hidden;
+        background:
+          linear-gradient(180deg, color-mix(in srgb, var(--surface-frost) 96%, transparent) 0%, var(--panel) 100%),
+          var(--panel);
+        box-shadow: var(--card-shadow);
+      }
+
+      .report-card.report-card--no-active {
+        padding: 12px 14px;
+      }
+
+      .report-no-active-line {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1.35;
+        color: var(--text-primary);
+      }
+
+      .report-no-active-copy {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        margin: 0;
+        padding: 0;
+        font: inherit;
+        color: inherit;
+        cursor: pointer;
+        text-align: left;
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        text-decoration-thickness: 1.2px;
+      }
+
+      .report-no-active-copy:hover {
+        color: var(--accent-strong);
+      }
+
+      .report-no-active-copy:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--field-focus-ring);
+        border-radius: 5px;
+      }
+
+      .report-head {
+        padding: 11px 12px;
+        border-bottom: 1px solid var(--line);
+        background: linear-gradient(
+          160deg,
+          color-mix(in srgb, var(--table-head) 84%, transparent),
+          color-mix(in srgb, var(--table-row) 92%, transparent)
+        );
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .report-title-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .report-title {
+        margin: 0;
+        font-size: 13px;
+        font-weight: 760;
+      }
+
+      .report-http {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 760;
+      }
+
+      .report-http.error {
+        color: var(--err);
+      }
+
+      .report-http-link {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        margin: 0;
+        padding: 0;
+        font-size: 11px;
+        font-weight: 760;
+        letter-spacing: 0.01em;
+        color: var(--text-primary);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+        cursor: pointer;
+      }
+
+      .report-http-link:hover {
+        color: var(--accent-strong);
+      }
+
+      .report-http-link.error {
+        color: var(--err);
+      }
+
+      .report-subtitle,
+      .report-meta,
+      .report-error,
+      .report-empty {
+        margin: 0;
+        font-size: 11px;
+        line-height: 1.35;
+        word-break: break-word;
+      }
+
+      .report-subtitle {
+        color: var(--text-primary);
+        font-size: 12px;
+        font-weight: 560;
+      }
+
+      .report-scope-value {
+        font-weight: 820;
+        color: var(--text-primary);
+      }
+
+      .report-scope-sep {
+        font-weight: 650;
+        color: var(--text-muted);
+      }
+
+      .report-meta,
+      .report-empty {
+        color: var(--text-muted);
+      }
+
+      .report-error {
+        color: var(--err);
+        padding: 10px 12px 0;
+      }
+
+      .report-empty {
+        padding: 10px 12px;
+      }
+
+      .table-wrap {
+        overflow: auto;
+        border-top: 1px solid var(--line);
+        background: var(--table-row);
+        max-height: 420px;
+      }
+
+      .report-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        min-width: 920px;
+      }
+
+      .report-table th,
+      .report-table td {
+        padding: 7px 8px;
+        border-bottom: 1px solid var(--line);
+        font-size: 10.5px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .report-table th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: var(--table-head);
+        color: var(--text-primary);
+        font-weight: 760;
+        letter-spacing: 0.01em;
+        white-space: nowrap;
+      }
+
+      .sort-btn {
+        appearance: none;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        padding: 0;
+        margin: 0;
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font: inherit;
+        font-weight: inherit;
+        cursor: pointer;
+      }
+
+      .sort-btn:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 3px var(--field-focus-ring);
+        border-radius: 5px;
+      }
+
+      .report-table th.active-sort {
+        text-decoration: underline;
+      }
+
+      .sort-icon {
+        font-size: 10px;
+        line-height: 1;
+        min-width: 10px;
+        opacity: 0.82;
+      }
+
+      .report-table tbody tr:nth-child(odd) td {
+        background: var(--table-row);
+      }
+
+      .report-table tbody tr:nth-child(even) td {
+        background: var(--table-alt);
+      }
+
+      .report-table tbody tr:hover td {
+        background: var(--row-hover);
+      }
+
+      .report-table td {
+        color: var(--text-primary);
+        max-width: 540px;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+      }
+
+      .report-footer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-top: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
+        background: color-mix(in srgb, var(--panel) 96%, transparent);
+      }
+
+      .report-footer-controls {
+        margin-left: auto;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .report-csv-link,
+      .report-csv-link:visited {
+        color: var(--accent);
+        font-size: 11.5px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+      }
+
+      .report-csv-link:hover {
+        color: var(--accent-strong);
+        text-decoration: underline;
+      }
+
+      .report-action-btn {
+        width: 30px;
+        min-width: 30px;
+        max-width: 30px;
+        height: 30px;
+        min-height: 30px;
+        max-height: 30px;
+        padding: 0;
+        border: 1px solid var(--button-border);
+        border-radius: 50%;
+        background: var(--button-bg);
+        color: var(--button-text);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .report-action-btn:hover {
+        background: var(--button-hover);
+      }
+
+      .report-action-btn:disabled {
+        opacity: 0.64;
+        cursor: default;
+      }
+
+      .report-action-rerun {
+        border-color: rgb(var(--danger-strong-rgb));
+        background: rgba(var(--danger-rgb), 0.16);
+        color: rgb(var(--danger-rgb));
+        box-shadow: 0 0 0 1px rgba(var(--danger-rgb), 0.24);
+      }
+
+      .report-action-rerun:hover {
+        background: rgba(var(--danger-rgb), 0.22);
+        border-color: rgb(var(--danger-strong-rgb));
+        color: rgb(var(--danger-strong-rgb));
+      }
+
+      .report-action-icon {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .report-last-modified {
+        margin: 0;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        color: var(--text-muted);
+      }
+
+      .pill-active {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 44px;
+        height: 18px;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, rgb(var(--zip-accent-900)) 65%, transparent);
+        background: color-mix(in srgb, rgba(var(--zip-accent-900), 0.25) 82%, transparent);
+        color: color-mix(in srgb, var(--text-primary) 74%, rgb(var(--zip-accent-1100)) 26%);
+        font-size: 10px;
+        font-weight: 760;
+      }
+
+      .pill-active.no {
+        border-color: color-mix(in srgb, var(--line-soft) 82%, transparent);
+        background: color-mix(in srgb, var(--table-head) 58%, transparent);
+        color: var(--text-muted);
+      }
+
+      @media (max-width: 720px) {
+        .app-shell {
+          padding: 10px;
+        }
+
+        .search-container {
+          padding: 6px 8px;
+          gap: 4px;
+        }
+
+        .search-left {
+          gap: 3px;
+        }
+
+        #runnerForm select {
+          padding: 0 6px;
+          font-size: 12.5px;
+        }
+
+        .go-btn {
+          min-width: 58px;
+          font-size: 12.5px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <input type="hidden" name="cid" value="__UP_CID__" />
+    <input type="hidden" name="csc" value="__UP_CSC__" />
+    <input type="hidden" name="access_token" value="__UP_ACCESS_TOKEN__" />
+    <input type="hidden" name="requestor_ids_json" value="__UP_REQUESTOR_IDS_JSON__" />
+    <input type="hidden" name="theme_scope" value="__UP_THEME_SCOPE__" />
+    <input type="hidden" name="media_company_id" value="__UP_MEDIA_COMPANY_ID__" />
+    <input type="hidden" name="media_company_name" value="__UP_MEDIA_COMPANY_NAME__" />
+    <input type="hidden" name="default_requestor_id" value="__UP_DEFAULT_REQUESTOR_ID__" />
+    <input type="hidden" name="default_mvpd_id" value="__UP_DEFAULT_MVPD_ID__" />
+
+    <main class="app-shell">
+      <header class="search-container" role="region" aria-label="DEGRADATION controls">
+        <form id="runnerForm" class="search-left" novalidate>
+          <select id="methodPicker" name="method" title="Method">
+            <option value="all">GET ALL</option>
+            <option value="authnall">authN ALL</option>
+            <option value="authzall">authZ ALL</option>
+            <option value="authznone">authZ NONE</option>
+          </select>
+          <select id="requestorPicker" name="requestor" title="RequestorId"></select>
+          <select id="mvpdPicker" name="mvpd" title="MVPD" disabled>
+            <option value="">ALL MVPDs</option>
+          </select>
+          <button id="goButton" class="go-btn" type="submit">GO</button>
+          <span id="netIndicator" title="Loading…" aria-label="Loading"></span>
+        </form>
+        <div class="search-right">
+          <button
+            id="themeToggle"
+            class="theme-toggle"
+            type="button"
+            aria-label="Switch to dark theme"
+            title="Switch to dark theme"
+          ></button>
+        </div>
+      </header>
+      <p id="statusLine" class="status-line" aria-live="polite"></p>
+
+      <section id="resultsHost" class="results-host" aria-live="polite"></section>
+    </main>
+
+    <script>
+      window.__UNDERPAR_CLICK_DGR_RUNTIME__ = true;
+
+      const ADOBE_SP_BASE = "https://sp.auth.adobe.com";
+      const DEGRADATION_API_BASE = "https://mgmt.auth.adobe.com/control/v3/degradation";
+      const DEGRADATION_API_VERSION = "3.0";
+      const THEME_STORAGE_KEY_PREFIX = "underpar-clickdgr-theme";
+      const ACCESS_TOKEN_STORAGE_KEY_PREFIX = "underpar-clickdgr-access-token";
+
+      const ENDPOINT_SPECS = [
+        {
+          key: "authnall",
+          path: "authnAll",
+          measureId: "authn-all",
+          title: "Authenticate All - Status",
+          targetType: "programmer",
+          targetKey: "programmer",
+        },
+        {
+          key: "authzall",
+          path: "authzAll",
+          measureId: "authz-all",
+          title: "Authorize All - Status",
+          targetType: "resource",
+          targetKey: "resource",
+        },
+        {
+          key: "authznone",
+          path: "authzNone",
+          measureId: "authz-none",
+          title: "Authorize None - Status",
+          targetType: "channel",
+          targetKey: "channel",
+        },
+      ];
+
+      const MEGA_ENDPOINT_SPEC = {
+        key: "all",
+        path: "all",
+        measureId: "all-rules",
+        title: "All Rules - Status",
+        targetType: "aggregate",
+        targetKey: "",
+      };
+
+      const DEFAULT_COLUMNS = [
+        "Rule",
+        "Measure ID",
+        "Programmer",
+        "MVPD",
+        "Target Type",
+        "Target",
+        "Enabled",
+        "Status",
+        "Active",
+        "TTL (s)",
+        "Message",
+        "Activation Time",
+      ];
+
+      const state = {
+        busy: false,
+        reports: [],
+        mvpdCacheByRequestor: new Map(),
+        reportSortByQueryKey: new Map(),
+      };
+
+      const els = {
+        themeToggle: document.getElementById("themeToggle"),
+        runnerForm: document.getElementById("runnerForm"),
+        methodPicker: document.getElementById("methodPicker"),
+        requestorPicker: document.getElementById("requestorPicker"),
+        mvpdPicker: document.getElementById("mvpdPicker"),
+        goButton: document.getElementById("goButton"),
+        netIndicator: document.getElementById("netIndicator"),
+        statusLine: document.getElementById("statusLine"),
+        resultsHost: document.getElementById("resultsHost"),
+      };
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function firstNonEmptyString(values = []) {
+        for (const value of Array.isArray(values) ? values : []) {
+          const text = String(value ?? "").trim();
+          if (text) {
+            return text;
+          }
+        }
+        return "";
+      }
+
+      function uniqueSorted(values = []) {
+        const normalized = [];
+        const seen = new Set();
+        (Array.isArray(values) ? values : []).forEach((value) => {
+          const text = String(value || "").trim();
+          if (!text) {
+            return;
+          }
+          const key = text.toLowerCase();
+          if (seen.has(key)) {
+            return;
+          }
+          seen.add(key);
+          normalized.push(text);
+        });
+        return normalized.sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }));
+      }
+
+      function getSelectMeasureContext() {
+        if (!getSelectMeasureContext.ctx) {
+          const canvas = document.createElement("canvas");
+          getSelectMeasureContext.ctx = canvas.getContext("2d");
+        }
+        return getSelectMeasureContext.ctx;
+      }
+
+      function syncSelectWidth(selectElement) {
+        if (!(selectElement instanceof HTMLSelectElement)) {
+          return;
+        }
+        const options = Array.from(selectElement.options || []);
+        if (!options.length) {
+          return;
+        }
+        const computed = window.getComputedStyle(selectElement);
+        const measureCtx = getSelectMeasureContext();
+        if (!measureCtx) {
+          return;
+        }
+        measureCtx.font = [
+          computed.fontStyle,
+          computed.fontVariant,
+          computed.fontWeight,
+          computed.fontSize,
+          computed.fontFamily,
+        ]
+          .filter(Boolean)
+          .join(" ");
+        let maxTextWidth = 0;
+        options.forEach((option) => {
+          const label = String(option.textContent || option.label || "").trim();
+          maxTextWidth = Math.max(maxTextWidth, measureCtx.measureText(label).width);
+        });
+        const paddingLeft = Number.parseFloat(computed.paddingLeft || "0") || 0;
+        const paddingRight = Number.parseFloat(computed.paddingRight || "0") || 0;
+        const borderLeft = Number.parseFloat(computed.borderLeftWidth || "0") || 0;
+        const borderRight = Number.parseFloat(computed.borderRightWidth || "0") || 0;
+        const caretAllowance = 24;
+        const widthPx = Math.ceil(maxTextWidth + paddingLeft + paddingRight + borderLeft + borderRight + caretAllowance);
+        const normalizedId = String(selectElement.id || "").trim().toLowerCase();
+        const maxBasisBySelectId = {
+          methodpicker: 180,
+          requestorpicker: 210,
+          mvpdpicker: 460,
+        };
+        const cappedWidth = Math.min(
+          maxBasisBySelectId[normalizedId] || 420,
+          Math.max(56, widthPx)
+        );
+        selectElement.style.flexBasis = `${cappedWidth}px`;
+        selectElement.style.width = "auto";
+      }
+
+      function syncHeaderControlWidths() {
+        syncSelectWidth(els.methodPicker);
+        syncSelectWidth(els.requestorPicker);
+        syncSelectWidth(els.mvpdPicker);
+      }
+
+      function safeJsonParse(value, fallback = null) {
+        const text = String(value || "").trim();
+        if (!text) {
+          return fallback;
+        }
+        try {
+          return JSON.parse(text);
+        } catch {
+          return fallback;
+        }
+      }
+
+      function formatDateTime(value) {
+        const numeric = Number(value || 0);
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+          return "N/A";
+        }
+        try {
+          return new Date(numeric).toLocaleString();
+        } catch {
+          return "N/A";
+        }
+      }
+
+      function getEmbeddedInputValue(name) {
+        return String(document.querySelector(`input[name="${String(name || "").trim()}"]`)?.value ?? "").trim();
+      }
+
+      function normalizeTheme(theme) {
+        return String(theme || "").trim().toLowerCase() === "dark" ? "dark" : "light";
+      }
+
+      function getThemeScope() {
+        return firstNonEmptyString([
+          getEmbeddedInputValue("theme_scope"),
+          getEmbeddedInputValue("media_company_id"),
+          getEmbeddedInputValue("cid"),
+          document.title,
+          "default",
+        ]);
+      }
+
+      function getThemeStorageKey() {
+        return `${THEME_STORAGE_KEY_PREFIX}:${getThemeScope()}`;
+      }
+
+      function readStoredTheme() {
+        try {
+          return localStorage.getItem(getThemeStorageKey());
+        } catch {
+          return null;
+        }
+      }
+
+      function storeTheme(theme) {
+        try {
+          localStorage.setItem(getThemeStorageKey(), normalizeTheme(theme));
+        } catch {
+          // no-op
+        }
+      }
+
+      function getActiveTheme() {
+        return normalizeTheme(document.body?.dataset?.theme);
+      }
+
+      function refreshThemeToggleUi() {
+        if (!els.themeToggle) {
+          return;
+        }
+        const nextTheme = getActiveTheme() === "dark" ? "light" : "dark";
+        const label = `Switch to ${nextTheme} theme`;
+        els.themeToggle.setAttribute("title", label);
+        els.themeToggle.setAttribute("aria-label", label);
+      }
+
+      function applyTheme(theme, { persist = true } = {}) {
+        const normalized = normalizeTheme(theme);
+        document.body.dataset.theme = normalized;
+        if (persist) {
+          storeTheme(normalized);
+        }
+        refreshThemeToggleUi();
+      }
+
+      function initTheme() {
+        applyTheme(readStoredTheme(), { persist: false });
+      }
+
+      function getScopedTokenStorageKey() {
+        const clientId = getEmbeddedInputValue("cid");
+        return `${ACCESS_TOKEN_STORAGE_KEY_PREFIX}:${clientId || "default"}`;
+      }
+
+      function getToken() {
+        const embedded = getEmbeddedInputValue("access_token");
+        if (embedded) {
+          return embedded;
+        }
+        try {
+          const scoped = String(localStorage.getItem(getScopedTokenStorageKey()) || "").trim();
+          if (scoped) {
+            return scoped;
+          }
+          return String(localStorage.getItem("access_token") || "").trim();
+        } catch {
+          return "";
+        }
+      }
+
+      function setToken(tokenValue) {
+        const normalized = String(tokenValue || "").trim();
+        const hiddenTokenInput = document.querySelector('input[name="access_token"]');
+        if (hiddenTokenInput) {
+          hiddenTokenInput.value = normalized;
+        }
+        try {
+          if (normalized) {
+            localStorage.setItem(getScopedTokenStorageKey(), normalized);
+            localStorage.setItem("access_token", normalized);
+          } else {
+            localStorage.removeItem(getScopedTokenStorageKey());
+            localStorage.removeItem("access_token");
+          }
+        } catch {
+          // no-op
+        }
+      }
+
+      function bootstrapEmbeddedAccessToken() {
+        const embedded = getEmbeddedInputValue("access_token");
+        if (!embedded) {
+          return;
+        }
+        setToken(embedded);
+      }
+
+      async function refreshToken() {
+        const cid = getEmbeddedInputValue("cid");
+        const csc = getEmbeddedInputValue("csc");
+        if (!cid || !csc) {
+          throw new Error("Missing DCR client credentials in clickDGR export.");
+        }
+
+        const tokenUrl =
+          `${ADOBE_SP_BASE}/o/client/token?grant_type=client_credentials` +
+          `&client_id=${encodeURIComponent(cid)}` +
+          `&client_secret=${encodeURIComponent(csc)}`;
+
+        const response = await fetch(tokenUrl, {
+          method: "POST",
+        });
+        if (!response.ok) {
+          const failureText = String(await response.text().catch(() => "")).trim();
+          throw new Error(`Token refresh failed (${response.status})${failureText ? `: ${failureText}` : "."}`);
+        }
+
+        const payload = safeJsonParse(await response.text().catch(() => ""), null);
+        const accessToken = String(payload?.access_token || "").trim();
+        if (!accessToken) {
+          throw new Error("Token refresh returned no access_token.");
+        }
+        setToken(accessToken);
+        return accessToken;
+      }
+
+      async function fetchWithPremiumAuth(url, init = {}, options = {}) {
+        const retryUnauthorized = options?.retryUnauthorized !== false;
+        const doFetch = async (tokenValue) => {
+          const headers = {
+            ...(init?.headers && typeof init.headers === "object" ? init.headers : {}),
+            Authorization: `Bearer ${String(tokenValue || "").trim()}`,
+          };
+          return fetch(url, {
+            ...init,
+            headers,
+          });
+        };
+
+        let tokenValue = getToken();
+        if (!tokenValue) {
+          tokenValue = await refreshToken();
+        }
+
+        let response = await doFetch(tokenValue);
+        if (response.status === 401 && retryUnauthorized) {
+          tokenValue = await refreshToken();
+          response = await doFetch(tokenValue);
+        }
+        return response;
+      }
+
+      function setBusy(busy) {
+        state.busy = busy === true;
+        document.body.classList.toggle("net-busy", state.busy);
+        if (els.netIndicator) {
+          els.netIndicator.style.display = state.busy ? "inline-block" : "none";
+        }
+        if (els.methodPicker) {
+          els.methodPicker.disabled = state.busy;
+        }
+        if (els.requestorPicker) {
+          els.requestorPicker.disabled = state.busy;
+        }
+        if (els.mvpdPicker) {
+          els.mvpdPicker.disabled = state.busy || els.requestorPicker?.disabled === true;
+        }
+        if (els.goButton) {
+          els.goButton.disabled = state.busy;
+        }
+      }
+
+      function setStatus(message = "", type = "info") {
+        if (!els.statusLine) {
+          return;
+        }
+        els.statusLine.textContent = String(message || "").trim();
+        els.statusLine.classList.toggle("success", type === "success");
+        els.statusLine.classList.toggle("error", type === "error");
+      }
+
+      function normalizeDefaultMvpdId(rawValue) {
+        const normalized = String(rawValue || "").trim();
+        const compact = normalized.toLowerCase().replace(/[\s_-]+/g, "");
+        if (!compact || compact === "all" || compact === "allmvpds" || compact === "*") {
+          return "";
+        }
+        return normalized;
+      }
+
+      function getEmbeddedRequestorIds() {
+        const encoded = getEmbeddedInputValue("requestor_ids_json");
+        if (!encoded) {
+          return [];
+        }
+        try {
+          const parsed = JSON.parse(decodeURIComponent(encoded));
+          if (!Array.isArray(parsed)) {
+            return [];
+          }
+          return uniqueSorted(parsed);
+        } catch {
+          return [];
+        }
+      }
+
+      function getSelectedRequestorId() {
+        return String(els.requestorPicker?.value || "").trim();
+      }
+
+      function getSelectedMvpdId() {
+        return String(els.mvpdPicker?.value || "").trim();
+      }
+
+      async function loadMvpdMapForRequestor(requestorId) {
+        const normalizedRequestorId = String(requestorId || "").trim();
+        if (!normalizedRequestorId) {
+          return new Map();
+        }
+        if (state.mvpdCacheByRequestor.has(normalizedRequestorId)) {
+          return state.mvpdCacheByRequestor.get(normalizedRequestorId);
+        }
+
+        const mvpdMap = new Map();
+        try {
+          const response = await fetchWithPremiumAuth(
+            `${ADOBE_SP_BASE}/api/v1/config/${encodeURIComponent(normalizedRequestorId)}`,
+            {
+              method: "GET",
+            }
+          );
+          if (response.ok) {
+            const responseText = await response.text().catch(() => "");
+            const xmlDoc = new DOMParser().parseFromString(responseText, "application/xml");
+            xmlDoc.querySelectorAll("mvpds > mvpd").forEach((mvpdNode) => {
+              const idNode = mvpdNode.querySelector("id");
+              if (!idNode) {
+                return;
+              }
+              const mvpdId = String(idNode.textContent || "").trim();
+              if (!mvpdId) {
+                return;
+              }
+              const displayNameNode = mvpdNode.querySelector("displayName");
+              const isProxyNode = mvpdNode.querySelector("isProxy");
+              const mvpdName = String(displayNameNode?.textContent || "").trim() || mvpdId;
+              const isProxyText = String(isProxyNode?.textContent || "").trim().toLowerCase();
+              const isProxy = isProxyText === "false" ? false : true;
+              mvpdMap.set(mvpdId, {
+                name: mvpdName,
+                isProxy,
+              });
+            });
+          }
+        } catch {
+          // no-op; return empty list for this requestor.
+        }
+
+        state.mvpdCacheByRequestor.set(normalizedRequestorId, mvpdMap);
+        return mvpdMap;
+      }
+
+      function renderMvpdOptions(requestorId, desiredMvpdId = "") {
+        if (!els.mvpdPicker) {
+          return;
+        }
+
+        const normalizedRequestorId = String(requestorId || "").trim();
+        const mapForRequestor = state.mvpdCacheByRequestor.get(normalizedRequestorId) || new Map();
+        const entries = [...mapForRequestor.entries()].sort((left, right) => {
+          const leftName = String(left?.[1]?.name || left?.[0] || "").trim();
+          const rightName = String(right?.[1]?.name || right?.[0] || "").trim();
+          return leftName.localeCompare(rightName, undefined, { sensitivity: "base" });
+        });
+
+        els.mvpdPicker.innerHTML = "";
+
+        const allOption = document.createElement("option");
+        allOption.value = "";
+        allOption.textContent = "ALL MVPDs";
+        els.mvpdPicker.appendChild(allOption);
+
+        entries.forEach(([mvpdId, meta]) => {
+          const option = document.createElement("option");
+          option.value = mvpdId;
+          const mvpdName = String(meta?.name || mvpdId).trim() || mvpdId;
+          option.textContent = `${mvpdName} (${mvpdId})`;
+          option.style.fontWeight = meta?.isProxy === false ? "700" : "400";
+          els.mvpdPicker.appendChild(option);
+        });
+
+        const normalizedDesiredMvpdId = String(desiredMvpdId || "").trim();
+        if (normalizedDesiredMvpdId && entries.some(([mvpdId]) => mvpdId === normalizedDesiredMvpdId)) {
+          els.mvpdPicker.value = normalizedDesiredMvpdId;
+        } else {
+          els.mvpdPicker.value = "";
+        }
+        syncSelectWidth(els.mvpdPicker);
+      }
+
+      async function onRequestorChange() {
+        const requestorId = getSelectedRequestorId();
+        if (!requestorId) {
+          if (els.mvpdPicker) {
+            els.mvpdPicker.innerHTML = "";
+            const allOption = document.createElement("option");
+            allOption.value = "";
+            allOption.textContent = "ALL MVPDs";
+            els.mvpdPicker.appendChild(allOption);
+            els.mvpdPicker.value = "";
+          }
+          return;
+        }
+
+        const defaultRequestorId = getEmbeddedInputValue("default_requestor_id");
+        const defaultMvpdId = normalizeDefaultMvpdId(getEmbeddedInputValue("default_mvpd_id"));
+        const desiredMvpdId =
+          requestorId === defaultRequestorId
+            ? defaultMvpdId || getSelectedMvpdId()
+            : getSelectedMvpdId();
+
+        if (els.mvpdPicker) {
+          els.mvpdPicker.disabled = true;
+        }
+        await loadMvpdMapForRequestor(requestorId);
+        renderMvpdOptions(requestorId, desiredMvpdId);
+        if (els.mvpdPicker) {
+          els.mvpdPicker.disabled = state.busy;
+        }
+      }
+
+      async function loadRequestorPicker() {
+        if (!els.requestorPicker) {
+          return;
+        }
+
+        const requestorIds = getEmbeddedRequestorIds();
+        els.requestorPicker.innerHTML = "";
+
+        if (requestorIds.length === 0) {
+          els.requestorPicker.disabled = true;
+          if (els.mvpdPicker) {
+            els.mvpdPicker.disabled = true;
+          }
+          if (els.goButton) {
+            els.goButton.disabled = true;
+          }
+          setStatus("No RequestorIds were embedded in this clickDGR export.", "error");
+          syncHeaderControlWidths();
+          return;
+        }
+
+        requestorIds.forEach((requestorId) => {
+          const option = document.createElement("option");
+          option.value = requestorId;
+          option.textContent = requestorId;
+          els.requestorPicker.appendChild(option);
+        });
+
+        els.requestorPicker.disabled = false;
+        if (els.goButton) {
+          els.goButton.disabled = false;
+        }
+
+        const defaultRequestorId = getEmbeddedInputValue("default_requestor_id");
+        const selectedRequestorId =
+          requestorIds.includes(defaultRequestorId) ? defaultRequestorId : requestorIds[0];
+        els.requestorPicker.value = selectedRequestorId;
+        await onRequestorChange();
+        syncHeaderControlWidths();
+      }
+
+      function getEndpointSpec(key) {
+        const normalizedKey = String(key || "").trim().toLowerCase();
+        if (!normalizedKey) {
+          return null;
+        }
+        if (normalizedKey === MEGA_ENDPOINT_SPEC.key) {
+          return MEGA_ENDPOINT_SPEC;
+        }
+        return ENDPOINT_SPECS.find((entry) => entry.key === normalizedKey) || null;
+      }
+
+      function buildScopeLabel(queryValues = {}) {
+        if (queryValues.includeAllMvpd === true || !queryValues.mvpd) {
+          return "ALL MVPDs";
+        }
+        return formatMvpdDisplayValue(queryValues.requestorId, queryValues.mvpd);
+      }
+
+      function buildRequestUrl(endpointSpec, queryValues = {}) {
+        const mediaCompanyId = getEmbeddedInputValue("media_company_id");
+        if (!mediaCompanyId) {
+          throw new Error("Media company is missing from clickDGR export.");
+        }
+        if (!endpointSpec?.path) {
+          throw new Error("DEGRADATION endpoint path is missing.");
+        }
+
+        const url = new URL(
+          `${DEGRADATION_API_BASE}/${encodeURIComponent(mediaCompanyId)}/${encodeURIComponent(String(endpointSpec.path).trim())}`
+        );
+        url.searchParams.set("programmer", String(queryValues.programmerId || "").trim());
+        if (!queryValues.includeAllMvpd && queryValues.mvpd) {
+          url.searchParams.set("mvpd", String(queryValues.mvpd || "").trim());
+        }
+        url.searchParams.set("format", "json");
+
+        if (String(endpointSpec.key || "").trim().toLowerCase() === MEGA_ENDPOINT_SPEC.key) {
+          url.searchParams.set("media-company", mediaCompanyId);
+          url.searchParams.set("resource", "");
+          url.searchParams.set("channel", "");
+          url.searchParams.set("includeHistory", "false");
+        }
+        return url;
+      }
+
+      function collectQueryValues(endpointKey = "") {
+        const requestorId = getSelectedRequestorId();
+        const normalizedEndpointKey = firstNonEmptyString([
+          String(endpointKey || "").trim().toLowerCase(),
+          String(els.methodPicker?.value || "").trim().toLowerCase(),
+          "all",
+        ]);
+
+        let mvpd = getSelectedMvpdId();
+        let includeAllMvpd = !mvpd;
+        if (normalizedEndpointKey === "all") {
+          mvpd = "";
+          includeAllMvpd = true;
+        }
+
+        return {
+          requestorId,
+          programmerId: requestorId,
+          endpointKey: normalizedEndpointKey,
+          includeAllMvpd,
+          mvpd,
+          apiVersion: DEGRADATION_API_VERSION,
+        };
+      }
+
+      function normalizeObjectKeys(value) {
+        if (Array.isArray(value)) {
+          return value.map((item) => normalizeObjectKeys(item));
+        }
+        if (!value || typeof value !== "object") {
+          return value;
+        }
+        const output = {};
+        Object.entries(value).forEach(([rawKey, rawValue]) => {
+          const normalizedKey = String(rawKey || "").trim();
+          if (!normalizedKey) {
+            return;
+          }
+          output[normalizedKey] = normalizeObjectKeys(rawValue);
+        });
+        return output;
+      }
+
+      function getObjectValueByKeys(source, keyCandidates = []) {
+        if (!source || typeof source !== "object") {
+          return undefined;
+        }
+        const lookup = new Set(
+          (Array.isArray(keyCandidates) ? keyCandidates : [])
+            .map((value) => String(value || "").trim().toLowerCase())
+            .filter(Boolean)
+        );
+        if (!lookup.size) {
+          return undefined;
+        }
+        for (const [rawKey, rawValue] of Object.entries(source)) {
+          if (lookup.has(String(rawKey || "").trim().toLowerCase())) {
+            return rawValue;
+          }
+        }
+        return undefined;
+      }
+
+      function toArray(value) {
+        if (Array.isArray(value)) {
+          return value;
+        }
+        if (value == null) {
+          return [];
+        }
+        return [value];
+      }
+
+      function resolveIdValue(value, fallback = "") {
+        if (value == null) {
+          return String(fallback || "").trim();
+        }
+        if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+          return firstNonEmptyString([String(value).trim(), String(fallback || "").trim()]);
+        }
+        if (typeof value === "object") {
+          return firstNonEmptyString([
+            String(value.id || "").trim(),
+            String(value.identifier || "").trim(),
+            String(value.name || "").trim(),
+            String(value.value || "").trim(),
+            String(fallback || "").trim(),
+          ]);
+        }
+        return String(fallback || "").trim();
+      }
+
+      function coerceBooleanValue(value) {
+        if (typeof value === "boolean") {
+          return value;
+        }
+        const normalized = String(value == null ? "" : value).trim().toLowerCase();
+        if (normalized === "true" || normalized === "1" || normalized === "yes") {
+          return true;
+        }
+        if (normalized === "false" || normalized === "0" || normalized === "no") {
+          return false;
+        }
+        return null;
+      }
+
+      function formatActivationTimeValue(value) {
+        if (value == null) {
+          return "N/A";
+        }
+        const text = String(value).trim();
+        if (!text) {
+          return "N/A";
+        }
+        const numeric = Number(text);
+        if (Number.isFinite(numeric) && numeric > 0) {
+          const asMs = numeric > 1_000_000_000_000 ? numeric : numeric > 1_000_000_000 ? numeric * 1000 : numeric;
+          try {
+            return new Date(asMs).toLocaleString();
+          } catch {
+            return text;
+          }
+        }
+        return text;
+      }
+
+      function formatMvpdDisplayValue(requestorId = "", mvpdId = "") {
+        const normalizedMvpdId = String(mvpdId || "").trim();
+        if (!normalizedMvpdId) {
+          return "N/A";
+        }
+        const compact = normalizedMvpdId.toLowerCase().replace(/[\s_-]+/g, "");
+        if (compact === "all" || compact === "allmvpds" || compact === "*") {
+          return "ALL MVPDs";
+        }
+
+        const normalizedRequestorId = String(requestorId || "").trim();
+        const preferredMap = state.mvpdCacheByRequestor.get(normalizedRequestorId);
+        const directMeta = preferredMap ? preferredMap.get(normalizedMvpdId) : null;
+        if (directMeta?.name) {
+          const name = String(directMeta.name || "").trim();
+          return name && name !== normalizedMvpdId ? `${name} (${normalizedMvpdId})` : normalizedMvpdId;
+        }
+
+        for (const map of state.mvpdCacheByRequestor.values()) {
+          const meta = map?.get?.(normalizedMvpdId) || null;
+          if (meta?.name) {
+            const name = String(meta.name || "").trim();
+            return name && name !== normalizedMvpdId ? `${name} (${normalizedMvpdId})` : normalizedMvpdId;
+          }
+        }
+
+        return normalizedMvpdId;
+      }
+
+      function buildStatusRow(endpointSpec, baseValues, targetNode, targetType, targetIdFallback = "") {
+        const detail = targetNode && typeof targetNode === "object" ? targetNode : {};
+        const enabledRaw = getObjectValueByKeys(detail, [
+          "degradation-measure-enable",
+          "degradationmeasureenable",
+          "enabled",
+        ]);
+        const statusRaw = getObjectValueByKeys(detail, [
+          "degradation-measure-status",
+          "degradationmeasurestatus",
+          "status",
+        ]);
+        const ttlRaw = getObjectValueByKeys(detail, ["ttl"]);
+        const errMsg = firstNonEmptyString([
+          String(getObjectValueByKeys(detail, ["err-msg", "errmsg", "message"]) || "").trim(),
+        ]);
+        const activationRaw = getObjectValueByKeys(detail, [
+          "activation-time",
+          "activation_time",
+          "activationtime",
+        ]);
+        const enabled = coerceBooleanValue(enabledRaw);
+        const status = String(statusRaw == null ? "" : statusRaw).trim().toUpperCase();
+        const active = enabled === true && status === "APPLIED";
+        const ttlNumeric = Number(ttlRaw);
+        const ttlLabel = Number.isFinite(ttlNumeric) && ttlNumeric > 0 ? String(ttlNumeric) : "N/A";
+        const resolvedTargetId = firstNonEmptyString([
+          resolveIdValue(detail, ""),
+          String(targetIdFallback || "").trim(),
+        ]);
+
+        return {
+          Rule: endpointSpec.title,
+          "Measure ID": String(baseValues.measureId || endpointSpec.measureId || endpointSpec.path || "").trim(),
+          Programmer: String(baseValues.programmerId || "").trim() || "N/A",
+          MVPD: formatMvpdDisplayValue(baseValues.requestorId, baseValues.mvpdId),
+          "Target Type": String(targetType || endpointSpec.targetType || "").trim() || "N/A",
+          Target: resolvedTargetId || "N/A",
+          Enabled: enabled == null ? "N/A" : enabled ? "true" : "false",
+          Status: status || "N/A",
+          Active: active ? "YES" : "NO",
+          "TTL (s)": ttlLabel,
+          Message: errMsg || "N/A",
+          "Activation Time": formatActivationTimeValue(activationRaw),
+        };
+      }
+
+      function extractRowsFromMegaPayload(parsedPayload, queryValues = {}) {
+        const normalizedPayload = normalizeObjectKeys(parsedPayload);
+        const payloadObject = normalizedPayload && typeof normalizedPayload === "object" ? normalizedPayload : {};
+        const rootMeasure =
+          getObjectValueByKeys(payloadObject, ["degradation-measure", "degradation_measure", "degradationmeasure"]) ||
+          payloadObject;
+        const root = rootMeasure && typeof rootMeasure === "object" ? rootMeasure : {};
+
+        const rows = [];
+
+        const pushRowsFromRuleCollection = (ruleCollection, endpointTitle, targetType, targetKey) => {
+          const rules = toArray(ruleCollection);
+          rules.forEach((ruleNode) => {
+            const ruleObject = ruleNode && typeof ruleNode === "object" ? ruleNode : {};
+            const measure =
+              getObjectValueByKeys(ruleObject, ["degradation-measure", "degradation_measure", "degradationmeasure"]) ||
+              ruleObject;
+            const measureObject = measure && typeof measure === "object" ? measure : {};
+            const programmerNode = getObjectValueByKeys(measureObject, ["programmer"]);
+            const programmerList = toArray(programmerNode);
+            const programmerTarget =
+              programmerList[0] && typeof programmerList[0] === "object" ? programmerList[0] : programmerNode;
+            const programmerId = resolveIdValue(programmerTarget, queryValues.programmerId);
+            const mvpdNode = getObjectValueByKeys(measureObject, ["mvpd"]);
+            const mvpdFallback = queryValues.includeAllMvpd ? "ALL" : queryValues.mvpd;
+            const mvpdId = resolveIdValue(mvpdNode, mvpdFallback);
+
+            const baseValues = {
+              measureId: firstNonEmptyString([
+                String(measureObject.id || "").trim(),
+                String(endpointTitle || "").trim().toLowerCase().replace(/\s+/g, "-"),
+              ]),
+              requestorId: String(queryValues.requestorId || "").trim(),
+              programmerId,
+              mvpdId,
+            };
+
+            const rowEndpointSpec = {
+              title: endpointTitle,
+              measureId: baseValues.measureId,
+              path: MEGA_ENDPOINT_SPEC.path,
+              targetType,
+              targetKey,
+            };
+
+            if (targetType === "programmer") {
+              const detailNode = programmerTarget && typeof programmerTarget === "object" ? programmerTarget : measureObject;
+              rows.push(
+                buildStatusRow(
+                  rowEndpointSpec,
+                  baseValues,
+                  detailNode,
+                  targetType,
+                  resolveIdValue(programmerTarget, programmerId)
+                )
+              );
+              return;
+            }
+
+            const targets = toArray(getObjectValueByKeys(measureObject, [targetKey]));
+            if (targets.length === 0) {
+              rows.push(
+                buildStatusRow(
+                  rowEndpointSpec,
+                  baseValues,
+                  measureObject,
+                  targetType,
+                  String(queryValues.mvpd || "").trim()
+                )
+              );
+              return;
+            }
+
+            targets.forEach((targetNode) => {
+              rows.push(
+                buildStatusRow(
+                  rowEndpointSpec,
+                  baseValues,
+                  targetNode && typeof targetNode === "object" ? targetNode : {},
+                  targetType,
+                  resolveIdValue(targetNode, "")
+                )
+              );
+            });
+          });
+        };
+
+        pushRowsFromRuleCollection(root?.authnRules, "Authenticate All - Status", "programmer", "programmer");
+        pushRowsFromRuleCollection(root?.authzRules, "Authorize All - Status", "resource", "resource");
+        pushRowsFromRuleCollection(root?.authzNoneRules, "Authorize None - Status", "channel", "channel");
+
+        return rows;
+      }
+
+      function extractRows(endpointSpec, parsedPayload, queryValues = {}) {
+        if (String(endpointSpec?.key || "").trim().toLowerCase() === MEGA_ENDPOINT_SPEC.key) {
+          return extractRowsFromMegaPayload(parsedPayload, queryValues);
+        }
+
+        const normalizedPayload = normalizeObjectKeys(parsedPayload);
+        const payloadObject = normalizedPayload && typeof normalizedPayload === "object" ? normalizedPayload : {};
+        const measureContainer =
+          getObjectValueByKeys(payloadObject, ["degradation-measure", "degradation_measure", "degradationmeasure"]) ||
+          payloadObject;
+        const measures = toArray(measureContainer);
+
+        const rows = [];
+        measures.forEach((measureNode) => {
+          const measureObject = measureNode && typeof measureNode === "object" ? measureNode : {};
+          const programmerNode = getObjectValueByKeys(measureObject, ["programmer"]);
+          const programmerId = resolveIdValue(programmerNode, queryValues.programmerId);
+          const mvpdNode = getObjectValueByKeys(measureObject, ["mvpd"]);
+          const mvpdFallback = queryValues.includeAllMvpd ? "ALL" : queryValues.mvpd;
+          const mvpdId = resolveIdValue(mvpdNode, mvpdFallback);
+
+          const baseValues = {
+            measureId: firstNonEmptyString([
+              String(measureObject.id || "").trim(),
+              String(endpointSpec.measureId || endpointSpec.path || "").trim(),
+            ]),
+            requestorId: String(queryValues.requestorId || "").trim(),
+            programmerId,
+            mvpdId,
+          };
+
+          if (endpointSpec.targetType === "programmer") {
+            const detailNode = programmerNode && typeof programmerNode === "object" ? programmerNode : measureObject;
+            rows.push(
+              buildStatusRow(
+                endpointSpec,
+                baseValues,
+                detailNode,
+                endpointSpec.targetType,
+                resolveIdValue(programmerNode, programmerId)
+              )
+            );
+            return;
+          }
+
+          const targetList = toArray(getObjectValueByKeys(measureObject, [endpointSpec.targetKey]));
+          if (targetList.length === 0) {
+            rows.push(
+              buildStatusRow(endpointSpec, baseValues, measureObject, endpointSpec.targetType, queryValues.mvpd || "")
+            );
+            return;
+          }
+
+          targetList.forEach((targetNode) => {
+            rows.push(
+              buildStatusRow(
+                endpointSpec,
+                baseValues,
+                targetNode && typeof targetNode === "object" ? targetNode : {},
+                endpointSpec.targetType,
+                resolveIdValue(targetNode, "")
+              )
+            );
+          });
+        });
+
+        return rows;
+      }
+
+      function filterAppliedActiveRows(rows = []) {
+        if (!Array.isArray(rows)) {
+          return [];
+        }
+        return rows.filter((row) => {
+          const status = String(row?.Status || "").trim().toUpperCase();
+          const active = String(row?.Active || "").trim().toUpperCase();
+          return status === "APPLIED" && active === "YES";
+        });
+      }
+
+      function buildPremiumErrorMessage(status = 0, statusText = "", responseText = "") {
+        const statusCode = Number(status || 0);
+        const normalizedStatusText = String(statusText || "").trim();
+        const messageByStatusCode = {
+          400: "Bad request. Check Programmer/MVPD parameters and retry.",
+          401: "Unauthorized. Refresh DCR auth and verify IP allowlist access.",
+          403: "Forbidden for this DEGRADATION app scope.",
+          404: "DEGRADATION endpoint not found for this environment.",
+          405: "Method not allowed for this DEGRADATION endpoint.",
+          429: "Rate limited by DEGRADATION API (max 2 calls/minute per client IP).",
+          500: "DEGRADATION service internal error.",
+          502: "DEGRADATION service gateway error.",
+          503: "DEGRADATION service temporarily unavailable.",
+          504: "DEGRADATION service timeout.",
+        };
+
+        const baseMessage = messageByStatusCode[statusCode] || "DEGRADATION request failed.";
+        const compactReason = String(responseText || normalizedStatusText)
+          .replace(/[\r\n\t]+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+        const isStructuredPayload = /[<>{}\[\]]/.test(compactReason);
+        const safeReason =
+          compactReason &&
+          !isStructuredPayload &&
+          compactReason.length <= 140 &&
+          compactReason.toLowerCase() !== normalizedStatusText.toLowerCase()
+            ? compactReason
+            : "";
+
+        const httpLabel = statusCode > 0 ? `HTTP ${statusCode}` : "Request Error";
+        return safeReason ? `${httpLabel}: ${baseMessage} ${safeReason}` : `${httpLabel}: ${baseMessage}`;
+      }
+
+      function buildReportPayload(endpointSpec, queryValues, result = {}) {
+        const sourceRows = Array.isArray(result.rows) ? result.rows : [];
+        const rows = filterAppliedActiveRows(sourceRows);
+        const columns = rows.length > 0 ? Object.keys(rows[0]) : DEFAULT_COLUMNS.slice();
+        const activeCount = rows.reduce(
+          (count, row) => count + (String(row?.Active || "").trim().toUpperCase() === "YES" ? 1 : 0),
+          0
+        );
+
+        const queryKey = [
+          String(endpointSpec?.key || "").trim(),
+          `programmer=${String(queryValues?.programmerId || "").trim()}`,
+          `mvpd=${String(queryValues?.mvpd || "*").trim() || "*"}`,
+          `api_version=${String(queryValues?.apiVersion || "*").trim() || "*"}`,
+        ].join("|");
+
+        return {
+          reportId: `clickdgr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+          queryKey,
+          endpointKey: String(endpointSpec?.key || "").trim(),
+          endpointPath: String(endpointSpec?.path || "").trim(),
+          endpointTitle: String(endpointSpec?.title || "DEGRADATION Status").trim(),
+          requestUrl: String(result.requestUrl || "").trim(),
+          method: "GET",
+          programmerId: String(queryValues?.programmerId || "").trim(),
+          requestorId: String(queryValues?.requestorId || "").trim(),
+          mvpd: String(queryValues?.mvpd || "").trim(),
+          mvpdScopeLabel: buildScopeLabel(queryValues),
+          apiVersion: String(queryValues?.apiVersion || "").trim(),
+          ok: result.ok === true,
+          status: Number(result.status || 0),
+          statusText: String(result.statusText || "").trim(),
+          error: String(result.error || "").trim(),
+          columns,
+          rows,
+          rowCount: rows.length,
+          activeCount,
+          fetchedAt: Number(result.fetchedAt || Date.now()),
+          durationMs: Number(result.durationMs || 0),
+        };
+      }
+
+      async function executeStatusRequest(endpointSpec, queryValues = {}) {
+        const requestorId = String(queryValues.requestorId || "").trim();
+        if (!requestorId) {
+          throw new Error("Select RequestorId first");
+        }
+        if (!queryValues.programmerId) {
+          throw new Error("Programmer value could not be derived from the selected RequestorId.");
+        }
+
+        const requestUrl = buildRequestUrl(endpointSpec, queryValues);
+        const requestStartedAt = Date.now();
+        const response = await fetchWithPremiumAuth(
+          requestUrl.toString(),
+          {
+            method: "GET",
+          },
+          {
+            retryUnauthorized: true,
+          }
+        );
+
+        const responseText = await response.text().catch(() => "");
+        const fetchedAt = Date.now();
+        const durationMs = fetchedAt - requestStartedAt;
+
+        if (!response.ok) {
+          return buildReportPayload(endpointSpec, queryValues, {
+            ok: false,
+            status: Number(response.status || 0),
+            statusText: String(response.statusText || "").trim(),
+            error: buildPremiumErrorMessage(response.status, response.statusText, responseText),
+            rows: [],
+            requestUrl: requestUrl.toString(),
+            fetchedAt,
+            durationMs,
+          });
+        }
+
+        if (response.status === 204 || !responseText.trim()) {
+          return buildReportPayload(endpointSpec, queryValues, {
+            ok: true,
+            status: Number(response.status || 0),
+            statusText: String(response.statusText || "").trim(),
+            rows: [],
+            requestUrl: requestUrl.toString(),
+            fetchedAt,
+            durationMs,
+          });
+        }
+
+        const parsedPayload = safeJsonParse(responseText, null);
+        if (!parsedPayload || typeof parsedPayload !== "object") {
+          throw new Error(`DEGRADATION status response is not valid JSON (HTTP ${response.status}).`);
+        }
+
+        const rows = extractRows(endpointSpec, parsedPayload, queryValues);
+        return buildReportPayload(endpointSpec, queryValues, {
+          ok: true,
+          status: Number(response.status || 0),
+          statusText: String(response.statusText || "").trim(),
+          rows,
+          requestUrl: requestUrl.toString(),
+          fetchedAt,
+          durationMs,
+        });
+      }
+
+      function getScopeValues(report = null) {
+        const requestor = firstNonEmptyString([report?.requestorId, report?.programmerId, getSelectedRequestorId(), "N/A"]);
+        const scope = firstNonEmptyString([report?.mvpdScopeLabel, report?.mvpd, "ALL MVPDs"]);
+        return {
+          requestor,
+          scope,
+        };
+      }
+
+      function getNoRulesScopeLabel(report = null) {
+        const { requestor, scope } = getScopeValues(report);
+        return `${requestor} X ${scope}`;
+      }
+
+      function getNoRulesActiveMessage(report = null) {
+        return `No rules active for ${getNoRulesScopeLabel(report)}.`;
+      }
+
+      function getNoRulesCompactMessage(report = null) {
+        const methodLabel = firstNonEmptyString([report?.endpointTitle, "DEGRADATION Status"]);
+        return `${methodLabel}: ${getNoRulesActiveMessage(report)}`;
+      }
+
+      function renderScopeEmphasisHtml(report = null) {
+        const { requestor, scope } = getScopeValues(report);
+        return `<span class="report-scope-value">${escapeHtml(requestor)}</span><span class="report-scope-sep"> X </span><span class="report-scope-value">${escapeHtml(scope)}</span>`;
+      }
+
+      function renderNoRulesCompactHtml(report = null) {
+        const methodLabel = firstNonEmptyString([report?.endpointTitle, "DEGRADATION Status"]);
+        return `${escapeHtml(methodLabel)}: No rules active for ${renderScopeEmphasisHtml(report)}.`;
+      }
+
+      function formatCellValue(rawValue) {
+        if (rawValue == null) {
+          return "N/A";
+        }
+        if (Array.isArray(rawValue)) {
+          const compactValues = rawValue
+            .map((item) => formatCellValue(item))
+            .filter((item) => item && item !== "N/A");
+          return compactValues.length > 0 ? compactValues.join(" | ") : "N/A";
+        }
+        if (typeof rawValue === "object") {
+          const preferred = firstNonEmptyString([
+            rawValue.id,
+            rawValue.name,
+            rawValue.label,
+            rawValue.value,
+            rawValue.status,
+            rawValue.message,
+          ]);
+          return preferred || "Structured value";
+        }
+
+        const text = String(rawValue).trim();
+        if (!text) {
+          return "N/A";
+        }
+        if (
+          (text.startsWith("{") && text.endsWith("}")) ||
+          (text.startsWith("[") && text.endsWith("]")) ||
+          (text.startsWith("<") && text.endsWith(">"))
+        ) {
+          return "Structured value";
+        }
+        return text;
+      }
+
+      function getReportSortKey(report = null) {
+        if (!report || typeof report !== "object") {
+          return "";
+        }
+        return firstNonEmptyString([report.queryKey, report.reportId]);
+      }
+
+      function getReportSortState(report = null) {
+        const key = getReportSortKey(report);
+        if (!key) {
+          return null;
+        }
+        const current = state.reportSortByQueryKey.get(key);
+        if (!current || typeof current !== "object") {
+          return null;
+        }
+        const column = String(current.column || "").trim();
+        const direction = String(current.direction || "").trim().toLowerCase() === "asc" ? "asc" : "desc";
+        if (!column) {
+          return null;
+        }
+        return { column, direction };
+      }
+
+      function setReportSortState(report = null, column = "", direction = "desc") {
+        const key = getReportSortKey(report);
+        const normalizedColumn = String(column || "").trim();
+        if (!key || !normalizedColumn) {
+          return;
+        }
+        state.reportSortByQueryKey.set(key, {
+          column: normalizedColumn,
+          direction: String(direction || "").trim().toLowerCase() === "asc" ? "asc" : "desc",
+        });
+      }
+
+      function clearReportSortState(report = null) {
+        const key = getReportSortKey(report);
+        if (!key) {
+          return;
+        }
+        state.reportSortByQueryKey.delete(key);
+      }
+
+      function toSortablePrimitive(rawValue) {
+        if (rawValue == null) {
+          return "";
+        }
+        if (Array.isArray(rawValue)) {
+          return rawValue.map((item) => toSortablePrimitive(item)).join(" | ");
+        }
+        if (typeof rawValue === "object") {
+          return firstNonEmptyString([
+            rawValue.id,
+            rawValue.name,
+            rawValue.label,
+            rawValue.value,
+            rawValue.status,
+            rawValue.message,
+          ]);
+        }
+        const text = String(rawValue).trim();
+        if (!text || text.toUpperCase() === "N/A") {
+          return "";
+        }
+        return text;
+      }
+
+      function compareSortPrimitives(leftValue, rightValue) {
+        const left = toSortablePrimitive(leftValue);
+        const right = toSortablePrimitive(rightValue);
+        if (!left && !right) {
+          return 0;
+        }
+        if (!left) {
+          return 1;
+        }
+        if (!right) {
+          return -1;
+        }
+
+        const numericPattern = /^-?\d+(?:\.\d+)?$/;
+        const isLeftNumeric = numericPattern.test(left);
+        const isRightNumeric = numericPattern.test(right);
+        if (isLeftNumeric && isRightNumeric) {
+          const leftNumber = Number(left);
+          const rightNumber = Number(right);
+          if (leftNumber < rightNumber) {
+            return -1;
+          }
+          if (leftNumber > rightNumber) {
+            return 1;
+          }
+          return 0;
+        }
+
+        const leftDate = Date.parse(left);
+        const rightDate = Date.parse(right);
+        if (Number.isFinite(leftDate) && Number.isFinite(rightDate)) {
+          if (leftDate < rightDate) {
+            return -1;
+          }
+          if (leftDate > rightDate) {
+            return 1;
+          }
+          return 0;
+        }
+
+        return String(left).localeCompare(String(right), undefined, {
+          sensitivity: "base",
+          numeric: true,
+        });
+      }
+
+      function getSortedReportRows(report = null) {
+        const rows = Array.isArray(report?.rows) ? [...report.rows] : [];
+        if (rows.length <= 1) {
+          return rows;
+        }
+        const sortState = getReportSortState(report);
+        if (!sortState) {
+          return rows;
+        }
+        const directionMultiplier = sortState.direction === "asc" ? 1 : -1;
+        return rows.sort((leftRow, rightRow) => {
+          const comparison = compareSortPrimitives(leftRow?.[sortState.column], rightRow?.[sortState.column]);
+          return comparison * directionMultiplier;
+        });
+      }
+
+      function sanitizeCsvCell(value) {
+        const text = String(value ?? "");
+        return `"${text.replace(/"/g, '""')}"`;
+      }
+
+      function sanitizeFileNameSegment(value, fallback = "value") {
+        const text = String(value || "")
+          .trim()
+          .replace(/[^a-z0-9]+/gi, "-")
+          .replace(/^-+|-+$/g, "");
+        return text || fallback;
+      }
+
+      function buildReportCsvFileName(report = null) {
+        const mediaCompany = sanitizeFileNameSegment(
+          firstNonEmptyString([getEmbeddedInputValue("media_company_name"), getEmbeddedInputValue("media_company_id")]),
+          "MediaCompany"
+        );
+        const endpoint = sanitizeFileNameSegment(firstNonEmptyString([report?.endpointKey, report?.endpointPath]), "dgr");
+        const requestor = sanitizeFileNameSegment(firstNonEmptyString([report?.requestorId, report?.programmerId]), "requestor");
+        const scope = sanitizeFileNameSegment(report?.mvpd || "all-mvpds", "all-mvpds");
+        const stamp = new Date(report?.fetchedAt || Date.now()).toISOString().replace(/[:.]/g, "-");
+        return `${mediaCompany}_clickDGR_${endpoint}_${requestor}_${scope}_${stamp}.csv`;
+      }
+
+      function triggerFileDownload(content, fileName, mimeType = "text/plain;charset=utf-8") {
+        const blob = new Blob([content], { type: mimeType });
+        const blobUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = blobUrl;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+      }
+
+      async function copyTextToClipboard(text = "") {
+        const normalized = String(text || "");
+        if (!normalized) {
+          return false;
+        }
+
+        if (navigator?.clipboard?.writeText) {
+          try {
+            await navigator.clipboard.writeText(normalized);
+            return true;
+          } catch {
+            // continue to fallback
+          }
+        }
+
+        const textArea = document.createElement("textarea");
+        textArea.value = normalized;
+        textArea.setAttribute("readonly", "readonly");
+        textArea.style.position = "fixed";
+        textArea.style.opacity = "0";
+        textArea.style.pointerEvents = "none";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        let copied = false;
+        try {
+          copied = document.execCommand("copy");
+        } catch {
+          copied = false;
+        } finally {
+          textArea.remove();
+        }
+        return copied;
+      }
+
+      function findReportById(reportId = "") {
+        const normalizedId = String(reportId || "").trim();
+        if (!normalizedId) {
+          return null;
+        }
+        return state.reports.find((entry) => String(entry?.reportId || "").trim() === normalizedId) || null;
+      }
+
+      function downloadReportCsv(reportId = "") {
+        const report = findReportById(reportId);
+        if (!report || !report.ok) {
+          return;
+        }
+        const columns = Array.isArray(report.columns) ? report.columns : [];
+        const rows = getSortedReportRows(report);
+        if (!columns.length || !rows.length) {
+          return;
+        }
+
+        const csvBody = [
+          columns.map((column) => sanitizeCsvCell(column)).join(","),
+          ...rows.map((row) =>
+            columns.map((column) => sanitizeCsvCell(formatCellValue(row?.[column]))).join(",")
+          ),
+        ].join("\n");
+
+        triggerFileDownload(csvBody, buildReportCsvFileName(report), "text/csv;charset=utf-8");
+      }
+
+      async function copyReportRequestUrl(reportId = "") {
+        const report = findReportById(reportId);
+        if (!report) {
+          return;
+        }
+        const rawRequestUrl = firstNonEmptyString([report.requestUrl]);
+        if (!rawRequestUrl) {
+          setStatus("Request URL unavailable for copy.", "error");
+          return;
+        }
+        const copied = await copyTextToClipboard(rawRequestUrl);
+        if (copied) {
+          setStatus("DEGRADATION request URL copied.", "success");
+        } else {
+          setStatus("Unable to copy DEGRADATION request URL.", "error");
+        }
+      }
+
+      function buildQueryValuesFromReport(report = null) {
+        const endpointKey = String(report?.endpointKey || "all").trim().toLowerCase();
+        const requestorId = firstNonEmptyString([report?.requestorId, report?.programmerId]);
+        const programmerId = firstNonEmptyString([report?.programmerId, report?.requestorId]);
+        const includeAllMvpd = endpointKey === "all" || !String(report?.mvpd || "").trim();
+        return {
+          requestorId,
+          programmerId,
+          endpointKey,
+          includeAllMvpd,
+          mvpd: includeAllMvpd ? "" : String(report?.mvpd || "").trim(),
+          apiVersion: String(report?.apiVersion || DEGRADATION_API_VERSION).trim(),
+        };
+      }
+
+      async function rerunReportById(reportId = "", { clearSort = false } = {}) {
+        if (state.busy) {
+          return;
+        }
+        const report = findReportById(reportId);
+        if (!report) {
+          return;
+        }
+        const endpointSpec = getEndpointSpec(report.endpointKey);
+        if (!endpointSpec) {
+          setStatus("Unable to resolve DEGRADATION method for rerun.", "error");
+          return;
+        }
+        const queryValues = buildQueryValuesFromReport(report);
+        if (!queryValues.requestorId) {
+          setStatus("Select RequestorId first", "error");
+          return;
+        }
+
+        if (clearSort) {
+          clearReportSortState(report);
+        }
+
+        setBusy(true);
+        setStatus(`Re-running ${report.endpointTitle || "DEGRADATION request"}...`, "info");
+        try {
+          const refreshedReport = await executeStatusRequest(endpointSpec, queryValues);
+          upsertReport(refreshedReport);
+          if (refreshedReport.ok) {
+            setStatus("", "info");
+          } else {
+            setStatus(`${refreshedReport.endpointTitle}: ${refreshedReport.error || "Request failed."}`, "error");
+          }
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : String(error), "error");
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      function toggleReportSort(reportId = "", column = "") {
+        const report = findReportById(reportId);
+        const normalizedColumn = String(column || "").trim();
+        if (!report || !normalizedColumn) {
+          return;
+        }
+        const existingSort = getReportSortState(report);
+        if (existingSort && existingSort.column === normalizedColumn) {
+          const nextDirection = existingSort.direction === "asc" ? "desc" : "asc";
+          setReportSortState(report, normalizedColumn, nextDirection);
+        } else {
+          setReportSortState(report, normalizedColumn, "desc");
+        }
+        renderReports();
+      }
+
+      function renderReportFooter(report = null) {
+        if (!report || !report.ok || Number(report.rowCount || 0) <= 0) {
+          return "";
+        }
+        const reportIdAttr = escapeHtml(String(report.reportId || ""));
+        return `
+          <footer class="report-footer">
+            <a class="report-csv-link" href="#" data-action="download-csv" data-report-id="${reportIdAttr}">CSV</a>
+            <div class="report-footer-controls">
+              <button
+                type="button"
+                class="report-action-btn report-action-rerun"
+                data-action="rerun-report"
+                data-report-id="${reportIdAttr}"
+                aria-label="Clear local table sort and re-run this DEGRADATION request"
+                title="Clear local table sort and re-run this DEGRADATION request"
+              >
+                <svg class="report-action-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18l-7 8v5l-4 2v-7z"/></svg>
+              </button>
+              <p class="report-last-modified">Last modified: ${escapeHtml(formatDateTime(report.fetchedAt))}</p>
+            </div>
+          </footer>
+        `;
+      }
+
+      function renderTable(report = null) {
+        const columns = Array.isArray(report?.columns) ? report.columns : [];
+        const rows = getSortedReportRows(report);
+        if (columns.length === 0 || rows.length === 0) {
+          return `<p class="report-empty">${escapeHtml(getNoRulesActiveMessage(report))}</p>`;
+        }
+
+        const reportIdAttr = escapeHtml(String(report?.reportId || ""));
+        const activeSort = getReportSortState(report);
+        const headerHtml = columns
+          .map((column) => {
+            const isActive = Boolean(activeSort && activeSort.column === column);
+            const sortIcon = !isActive ? "" : activeSort.direction === "asc" ? "▲" : "▼";
+            return `<th class="${isActive ? "active-sort" : ""}"><button type="button" class="sort-btn" data-action="sort-column" data-report-id="${reportIdAttr}" data-column="${escapeHtml(column)}"><span>${escapeHtml(column)}</span><span class="sort-icon">${escapeHtml(sortIcon)}</span></button></th>`;
+          })
+          .join("");
+        const bodyHtml = rows
+          .map((row) => {
+            const cells = columns
+              .map((column) => {
+                const value = formatCellValue(row?.[column]);
+                if (String(column || "").trim().toLowerCase() === "active") {
+                  const isActive = String(value || "").trim().toUpperCase() === "YES";
+                  const cls = isActive ? "pill-active" : "pill-active no";
+                  const label = isActive ? "YES" : "NO";
+                  return `<td><span class="${cls}">${label}</span></td>`;
+                }
+                return `<td>${escapeHtml(value || "N/A")}</td>`;
+              })
+              .join("");
+            return `<tr>${cells}</tr>`;
+          })
+          .join("");
+
+        return `
+          <div class="table-wrap">
+            <table class="report-table">
+              <thead>
+                <tr>${headerHtml}</tr>
+              </thead>
+              <tbody>${bodyHtml}</tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      function renderReportCard(report = null) {
+        if (!report || typeof report !== "object") {
+          return "";
+        }
+        const requestLine = firstNonEmptyString([
+          report.requestUrl,
+          `${report.endpointPath || ""}${report.programmerId ? `?programmer=${report.programmerId}` : ""}`,
+        ]);
+        const statusTitle = `GET: ${requestLine || "N/A"}`;
+        if (report.ok && Number(report.rowCount || 0) === 0) {
+          return `
+            <article class="report-card report-card--no-active">
+              <p class="report-no-active-line">
+                <button
+                  type="button"
+                  class="report-no-active-copy"
+                  data-action="copy-request-url"
+                  data-report-id="${escapeHtml(String(report.reportId || ""))}"
+                  title="${escapeHtml(statusTitle)}"
+                  aria-label="Copy DEGRADATION request URL to clipboard"
+                >${renderNoRulesCompactHtml(report)}</button>
+              </p>
+            </article>
+          `;
+        }
+
+        const activeRules = Number(report.activeCount || report.rowCount || 0);
+        const activeRuleLabel = `${activeRules} active rule${activeRules === 1 ? "" : "s"}`;
+        const programmerScopeHtml = renderScopeEmphasisHtml(report);
+        const httpLabel = report.status > 0 ? `HTTP ${report.status} ${report.statusText || ""}`.trim() : "Request Error";
+        const errorMarkup = report.ok
+          ? ""
+          : `<p class="report-error">${escapeHtml(report.error || "Request failed.")}</p>`;
+        const footerMarkup = renderReportFooter(report);
+
+        return `
+          <article class="report-card" data-report-id="${escapeHtml(String(report.reportId || ""))}">
+            <header class="report-head">
+              <div class="report-title-row">
+                <p class="report-title">${escapeHtml(report.endpointTitle || "DEGRADATION Status")}</p>
+                <button
+                  type="button"
+                  class="report-http-link ${report.ok ? "" : "error"}"
+                  data-action="copy-request-url"
+                  data-report-id="${escapeHtml(String(report.reportId || ""))}"
+                  title="${escapeHtml(statusTitle)}"
+                  aria-label="Copy DEGRADATION request URL to clipboard"
+                >${escapeHtml(httpLabel)}</button>
+              </div>
+              <p class="report-subtitle">${programmerScopeHtml}</p>
+              <p class="report-meta">${escapeHtml(report.ok ? activeRuleLabel : "Request failed")}</p>
+            </header>
+            ${errorMarkup}
+            ${report.ok ? renderTable(report) : ""}
+            ${footerMarkup}
+          </article>
+        `;
+      }
+
+      function renderReports() {
+        if (!els.resultsHost) {
+          return;
+        }
+        if (!Array.isArray(state.reports) || state.reports.length === 0) {
+          els.resultsHost.innerHTML = "";
+          return;
+        }
+        els.resultsHost.innerHTML = state.reports.map((report) => renderReportCard(report)).join("");
+      }
+
+      function upsertReport(report = null) {
+        if (!report || typeof report !== "object") {
+          return;
+        }
+        const identity = firstNonEmptyString([report.queryKey, report.reportId]);
+        const nextReports = [report];
+        state.reports.forEach((existing) => {
+          const existingIdentity = firstNonEmptyString([existing?.queryKey, existing?.reportId]);
+          if (!identity || existingIdentity !== identity) {
+            nextReports.push(existing);
+          }
+        });
+        state.reports = nextReports
+          .sort((left, right) => Number(right?.fetchedAt || 0) - Number(left?.fetchedAt || 0))
+          .slice(0, 30);
+        const activeSortKeys = new Set(state.reports.map((entry) => getReportSortKey(entry)).filter(Boolean));
+        Array.from(state.reportSortByQueryKey.keys()).forEach((sortKey) => {
+          if (!activeSortKeys.has(sortKey)) {
+            state.reportSortByQueryKey.delete(sortKey);
+          }
+        });
+        renderReports();
+      }
+
+      async function runSelectedMethod(event) {
+        if (event) {
+          event.preventDefault();
+        }
+        if (state.busy) {
+          return;
+        }
+
+        const endpointKey = String(els.methodPicker?.value || "all").trim().toLowerCase();
+        const endpointSpec = getEndpointSpec(endpointKey);
+        if (!endpointSpec) {
+          setStatus("Choose a valid DEGRADATION method.", "error");
+          return;
+        }
+
+        const queryValues = collectQueryValues(endpointSpec.key);
+        if (!queryValues.requestorId) {
+          setStatus("Select RequestorId first", "error");
+          return;
+        }
+
+        setBusy(true);
+        setStatus("Running DEGRADATION request...", "info");
+
+        try {
+          const report = await executeStatusRequest(endpointSpec, queryValues);
+          upsertReport(report);
+
+          if (report.ok) {
+            setStatus("", "info");
+          } else {
+            setStatus(`${report.endpointTitle}: ${report.error || "Request failed."}`, "error");
+          }
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : String(error), "error");
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      function bindEvents() {
+        els.themeToggle?.addEventListener("click", () => {
+          const nextTheme = getActiveTheme() === "dark" ? "light" : "dark";
+          applyTheme(nextTheme, { persist: true });
+        });
+
+        els.methodPicker?.addEventListener("change", () => {
+          syncSelectWidth(els.methodPicker);
+        });
+
+        els.requestorPicker?.addEventListener("change", () => {
+          void onRequestorChange();
+        });
+
+        els.mvpdPicker?.addEventListener("change", () => {
+          syncSelectWidth(els.mvpdPicker);
+        });
+
+        els.runnerForm?.addEventListener("submit", (event) => {
+          void runSelectedMethod(event);
+        });
+
+        els.resultsHost?.addEventListener("click", (event) => {
+          if (!(event.target instanceof Element)) {
+            return;
+          }
+
+          const sortTrigger = event.target.closest('button[data-action="sort-column"]');
+          if (sortTrigger instanceof HTMLButtonElement) {
+            event.preventDefault();
+            toggleReportSort(
+              String(sortTrigger.getAttribute("data-report-id") || "").trim(),
+              String(sortTrigger.getAttribute("data-column") || "").trim()
+            );
+            return;
+          }
+
+          const csvTrigger = event.target.closest('a[data-action="download-csv"]');
+          if (csvTrigger instanceof HTMLAnchorElement) {
+            event.preventDefault();
+            downloadReportCsv(String(csvTrigger.getAttribute("data-report-id") || "").trim());
+            return;
+          }
+
+          const copyUrlTrigger = event.target.closest('button[data-action="copy-request-url"]');
+          if (copyUrlTrigger instanceof HTMLButtonElement) {
+            event.preventDefault();
+            void copyReportRequestUrl(String(copyUrlTrigger.getAttribute("data-report-id") || "").trim());
+            return;
+          }
+
+          const rerunTrigger = event.target.closest('button[data-action="rerun-report"]');
+          if (rerunTrigger instanceof HTMLButtonElement) {
+            event.preventDefault();
+            void rerunReportById(
+              String(rerunTrigger.getAttribute("data-report-id") || "").trim(),
+              { clearSort: true }
+            );
+          }
+        });
+      }
+
+      async function initialize() {
+        initTheme();
+        bootstrapEmbeddedAccessToken();
+        bindEvents();
+        setStatus("", "info");
+        syncHeaderControlWidths();
+        await loadRequestorPicker();
+      }
+
+      initialize().catch((error) => {
+        setStatus(error instanceof Error ? error.message : String(error), "error");
+      });
+    </script>
+  </body>
+</html>

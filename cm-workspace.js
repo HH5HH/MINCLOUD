@@ -12,7 +12,7 @@ const CM_WORKSPACE_RUNTIME_SCOPE_INPUT_NAME = "cm_scope";
 const CM_WORKSPACE_IMS_VALIDATE_TOKEN_URL = "https://ims-na1.adobelogin.com/ims/validate_token/v1?jslVersion=underpar-clickcmuws";
 const CM_WORKSPACE_IMS_CHECK_TOKEN_URL = "https://adobeid-na1.services.adobe.com/ims/check/v6/token";
 const CM_WORKSPACE_IMS_DEFAULT_SCOPE =
-  "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
+  "AdobeID,openid,read_organizations,additional_info.projectedProductContext";
 const CM_WORKSPACE_TOKEN_REFRESH_SKEW_MS = 45 * 1000;
 const CM_WORKSPACE_FETCH_TIMEOUT_MS = 45 * 1000;
 const CM_WORKSPACE_FALLBACK_BASE_URL = "https://streams-stage.adobeprimetime.com";
@@ -271,7 +271,7 @@ function tokenSupportsCmCatalog(tokenValue) {
     return true;
   }
   const scopes = new Set(tokenizeScopeSet(claims.scope || "").map((scope) => scope.toLowerCase()));
-  return scopes.has("read_organizations") || scopes.has("dma_group_mapping");
+  return scopes.has("read_organizations");
 }
 
 function extractImsAccessTokenFromPayload(payload) {

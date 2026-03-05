@@ -291,6 +291,26 @@ function normalizeAvatarCandidate(value) {
   if (!trimmed) {
     return "";
   }
+  const blockedAudienceManagerAvatar = (() => {
+    const normalized = String(trimmed || "").trim().toLowerCase();
+    if (!normalized) {
+      return false;
+    }
+    if (normalized.includes("audiencemanager")) {
+      return true;
+    }
+    if (/^dma[_-]/i.test(normalized)) {
+      return true;
+    }
+    return (
+      /^\/?ims\/avatar\/download\/dma[_-]/i.test(normalized) ||
+      /^\/?avatar\/download\/dma[_-]/i.test(normalized) ||
+      /\/ims\/avatar\/download\/dma[_-]/i.test(normalized)
+    );
+  })();
+  if (blockedAudienceManagerAvatar) {
+    return "";
+  }
 
   if (trimmed.startsWith("data:image/") || trimmed.startsWith("blob:")) {
     return trimmed;

@@ -14,12 +14,15 @@ const state = {
   appGuid: "",
   appName: "",
   reports: [],
+  batchRunning: false,
 };
 
 const els = {
   controllerState: document.getElementById("workspace-controller-state"),
   filterState: document.getElementById("workspace-filter-state"),
   status: document.getElementById("workspace-status"),
+  rerunIndicator: document.getElementById("workspace-rerun-indicator"),
+  rerunAllButton: document.getElementById("workspace-rerun-all"),
   clearButton: document.getElementById("workspace-clear-all"),
   cardsHost: document.getElementById("workspace-cards"),
 };
@@ -41,18 +44,6 @@ function firstNonEmptyString(values = []) {
     }
   }
   return "";
-}
-
-function formatDateTime(value) {
-  const numeric = Number(value || 0);
-  if (!Number.isFinite(numeric) || numeric <= 0) {
-    return "N/A";
-  }
-  try {
-    return new Date(numeric).toLocaleString();
-  } catch {
-    return "N/A";
-  }
 }
 
 function normalizeReport(report = null) {
@@ -101,6 +92,25 @@ function getReportIdentity(report = null) {
   return firstNonEmptyString([report?.queryKey, report?.reportId]);
 }
 
+function getReportPayload(report = null) {
+  if (!report || typeof report !== "object") {
+    return null;
+  }
+  const mvpd = String(report.mvpd || "").trim();
+  return {
+    reportId: String(report.reportId || "").trim(),
+    queryKey: String(report.queryKey || "").trim(),
+    endpointKey: String(report.endpointKey || "").trim().toLowerCase(),
+    endpointPath: String(report.endpointPath || "").trim(),
+    requestUrl: String(report.requestUrl || "").trim(),
+    programmerId: String(report.programmerId || "").trim(),
+    mvpd,
+    mvpdScopeLabel: String(report.mvpdScopeLabel || "").trim(),
+    includeAllMvpd: !mvpd,
+    selectionKey: String(report.selectionKey || state.selectionKey || "").trim(),
+  };
+}
+
 function setStatus(message = "", type = "info") {
   if (!els.status) {
     return;
@@ -111,9 +121,81 @@ function setStatus(message = "", type = "info") {
   els.status.classList.toggle("error", type === "error");
 }
 
+async function copyTextToClipboard(text = "") {
+  const normalized = String(text || "");
+  if (!normalized) {
+    return false;
+  }
+
+  if (navigator?.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(normalized);
+      return true;
+    } catch {
+      // continue to fallback
+    }
+  }
+
+  const textArea = document.createElement("textarea");
+  textArea.value = normalized;
+  textArea.setAttribute("readonly", "readonly");
+  textArea.style.position = "fixed";
+  textArea.style.opacity = "0";
+  textArea.style.pointerEvents = "none";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  } finally {
+    textArea.remove();
+  }
+  return copied;
+}
+
+function findReportById(reportId = "") {
+  const normalizedId = String(reportId || "").trim();
+  if (!normalizedId) {
+    return null;
+  }
+  return state.reports.find((report) => String(report?.reportId || "").trim() === normalizedId) || null;
+}
+
+async function copyReportRequestUrl(reportId = "") {
+  const report = findReportById(reportId);
+  if (!report) {
+    return;
+  }
+  const requestUrl = firstNonEmptyString([report.requestUrl]);
+  if (!requestUrl) {
+    setStatus("Request URL unavailable for copy.", "error");
+    return;
+  }
+  const copied = await copyTextToClipboard(requestUrl);
+  if (copied) {
+    setStatus("DEGRADATION request URL copied.", "success");
+  } else {
+    setStatus("Unable to copy DEGRADATION request URL.", "error");
+  }
+}
+
 function syncActionButtonsDisabled() {
+  const hasCards = state.reports.length > 0;
+  const isBusy = state.batchRunning === true;
+  if (els.rerunAllButton) {
+    els.rerunAllButton.disabled = isBusy || !hasCards;
+    els.rerunAllButton.classList.toggle("net-busy", isBusy);
+    els.rerunAllButton.setAttribute("aria-busy", isBusy ? "true" : "false");
+    els.rerunAllButton.title = isBusy ? "Re-run all (loading...)" : "Re-run all";
+  }
+  if (els.rerunIndicator) {
+    els.rerunIndicator.hidden = !isBusy;
+  }
   if (els.clearButton) {
-    els.clearButton.disabled = state.reports.length === 0;
+    els.clearButton.disabled = isBusy || !hasCards;
   }
 }
 
@@ -129,8 +211,7 @@ function getProgrammerLabel() {
 function getFilterLabel() {
   const requestor = String(state.requestorId || "").trim();
   const mvpdScope = String(state.mvpdScopeLabel || "").trim() || "ALL MVPDs";
-  const appName = String(state.appName || state.appGuid || "").trim() || "N/A";
-  return `Requestor: ${requestor || "N/A"} | Scope: ${mvpdScope} | App: ${appName}`;
+  return `Requestor: ${requestor || "N/A"} | Scope: ${mvpdScope}`;
 }
 
 function updateControllerBanner() {
@@ -158,11 +239,39 @@ function applyControllerState(payload = {}) {
   updateControllerBanner();
 }
 
+function getScopeValues(report = null) {
+  const requestor = firstNonEmptyString([report?.programmerId, state.requestorId, "N/A"]);
+  const scope = firstNonEmptyString([report?.mvpdScopeLabel, report?.mvpd, state.mvpdScopeLabel, "ALL MVPDs"]);
+  return {
+    requestor,
+    scope,
+  };
+}
+
+function getNoRulesScopeLabel(report = null) {
+  const { requestor, scope } = getScopeValues(report);
+  return `${requestor} X ${scope}`;
+}
+
+function getNoRulesActiveMessage(report = null) {
+  return `No rules active for ${getNoRulesScopeLabel(report)}.`;
+}
+
+function renderScopeEmphasisHtml(report = null) {
+  const { requestor, scope } = getScopeValues(report);
+  return `<span class="degradation-report-scope-value">${escapeHtml(requestor)}</span><span class="degradation-report-scope-sep"> X </span><span class="degradation-report-scope-value">${escapeHtml(scope)}</span>`;
+}
+
+function renderNoRulesCompactHtml(report = null) {
+  const methodLabel = firstNonEmptyString([report?.endpointTitle, "DEGRADATION Status"]);
+  return `${escapeHtml(methodLabel)}: No rules active for ${renderScopeEmphasisHtml(report)}.`;
+}
+
 function renderTable(report = null) {
   const columns = Array.isArray(report?.columns) ? report.columns : [];
   const rows = Array.isArray(report?.rows) ? report.rows : [];
   if (columns.length === 0 || rows.length === 0) {
-    return '<p class="degradation-report-empty">No APPLIED active degradation rules were returned for this request.</p>';
+    return `<p class="degradation-report-empty">${escapeHtml(getNoRulesActiveMessage(report))}</p>`;
   }
 
   const headerHtml = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("");
@@ -235,15 +344,31 @@ function renderReportCard(report = null) {
   if (!report || typeof report !== "object") {
     return "";
   }
-  const checkedAtLabel = formatDateTime(report.fetchedAt);
-  const httpLabel = report.status > 0 ? `HTTP ${report.status} ${report.statusText || ""}`.trim() : "Request Error";
   const requestLine = firstNonEmptyString([
     report.requestUrl,
     `${report.endpointPath || ""}${report.programmerId ? `?programmer=${report.programmerId}` : ""}`,
   ]);
-  const rowSummary = report.ok
-    ? `${report.activeCount}/${report.rowCount} active rows`
-    : "Request failed";
+  const statusTitle = `GET: ${requestLine || "N/A"}`;
+  if (report.ok && Number(report.rowCount || 0) === 0) {
+    return `
+      <article class="degradation-report-card degradation-report-card--no-active">
+        <p class="degradation-report-no-active-line">
+          <button
+            type="button"
+            class="degradation-report-no-active-copy"
+            data-action="copy-request-url"
+            data-report-id="${escapeHtml(String(report.reportId || ""))}"
+            title="${escapeHtml(statusTitle)}"
+            aria-label="Copy DEGRADATION request URL to clipboard"
+          >${renderNoRulesCompactHtml(report)}</button>
+        </p>
+      </article>
+    `;
+  }
+  const activeRules = Number(report.activeCount || report.rowCount || 0);
+  const activeRuleLabel = `${activeRules} active rule${activeRules === 1 ? "" : "s"}`;
+  const programmerScopeHtml = renderScopeEmphasisHtml(report);
+  const httpLabel = report.status > 0 ? `HTTP ${report.status} ${report.statusText || ""}`.trim() : "Request Error";
   const errorMarkup = report.ok
     ? ""
     : `<p class="degradation-report-error">${escapeHtml(report.error || "Request failed.")}</p>`;
@@ -254,14 +379,8 @@ function renderReportCard(report = null) {
           <p class="degradation-report-title">${escapeHtml(report.endpointTitle || "DEGRADATION Status")}</p>
           <p class="degradation-report-http ${report.ok ? "" : "error"}">${escapeHtml(httpLabel)}</p>
         </div>
-        <p class="degradation-report-subtitle">${escapeHtml(report.mvpdScopeLabel || "ALL MVPDs")}</p>
-        <p class="degradation-report-meta">
-          <strong>Programmer:</strong> ${escapeHtml(report.programmerId || "N/A")} |
-          <strong>Rows:</strong> ${escapeHtml(rowSummary)} |
-          <strong>Duration:</strong> ${escapeHtml(String(report.durationMs || 0))}ms |
-          <strong>Checked:</strong> ${escapeHtml(checkedAtLabel)}
-        </p>
-        <p class="degradation-report-url"><strong>GET:</strong> <code>${escapeHtml(requestLine || "N/A")}</code></p>
+        <p class="degradation-report-subtitle">${programmerScopeHtml}</p>
+        <p class="degradation-report-meta">${escapeHtml(report.ok ? activeRuleLabel : "Request failed")}</p>
       </header>
       ${errorMarkup}
       ${report.ok ? renderTable(report) : ""}
@@ -274,8 +393,7 @@ function renderReports() {
     return;
   }
   if (state.reports.length === 0) {
-    els.cardsHost.innerHTML =
-      '<article class="degradation-report-card"><p class="degradation-report-empty">Run GET status calls from the DEGRADATION sidepanel controller to populate report cards.</p></article>';
+    els.cardsHost.innerHTML = "";
     syncActionButtonsDisabled();
     return;
   }
@@ -346,7 +464,7 @@ function handleReportResult(payload = {}) {
   }
   upsertReport(report);
   if (report.ok) {
-    setStatus(`${report.endpointTitle}: loaded ${report.activeCount}/${report.rowCount} active rows.`, "success");
+    setStatus("", "info");
   } else {
     setStatus(`${report.endpointTitle}: ${report.error || "Request failed."}`, "error");
   }
@@ -367,6 +485,20 @@ function handleWorkspaceEvent(eventName, payload = {}) {
   }
   if (event === "report-result") {
     handleReportResult(payload);
+    return;
+  }
+  if (event === "batch-start") {
+    state.batchRunning = true;
+    syncActionButtonsDisabled();
+    const total = Number(payload?.total || 0);
+    setStatus(total > 0 ? `Re-running ${total} report(s)...` : "Re-running reports...");
+    return;
+  }
+  if (event === "batch-end") {
+    state.batchRunning = false;
+    syncActionButtonsDisabled();
+    const total = Number(payload?.total || 0);
+    setStatus(total > 0 ? `Re-run completed for ${total} report(s).` : "Re-run completed.");
     return;
   }
   if (event === "workspace-clear") {
@@ -399,10 +531,59 @@ function clearWorkspace() {
   setStatus("DEGRADATION workspace cleared.", "info");
 }
 
+async function rerunAllCards() {
+  if (state.batchRunning) {
+    return;
+  }
+  if (state.reports.length === 0) {
+    setStatus("No reports are open.");
+    return;
+  }
+  const cards = state.reports
+    .map((report) => getReportPayload(report))
+    .filter((card) => card && card.endpointKey);
+  if (cards.length === 0) {
+    setStatus("No reports are open.");
+    return;
+  }
+
+  state.batchRunning = true;
+  syncActionButtonsDisabled();
+  setStatus(`Re-running ${cards.length} report(s)...`);
+  const result = await sendWorkspaceAction("rerun-all", {
+    cards,
+    reason: "manual-reload",
+    selectionKey: String(state.selectionKey || "").trim(),
+  });
+  if (!result?.ok) {
+    state.batchRunning = false;
+    syncActionButtonsDisabled();
+    setStatus(result?.error || "Unable to re-run reports.", "error");
+  }
+}
+
 function registerEventHandlers() {
+  if (els.rerunAllButton) {
+    els.rerunAllButton.addEventListener("click", () => {
+      void rerunAllCards();
+    });
+  }
   if (els.clearButton) {
     els.clearButton.addEventListener("click", () => {
       clearWorkspace();
+    });
+  }
+  if (els.cardsHost) {
+    els.cardsHost.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element)) {
+        return;
+      }
+      const copyUrlTrigger = event.target.closest('button[data-action="copy-request-url"]');
+      if (!(copyUrlTrigger instanceof HTMLButtonElement)) {
+        return;
+      }
+      event.preventDefault();
+      void copyReportRequestUrl(String(copyUrlTrigger.getAttribute("data-report-id") || "").trim());
     });
   }
 
