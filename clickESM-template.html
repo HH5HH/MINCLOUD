@@ -6170,6 +6170,23 @@ function appendFilterParams(url) {
   return url + sep + params.join('&');
 }
 
+function __ensureJsonFormatQuery(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return raw;
+
+  try {
+    const parsed = new URL(raw, window.location.href);
+    if (!parsed.searchParams.has('format')) {
+      parsed.searchParams.set('format', 'json');
+    }
+    return parsed.toString();
+  } catch {
+    if (/[?&]format=/.test(raw)) return raw;
+    const sep = raw.includes('?') ? '&' : '?';
+    return url + sep + 'format=json';
+  }
+}
+
 const __localColumnFilterStateByDl = new WeakMap();
 const ESM_SUPPRESSED_COLUMNS = new Set(['media-company']);
 const ESM_LOCAL_FILTER_EXCLUDED_COLUMNS = new Set(['year', 'month', 'day', 'hour', 'minute']);
@@ -6344,7 +6361,14 @@ function __getLocalColumnFilterState(dl) {
 
   const dd = dl.querySelector('.col-list');
   const anchor = dl.querySelector('a');
-  const baselineHref = String(anchor?.href || '');
+  const baselineHref = String(anchor?.dataset?.baselineHref || anchor?.href || '');
+  if (anchor && baselineHref && !anchor.dataset.baselineHref) {
+    anchor.dataset.baselineHref = baselineHref;
+  }
+  const activeHref = String(anchor?.dataset?.activeHref || anchor?.href || baselineHref);
+  if (anchor && activeHref && !anchor.dataset.activeHref) {
+    anchor.dataset.activeHref = activeHref;
+  }
   const rawText = dd?.innerText || '';
   const hrefDimensions = __getSupportedDimensionsFromHref(baselineHref);
   const staticDimensions = __parseColumnCloudTokens(rawText)
@@ -6363,6 +6387,8 @@ function __getLocalColumnFilterState(dl) {
     descriptionByColumn: new Map(),
     baselineColumns: [],
     baselineHref,
+    activeHref,
+    anchorEl: anchor,
     cloudEl: null,
     pickerWrap: null,
     pickerSelect: null,
@@ -6378,6 +6404,50 @@ function __getLocalColumnFilterState(dl) {
 
   __localColumnFilterStateByDl.set(dl, state);
   return state;
+}
+
+function __getEndpointBaselineHref(dl) {
+  const anchor = dl?.querySelector('a');
+  if (!anchor) return '';
+  const baselineHref = String(anchor.dataset.baselineHref || anchor.href || '').trim();
+  if (baselineHref && !anchor.dataset.baselineHref) {
+    anchor.dataset.baselineHref = baselineHref;
+  }
+  return baselineHref;
+}
+
+function __setEndpointActiveHref(dl, nextHref = '') {
+  const state = __getLocalColumnFilterState(dl);
+  const anchor = state?.anchorEl || dl?.querySelector('a');
+  if (!anchor) return '';
+
+  const baselineHref = __getEndpointBaselineHref(dl);
+  const resolvedHref = String(nextHref || baselineHref || anchor.href || '').trim();
+  if (!resolvedHref) return '';
+
+  anchor.dataset.activeHref = resolvedHref;
+  anchor.href = resolvedHref;
+  anchor.textContent = resolvedHref;
+
+  if (state) {
+    state.anchorEl = anchor;
+    state.baselineHref = baselineHref;
+    state.activeHref = resolvedHref;
+  }
+
+  return resolvedHref;
+}
+
+function __buildActiveLocalColumnFilterHref(dl, baseHref = '') {
+  const state = __getLocalColumnFilterState(dl);
+  const baselineHref = __getEndpointBaselineHref(dl);
+  const candidateHref = String(
+    baseHref || state?.activeHref || baselineHref || state?.anchorEl?.href || ''
+  ).trim();
+  if (!candidateHref) return '';
+
+  const nextHref = __appendLocalColumnFilterParams(candidateHref, dl);
+  return String(nextHref || candidateHref).trim();
 }
 
 function __updateLocalColumnMenuVisualState(state) {
@@ -6781,7 +6851,14 @@ function __appendLocalColumnFilterParams(url, dl) {
     if (!(catalog instanceof Map)) return;
     catalog.forEach((_description, columnName) => {
       const normalizedColumn = __normalizeDimensionName(columnName);
-      if (!normalizedColumn || __isSuppressedEsmColumn(normalizedColumn)) return;
+      if (
+        !normalizedColumn ||
+        __isSuppressedEsmColumn(normalizedColumn) ||
+        __isLocalFilterExcludedDimension(normalizedColumn) ||
+        !__isFilterableDimension(normalizedColumn, state.baselineHref)
+      ) {
+        return;
+      }
       resetKeys.add(normalizedColumn);
     });
   };
@@ -6897,6 +6974,14 @@ function __clearLocalColumnFilters(dl) {
   state.selectedByColumn.clear();
   __closeLocalColumnPicker(state);
   __updateLocalColumnMenuVisualState(state);
+  __setEndpointActiveHref(dl, __buildActiveLocalColumnFilterHref(dl, state.baselineHref));
+}
+
+function __resetLocalTableUi(dl, host = null) {
+  if (!dl) return;
+  if (host) host.innerHTML = '';
+  __deactivateLocalColumnFilterUi(dl, { clearState: true });
+  __setEndpointActiveHref(dl, __getEndpointBaselineHref(dl));
 }
 
 function __updateColumnChipHighlights(dd, term) {
@@ -7627,9 +7712,7 @@ async function downloadCsv(link, baseHref, sortState) {
   const anchor = dl?.querySelector('a');
   if (!anchor) return;
 
-  const csvBase = appendFilterParams(
-    appendTimeParams(baseHref, anchor) + '&format=json'
-  );
+  const csvBase = appendFilterParams(__ensureJsonFormatQuery(appendTimeParams(baseHref, anchor)));
   const csvUrl = __appendLocalColumnFilterParams(csvBase, dl);
 
   const r = await fetchWithRefresh(csvUrl, { esmLimit: ESM_CSV_RESULT_LIMIT });
@@ -7680,12 +7763,15 @@ async function runEsm(a) {
   /* Build request URL (time-aware + filter aware) */
   const dl = a.closest('dl');
   const localColumnState = __getLocalColumnFilterState(dl);
+  const baselineHref = __getEndpointBaselineHref(dl) || String(a.href || '');
   if (localColumnState) {
-    localColumnState.baselineHref = String(a.href || '');
+    localColumnState.anchorEl = a;
+    localColumnState.baselineHref = baselineHref;
   }
-  const timedBase = appendTimeParams(a.href, a);
-  const jsonBase = appendFilterParams(timedBase + '&format=json');
+  const timedBase = appendTimeParams(baselineHref, a);
+  const jsonBase = appendFilterParams(__ensureJsonFormatQuery(timedBase));
   const jsonUrl = __appendLocalColumnFilterParams(jsonBase, dl);
+  __setEndpointActiveHref(dl, jsonUrl);
 
   /* Prepare host DOM */
   const host = dl?.querySelector('.esm-table-host');
@@ -7761,7 +7847,17 @@ async function runEsm(a) {
     if (includeCsv) {
       const lastModifiedLabel = document.createElement('span');
       lastModifiedLabel.className = 'esm-last-modified';
-      if (lastModified != null) {
+      const activeSourceUrl = String(localColumnState?.activeHref || a?.href || '').trim();
+      const freshnessDisplay = (typeof window.__getDataFreshnessDisplay === 'function')
+        ? window.__getDataFreshnessDisplay({
+            sourceUrl: activeSourceUrl,
+            lastModified,
+          })
+        : null;
+      if (freshnessDisplay && typeof freshnessDisplay === 'object' && String(freshnessDisplay.text || '').trim()) {
+        lastModifiedLabel.textContent = String(freshnessDisplay.text || '').trim();
+        lastModifiedLabel.title = String(freshnessDisplay.title || '').trim();
+      } else if (lastModified != null) {
         const sourceTz = getLastModifiedSourceTimezone(lastModified);
         lastModifiedLabel.textContent = `Last-Modified: ${formatLastModifiedForDisplay(lastModified)}`;
         lastModifiedLabel.title = sourceTz
@@ -7780,10 +7876,7 @@ async function runEsm(a) {
     deleteDataBtn.setAttribute('aria-label', 'Delete data table');
     deleteDataBtn.title = 'Delete this table data';
     deleteDataBtn.onclick = () => {
-      host.innerHTML = '';
-      if (!localColumnState) return;
-      __closeLocalColumnPicker(localColumnState);
-      __updateLocalColumnMenuVisualState(localColumnState);
+      __resetLocalTableUi(dl, host);
     };
     footerControls.appendChild(deleteDataBtn);
 
@@ -7874,7 +7967,7 @@ async function runEsm(a) {
     state.data = filteredRows;
     __activateLocalColumnFilterUi(dl, state.data);
 
-    /* Data freshness: Last-Modified when present; absence means real-time (per ESM spec) */
+    /* Data freshness: runtime may override with source-specific semantics before header fallback. */
     const lastModified = r.headers.get('Last-Modified');
 
     /* Detect columns */

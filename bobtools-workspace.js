@@ -37,6 +37,7 @@ const state = {
   resourceInputByHarvestKey: new Map(),
   quickResourceLoadStateByHarvestKey: new Map(),
   quickResourceLoadPromiseByHarvestKey: new Map(),
+  quickResourcePanelOpenByHarvestKey: new Map(),
   splunkResultByHarvestKey: new Map(),
   splunkDownloadUrl: "",
   splunkArtifactDownloadUrls: [],
@@ -54,8 +55,11 @@ const els = {
   profileCount: document.getElementById("bobtools-profile-count"),
   profileList: document.getElementById("bobtools-profile-list"),
   profileContext: document.getElementById("bobtools-profile-context"),
-  quickResourceWrap: document.getElementById("bobtools-resource-quick-add-wrap"),
-  quickResourcePicker: document.getElementById("bobtools-resource-quick-picker"),
+  quickResourceCard: document.getElementById("bobtools-resource-picker-card"),
+  quickResourceCardHead: document.getElementById("bobtools-resource-picker-head"),
+  quickResourceCardSubtitle: document.getElementById("bobtools-resource-picker-subtitle"),
+  quickResourceCardToggle: document.getElementById("bobtools-resource-picker-toggle"),
+  quickResourceCardBody: document.getElementById("bobtools-resource-picker-body"),
   form: document.getElementById("bobtools-form"),
   resourceInput: document.getElementById("bobtools-resource-input"),
   actionHint: document.getElementById("bobtools-action-hint"),
@@ -297,61 +301,140 @@ function ensureProfileQuickResources(profile = null, options = {}) {
   return work;
 }
 
+function isQuickResourcePanelOpen(profile = null) {
+  const key = String(profile?.key || "").trim();
+  if (!key) {
+    return false;
+  }
+  return state.quickResourcePanelOpenByHarvestKey.get(key) === true;
+}
+
+function setQuickResourcePanelOpen(profile = null, open = false) {
+  const key = String(profile?.key || "").trim();
+  if (!key) {
+    return;
+  }
+  state.quickResourcePanelOpenByHarvestKey.set(key, open === true);
+}
+
 function renderQuickResourcePicker(profile = null) {
-  if (!els.quickResourceWrap || !els.quickResourcePicker) {
+  if (
+    !els.quickResourceCard ||
+    !els.quickResourceCardHead ||
+    !els.quickResourceCardSubtitle ||
+    !els.quickResourceCardToggle ||
+    !els.quickResourceCardBody
+  ) {
+    return;
+  }
+  if (!profile) {
+    els.quickResourceCard.hidden = true;
+    els.quickResourceCard.classList.add("is-collapsed");
+    els.quickResourceCardHead.setAttribute("aria-expanded", "false");
+    els.quickResourceCardBody.hidden = true;
     return;
   }
   const key = String(profile?.key || "").trim();
   const loadState = String(state.quickResourceLoadStateByHarvestKey.get(key) || "").trim().toLowerCase();
   const options = getQuickResourceOptionsForProfile(profile);
-  const placeholderText =
-    options.length > 0
-      ? "Pick resourceId"
-      : loadState === "loading"
-        ? "Loading resourceIds..."
-        : "Pick resourceId";
-  const signature = `${loadState}::${placeholderText}::${options.join("\n")}`;
-  if (String(els.quickResourcePicker.dataset.optionsSignature || "") !== signature) {
-    const picker = els.quickResourcePicker;
-    picker.innerHTML = "";
-    const placeholder = document.createElement("option");
-    placeholder.value = "";
-    placeholder.textContent = placeholderText;
-    picker.appendChild(placeholder);
-    options.forEach((resourceId) => {
-      const option = document.createElement("option");
-      option.value = resourceId;
-      option.textContent = resourceId;
-      picker.appendChild(option);
-    });
-    picker.dataset.optionsSignature = signature;
+  const panelOpen = isQuickResourcePanelOpen(profile);
+  const selectionLabel = firstNonEmptyString([
+    profile?.requestorMvpdLabel,
+    profile?.mvpdLabel,
+    profile?.mvpd,
+    "selected MVPD",
+  ]);
+  const subtitle =
+    loadState === "loading"
+      ? `Loading resourceIds for ${selectionLabel}...`
+      : options.length > 0
+        ? `Values detected for ${selectionLabel} lookup payloads`
+        : loadState === "error"
+          ? `Unable to load resourceIds for ${selectionLabel}.`
+          : `No resourceIds found for ${selectionLabel}.`;
+  const selectedValues = parseResourceInputValue(els.resourceInput?.value || state.resourceInputByHarvestKey.get(key) || "");
+  const selectedKeys = new Set(selectedValues.map((value) => value.toLowerCase()));
+  const chipsDisabled = state.running || state.splunkRunning || !actionRequiresResources(state.apiAction);
+
+  els.quickResourceCard.hidden = false;
+  els.quickResourceCard.classList.toggle("is-collapsed", !panelOpen);
+  els.quickResourceCardHead.setAttribute("aria-expanded", panelOpen ? "true" : "false");
+  els.quickResourceCardToggle.setAttribute("aria-label", panelOpen ? "Collapse resourceId list" : "Expand resourceId list");
+  els.quickResourceCardToggle.title = panelOpen ? "Collapse resourceId list" : "Expand resourceId list";
+  els.quickResourceCardSubtitle.textContent = subtitle;
+  els.quickResourceCardBody.hidden = !panelOpen;
+
+  if (!panelOpen) {
+    return;
   }
-  els.quickResourcePicker.value = "";
-  els.quickResourceWrap.hidden = !profile || (options.length === 0 && loadState !== "loading");
+
+  const signature = `${loadState}::${chipsDisabled ? "1" : "0"}::${options.join("\n")}::${selectedValues.join("\n")}`;
+  if (String(els.quickResourceCardBody.dataset.renderSignature || "") === signature) {
+    return;
+  }
+
+  if (options.length === 0) {
+    const emptyMessage =
+      loadState === "loading"
+        ? "Loading resourceIds..."
+        : loadState === "error"
+          ? "Unable to load resourceIds. Refresh or switch profiles to retry."
+          : "No translated resourceIds found for this profile.";
+    els.quickResourceCardBody.innerHTML = `<p class="bobtools-resource-picker-empty">${escapeHtml(emptyMessage)}</p>`;
+    els.quickResourceCardBody.dataset.renderSignature = signature;
+    return;
+  }
+
+  els.quickResourceCardBody.innerHTML = `<div class="bobtools-resource-chip-cloud">${options
+    .map((resourceId) => {
+      const normalized = String(resourceId || "").trim();
+      const active = selectedKeys.has(normalized.toLowerCase());
+      const title = active ? `Remove ${normalized}` : `Add ${normalized}`;
+      return `<button type="button" class="bobtools-resource-chip${active ? " is-active" : ""}" data-resource-id="${escapeHtml(
+        normalized
+      )}" aria-pressed="${active ? "true" : "false"}"${chipsDisabled ? " disabled" : ""} title="${escapeHtml(
+        title
+      )}">${escapeHtml(normalized)}</button>`;
+    })
+    .join("")}</div>`;
+  els.quickResourceCardBody.dataset.renderSignature = signature;
 }
 
-function addQuickResourceToInput(resourceId = "") {
-  const profile = getSelectedProfile();
-  if (!profile || !els.resourceInput) {
-    return false;
+function writeResourceInputValue(profile = null, resourceIds = []) {
+  const targetProfile = profile || getSelectedProfile();
+  if (!targetProfile || !els.resourceInput) {
+    return { changed: false, value: "" };
   }
-  const normalized = String(resourceId || "").trim();
-  if (!normalized) {
-    return false;
-  }
-  const currentValues = parseResourceInputValue(els.resourceInput.value || "");
-  const alreadyExists = currentValues.some((item) => item.toLowerCase() === normalized.toLowerCase());
-  if (alreadyExists) {
-    return false;
-  }
-  const nextValues = [...currentValues, normalized];
-  const nextValue = nextValues.join(", ");
+  const currentRawValue = String(els.resourceInput.value || "");
+  const nextValue = normalizeResourceIdList(resourceIds).join(", ");
   els.resourceInput.value = nextValue;
-  const key = String(profile?.key || "").trim();
+  const key = String(targetProfile?.key || "").trim();
   if (key) {
     state.resourceInputByHarvestKey.set(key, nextValue);
   }
-  return true;
+  return {
+    changed: nextValue !== currentRawValue,
+    value: nextValue,
+  };
+}
+
+function toggleQuickResourceInInput(resourceId = "") {
+  const profile = getSelectedProfile();
+  const normalized = String(resourceId || "").trim();
+  if (!profile || !normalized) {
+    return { changed: false, active: false, value: "" };
+  }
+  const currentValues = parseResourceInputValue(els.resourceInput?.value || "");
+  const active = currentValues.some((item) => item.toLowerCase() === normalized.toLowerCase());
+  const nextValues = active
+    ? currentValues.filter((item) => item.toLowerCase() !== normalized.toLowerCase())
+    : [...currentValues, normalized];
+  const commit = writeResourceInputValue(profile, nextValues);
+  return {
+    changed: commit.changed,
+    active: !active,
+    value: commit.value,
+  };
 }
 
 function buildResultMapKey(harvestKey = "", action = "") {
@@ -400,10 +483,6 @@ function syncButtons() {
   }
   if (els.resourceInput) {
     els.resourceInput.disabled = !hasProfile || networkBusy || !resourcesRequired;
-  }
-  if (els.quickResourcePicker) {
-    const hasQuickOptions = els.quickResourcePicker.options.length > 1;
-    els.quickResourcePicker.disabled = !hasProfile || networkBusy || !resourcesRequired || !hasQuickOptions;
   }
   if (els.splunkButton) {
     els.splunkButton.disabled = !hasProfile || !hasUpstreamUserId || networkBusy;
@@ -1523,12 +1602,12 @@ function renderResult() {
   ) {
     void ensureProfileQuickResources(profile);
   }
-  renderQuickResourcePicker(profile);
 
   const rememberedInput = state.resourceInputByHarvestKey.get(key) || "";
   if (document.activeElement !== els.resourceInput) {
     els.resourceInput.value = rememberedInput;
   }
+  renderQuickResourcePicker(profile);
 
   const result = getResultForProfile(profile);
   if (!result || typeof result !== "object") {
@@ -1686,6 +1765,11 @@ function applyProfiles(payload = {}) {
   for (const [key] of [...state.quickResourceLoadPromiseByHarvestKey.entries()]) {
     if (!activeKeys.has(String(key || "").trim())) {
       state.quickResourceLoadPromiseByHarvestKey.delete(key);
+    }
+  }
+  for (const key of [...state.quickResourcePanelOpenByHarvestKey.keys()]) {
+    if (!activeKeys.has(String(key || "").trim())) {
+      state.quickResourcePanelOpenByHarvestKey.delete(key);
     }
   }
 
@@ -1886,6 +1970,7 @@ function handleWorkspaceEvent(eventName, payload = {}) {
     state.resourceInputByHarvestKey.clear();
     state.quickResourceLoadStateByHarvestKey.clear();
     state.quickResourceLoadPromiseByHarvestKey.clear();
+    state.quickResourcePanelOpenByHarvestKey.clear();
     state.splunkResultByHarvestKey.clear();
     releaseSplunkDownloadUrl();
     releaseSplunkArtifactDownloadUrls();
@@ -1937,17 +2022,68 @@ function registerEventHandlers() {
         return;
       }
       state.resourceInputByHarvestKey.set(key, String(els.resourceInput.value || ""));
+      renderQuickResourcePicker(profile);
     });
   }
 
-  if (els.quickResourcePicker) {
-    els.quickResourcePicker.addEventListener("change", () => {
-      const selected = String(els.quickResourcePicker?.value || "").trim();
-      if (!selected) {
+  const toggleQuickResourcePanel = (open = null) => {
+    const profile = getSelectedProfile();
+    if (!profile) {
+      return;
+    }
+    const nextOpen = open === null ? !isQuickResourcePanelOpen(profile) : open === true;
+    setQuickResourcePanelOpen(profile, nextOpen);
+    if (nextOpen) {
+      const key = String(profile?.key || "").trim();
+      const options = getQuickResourceOptionsForProfile(profile);
+      const loadState = String(state.quickResourceLoadStateByHarvestKey.get(key) || "").trim().toLowerCase();
+      if (options.length === 0 && loadState !== "loading") {
+        void ensureProfileQuickResources(profile, { forceRefresh: loadState === "error" });
+      }
+    }
+    renderQuickResourcePicker(profile);
+  };
+
+  if (els.quickResourceCardHead) {
+    els.quickResourceCardHead.addEventListener("click", () => {
+      if (els.quickResourceCard?.hidden) {
         return;
       }
-      addQuickResourceToInput(selected);
-      els.quickResourcePicker.value = "";
+      toggleQuickResourcePanel();
+    });
+    els.quickResourceCardHead.addEventListener("keydown", (event) => {
+      if (els.quickResourceCard?.hidden) {
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      toggleQuickResourcePanel();
+    });
+  }
+
+  if (els.quickResourceCardToggle) {
+    els.quickResourceCardToggle.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleQuickResourcePanel();
+    });
+  }
+
+  if (els.quickResourceCardBody) {
+    els.quickResourceCardBody.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target.closest("[data-resource-id]") : null;
+      if (!target) {
+        return;
+      }
+      const resourceId = String(target.getAttribute("data-resource-id") || "").trim();
+      if (!resourceId || target.hasAttribute("disabled")) {
+        return;
+      }
+      toggleQuickResourceInInput(resourceId);
+      const profile = getSelectedProfile();
+      renderQuickResourcePicker(profile);
     });
   }
 

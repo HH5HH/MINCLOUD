@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UP CMUEMU Workspace</title>
+    <link id="workspace-style-link" rel="stylesheet" href="cmuemu-workspace.css" />
+  </head>
+  <body>
+    <main id="workspace-app-root" class="workspace-app">
+      <header class="workspace-header">
+        <div class="workspace-title-wrap">
+          <p class="workspace-eyebrow">Premium Incident Fusion</p>
+          <p id="workspace-controller-state" class="workspace-controller-state">Waiting for UnderPAR side panel controller...</p>
+          <p id="workspace-filter-state" class="workspace-filter-state"></p>
+        </div>
+        <div class="workspace-actions">
+          <a class="workspace-link-btn" href="#fusion-pairings">Jump to Pairings</a>
+          <button id="workspace-refresh" class="workspace-action-btn" type="button">Refresh Context</button>
+        </div>
+      </header>
+
+      <p id="workspace-status" class="workspace-status" aria-live="polite"></p>
+      <section id="workspace-content" class="workspace-content"></section>
+    </main>
+
+    <main id="workspace-non-cmuemu-screen" class="workspace-empty-screen" hidden>
+      <h1 id="workspace-non-cmuemu-headline">No Soup for Selected Media Company. Need both ESM and CM to light up CMUEMU.</h1>
+      <p id="workspace-non-cmuemu-note">
+        CMUEMU only appears when the selected Media Company has both ESM coverage and a Concurrency Monitoring tenant. If this
+        looks wrong, verify the Adobe Pass console application scopes and CM tenant mapping.
+      </p>
+    </main>
+
+    <script src="cmuemu-workspace.js"></script>
+  </body>
+</html>

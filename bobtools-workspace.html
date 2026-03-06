@@ -55,10 +55,32 @@
           <div class="bobtools-card-body" data-card-body="watch" hidden>
             <div class="bobtools-profile-context-row">
               <p id="bobtools-profile-context" class="bobtools-profile-context"></p>
-              <div id="bobtools-resource-quick-add-wrap" class="bobtools-resource-quick-add-wrap" hidden>
-                <select id="bobtools-resource-quick-picker" class="bobtools-resource-quick-picker" aria-label="Pick resourceId"></select>
-              </div>
             </div>
+            <article id="bobtools-resource-picker-card" class="bobtools-resource-picker-card is-collapsed" hidden>
+              <div
+                id="bobtools-resource-picker-head"
+                class="bobtools-resource-picker-head"
+                role="button"
+                tabindex="0"
+                aria-expanded="false"
+                aria-controls="bobtools-resource-picker-body"
+              >
+                <div class="bobtools-resource-picker-head-copy">
+                  <p class="bobtools-resource-picker-title">Resource IDs</p>
+                  <p id="bobtools-resource-picker-subtitle" class="bobtools-resource-picker-subtitle"></p>
+                </div>
+                <button
+                  id="bobtools-resource-picker-toggle"
+                  class="bobtools-resource-picker-toggle"
+                  type="button"
+                  aria-label="Expand resourceId list"
+                  title="Expand resourceId list"
+                >
+                  <span class="bobtools-resource-picker-toggle-icon" aria-hidden="true">▾</span>
+                </button>
+              </div>
+              <div id="bobtools-resource-picker-body" class="bobtools-resource-picker-body" hidden></div>
+            </article>
             <form id="bobtools-form" class="bobtools-form">
               <input
                 id="bobtools-resource-input"

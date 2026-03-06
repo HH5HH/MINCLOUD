@@ -33,6 +33,9 @@
   --service-cm-mvpd-accent: #b38c34;
   --service-cm-mvpd-ink: #7a5f1f;
   --service-cm-mvpd-soft: rgba(179, 140, 52, 0.2);
+  --service-cmuemu-accent: #18d4c4;
+  --service-cmuemu-ink: #0e7784;
+  --service-cmuemu-soft: rgba(24, 212, 196, 0.24);
   --service-degradation-accent: #8b0000;
   --service-degradation-ink: #6c0000;
   --service-degradation-soft: rgba(139, 0, 0, 0.2);
@@ -648,6 +651,16 @@ select:disabled {
   --service-open-bg-glow: rgba(179, 140, 52, 0.24);
 }
 
+.premium-service-section.service-cmuemu {
+  --service-accent: var(--service-cmuemu-accent);
+  --service-accent-ink: var(--service-cmuemu-ink);
+  --service-accent-soft: var(--service-cmuemu-soft);
+  --service-accent-focus: rgba(24, 212, 196, 0.34);
+  --service-open-bg-top: rgba(24, 212, 196, 0.2);
+  --service-open-bg-mid: rgba(22, 121, 168, 0.12);
+  --service-open-bg-glow: rgba(24, 212, 196, 0.26);
+}
+
 .premium-service-section.service-degradation {
   --service-accent: var(--service-degradation-accent);
   --service-accent-ink: var(--service-degradation-ink);
@@ -700,6 +713,147 @@ select:disabled {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.cmuemu-sidepanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.cmuemu-sidepanel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cmuemu-sidepanel-kicker {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--service-accent-ink);
+}
+
+.cmuemu-sidepanel-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cmuemu-sidepanel-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(24, 212, 196, 0.34);
+  background: linear-gradient(135deg, rgba(8, 31, 56, 0.94), rgba(11, 86, 97, 0.9));
+  box-shadow: 0 0 0 1px rgba(24, 212, 196, 0.12) inset, 0 10px 20px rgba(8, 31, 56, 0.16);
+  color: #d9fffb;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.cmuemu-sidepanel-copy,
+.cmuemu-sidepanel-footnote {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--legacy-text);
+}
+
+.cmuemu-sidepanel-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.cmuemu-sidepanel-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(24, 212, 196, 0.22);
+  background:
+    radial-gradient(circle at top right, rgba(91, 255, 241, 0.18), rgba(91, 255, 241, 0) 42%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(236, 255, 252, 0.94));
+  box-shadow: 0 12px 22px rgba(9, 63, 82, 0.08);
+}
+
+.cmuemu-sidepanel-stat-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--service-accent-ink);
+}
+
+.cmuemu-sidepanel-stat-value {
+  font-size: 12px;
+  line-height: 1.35;
+  color: #0a3444;
+  word-break: break-word;
+}
+
+.cmuemu-sidepanel-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.cmuemu-open-workspace-btn {
+  min-height: 36px;
+  padding: 0 15px;
+  border: 1px solid #0eb7ba;
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(8, 31, 56, 0.96), rgba(11, 86, 97, 0.96) 48%, rgba(24, 212, 196, 0.94));
+  color: #ecfffd;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 16px 26px rgba(8, 31, 56, 0.2), 0 0 0 1px rgba(91, 255, 241, 0.12) inset;
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+}
+
+.cmuemu-open-workspace-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: saturate(1.06) brightness(1.02);
+  box-shadow: 0 18px 28px rgba(8, 31, 56, 0.24), 0 0 0 1px rgba(91, 255, 241, 0.18) inset;
+}
+
+.cmuemu-open-workspace-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(24, 212, 196, 0.22), 0 16px 26px rgba(8, 31, 56, 0.2);
+}
+
+.cmuemu-open-workspace-btn:disabled {
+  opacity: 0.7;
+  cursor: default;
+}
+
+@media (max-width: 760px) {
+  .cmuemu-sidepanel-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .cmuemu-sidepanel-actions {
+    justify-content: stretch;
+  }
+
+  .cmuemu-open-workspace-btn {
+    width: 100%;
+  }
 }
 
 .cm-shell {

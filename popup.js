@@ -34,7 +34,7 @@ const PROGRAMMER_ENDPOINTS = [
 ];
 const DCR_CACHE_PREFIX = "underpar_dcr_cache_v1";
 const LEGACY_DCR_CACHE_PREFIX = "mincloudlogin_dcr_cache_v1";
-const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "esmWorkspace", "degradation", "cm", "cmMvpd"];
+const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "esmWorkspace", "cmuemu", "degradation", "cm", "cmMvpd"];
 const PREMIUM_SERVICE_SCOPE_BY_KEY = {
   degradation: "decisions:owner",
   esm: "analytics:client",
@@ -52,6 +52,7 @@ const REST_V2_SCOPE = PREMIUM_SERVICE_SCOPE_BY_KEY.restV2;
 const PREMIUM_SERVICE_TITLE_BY_KEY = {
   cm: "Concurrency Monitoring",
   cmMvpd: "Concurrency Monitoring (MVPD)",
+  cmuemu: "CMUEMU",
   degradation: "DEGRADATION",
   esmWorkspace: "ESM",
   restV2: "REST V2",
@@ -164,6 +165,9 @@ const LEGACY_ESM_WORKSPACE_MESSAGE_TYPE = "mincloud:esm-workspace";
 const CM_WORKSPACE_PATH = "cm-workspace.html";
 const CM_MESSAGE_TYPE = "underpar:cm";
 const LEGACY_CM_MESSAGE_TYPE = "mincloud:cm";
+const CMUEMU_WORKSPACE_PATH = "cmuemu-workspace.html";
+const CMUEMU_WORKSPACE_MESSAGE_TYPE = "underpar:cmuemu-workspace";
+const LEGACY_CMUEMU_WORKSPACE_MESSAGE_TYPE = "mincloud:cmuemu-workspace";
 const MVPD_WORKSPACE_PATH = "mvpd-workspace.html";
 const MVPD_WORKSPACE_MESSAGE_TYPE = "underpar:mvpd-workspace";
 const LEGACY_MVPD_WORKSPACE_MESSAGE_TYPE = "mincloud:mvpd-workspace";
@@ -780,6 +784,7 @@ const LOGIN_HELPER_RESULT_MESSAGE_TYPES = new Set([
   LEGACY_LOGIN_HELPER_RESULT_MESSAGE_TYPE,
 ]);
 const ESM_WORKSPACE_MESSAGE_TYPES = new Set([ESM_WORKSPACE_MESSAGE_TYPE, LEGACY_ESM_WORKSPACE_MESSAGE_TYPE]);
+const CMUEMU_WORKSPACE_MESSAGE_TYPES = new Set([CMUEMU_WORKSPACE_MESSAGE_TYPE, LEGACY_CMUEMU_WORKSPACE_MESSAGE_TYPE]);
 const MVPD_WORKSPACE_MESSAGE_TYPES = new Set([MVPD_WORKSPACE_MESSAGE_TYPE, LEGACY_MVPD_WORKSPACE_MESSAGE_TYPE]);
 const REST_WORKSPACE_MESSAGE_TYPES = new Set([REST_WORKSPACE_MESSAGE_TYPE, LEGACY_REST_WORKSPACE_MESSAGE_TYPE]);
 const DEGRADATION_WORKSPACE_MESSAGE_TYPES = new Set([
@@ -936,6 +941,11 @@ const state = {
   esmWorkspaceStopping: false,
   esmWorkspaceTraceViewerWindowId: 0,
   esmWorkspaceTraceViewerTabId: 0,
+  cmuemuWorkspaceTabId: 0,
+  cmuemuWorkspaceWindowId: 0,
+  cmuemuWorkspaceTabIdByWindowId: new Map(),
+  cmuemuWorkspaceRuntimeListenerBound: false,
+  cmuemuWorkspaceTabWatcherBound: false,
   cmWorkspaceTabId: 0,
   cmWorkspaceWindowId: 0,
   cmWorkspaceTabIdByWindowId: new Map(),
@@ -12645,16 +12655,6 @@ function normalizeEsmColumns(columns, options = {}) {
 }
 
 function normalizeClickCmuColumns(columns) {
-  const blockedColumns = new Set([
-    "media-company",
-    "tenant",
-    "tenant-id",
-    "tenant_id",
-    "v2",
-    "view",
-    "activity-level",
-    "activity_level",
-  ]);
   const output = [];
   const seen = new Set();
   (Array.isArray(columns) ? columns : []).forEach((value) => {
@@ -12666,13 +12666,64 @@ function normalizeClickCmuColumns(columns) {
       return;
     }
     const lower = normalized.toLowerCase();
-    const canonical = lower.replace(/_/g, "-");
-    if (blockedColumns.has(lower) || blockedColumns.has(canonical) || seen.has(lower)) {
+    if (seen.has(lower)) {
       return;
     }
     seen.add(lower);
     output.push(normalized);
   });
+  return output;
+}
+
+const CMU_STATIC_COLUMN_EXCLUDED_KEYS = new Set(["cmu", "v2", "tenant", "tenant-id", "tenant_id", "view"]);
+const CMU_STATIC_METRIC_COLUMN_KEYS = new Set([
+  "users",
+  "active-sessions",
+  "completed-sessions",
+  "dismissed-sessions",
+  "failed-attempts",
+  "killed-sessions",
+  "started-sessions",
+]);
+
+function normalizeClickCmuStaticColumnName(value = "") {
+  return String(value || "").trim().toLowerCase();
+}
+
+function isClickCmuStaticMetricColumn(value = "") {
+  const normalized = normalizeClickCmuStaticColumnName(value);
+  if (!normalized) {
+    return false;
+  }
+  const canonical = normalized.replace(/_/g, "-");
+  if (CMU_STATIC_METRIC_COLUMN_KEYS.has(canonical)) {
+    return true;
+  }
+  if (/^bstreams-\d+$/.test(canonical)) {
+    return true;
+  }
+  if (/^duration-(?:under|over)-/.test(canonical)) {
+    return true;
+  }
+  if (/^duration-[^-]+-[^-]+$/.test(canonical)) {
+    return true;
+  }
+  return false;
+}
+
+function normalizeClickCmuStaticColumns(columns = []) {
+  const output = [];
+  const seen = new Set();
+  normalizeClickCmuColumns(columns)
+    .map((value) => normalizeClickCmuStaticColumnName(value))
+    .filter(Boolean)
+    .forEach((value) => {
+      if (CMU_STATIC_COLUMN_EXCLUDED_KEYS.has(value) || isClickCmuStaticMetricColumn(value) || seen.has(value)) {
+        return;
+      }
+      seen.add(value);
+      output.push(value);
+    });
   return output;
 }
 
@@ -13955,6 +14006,7 @@ function normalizeClickCmuEndpointCatalog(entries = [], options = {}) {
     options?.tenantId,
     getCmTenantScopeForProgrammer({ programmerId: String(options?.programmerId || "").trim() })
   );
+  const orderMap = options?.orderMap instanceof Map ? options.orderMap : buildClickCmuTemplatePathOrderMap();
   const list = Array.isArray(entries) ? entries : [];
   const deduped = [];
   const byKey = new Map();
@@ -14005,17 +14057,15 @@ function normalizeClickCmuEndpointCatalog(entries = [], options = {}) {
       columnsKnown,
       __pathKey: pathKey,
       __pathParts: pathParts,
+      __order: orderMap.has(pathKey) ? Number(orderMap.get(pathKey)) : Number.MAX_SAFE_INTEGER,
     };
     byKey.set(dedupeKey, normalizedEntry);
     deduped.push(normalizedEntry);
   });
 
-  const pathOrderMap = buildClickCmuTemplatePathOrderMap();
   deduped.sort((left, right) => {
-    const leftOrder = pathOrderMap.has(left.__pathKey) ? Number(pathOrderMap.get(left.__pathKey)) : Number.MAX_SAFE_INTEGER;
-    const rightOrder = pathOrderMap.has(right.__pathKey) ? Number(pathOrderMap.get(right.__pathKey)) : Number.MAX_SAFE_INTEGER;
-    if (leftOrder !== rightOrder) {
-      return leftOrder - rightOrder;
+    if (left.__order !== right.__order) {
+      return left.__order - right.__order;
     }
     const pathCompare = esmWorkspaceComparePathParts(left.__pathParts, right.__pathParts);
     if (pathCompare !== 0) {
@@ -14024,14 +14074,14 @@ function normalizeClickCmuEndpointCatalog(entries = [], options = {}) {
     return String(left.url || "").localeCompare(String(right.url || ""), undefined, { sensitivity: "base" });
   });
 
-  return deduped.map(({ __pathKey, __pathParts, ...entry }) => entry);
+  return deduped.map(({ __pathKey, __pathParts, __order, ...entry }) => entry);
 }
 
 async function buildClickCmuEndpointCatalog(context = null) {
   const tenantScope = getClickCmuTenantScopeFromContext(context);
   const fromState = resolveClickCmuEndpointsFromCmState(context?.cmState || null, tenantScope);
   const fallback = await buildClickCmuFallbackEndpoints(tenantScope);
-  return normalizeClickCmuEndpointCatalog([...fromState, ...fallback], { tenantScope });
+  return normalizeClickCmuEndpointCatalog([...fallback, ...fromState], { tenantScope });
 }
 
 async function loadClickCmuTemplateHtml() {
@@ -14043,7 +14093,44 @@ function deriveClickCmuEndpointDimensions(endpointUrl = "") {
   const pathParts = cmuUsageExtractPathParts(endpointUrl)
     .map((value) => String(value || "").trim().toLowerCase())
     .filter(Boolean);
-  return pathParts.length > 0 ? pathParts : CM_USAGE_ROOT_SEGMENTS.slice();
+  return pathParts;
+}
+
+function deriveClickCmuStaticColumns(entry = null, endpointUrl = "") {
+  const pathColumns = [];
+  const seenPathColumns = new Set();
+  deriveClickCmuEndpointDimensions(endpointUrl)
+    .filter((value) => normalizeClickCmuStaticColumnName(value) !== "tenant")
+    .forEach((value) => {
+      const normalized = normalizeClickCmuStaticColumnName(value);
+      if (!normalized || seenPathColumns.has(normalized)) {
+        return;
+      }
+      seenPathColumns.add(normalized);
+      pathColumns.push(normalized);
+    });
+  const pathColumnSet = new Set(pathColumns.map((value) => normalizeClickCmuStaticColumnName(value)));
+  const reportedColumns = normalizeClickCmuStaticColumns(entry?.columns);
+  const ordered = [];
+  const seen = new Set();
+
+  const addColumn = (value) => {
+    const normalized = normalizeClickCmuStaticColumnName(value);
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    ordered.push(normalized);
+  };
+
+  pathColumns.forEach((columnName) => {
+    if (reportedColumns.length === 0 || pathColumnSet.has(normalizeClickCmuStaticColumnName(columnName))) {
+      addColumn(columnName);
+    }
+  });
+
+  reportedColumns.forEach((columnName) => addColumn(columnName));
+  return ordered.length > 0 ? ordered : pathColumns;
 }
 
 function deriveClickCmuZoomClass(endpointUrl = "") {
@@ -14060,40 +14147,23 @@ function deriveClickCmuZoomClass(endpointUrl = "") {
   return "zmYR";
 }
 
-function buildClickCmuEndpointDlMarkup(endpointCatalog = []) {
-  const normalizedCatalog = (Array.isArray(endpointCatalog) ? endpointCatalog : [])
-    .map((entry, index) => ({
-      id: String(entry?.id || `cmu-${index + 1}`).trim() || `cmu-${index + 1}`,
-      label: String(entry?.label || "CMU Endpoint").trim() || "CMU Endpoint",
-      url: ensureCmUsageEndpointFormat(entry?.url, {
-        tenantScope: resolveCmUsageTenantScopeValue(entry?.tenantScope),
-      }),
-      columns: normalizeClickCmuColumns(entry?.columns),
-      columnsKnown: Array.isArray(entry?.columns) || entry?.columnsKnown === true,
-    }))
-    .filter((entry) => String(entry?.url || "").trim());
-  return normalizedCatalog
-    .map((entry) => {
-      const href = escapeHtml(entry.url);
-      const label = escapeHtml(entry.label);
-      const zoomClass = deriveClickCmuZoomClass(entry.url);
-      const columns = entry.columns.length > 0
-        ? normalizeClickCmuColumns(entry.columns)
-        : (entry.columnsKnown
-          ? []
-          : normalizeClickCmuColumns(
-              deriveClickCmuEndpointDimensions(entry.url)
-                .map((dimension) => String(dimension || "").trim())
-                .filter(Boolean)
-            ));
-      const columnText = columns.length > 0
-        ? escapeHtml(columns.join("\n"))
-        : "<em>No report columns</em>";
+function buildClickCmuEndpointDlMarkup(endpointCatalog = [], tenantScope = "") {
+  return normalizeClickCmuEndpointCatalog(endpointCatalog, {
+    tenantScope,
+    orderMap: buildClickCmuTemplatePathOrderMap(),
+  })
+    .map((entry, index) => {
+      const id = String(entry?.id || `cmu-${index + 1}`).trim() || `cmu-${index + 1}`;
+      const url = ensureCmUsageEndpointFormat(entry?.url, { tenantScope });
+      const label = String(entry?.label || "CMU Endpoint").trim() || "CMU Endpoint";
+      const zoomClass = deriveClickCmuZoomClass(url);
+      const columns = deriveClickCmuStaticColumns(entry, url);
+      const columnText = columns.length > 0 ? escapeHtml(columns.join("\n")) : "<em>No report columns</em>";
       return [
         "<dl>",
-        `  <dt><a href="${href}" class="${zoomClass}" title="${label}" onclick="runEsm(this);return false;">${href}</a></dt>`,
+        `  <dt><a href="${escapeHtml(url)}" class="${zoomClass}" title="${escapeHtml(label)}" data-endpoint-id="${escapeHtml(id)}" onclick="runEsm(this);return false;">${escapeHtml(url)}</a></dt>`,
         `  <dd class="col-list">${columnText}</dd>`,
-        "  <dd class=\"esm-table-host\"></dd>",
+        '  <dd class="esm-table-host"></dd>',
         "</dl>",
       ].join("\n");
     })
@@ -14669,8 +14739,8 @@ body[data-theme="dark"]{
 
     if (normalizedZoom === "HR") {
       return {
-        start: formatCmuIsoValue(new Date(now.getTime() - 12 * 60 * 60 * 1000)),
-        end: nowIso,
+        start: formatCmuIsoValue(new Date(now.getTime() - 24 * 60 * 60 * 1000)),
+        end: "",
       };
     }
 
@@ -14786,6 +14856,77 @@ body[data-theme="dark"]{
       return raw;
     }
   }
+
+  function buildCmuFreshnessTitle(baseTitle, lastModified = "") {
+    const titleParts = [String(baseTitle || "").trim()].filter(Boolean);
+    const rawLastModified = String(lastModified || "").trim();
+    if (rawLastModified) {
+      titleParts.push("HTTP Last-Modified: " + rawLastModified + ".");
+      titleParts.push("Adobe CMU docs say this header does not reflect report-body freshness.");
+    }
+    return titleParts.join(" ");
+  }
+
+  function resolveCmuFreshnessDisplay(sourceUrl = "", lastModified = "") {
+    const rawSourceUrl = String(sourceUrl || "").trim();
+    if (!rawSourceUrl) {
+      return null;
+    }
+    const canonicalPath = canonicalizeCmuUsagePath(rawSourceUrl);
+    const lowerPath = String(canonicalPath || rawSourceUrl).toLowerCase();
+    const isCmuSource = Boolean(canonicalPath) || lowerPath.includes("cm-reports.adobeprimetime.com");
+    if (!isCmuSource) {
+      return null;
+    }
+
+    if (lowerPath.includes("/activity-level") || lowerPath.includes("/concurrency-level")) {
+      return {
+        text: "Data freshness: daily batch",
+        title: buildCmuFreshnessTitle(
+          "CMU activity-level and concurrency-level reports update daily regardless of time granularity.",
+          lastModified
+        ),
+      };
+    }
+
+    const zoomKey = getCmuZoomKeyFromPath(canonicalPath || rawSourceUrl, rawSourceUrl);
+    if (zoomKey === "MIN") {
+      return {
+        text: "Data freshness: updates every minute",
+        title: buildCmuFreshnessTitle("CMU minute reports update every minute.", lastModified),
+      };
+    }
+    if (zoomKey === "HR") {
+      return {
+        text: "Data freshness: updates hourly",
+        title: buildCmuFreshnessTitle("CMU hour reports update every hour.", lastModified),
+      };
+    }
+    if (zoomKey === "DAY") {
+      return {
+        text: "Data freshness: updates every 3 hours",
+        title: buildCmuFreshnessTitle("CMU day reports update every 3 hours.", lastModified),
+      };
+    }
+    if (zoomKey === "MO" || zoomKey === "YR") {
+      return {
+        text: "Data freshness: updates every 2 days",
+        title: buildCmuFreshnessTitle("CMU month and year reports update every 2 days.", lastModified),
+      };
+    }
+
+    return {
+      text: "Data freshness: CMU batch cadence varies",
+      title: buildCmuFreshnessTitle(
+        "CMU refresh cadence depends on the active report path for this URL.",
+        lastModified
+      ),
+    };
+  }
+
+  window.__getDataFreshnessDisplay = function cmuDataFreshnessDisplay({ sourceUrl = "", lastModified = "" } = {}) {
+    return resolveCmuFreshnessDisplay(sourceUrl, lastModified);
+  };
 
   window.refreshToken = async function refreshTokenOverride() {
     if (typeof window.__netStart === "function") {
@@ -14916,6 +15057,7 @@ body[data-theme="dark"]{
     "v2",
     "view",
   ]);
+  const CMU_PINNED_SCOPE_COLUMNS = new Set(["tenant", "tenant-id", "tenant_id"]);
   const CMU_NON_DIMENSION_PATH_SEGMENTS = new Set([
     "cmu",
     "v2",
@@ -15051,6 +15193,9 @@ body[data-theme="dark"]{
       return false;
     }
     const canonical = normalized.replace(/_/g, "-");
+    if (CMU_PINNED_SCOPE_COLUMNS.has(normalized) || CMU_PINNED_SCOPE_COLUMNS.has(canonical)) {
+      return false;
+    }
     if (CMU_FILTER_BLOCKED_COLUMNS.has(normalized) || CMU_FILTER_BLOCKED_COLUMNS.has(canonical)) {
       return false;
     }
@@ -15071,6 +15216,51 @@ body[data-theme="dark"]{
 
   const originalGetDimensionDescription =
     typeof window.__getDimensionDescription === "function" ? window.__getDimensionDescription.bind(window) : null;
+  const originalGetSupportedDimensionsFromHref =
+    typeof window.__getSupportedDimensionsFromHref === "function"
+      ? window.__getSupportedDimensionsFromHref.bind(window)
+      : null;
+
+  window.__getSupportedDimensionsFromHref = function cmuSupportedDimensionsFromHref(href = "") {
+    const raw = String(href || "").trim();
+    if (!raw) {
+      return originalGetSupportedDimensionsFromHref ? originalGetSupportedDimensionsFromHref(href) : [];
+    }
+    let pathname = "";
+    try {
+      pathname = String(new URL(raw, CM_REPORTS_BASE_URL).pathname || "");
+    } catch {
+      pathname = String(raw || "").split("?", 1)[0] || "";
+    }
+    const segments = pathname
+      .split("/")
+      .map((segment) => normalizeCmuFilterColumnName(segment))
+      .filter(Boolean);
+    if (segments.length > 0) {
+      const ordered = [];
+      const seen = new Set();
+      segments.forEach((segment) => {
+        const canonical = segment.replace(/_/g, "-");
+        if (
+          CMU_NON_DIMENSION_PATH_SEGMENTS.has(segment) ||
+          CMU_NON_DIMENSION_PATH_SEGMENTS.has(canonical) ||
+          segment === "tenant" ||
+          canonical === "tenant"
+        ) {
+          return;
+        }
+        if (seen.has(canonical)) {
+          return;
+        }
+        seen.add(canonical);
+        ordered.push(canonical);
+      });
+      if (ordered.length > 0) {
+        return ordered;
+      }
+    }
+    return originalGetSupportedDimensionsFromHref ? originalGetSupportedDimensionsFromHref(href) : [];
+  };
 
   window.__isLocalFilterExcludedDimension = function cmuLocalFilterExcludedDimension(columnName) {
     const normalized = normalizeCmuFilterColumnName(columnName);
@@ -15078,6 +15268,9 @@ body[data-theme="dark"]{
       return true;
     }
     const canonical = normalized.replace(/_/g, "-");
+    if (CMU_PINNED_SCOPE_COLUMNS.has(normalized) || CMU_PINNED_SCOPE_COLUMNS.has(canonical)) {
+      return true;
+    }
     if (CMU_FILTER_BLOCKED_COLUMNS.has(normalized) || CMU_FILTER_BLOCKED_COLUMNS.has(canonical)) {
       return true;
     }
@@ -15189,13 +15382,10 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
       .map((value) => String(value || "").trim())
       .filter(Boolean)
   );
-  const endpointCatalog = (Array.isArray(context.endpointCatalog) ? context.endpointCatalog : [])
-    .map((entry, index) => ({
-      id: String(entry?.id || `cmu-${index + 1}`).trim() || `cmu-${index + 1}`,
-      label: String(entry?.label || "CMU Endpoint").trim() || "CMU Endpoint",
-      url: ensureCmUsageEndpointFormat(entry?.url, { tenantScope }),
-    }))
-    .filter((entry) => String(entry?.url || "").trim());
+  const endpointCatalog = normalizeClickCmuEndpointCatalog(
+    Array.isArray(context.endpointCatalog) ? context.endpointCatalog : [],
+    { tenantScope, programmerId }
+  );
   if (endpointCatalog.length === 0) {
     throw new Error("No CMU endpoints are available for clickCMU export.");
   }
@@ -15211,7 +15401,7 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
     requestorCatalogIds: [],
   });
   output = output.replace(/<title[\s\S]*?<\/title>/i, `<title>${escapeHtml(titleText)}</title>`);
-  output = replaceClickCmuEndpointBlock(output, buildClickCmuEndpointDlMarkup(endpointCatalog));
+  output = replaceClickCmuEndpointBlock(output, buildClickCmuEndpointDlMarkup(endpointCatalog, tenantScope));
   output = output
     .replace("placeholder=\"ESM Column search...\"", "placeholder=\"CMU Column search...\"")
     .replace("Hard reset clickESM2 to first-run state", "Hard reset clickCMU to first-run state")
@@ -22493,6 +22683,1383 @@ function ensureCmWorkspaceTabWatcher() {
   state.cmWorkspaceTabWatcherBound = true;
 }
 
+function cmuemuWorkspaceGetWorkspaceUrl() {
+  return chrome.runtime.getURL(CMUEMU_WORKSPACE_PATH);
+}
+
+function cmuemuWorkspaceIsWorkspaceTab(tabLike) {
+  return String(tabLike?.url || "").startsWith(cmuemuWorkspaceGetWorkspaceUrl());
+}
+
+function cmuemuWorkspaceBindWorkspaceTab(windowId, tabId) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId > 0 && normalizedTabId > 0) {
+    state.cmuemuWorkspaceTabIdByWindowId.set(normalizedWindowId, normalizedTabId);
+  }
+  if (normalizedWindowId > 0) {
+    state.cmuemuWorkspaceWindowId = normalizedWindowId;
+  }
+  if (normalizedTabId > 0) {
+    state.cmuemuWorkspaceTabId = normalizedTabId;
+  }
+}
+
+function cmuemuWorkspaceUnbindWorkspaceTab(tabId) {
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedTabId > 0) {
+    for (const [windowId, mappedTabId] of state.cmuemuWorkspaceTabIdByWindowId.entries()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        state.cmuemuWorkspaceTabIdByWindowId.delete(windowId);
+      }
+    }
+  }
+  if (!normalizedTabId || Number(state.cmuemuWorkspaceTabId || 0) === normalizedTabId) {
+    state.cmuemuWorkspaceTabId = 0;
+    state.cmuemuWorkspaceWindowId = 0;
+  }
+}
+
+function cmuemuWorkspaceGetBoundWorkspaceTabId(windowId) {
+  const normalizedWindowId = Number(windowId || 0);
+  if (normalizedWindowId > 0) {
+    const mapped = Number(state.cmuemuWorkspaceTabIdByWindowId.get(normalizedWindowId) || 0);
+    if (mapped > 0) {
+      return mapped;
+    }
+  }
+  return Number(state.cmuemuWorkspaceTabId || 0);
+}
+
+function cmuemuWorkspaceGetSelectionContext(programmer = null, services = null) {
+  const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  const resolvedServices =
+    services && typeof services === "object"
+      ? services
+      : resolvedProgrammer?.programmerId
+        ? state.premiumAppsByProgrammerId.get(resolvedProgrammer.programmerId) || null
+        : null;
+  const selections = getGlobalRequestorMvpdSelections();
+  const requestorIds = Array.isArray(selections?.requestorIds) ? selections.requestorIds.map((value) => String(value || "").trim()).filter(Boolean) : [];
+  const mvpdIds = Array.isArray(selections?.mvpdIds) ? selections.mvpdIds.map((value) => String(value || "").trim()).filter(Boolean) : [];
+  const requestorId = String(requestorIds[0] || state.selectedRequestorId || "").trim();
+  const mvpdId = String(mvpdIds[0] || state.selectedMvpdId || "").trim();
+  const mvpdMeta = mvpdId ? getRestV2MvpdMeta(requestorId, mvpdId) : null;
+  const mvpdLabel = mvpdId ? getRestV2MvpdPickerLabel(requestorId, mvpdId) || mvpdId : "";
+  const profileHarvestContext = {
+    programmerId: String(resolvedProgrammer?.programmerId || "").trim(),
+    requestorId,
+    mvpd: mvpdId,
+  };
+  const restProfileHarvest = getRestV2ProfileHarvestForContext(profileHarvestContext) || null;
+  const cmProfileHarvest = getCmProfileHarvestForProgrammer(resolvedProgrammer) || null;
+  const profileHarvest = restProfileHarvest || cmProfileHarvest || null;
+  const cmMatchedTenants = Array.isArray(resolvedServices?.cm?.matchedTenants) ? resolvedServices.cm.matchedTenants : [];
+  return {
+    programmer: resolvedProgrammer,
+    services: resolvedServices,
+    programmerId: String(resolvedProgrammer?.programmerId || "").trim(),
+    programmerName: String(resolvedProgrammer?.programmerName || "").trim(),
+    requestorIds,
+    mvpdIds,
+    requestorId,
+    mvpdId,
+    mvpdMeta,
+    mvpdLabel,
+    esmAppName: String(resolvedServices?.esm?.appName || resolvedServices?.esm?.guid || "").trim(),
+    esmAppGuid: String(resolvedServices?.esm?.guid || "").trim(),
+    cmMatchedTenants,
+    cmTenantScope: resolveCmUsageTenantScopeValue(
+      getCmTenantScopeForProgrammer(resolvedProgrammer),
+      cmMatchedTenants?.[0]?.tenantId,
+      cmMatchedTenants?.[0]?.tenantName
+    ),
+    profileHarvest,
+    cmuemuVisible: shouldShowCmuemuService(resolvedServices),
+  };
+}
+
+function cmuemuWorkspaceGetSelectedControllerStatePayload(programmer = null, services = null, options = {}) {
+  const context = cmuemuWorkspaceGetSelectionContext(programmer, services);
+  const resolvedServices = context.services;
+  const hasResolvedSnapshot =
+    resolvedServices &&
+    typeof resolvedServices === "object" &&
+    ["esm", "cm", "cmMvpd", "restV2", "degradation"].some((key) => Object.prototype.hasOwnProperty.call(resolvedServices, key));
+  const cmuemuAvailable = hasResolvedSnapshot ? shouldShowCmuemuService(resolvedServices) : null;
+  const cmuemuContainerVisible =
+    options?.cmuemuContainerVisible === true || options?.cmuemuContainerVisible === false
+      ? options.cmuemuContainerVisible === true
+      : cmuemuAvailable;
+  const cmuemuAvailabilityResolved =
+    options?.cmuemuAvailabilityResolved === true || options?.cmuemuAvailabilityResolved === false
+      ? options.cmuemuAvailabilityResolved === true
+      : Boolean(hasResolvedSnapshot || cmuemuContainerVisible === true || cmuemuContainerVisible === false);
+  const profileHarvestList = context.programmer ? getCmProfileHarvestListForProgrammer(context.programmer) : [];
+  return {
+    controllerOnline: Boolean(hasResolvedSnapshot),
+    cmuemuAvailable,
+    cmuemuAvailabilityResolved,
+    cmuemuContainerVisible,
+    incidentId: "CMUEMU",
+    programmerId: context.programmerId,
+    programmerName: context.programmerName,
+    requestorId: context.requestorId,
+    mvpdId: context.mvpdId,
+    requestorIds: context.requestorIds,
+    mvpdIds: context.mvpdIds,
+    mvpdLabel: context.mvpdLabel,
+    requestorMvpdLabel:
+      context.requestorId && context.mvpdId
+        ? formatRestV2RequestorMvpdDisplay(context.requestorId, context.mvpdId, context.mvpdMeta, { separator: " x " })
+        : "",
+    tenantScope: String(context.cmTenantScope || "").trim(),
+    esmAppName: context.esmAppName,
+    esmAppGuid: context.esmAppGuid,
+    cmTenantCount: context.cmMatchedTenants.length,
+    cmTenantNames: context.cmMatchedTenants
+      .map((item) => String(item?.tenantName || item?.tenantId || "").trim())
+      .filter(Boolean)
+      .slice(0, 8),
+    profileHarvest:
+      context.profileHarvest && typeof context.profileHarvest === "object"
+        ? {
+            ...context.profileHarvest,
+          }
+        : null,
+    profileHarvestList:
+      profileHarvestList.length > 0
+        ? profileHarvestList.map((item) => ({
+            ...item,
+          }))
+        : [],
+    timeWindowDays: Number(options?.timeWindowDays || 30) || 30,
+    updatedAt: Date.now(),
+  };
+}
+
+const CMUEMU_FUSION_FAMILY_DEFS = [
+  {
+    key: "time",
+    label: "When / Time Buckets",
+    summary: "Timeline pivots and lead-lag analysis.",
+    keywords: ["year", "month", "day", "hour", "minute", "second", "date", "time", "timestamp"],
+  },
+  {
+    key: "mvpd",
+    label: "MVPD / Distributor",
+    summary: "Which distributor or identity provider is involved.",
+    keywords: ["mvpd", "proxy", "idp", "eap"],
+  },
+  {
+    key: "scope",
+    label: "Requestor / Tenant Scope",
+    summary: "Media company, requestor, and tenant scoping.",
+    keywords: ["tenant", "requestor-id", "media-company"],
+  },
+  {
+    key: "platform",
+    label: "Device / Platform",
+    summary: "Apple vs non-Apple, SDK, OS, browser, app version.",
+    keywords: [
+      "device",
+      "platform",
+      "os",
+      "browser",
+      "sdk",
+      "nsdk",
+      "cdt",
+      "application-name",
+      "application-version",
+      "customer-app",
+      "platform-version",
+      "os-family",
+      "browser-family",
+      "browser-version",
+      "sdk-type",
+    ],
+  },
+  {
+    key: "content",
+    label: "Content / Resource",
+    summary: "Resource IDs, channels, and content categories.",
+    keywords: ["resource-id", "content", "channel"],
+  },
+  {
+    key: "auth",
+    label: "Auth / Decision Diagnostics",
+    summary: "Authentication, authorization, decision, latency, and failure signals.",
+    keywords: ["auth", "decision", "token", "reason", "event", "latency", "api", "clientless", "media-token"],
+  },
+  {
+    key: "concurrency",
+    label: "Concurrency / Session Pressure",
+    summary: "Concurrency levels, active sessions, durations, and user pressure.",
+    keywords: [
+      "concurrency",
+      "session",
+      "activity-level",
+      "active-users",
+      "active-sessions",
+      "started-sessions",
+      "completed-sessions",
+      "failed-attempts",
+      "dismissed-sessions",
+      "killed-sessions",
+      "duration",
+      "bstreams",
+      "users",
+      "unique-accounts",
+      "unique-sessions",
+    ],
+  },
+  {
+    key: "identity",
+    label: "Identity / User",
+    summary: "User, account, subject, and profile-oriented pivots.",
+    keywords: ["user", "account", "subject", "profile"],
+  },
+];
+
+function cmuemuNormalizeFusionToken(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_\s]+/g, "-")
+    .replace(/[^a-z0-9.-]+/g, "");
+}
+
+function cmuemuUniqueNormalizedTokens(values = []) {
+  return [...new Set((Array.isArray(values) ? values : []).map((value) => cmuemuNormalizeFusionToken(value)).filter(Boolean))];
+}
+
+function cmuemuResolveFamilyKeysForToken(tokenValue = "") {
+  const normalized = cmuemuNormalizeFusionToken(tokenValue);
+  if (!normalized) {
+    return [];
+  }
+  const matches = [];
+  CMUEMU_FUSION_FAMILY_DEFS.forEach((family) => {
+    const familyMatched = (Array.isArray(family.keywords) ? family.keywords : []).some((keyword) => {
+      const normalizedKeyword = cmuemuNormalizeFusionToken(keyword);
+      return normalized === normalizedKeyword || normalized.includes(normalizedKeyword);
+    });
+    if (familyMatched) {
+      matches.push(family.key);
+    }
+  });
+  return matches;
+}
+
+function cmuemuBuildEndpointSignatureEntries(catalog = [], options = {}) {
+  const labelKey = String(options?.labelKey || "url").trim();
+  return (Array.isArray(catalog) ? catalog : [])
+    .map((entry, index) => {
+      const pathParts = Array.isArray(entry?.pathParts)
+        ? entry.pathParts.map((value) => String(value || "").trim()).filter(Boolean)
+        : Array.isArray(entry?.segs)
+          ? entry.segs.map((value) => String(value || "").trim()).filter(Boolean)
+          : [];
+      const columns = Array.isArray(entry?.columns) ? entry.columns.map((value) => String(value || "").trim()).filter(Boolean) : [];
+      const rawTokens = cmuemuUniqueNormalizedTokens([...pathParts, ...columns]);
+      const familyKeys = [...new Set(rawTokens.flatMap((token) => cmuemuResolveFamilyKeysForToken(token)))];
+      const label = firstNonEmptyString([
+        String(entry?.[labelKey] || "").trim(),
+        pathParts.join(" / "),
+        String(entry?.url || entry?.endpointUrl || entry?.key || "").trim(),
+        `entry-${index + 1}`,
+      ]);
+      return {
+        key: String(entry?.key || entry?.url || entry?.endpointUrl || `${label}-${index + 1}`).trim(),
+        label,
+        pathParts,
+        columns,
+        rawTokens,
+        familyKeys,
+        zoomKey: String(entry?.zoomKey || "").trim().toUpperCase(),
+        endpointUrl: String(entry?.url || entry?.endpointUrl || "").trim(),
+      };
+    })
+    .filter((entry) => entry.rawTokens.length > 0);
+}
+
+function cmuemuSummarizeCatalogSignatures(signatures = []) {
+  const rawTokenSet = new Set();
+  const familyKeySet = new Set();
+  const zoomCounts = {};
+  (Array.isArray(signatures) ? signatures : []).forEach((entry) => {
+    entry.rawTokens.forEach((token) => rawTokenSet.add(token));
+    entry.familyKeys.forEach((familyKey) => familyKeySet.add(familyKey));
+    const zoomKey = String(entry?.zoomKey || "").trim().toUpperCase() || "UNSCOPED";
+    zoomCounts[zoomKey] = Number(zoomCounts[zoomKey] || 0) + 1;
+  });
+  return {
+    endpointCount: Array.isArray(signatures) ? signatures.length : 0,
+    rawTokens: [...rawTokenSet].sort((left, right) => left.localeCompare(right)),
+    familyKeys: [...familyKeySet].sort((left, right) => left.localeCompare(right)),
+    zoomCounts,
+  };
+}
+
+async function cmuemuResolveEsmFusionSummary(programmer, services = null) {
+  const programmerId = String(programmer?.programmerId || "").trim();
+  if (!programmerId) {
+    return {
+      available: false,
+      endpointCount: 0,
+      rawTokens: [],
+      familyKeys: [],
+      zoomCounts: {},
+      endpoints: [],
+      source: "missing-programmer",
+    };
+  }
+
+  const resolvedServices =
+    services && typeof services === "object"
+      ? services
+      : state.premiumAppsByProgrammerId.get(programmerId) || (await ensurePremiumAppsForProgrammer(programmer, { forceRefresh: false })) || null;
+  if (!hasEsmScopedApp(resolvedServices)) {
+    return {
+      available: false,
+      endpointCount: 0,
+      rawTokens: [],
+      familyKeys: [],
+      zoomCounts: {},
+      endpoints: [],
+      source: "no-esm",
+    };
+  }
+
+  const activeEsmState = getActiveEsmWorkspaceState();
+  const activeCatalog =
+    activeEsmState && String(activeEsmState?.programmer?.programmerId || "").trim() === programmerId
+      ? activeEsmState.catalog
+      : null;
+  const catalog = Array.isArray(activeCatalog) && activeCatalog.length > 0 ? activeCatalog : esmWorkspaceBuildCatalog(await loadClickEsmEndpoints());
+  const endpoints = cmuemuBuildEndpointSignatureEntries(catalog, { labelKey: "url" });
+  return {
+    available: endpoints.length > 0,
+    source: Array.isArray(activeCatalog) && activeCatalog.length > 0 ? "active-esm-state" : "click-esm-catalog",
+    activeState:
+      activeEsmState && String(activeEsmState?.programmer?.programmerId || "").trim() === programmerId ? activeEsmState : null,
+    appInfo: resolvedServices?.esm && typeof resolvedServices.esm === "object" ? resolvedServices.esm : null,
+    catalog,
+    endpoints,
+    ...cmuemuSummarizeCatalogSignatures(endpoints),
+  };
+}
+
+async function cmuemuResolveCmFusionSummary(programmer, services = null) {
+  const programmerId = String(programmer?.programmerId || "").trim();
+  if (!programmerId) {
+    return {
+      available: false,
+      endpointCount: 0,
+      rawTokens: [],
+      familyKeys: [],
+      zoomCounts: {},
+      endpoints: [],
+      applicationsCount: 0,
+      policiesCount: 0,
+      tenantsCount: 0,
+      usageRecordCount: 0,
+      source: "missing-programmer",
+    };
+  }
+
+  const resolvedServices =
+    services && typeof services === "object"
+      ? services
+      : state.premiumAppsByProgrammerId.get(programmerId) || (await ensurePremiumAppsForProgrammer(programmer, { forceRefresh: false })) || null;
+  const cmService =
+    resolvedServices?.cm && typeof resolvedServices.cm === "object"
+      ? resolvedServices.cm
+      : (await ensureCmServiceForProgrammer(programmer, { forceRefresh: false })) || null;
+  if (!shouldShowCmService(cmService)) {
+    return {
+      available: false,
+      endpointCount: 0,
+      rawTokens: [],
+      familyKeys: [],
+      zoomCounts: {},
+      endpoints: [],
+      applicationsCount: 0,
+      policiesCount: 0,
+      tenantsCount: 0,
+      usageRecordCount: 0,
+      source: "no-cm",
+    };
+  }
+
+  const activeCmState = getActiveCmState();
+  const activeBundles =
+    activeCmState && String(activeCmState?.programmer?.programmerId || "").trim() === programmerId ? activeCmState.bundles : null;
+  const activeRecords =
+    activeCmState &&
+    String(activeCmState?.programmer?.programmerId || "").trim() === programmerId &&
+    activeCmState?.recordsById instanceof Map
+      ? [...activeCmState.recordsById.values()]
+      : null;
+  const activeUsageCatalog =
+    activeCmState &&
+    String(activeCmState?.programmer?.programmerId || "").trim() === programmerId &&
+    Array.isArray(activeCmState?.cmuUsageState?.catalog)
+      ? activeCmState.cmuUsageState.catalog
+      : null;
+
+  const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
+  const tenantScope = resolveCmUsageTenantScopeValue(
+    getCmTenantScopeForProgrammer(programmer),
+    cmService?.matchedTenants?.[0]?.tenantId,
+    cmService?.matchedTenants?.[0]?.tenantName
+  );
+  const bundles =
+    Array.isArray(activeBundles) && activeBundles.length > 0
+      ? activeBundles
+      : await Promise.all(
+          (Array.isArray(cmService?.matchedTenants) ? cmService.matchedTenants : []).map((tenant) =>
+            loadCmTenantBundle(tenant, { profileHarvest, tenantScope, forceRefresh: false })
+          )
+        );
+  const records = Array.isArray(activeRecords) && activeRecords.length > 0 ? activeRecords : cmBuildWorkspaceRecordsFromBundles(bundles);
+  const usageRecords = records.filter((record) => String(record?.kind || "").trim().toLowerCase() === "usage");
+  const usageCatalogResult =
+    Array.isArray(activeUsageCatalog) && activeUsageCatalog.length > 0 && activeCmState?.cmuUsageState?.recordsByPathKey instanceof Map
+      ? {
+          catalog: activeUsageCatalog,
+          recordsByPathKey: activeCmState.cmuUsageState.recordsByPathKey,
+        }
+      : cmuUsageBuildCatalog(usageRecords);
+  const usageCatalog = Array.isArray(usageCatalogResult?.catalog) ? usageCatalogResult.catalog : [];
+  const endpoints = cmuemuBuildEndpointSignatureEntries(usageCatalog, { labelKey: "endpointUrl" });
+  return {
+    available: endpoints.length > 0,
+    source: Array.isArray(activeUsageCatalog) && activeUsageCatalog.length > 0 ? "active-cm-state" : "cm-bundle-catalog",
+    activeState:
+      activeCmState && String(activeCmState?.programmer?.programmerId || "").trim() === programmerId ? activeCmState : null,
+    cmService,
+    tenantScope,
+    usageRecords,
+    recordsByPathKey: usageCatalogResult?.recordsByPathKey instanceof Map ? usageCatalogResult.recordsByPathKey : new Map(),
+    usageCatalog,
+    endpoints,
+    applicationsCount: records.filter((record) => String(record?.kind || "").trim().toLowerCase() === "applications").length,
+    policiesCount: records.filter((record) => String(record?.kind || "").trim().toLowerCase() === "policies").length,
+    tenantsCount: Array.isArray(cmService?.matchedTenants) ? cmService.matchedTenants.length : 0,
+    usageRecordCount: usageRecords.length,
+    ...cmuemuSummarizeCatalogSignatures(endpoints),
+  };
+}
+
+function cmuemuBuildOverlapQuestion(sharedFamilyKeys = []) {
+  const keySet = new Set((Array.isArray(sharedFamilyKeys) ? sharedFamilyKeys : []).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));
+  if (keySet.has("time") && keySet.has("mvpd") && keySet.has("platform")) {
+    return "Track whether Apple-specific issues on the target MVPD appear before, during, or after CM pressure by time bucket.";
+  }
+  if (keySet.has("time") && keySet.has("auth") && keySet.has("concurrency")) {
+    return "Compare whether authentication or playback failures precede session-pressure spikes enough to suggest a bug-driven block pattern.";
+  }
+  if (keySet.has("scope") && keySet.has("mvpd") && keySet.has("concurrency")) {
+    return "Check whether the incident is isolated to one MVPD/tenant slice or repeats across business scope boundaries.";
+  }
+  if (keySet.has("content") && keySet.has("concurrency")) {
+    return "Test whether a small set of resources or channels are amplifying concurrency pressure.";
+  }
+  if (keySet.has("platform")) {
+    return "Split Apple vs non-Apple cohorts to see whether the same path behaves differently across platforms.";
+  }
+  return "Use the shared dimensions to compare service behavior across the same investigative slice.";
+}
+
+function cmuemuBuildOverlapPairs(esmSummary, cmSummary) {
+  const pairs = [];
+  const esmEndpoints = Array.isArray(esmSummary?.endpoints) ? esmSummary.endpoints : [];
+  const cmEndpoints = Array.isArray(cmSummary?.endpoints) ? cmSummary.endpoints : [];
+  cmEndpoints.forEach((cmEntry) => {
+    let bestPair = null;
+    esmEndpoints.forEach((esmEntry) => {
+      const sharedFamilies = esmEntry.familyKeys.filter((familyKey) => cmEntry.familyKeys.includes(familyKey));
+      const sharedRawTokens = esmEntry.rawTokens.filter((token) => cmEntry.rawTokens.includes(token));
+      const score = sharedFamilies.length * 5 + sharedRawTokens.length * 2 + (esmEntry.zoomKey && esmEntry.zoomKey === cmEntry.zoomKey ? 1 : 0);
+      if (score <= 0) {
+        return;
+      }
+      if (!bestPair || score > bestPair.score) {
+        bestPair = {
+          score,
+          sharedFamilies,
+          sharedRawTokens,
+          esmLabel: esmEntry.label,
+          esmPathParts: esmEntry.pathParts,
+          esmEndpointUrl: esmEntry.endpointUrl,
+          esmZoomKey: esmEntry.zoomKey,
+          cmLabel: cmEntry.label,
+          cmPathParts: cmEntry.pathParts,
+          cmEndpointUrl: cmEntry.endpointUrl,
+          cmZoomKey: cmEntry.zoomKey,
+          question: cmuemuBuildOverlapQuestion(sharedFamilies),
+        };
+      }
+    });
+    if (bestPair) {
+      pairs.push(bestPair);
+    }
+  });
+  return pairs
+    .sort((left, right) => Number(right.score || 0) - Number(left.score || 0))
+    .slice(0, 16)
+    .map((pair, index) => ({
+      ...pair,
+      id: `pair-${index + 1}`,
+    }));
+}
+
+function cmuemuBuildFusionStories(familyKeys = [], overlapPairs = []) {
+  const familySet = new Set((Array.isArray(familyKeys) ? familyKeys : []).map((value) => String(value || "").trim().toLowerCase()).filter(Boolean));
+  const stories = [];
+  if (familySet.has("time") && familySet.has("mvpd")) {
+    stories.push("Both services can be sliced by MVPD and time, so CMUEMU can separate one-MVPD incidents from broader distributor trends.");
+  }
+  if (familySet.has("platform")) {
+    stories.push("Platform overlap is present, which lets the workspace call out Apple-only patterns instead of treating the incident as population-wide.");
+  }
+  if (familySet.has("auth") && familySet.has("concurrency")) {
+    stories.push("Auth diagnostics and concurrency pressure both exist in the merged surface, so bug-vs-enforcement triage is a first-class question instead of a guess.");
+  }
+  if (familySet.has("scope")) {
+    stories.push("Requestor and tenant scoping are both available, so analysts can keep Media Company context stable while comparing CM and ESM slices.");
+  }
+  if (familySet.has("content")) {
+    stories.push("Content-aware overlap exists, which helps identify whether a narrow resource or channel cohort is amplifying the incident.");
+  }
+  const topPair = Array.isArray(overlapPairs) && overlapPairs.length > 0 ? overlapPairs[0] : null;
+  if (topPair?.question) {
+    stories.push(topPair.question);
+  }
+  return stories.slice(0, 6);
+}
+
+const CMUEMU_SIGNAL_SWEEP_LIMIT = 3;
+const CMUEMU_APPLE_TOKENS = ["apple", "ios", "tvos", "ipados", "iphone", "ipad", "safari"];
+const CMUEMU_DIMENSION_COLUMNS = {
+  mvpd: ["mvpd", "proxy", "idp", "eap"],
+  platform: ["device", "platform", "os-family", "os-type", "browser-family", "application-name", "customer-app"],
+};
+const CMUEMU_METRIC_PRIORITY = {
+  esm: ["authn-failed", "authz-failed", "decision-failed", "authz-rejected", "authn-attempts", "authz-attempts"],
+  cmu: ["failed-attempts", "killed-sessions", "dismissed-sessions", "active-sessions", "active-users", "users", "started-sessions", "completed-sessions"],
+};
+
+function cmuemuNormalizeColumnKey(value = "") {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/_/g, "-");
+}
+
+function cmuemuNormalizeDimensionValue(value = "") {
+  return String(value == null ? "" : value)
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cmuemuGetRowValueByColumns(row, candidateColumns = []) {
+  if (!row || typeof row !== "object") {
+    return "";
+  }
+  const normalizedMap = new Map();
+  Object.entries(row).forEach(([key, value]) => {
+    const normalizedKey = cmuemuNormalizeColumnKey(key);
+    if (!normalizedKey || normalizedMap.has(normalizedKey)) {
+      return;
+    }
+    normalizedMap.set(normalizedKey, value);
+  });
+  for (const candidate of Array.isArray(candidateColumns) ? candidateColumns : []) {
+    const match = normalizedMap.get(cmuemuNormalizeColumnKey(candidate));
+    if (match != null && String(match).trim()) {
+      return match;
+    }
+  }
+  return "";
+}
+
+function cmuemuToFiniteNumber(value) {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : 0;
+  }
+  if (typeof value === "string") {
+    const cleaned = value.replace(/,/g, "").trim();
+    if (!cleaned) {
+      return 0;
+    }
+    const numeric = Number(cleaned);
+    return Number.isFinite(numeric) ? numeric : 0;
+  }
+  return 0;
+}
+
+function cmuemuBuildTopDimensionValues(rows = [], candidateColumns = [], limit = 4) {
+  const counts = new Map();
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const rawValue = cmuemuGetRowValueByColumns(row, candidateColumns);
+    if (Array.isArray(rawValue)) {
+      rawValue.forEach((entry) => {
+        const normalized = cmuemuNormalizeDimensionValue(entry);
+        if (!normalized) {
+          return;
+        }
+        counts.set(normalized, Number(counts.get(normalized) || 0) + 1);
+      });
+      return;
+    }
+    const normalized = cmuemuNormalizeDimensionValue(rawValue);
+    if (!normalized) {
+      return;
+    }
+    counts.set(normalized, Number(counts.get(normalized) || 0) + 1);
+  });
+  const total = Math.max(1, Array.isArray(rows) ? rows.length : 0);
+  return [...counts.entries()]
+    .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
+    .slice(0, Math.max(1, Number(limit || 4)))
+    .map(([value, count]) => ({
+      value,
+      count: Number(count || 0),
+      sharePct: Math.round((Number(count || 0) / total) * 100),
+    }));
+}
+
+function cmuemuBuildTimeBucketLabel(row = {}) {
+  const year = Number(row?.year);
+  const month = Number(row?.month);
+  const day = Number(row?.day);
+  const hour = Number(row?.hour);
+  if (Number.isFinite(year)) {
+    const parts = [String(year).padStart(4, "0")];
+    if (Number.isFinite(month)) {
+      parts.push(String(month).padStart(2, "0"));
+    }
+    if (Number.isFinite(day)) {
+      parts.push(String(day).padStart(2, "0"));
+    }
+    let label = parts.join("-");
+    if (Number.isFinite(hour)) {
+      label = `${label} ${String(hour).padStart(2, "0")}:00`;
+    }
+    return label;
+  }
+  return cmuemuNormalizeDimensionValue(firstNonEmptyString([row?.timestamp, row?.date, row?.time]));
+}
+
+function cmuemuBuildTopTimeBuckets(rows = [], limit = 3) {
+  const counts = new Map();
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    const label = cmuemuBuildTimeBucketLabel(row);
+    if (!label) {
+      return;
+    }
+    counts.set(label, Number(counts.get(label) || 0) + 1);
+  });
+  return [...counts.entries()]
+    .sort((left, right) => Number(right[1] || 0) - Number(left[1] || 0))
+    .slice(0, Math.max(1, Number(limit || 3)))
+    .map(([value, count]) => ({
+      value,
+      count: Number(count || 0),
+    }));
+}
+
+function cmuemuCountAppleRows(rows = []) {
+  return (Array.isArray(rows) ? rows : []).reduce((total, row) => {
+    const platformText = [
+      cmuemuGetRowValueByColumns(row, CMUEMU_DIMENSION_COLUMNS.platform),
+      row?.platform,
+      row?.device,
+      row?.["os-family"],
+      row?.["application-name"],
+      row?.["customer-app"],
+    ]
+      .flat()
+      .map((value) => String(value == null ? "" : value).toLowerCase())
+      .join(" ");
+    return CMUEMU_APPLE_TOKENS.some((token) => platformText.includes(token)) ? total + 1 : total;
+  }, 0);
+}
+
+function cmuemuCollectMetricTotals(rows = [], metricKeys = []) {
+  const totals = {};
+  (Array.isArray(metricKeys) ? metricKeys : []).forEach((metricKey) => {
+    totals[metricKey] = 0;
+  });
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    (Array.isArray(metricKeys) ? metricKeys : []).forEach((metricKey) => {
+      totals[metricKey] = Number(totals[metricKey] || 0) + cmuemuToFiniteNumber(cmuemuGetRowValueByColumns(row, [metricKey]));
+    });
+  });
+  return totals;
+}
+
+function cmuemuResolvePrimaryMetric(metricTotals = {}, metricKeys = []) {
+  return (Array.isArray(metricKeys) ? metricKeys : [])
+    .map((metricKey) => ({
+      key: metricKey,
+      value: Number(metricTotals?.[metricKey] || 0),
+    }))
+    .sort((left, right) => Number(right.value || 0) - Number(left.value || 0))[0] || { key: "", value: 0 };
+}
+
+function cmuemuBuildFetchedReportView(rows = [], entry = {}, source = "esm", error = "") {
+  const metricTotals = cmuemuCollectMetricTotals(rows, CMUEMU_METRIC_PRIORITY[source] || []);
+  const primaryMetric = cmuemuResolvePrimaryMetric(metricTotals, CMUEMU_METRIC_PRIORITY[source] || []);
+  return {
+    label: String(entry?.label || entry?.pathParts?.join(" / ") || "").trim(),
+    pathLabel: Array.isArray(entry?.pathParts) ? entry.pathParts.join(" / ") : String(entry?.label || "").trim(),
+    zoomKey: String(entry?.zoomKey || "").trim().toUpperCase(),
+    rowCount: Array.isArray(rows) ? rows.length : 0,
+    primaryMetric,
+    topMvpd: cmuemuBuildTopDimensionValues(rows, CMUEMU_DIMENSION_COLUMNS.mvpd, 1)[0] || null,
+    topPlatform: cmuemuBuildTopDimensionValues(rows, CMUEMU_DIMENSION_COLUMNS.platform, 1)[0] || null,
+    topTime: cmuemuBuildTopTimeBuckets(rows, 1)[0] || null,
+    appleRows: cmuemuCountAppleRows(rows),
+    error: String(error || "").trim(),
+  };
+}
+
+function cmuemuSummarizeFetchedReports(reportResults = [], source = "esm") {
+  const list = Array.isArray(reportResults) ? reportResults : [];
+  const okReports = list.filter((item) => item?.ok === true);
+  const rows = okReports.flatMap((item) => (Array.isArray(item?.rows) ? item.rows : []));
+  const metricTotals = cmuemuCollectMetricTotals(rows, CMUEMU_METRIC_PRIORITY[source] || []);
+  const primaryMetric = cmuemuResolvePrimaryMetric(metricTotals, CMUEMU_METRIC_PRIORITY[source] || []);
+  return {
+    reportCount: list.length,
+    successCount: okReports.length,
+    failedCount: list.length - okReports.length,
+    totalRows: rows.length,
+    metricTotals,
+    primaryMetric,
+    topMvpds: cmuemuBuildTopDimensionValues(rows, CMUEMU_DIMENSION_COLUMNS.mvpd, 4),
+    topPlatforms: cmuemuBuildTopDimensionValues(rows, CMUEMU_DIMENSION_COLUMNS.platform, 4),
+    topTimes: cmuemuBuildTopTimeBuckets(rows, 3),
+    appleRows: cmuemuCountAppleRows(rows),
+    reportSummaries: list.map((item) => cmuemuBuildFetchedReportView(item?.rows, item?.entry, source, item?.error)),
+  };
+}
+
+function cmuemuIntersectTopValueLists(leftList = [], rightList = []) {
+  const rightMap = new Map(
+    (Array.isArray(rightList) ? rightList : []).map((entry) => [String(entry?.value || "").trim().toLowerCase(), entry]).filter((entry) => entry[0])
+  );
+  return (Array.isArray(leftList) ? leftList : [])
+    .map((entry) => {
+      const value = String(entry?.value || "").trim();
+      const matched = rightMap.get(value.toLowerCase());
+      if (!value || !matched) {
+        return null;
+      }
+      return {
+        value,
+        count: Number(entry?.count || 0) + Number(matched?.count || 0),
+      };
+    })
+    .filter(Boolean);
+}
+
+function cmuemuBuildLiveVerdict(esmLive = {}, cmuLive = {}, context = {}) {
+  const esmFailureTotal = ["authn-failed", "authz-failed", "decision-failed"].reduce(
+    (total, key) => total + Number(esmLive?.metricTotals?.[key] || 0),
+    0
+  );
+  const cmuPressureTotal = ["failed-attempts", "killed-sessions", "dismissed-sessions", "active-sessions"].reduce(
+    (total, key) => total + Number(cmuLive?.metricTotals?.[key] || 0),
+    0
+  );
+  const sharedPlatforms = cmuemuIntersectTopValueLists(esmLive?.topPlatforms, cmuLive?.topPlatforms);
+  const sharedMvpds = cmuemuIntersectTopValueLists(esmLive?.topMvpds, cmuLive?.topMvpds);
+  const focusMvpd = firstNonEmptyString([
+    context?.mvpdLabel,
+    sharedMvpds?.[0]?.value,
+    esmLive?.topMvpds?.[0]?.value,
+    cmuLive?.topMvpds?.[0]?.value,
+    "All MVPDs",
+  ]);
+  const focusPlatform = firstNonEmptyString([
+    sharedPlatforms?.[0]?.value,
+    esmLive?.topPlatforms?.[0]?.value,
+    cmuLive?.topPlatforms?.[0]?.value,
+    "Unclear platform",
+  ]);
+  const focusTime = firstNonEmptyString([
+    esmLive?.topTimes?.[0]?.value,
+    cmuLive?.topTimes?.[0]?.value,
+    "Current window",
+  ]);
+  let label = "Low live pressure";
+  let tone = "muted";
+  let confidencePct = 38;
+  if ((Number(esmLive?.failedCount || 0) > 0 && Number(esmLive?.successCount || 0) === 0) || (Number(cmuLive?.failedCount || 0) > 0 && Number(cmuLive?.successCount || 0) === 0)) {
+    label = "Live fetch degraded";
+    tone = "red";
+    confidencePct = 22;
+  } else if (esmFailureTotal > 0 && cmuPressureTotal > 0) {
+    label = "Mixed live pressure";
+    tone = "amber";
+    confidencePct = 78;
+  } else if (esmFailureTotal > 0) {
+    label = "ESM failure pressure";
+    tone = "red";
+    confidencePct = 72;
+  } else if (cmuPressureTotal > 0 || Number(cmuLive?.primaryMetric?.value || 0) > 0) {
+    label = "CMU pressure signal";
+    tone = "green";
+    confidencePct = 67;
+  }
+  return {
+    label,
+    tone,
+    confidencePct,
+    headline: `${label} for ${focusMvpd} around ${focusPlatform}`,
+    summary: `Live sweep found ${Number(esmLive?.totalRows || 0)} ESM rows and ${Number(cmuLive?.totalRows || 0)} CMU rows. Focus MVPD: ${focusMvpd}. Focus platform: ${focusPlatform}. Peak bucket: ${focusTime}.`,
+    bullets: [
+      `ESM failure total: ${esmFailureTotal}`,
+      `CMU pressure total: ${cmuPressureTotal}`,
+      `Apple-marked rows: ${Number(esmLive?.appleRows || 0) + Number(cmuLive?.appleRows || 0)}`,
+      `Peak live bucket: ${focusTime}`,
+    ],
+    esmFailureTotal,
+    cmuPressureTotal,
+    appleRows: Number(esmLive?.appleRows || 0) + Number(cmuLive?.appleRows || 0),
+    focusMvpd,
+    focusPlatform,
+    focusTime,
+    sampleCount: Number(esmLive?.totalRows || 0) + Number(cmuLive?.totalRows || 0),
+  };
+}
+
+function cmuemuScoreSignalEntry(entry = {}, source = "esm") {
+  const familySet = new Set(Array.isArray(entry?.familyKeys) ? entry.familyKeys : []);
+  const rawTokenSet = new Set(Array.isArray(entry?.rawTokens) ? entry.rawTokens : []);
+  let score = 0;
+  if (source === "esm") {
+    if (familySet.has("auth")) score += 9;
+    if (rawTokenSet.has("authn-failed")) score += 6;
+    if (rawTokenSet.has("authz-failed")) score += 6;
+    if (rawTokenSet.has("decision-failed")) score += 6;
+  } else {
+    if (familySet.has("concurrency")) score += 9;
+    if (rawTokenSet.has("failed-attempts")) score += 6;
+    if (rawTokenSet.has("active-sessions")) score += 6;
+    if (rawTokenSet.has("active-users")) score += 5;
+    if (rawTokenSet.has("killed-sessions")) score += 4;
+  }
+  if (familySet.has("platform")) score += 4;
+  if (familySet.has("mvpd")) score += 4;
+  if (familySet.has("time")) score += 3;
+  if (familySet.has("content")) score += 2;
+  return score;
+}
+
+function cmuemuSelectSignalEntries(summary = {}, overlapPairs = [], source = "esm", maxEntries = CMUEMU_SIGNAL_SWEEP_LIMIT) {
+  const byUrl = new Map(
+    (Array.isArray(summary?.endpoints) ? summary.endpoints : [])
+      .map((entry) => [String(entry?.endpointUrl || "").trim(), entry])
+      .filter((entry) => entry[0])
+  );
+  const selected = [];
+  const seen = new Set();
+  const pushEntry = (entry) => {
+    const key = String(entry?.endpointUrl || "").trim();
+    if (!key || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    selected.push(entry);
+  };
+  (Array.isArray(overlapPairs) ? overlapPairs : []).forEach((pair) => {
+    const entryUrl = String(source === "esm" ? pair?.esmEndpointUrl : pair?.cmEndpointUrl).trim();
+    if (entryUrl && byUrl.has(entryUrl)) {
+      pushEntry(byUrl.get(entryUrl));
+    }
+  });
+  (Array.isArray(summary?.endpoints) ? summary.endpoints : [])
+    .slice()
+    .sort((left, right) => cmuemuScoreSignalEntry(right, source) - cmuemuScoreSignalEntry(left, source))
+    .forEach((entry) => {
+      pushEntry(entry);
+    });
+  return selected.slice(0, Math.max(1, Number(maxEntries || CMUEMU_SIGNAL_SWEEP_LIMIT)));
+}
+
+function cmuemuCreateSyntheticEsmFetchState(programmer, appInfo) {
+  return {
+    programmer,
+    appInfo,
+    netInFlight: 0,
+    contentElement: {
+      querySelector() {
+        return null;
+      },
+    },
+  };
+}
+
+async function cmuemuFetchEsmSignalReport(programmer, appInfo, activeState, entry, index = 0) {
+  if (!programmer?.programmerId || !appInfo || !entry?.endpointUrl) {
+    return { ok: false, entry, rows: [], error: "ESM fetch context is incomplete." };
+  }
+  const esmStateLike =
+    activeState && String(activeState?.programmer?.programmerId || "").trim() === String(programmer.programmerId || "").trim()
+      ? activeState
+      : cmuemuCreateSyntheticEsmFetchState(programmer, appInfo);
+  const endpoint = {
+    url: String(entry.endpointUrl || "").trim(),
+    zoomKey: String(entry.zoomKey || "").trim(),
+    columns: Array.isArray(entry.columns) ? entry.columns.slice() : [],
+  };
+  const requestUrl = esmWorkspaceBuildEndpointUrl(esmStateLike, endpoint);
+  try {
+    const response = await esmWorkspaceFetchWithPremiumAuth(
+      esmStateLike,
+      requestUrl,
+      { method: "GET" },
+      ESM_WORKSPACE_INLINE_RESULT_LIMIT,
+      {
+        scope: "cmuemu-esm",
+        endpointUrl: endpoint.url,
+        cardId: `cmuemu-esm-${index + 1}`,
+      }
+    );
+    if (!response.ok) {
+      const text = await response.text().catch(() => "");
+      return {
+        ok: false,
+        entry,
+        rows: [],
+        requestUrl,
+        error: `HTTP ${Number(response.status || 0)} ${normalizeHttpErrorMessage(text) || response.statusText || "Request failed"}`,
+      };
+    }
+    const text = await response.text().catch(() => "");
+    const payload = parseJsonText(text, null);
+    if (!payload && text.trim()) {
+      return {
+        ok: false,
+        entry,
+        rows: [],
+        requestUrl,
+        error: text.trim(),
+      };
+    }
+    const rows = esmWorkspaceApplyLocalColumnFiltersToRows(Array.isArray(payload?.report) ? payload.report : [], {});
+    return {
+      ok: true,
+      entry,
+      rows,
+      requestUrl,
+      lastModified: response.headers.get("Last-Modified") || response.headers.get("Date") || "",
+      error: "",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      entry,
+      rows: [],
+      requestUrl,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function cmuemuResolveRecordForEntry(cmSummary = {}, entry = {}) {
+  const pathKey = cmuUsagePathPartsToKey(Array.isArray(entry?.pathParts) ? entry.pathParts : []);
+  if (!pathKey) {
+    return null;
+  }
+  const mappedRecords =
+    cmSummary?.recordsByPathKey instanceof Map ? cmSummary.recordsByPathKey.get(pathKey) : null;
+  const records = Array.isArray(mappedRecords) ? cmuUsageDeduplicateRecords(mappedRecords) : [];
+  if (records.length > 0) {
+    return records[0];
+  }
+  return (Array.isArray(cmSummary?.usageRecords) ? cmSummary.usageRecords : []).find((record) => {
+    const recordUrl = ensureCmUsageEndpointFormat(firstNonEmptyString([record?.requestUrl, record?.endpointUrl]), {
+      tenantScope: cmSummary?.tenantScope,
+    });
+    const recordPathKey = cmuUsagePathPartsToKey(cmuUsageExtractPathParts(recordUrl));
+    return recordPathKey === pathKey;
+  }) || null;
+}
+
+async function cmuemuFetchCmuSignalReport(programmer, cmSummary = {}, entry = {}, index = 0) {
+  const record = cmuemuResolveRecordForEntry(cmSummary, entry);
+  if (!programmer?.programmerId || !record) {
+    return { ok: false, entry, rows: [], error: "CMU record context is incomplete." };
+  }
+  const cmStateLike =
+    cmSummary?.activeState && String(cmSummary.activeState?.programmer?.programmerId || "").trim() === String(programmer.programmerId || "").trim()
+      ? cmSummary.activeState
+      : {
+          programmer,
+          cmService: cmSummary?.cmService || null,
+          tenantScope: cmSummary?.tenantScope || "",
+        };
+  const rawRequestUrl = String(firstNonEmptyString([record?.requestUrl, record?.endpointUrl, entry?.endpointUrl]) || "").trim();
+  const requestUrl = cmScopeUsageRequestUrl(rawRequestUrl, cmStateLike, record) || rawRequestUrl;
+  if (!requestUrl) {
+    return { ok: false, entry, rows: [], error: "CMU request URL is missing." };
+  }
+  try {
+    const response = await fetchCmJsonWithAuthVariants([requestUrl], `CMUEMU CMU ${String(entry?.label || "").trim() || `report ${index + 1}`}`, {
+      debugMeta: {
+        scope: "cmuemu-cmu",
+        cardId: `cmuemu-cmu-${index + 1}`,
+        endpointUrl: requestUrl,
+        programmerId: String(programmer?.programmerId || ""),
+        requestorId: String(state.selectedRequestorId || ""),
+        mvpd: String(state.selectedMvpdId || ""),
+      },
+    });
+    return {
+      ok: true,
+      entry,
+      rows: cmRowsFromPayloadForRecord(response.parsed, record, requestUrl),
+      requestUrl,
+      lastModified: String(response.lastModified || ""),
+      error: "",
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      entry,
+      rows: [],
+      requestUrl,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function cmuemuResolveLiveSignalSummary(programmer, services, esmSummary, cmSummary, context = {}) {
+  const overlapPairs = cmuemuBuildOverlapPairs(esmSummary, cmSummary);
+  const selectedEsmEntries = cmuemuSelectSignalEntries(esmSummary, overlapPairs, "esm");
+  const selectedCmuEntries = cmuemuSelectSignalEntries(cmSummary, overlapPairs, "cmu");
+  const [esmReports, cmuReports] = await Promise.all([
+    Promise.all(
+      selectedEsmEntries.map((entry, index) =>
+        cmuemuFetchEsmSignalReport(programmer, esmSummary?.appInfo, esmSummary?.activeState, entry, index)
+      )
+    ),
+    Promise.all(
+      selectedCmuEntries.map((entry, index) => cmuemuFetchCmuSignalReport(programmer, cmSummary, entry, index))
+    ),
+  ]);
+  const esmLive = cmuemuSummarizeFetchedReports(esmReports, "esm");
+  const cmuLive = cmuemuSummarizeFetchedReports(cmuReports, "cmu");
+  return {
+    generatedAt: Date.now(),
+    esm: esmLive,
+    cmu: cmuLive,
+    verdict: cmuemuBuildLiveVerdict(esmLive, cmuLive, context),
+  };
+}
+
+function cmuemuBuildFusionPayloadFromSummaries(programmer, services, esmSummary, cmSummary, context = {}, options = {}) {
+  const sharedFamilyKeys = esmSummary.familyKeys.filter((familyKey) => cmSummary.familyKeys.includes(familyKey));
+  const sharedRawTokens = esmSummary.rawTokens.filter((token) => cmSummary.rawTokens.includes(token));
+  const familyCards = CMUEMU_FUSION_FAMILY_DEFS.map((family) => ({
+    key: family.key,
+    label: family.label,
+    summary: family.summary,
+    inEsm: esmSummary.familyKeys.includes(family.key),
+    inCm: cmSummary.familyKeys.includes(family.key),
+  }));
+  const overlapPairs = cmuemuBuildOverlapPairs(esmSummary, cmSummary);
+  return {
+    incidentId: "CMUEMU",
+    programmerId: String(programmer?.programmerId || "").trim(),
+    programmerName: String(programmer?.programmerName || "").trim(),
+    requestorIds: Array.isArray(context?.requestorIds) ? context.requestorIds.slice(0, 24) : [],
+    mvpdIds: Array.isArray(context?.mvpdIds) ? context.mvpdIds.slice(0, 24) : [],
+    requestorId: String(context?.requestorId || "").trim(),
+    mvpdId: String(context?.mvpdId || "").trim(),
+    mvpdLabel: String(context?.mvpdLabel || "").trim(),
+    tenantScope: String(context?.tenantScope || "").trim(),
+    esmAppName: String(context?.esmAppName || "").trim(),
+    cmTenantNames: Array.isArray(context?.cmTenantNames) ? context.cmTenantNames.slice(0, 12) : [],
+    profileHarvest:
+      context?.profileHarvest && typeof context.profileHarvest === "object"
+        ? {
+            ...context.profileHarvest,
+          }
+        : null,
+    esm: {
+      available: esmSummary.available === true,
+      source: String(esmSummary.source || "").trim(),
+      endpointCount: Number(esmSummary.endpointCount || 0),
+      familyKeys: esmSummary.familyKeys.slice(0, 32),
+      rawTokens: esmSummary.rawTokens.slice(0, 120),
+      zoomCounts: { ...(esmSummary.zoomCounts || {}) },
+      sampleEndpoints: (Array.isArray(esmSummary.endpoints) ? esmSummary.endpoints : []).slice(0, 12).map((entry) => ({
+        label: entry.label,
+        zoomKey: entry.zoomKey,
+        pathParts: entry.pathParts.slice(0, 16),
+        familyKeys: entry.familyKeys.slice(0, 8),
+      })),
+    },
+    cmu: {
+      available: cmSummary.available === true,
+      source: String(cmSummary.source || "").trim(),
+      endpointCount: Number(cmSummary.endpointCount || 0),
+      familyKeys: cmSummary.familyKeys.slice(0, 32),
+      rawTokens: cmSummary.rawTokens.slice(0, 120),
+      zoomCounts: { ...(cmSummary.zoomCounts || {}) },
+      applicationsCount: Number(cmSummary.applicationsCount || 0),
+      policiesCount: Number(cmSummary.policiesCount || 0),
+      tenantsCount: Number(cmSummary.tenantsCount || 0),
+      usageRecordCount: Number(cmSummary.usageRecordCount || 0),
+      sampleEndpoints: (Array.isArray(cmSummary.endpoints) ? cmSummary.endpoints : []).slice(0, 12).map((entry) => ({
+        label: entry.label,
+        zoomKey: entry.zoomKey,
+        pathParts: entry.pathParts.slice(0, 16),
+        familyKeys: entry.familyKeys.slice(0, 8),
+      })),
+    },
+    fusion: {
+      sharedFamilyKeys,
+      sharedRawTokens: sharedRawTokens.slice(0, 120),
+      familyCards,
+      overlapPairs,
+      stories: cmuemuBuildFusionStories(sharedFamilyKeys, overlapPairs),
+      strongestPair: overlapPairs[0] || null,
+      createdAt: Date.now(),
+    },
+    live: options?.liveSignals && typeof options.liveSignals === "object" ? options.liveSignals : null,
+  };
+}
+
+async function cmuemuResolveFusionPayload(programmer = null, services = null) {
+  const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  if (!resolvedProgrammer?.programmerId) {
+    throw new Error("Select a Media Company before opening CMUEMU.");
+  }
+  const resolvedServices =
+    services && typeof services === "object"
+      ? services
+      : state.premiumAppsByProgrammerId.get(resolvedProgrammer.programmerId) || (await ensurePremiumAppsForProgrammer(resolvedProgrammer, { forceRefresh: false })) || null;
+  if (!shouldShowCmuemuService(resolvedServices)) {
+    throw new Error("CMUEMU requires both ESM and Concurrency Monitoring for the selected Media Company.");
+  }
+  const context = cmuemuWorkspaceGetSelectedControllerStatePayload(resolvedProgrammer, resolvedServices, {
+    cmuemuAvailabilityResolved: true,
+    cmuemuContainerVisible: true,
+  });
+  const [esmSummary, cmSummary] = await Promise.all([
+    cmuemuResolveEsmFusionSummary(resolvedProgrammer, resolvedServices),
+    cmuemuResolveCmFusionSummary(resolvedProgrammer, resolvedServices),
+  ]);
+  const liveSignals = await cmuemuResolveLiveSignalSummary(resolvedProgrammer, resolvedServices, esmSummary, cmSummary, context);
+  return cmuemuBuildFusionPayloadFromSummaries(resolvedProgrammer, resolvedServices, esmSummary, cmSummary, context, {
+    liveSignals,
+  });
+}
+
+async function cmuemuWorkspaceSendWorkspaceMessage(event, payload = {}, options = {}) {
+  const targetWindowId = Number(options.targetWindowId || 0);
+  try {
+    const message = {
+      type: CMUEMU_WORKSPACE_MESSAGE_TYPE,
+      channel: "workspace-event",
+      event: String(event || ""),
+      payload,
+    };
+    if (targetWindowId > 0) {
+      message.targetWindowId = targetWindowId;
+    }
+    await chrome.runtime.sendMessage(message);
+  } catch {
+    // Ignore when no CMUEMU workspace listener is active.
+  }
+}
+
+function cmuemuWorkspaceBroadcastSelectedControllerState(programmer = null, services = null, targetWindowId = 0, options = {}) {
+  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.cmuemuWorkspaceWindowId || 0);
+  void cmuemuWorkspaceSendWorkspaceMessage(
+    "controller-state",
+    cmuemuWorkspaceGetSelectedControllerStatePayload(programmer, services, options),
+    { targetWindowId: resolvedWindowId }
+  );
+}
+
+async function cmuemuWorkspaceEnsureWorkspaceTab(options = {}) {
+  const shouldActivate = options.activate !== false;
+  const requestedWindowId = Number(options.windowId || 0);
+  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await esmWorkspaceGetCurrentWindowId();
+  const useWindowFilter = targetWindowId > 0;
+  let workspaceTab = null;
+
+  const boundTabId = cmuemuWorkspaceGetBoundWorkspaceTabId(targetWindowId);
+  if (boundTabId > 0) {
+    try {
+      const existing = await chrome.tabs.get(boundTabId);
+      if (cmuemuWorkspaceIsWorkspaceTab(existing) && (!useWindowFilter || Number(existing.windowId || 0) === targetWindowId)) {
+        workspaceTab = existing;
+      }
+    } catch {
+      cmuemuWorkspaceUnbindWorkspaceTab(boundTabId);
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    try {
+      const allTabs = await chrome.tabs.query(useWindowFilter ? { windowId: targetWindowId } : { currentWindow: true });
+      workspaceTab = allTabs.find((tab) => cmuemuWorkspaceIsWorkspaceTab(tab)) || null;
+    } catch {
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    workspaceTab = await chrome.tabs.create({
+      url: cmuemuWorkspaceGetWorkspaceUrl(),
+      active: shouldActivate,
+      ...(useWindowFilter ? { windowId: targetWindowId } : {}),
+    });
+  } else if (shouldActivate && workspaceTab.id) {
+    try {
+      workspaceTab = await chrome.tabs.update(workspaceTab.id, { active: true });
+      if (Number(workspaceTab?.windowId || 0) > 0) {
+        await chrome.windows.update(Number(workspaceTab.windowId), { focused: true });
+      }
+    } catch {
+      // Ignore activation failures.
+    }
+  }
+
+  cmuemuWorkspaceBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+  return workspaceTab;
+}
+
+async function cmuemuWorkspaceOpen(programmer = null, services = null, options = {}) {
+  const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
+  const resolvedServices =
+    services && typeof services === "object"
+      ? services
+      : resolvedProgrammer?.programmerId
+        ? state.premiumAppsByProgrammerId.get(resolvedProgrammer.programmerId) || null
+        : null;
+  const workspaceTab = await cmuemuWorkspaceEnsureWorkspaceTab({
+    activate: options.activate !== false,
+    windowId: options.windowId || undefined,
+  });
+  const targetWindowId = Number(workspaceTab?.windowId || state.cmuemuWorkspaceWindowId || 0);
+  cmuemuWorkspaceBroadcastSelectedControllerState(resolvedProgrammer, resolvedServices, targetWindowId, {
+    cmuemuAvailabilityResolved: true,
+    cmuemuContainerVisible: shouldShowCmuemuService(resolvedServices),
+  });
+  return workspaceTab;
+}
+
+async function handleCmuemuWorkspaceAction(message, sender = null) {
+  const action = String(message?.action || "").trim().toLowerCase();
+  const senderWindowId = Number(sender?.tab?.windowId || 0);
+  const senderTabId = Number(sender?.tab?.id || 0);
+  const mappedSenderTabId =
+    senderWindowId > 0 ? Number(state.cmuemuWorkspaceTabIdByWindowId.get(senderWindowId) || 0) : 0;
+  if (senderWindowId > 0 && senderTabId > 0 && mappedSenderTabId > 0 && senderTabId !== mappedSenderTabId) {
+    return { ok: false, error: "This is not the bound CMUEMU workspace tab for the window." };
+  }
+  if (senderWindowId > 0 && senderTabId > 0 && (!mappedSenderTabId || mappedSenderTabId <= 0)) {
+    cmuemuWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
+  }
+
+  if (action === "workspace-ready" || action === "refresh-context") {
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    if (senderWindowId > 0) {
+      cmuemuWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
+    }
+    cmuemuWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices, senderWindowId, {
+      cmuemuAvailabilityResolved: Boolean(selectedServices),
+      cmuemuContainerVisible: shouldShowCmuemuService(selectedServices),
+    });
+    return { ok: true };
+  }
+
+  if (action === "resolve-fusion") {
+    const selectedProgrammer = resolveSelectedProgrammer();
+    const selectedServices = selectedProgrammer?.programmerId
+      ? state.premiumAppsByProgrammerId.get(selectedProgrammer.programmerId) || null
+      : null;
+    const payload = await cmuemuResolveFusionPayload(selectedProgrammer, selectedServices);
+    return { ok: true, payload };
+  }
+
+  if (action === "open-workspace") {
+    await cmuemuWorkspaceOpen(null, null, {
+      activate: true,
+      windowId: senderWindowId || undefined,
+    });
+    return { ok: true };
+  }
+
+  return { ok: false, error: `Unsupported CMUEMU workspace action: ${action}` };
+}
+
+function ensureCmuemuWorkspaceRuntimeListener() {
+  if (state.cmuemuWorkspaceRuntimeListenerBound) {
+    return;
+  }
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!CMUEMU_WORKSPACE_MESSAGE_TYPES.has(String(message?.type || "")) || message?.channel !== "workspace-action") {
+      return false;
+    }
+    void handleCmuemuWorkspaceAction(message, sender)
+      .then((result) => {
+        sendResponse(result && typeof result === "object" ? result : { ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+    return true;
+  });
+  state.cmuemuWorkspaceRuntimeListenerBound = true;
+}
+
+function ensureCmuemuWorkspaceTabWatcher() {
+  if (state.cmuemuWorkspaceTabWatcherBound) {
+    return;
+  }
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    cmuemuWorkspaceUnbindWorkspaceTab(tabId);
+  });
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const normalizedTabId = Number(tabId || 0);
+    if (!normalizedTabId || !changeInfo?.url) {
+      return;
+    }
+    if (cmuemuWorkspaceIsWorkspaceTab(tab)) {
+      cmuemuWorkspaceBindWorkspaceTab(tab?.windowId, normalizedTabId);
+      return;
+    }
+    const boundTabId = Number(state.cmuemuWorkspaceTabId || 0);
+    let isMappedTab = false;
+    for (const mappedTabId of state.cmuemuWorkspaceTabIdByWindowId.values()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        isMappedTab = true;
+        break;
+      }
+    }
+    if (isMappedTab || normalizedTabId === boundTabId) {
+      cmuemuWorkspaceUnbindWorkspaceTab(normalizedTabId);
+    }
+  });
+  state.cmuemuWorkspaceTabWatcherBound = true;
+}
+
 function mvpdWorkspaceGetWorkspaceUrl() {
   return chrome.runtime.getURL(MVPD_WORKSPACE_PATH);
 }
@@ -27753,6 +29320,91 @@ async function loadCmService(programmer, cmService, section, contentElement, req
 }
 
 function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
+  if (serviceKey === "cmuemu") {
+    const programmerId = String(programmer?.programmerId || "").trim();
+    const services = programmerId ? state.premiumAppsByProgrammerId.get(programmerId) || null : null;
+    const selections = getGlobalRequestorMvpdSelections();
+    const requestorIds = Array.isArray(selections?.requestorIds) ? selections.requestorIds : [];
+    const mvpdIds = Array.isArray(selections?.mvpdIds) ? selections.mvpdIds : [];
+    const requestorLabel = requestorIds.length > 0 ? requestorIds.join(", ") : "All requestors";
+    const mvpdLabel =
+      mvpdIds.length > 0
+        ? mvpdIds
+            .map((mvpdId) => getRestV2MvpdPickerLabel(String(requestorIds[0] || "").trim(), String(mvpdId || "").trim()) || String(mvpdId || "").trim())
+            .filter(Boolean)
+            .join(", ")
+        : "All MVPDs";
+    const esmAppName = String(services?.esm?.appName || services?.esm?.guid || "").trim() || "No ESM app detected";
+    const matchedTenants = Array.isArray(services?.cm?.matchedTenants) ? services.cm.matchedTenants : [];
+    const cmTenantSummary =
+      matchedTenants.length > 0
+        ? matchedTenants
+            .slice(0, 3)
+            .map((item) => String(item?.tenantName || item?.tenantId || "").trim())
+            .filter(Boolean)
+            .join(", ")
+        : "No CM tenants detected";
+    const profileHarvestContext = {
+      programmerId,
+      requestorId: String(requestorIds[0] || "").trim(),
+      mvpd: String(mvpdIds[0] || "").trim(),
+    };
+    const profileHarvest =
+      getRestV2ProfileHarvestForContext(profileHarvestContext) ||
+      getCmProfileHarvestForProgrammer(programmer) ||
+      null;
+    const upstreamUserId = String(profileHarvest?.upstreamUserId || "").trim();
+    const profileLabel = profileHarvest
+      ? formatRestV2RequestorMvpdDisplay(
+          String(profileHarvest.requestorId || requestorIds[0] || "").trim(),
+          String(profileHarvest.mvpd || mvpdIds[0] || "").trim(),
+          String(profileHarvest?.mvpdName || "").trim()
+            ? {
+                id: String(profileHarvest.mvpd || mvpdIds[0] || "").trim(),
+                name: String(profileHarvest.mvpdName || "").trim(),
+              }
+            : null,
+          { separator: " x " }
+        )
+      : "No captured MVPD login";
+    return `
+      <section class="cmuemu-sidepanel">
+        <div class="cmuemu-sidepanel-head">
+          <div class="cmuemu-sidepanel-kicker">Premium Incident Fusion</div>
+          <div class="cmuemu-sidepanel-badges">
+            <span class="cmuemu-sidepanel-badge">ESM + CMU</span>
+            <span class="cmuemu-sidepanel-badge">30 Day Default</span>
+            <span class="cmuemu-sidepanel-badge">Spec Seeded</span>
+          </div>
+        </div>
+        <p class="cmuemu-sidepanel-copy">
+          Visual-first incident cockpit for CMUEMU. Correlates ESM errors, CMU block patterns, and traffic anomalies into
+          one decision surface for agents, ops, and execs.
+        </p>
+        <div class="cmuemu-sidepanel-stats">
+          <article class="cmuemu-sidepanel-stat">
+            <span class="cmuemu-sidepanel-stat-label">Compression</span>
+            <strong class="cmuemu-sidepanel-stat-value">6 hops → 1 cockpit</strong>
+          </article>
+          <article class="cmuemu-sidepanel-stat">
+            <span class="cmuemu-sidepanel-stat-label">Context</span>
+            <strong class="cmuemu-sidepanel-stat-value">${escapeHtml(requestorLabel)} · ${escapeHtml(mvpdLabel)}</strong>
+          </article>
+          <article class="cmuemu-sidepanel-stat">
+            <span class="cmuemu-sidepanel-stat-label">Fusion Inputs</span>
+            <strong class="cmuemu-sidepanel-stat-value">${escapeHtml(esmAppName)} · ${escapeHtml(cmTenantSummary)}</strong>
+          </article>
+        </div>
+        <p class="cmuemu-sidepanel-footnote">
+          Active profile: <strong>${escapeHtml(profileLabel)}</strong>${upstreamUserId ? ` · upstreamUserID=${escapeHtml(upstreamUserId)}` : ""}
+        </p>
+        <div class="cmuemu-sidepanel-actions">
+          <button type="button" class="cmuemu-open-workspace-btn">Open CMUEMU Workspace</button>
+        </div>
+      </section>
+    `;
+  }
+
   if (serviceKey === "cm" || serviceKey === "cmMvpd") {
     const isMvpdCmService = serviceKey === "cmMvpd";
     const matchedTenants = Array.isArray(appInfo?.matchedTenants) ? appInfo.matchedTenants : [];
@@ -27810,6 +29462,10 @@ function buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo) {
   }
 
   return "";
+}
+
+function shouldShowCmuemuService(services) {
+  return hasEsmScopedApp(services) && shouldShowCmService(services?.cm);
 }
 
 function stopPremiumServiceAutoRefresh(section) {
@@ -30094,12 +31750,15 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   };
   const serviceHoverMessage = hoverServiceLabelByKey[serviceKey]
     ? `${hoverServiceLabelByKey[serviceKey]} premium service is powered by registered application '${registeredAppLabel}'.`
+    : serviceKey === "cmuemu"
+      ? "CMUEMU fuses ESM and Concurrency Monitoring into one premium incident cockpit."
     : serviceKey === "cmMvpd"
       ? "MVPD Concurrency Monitoring is powered by CM tenant APIs (not a registered application scope)."
       : "Concurrency Monitoring is powered by CM tenant APIs (not a registered application scope).";
   const serviceClassByKey = {
     cm: "service-cm",
     cmMvpd: "service-cm-mvpd",
+    cmuemu: "service-cmuemu",
     degradation: "service-degradation",
     esmWorkspace: "service-esm",
     restV2: "service-rest-v2",
@@ -30147,6 +31806,8 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       ? '<div class="loading">Loading ESM...</div>'
       : serviceKey === "degradation"
         ? '<div class="loading">Loading DEGRADATION...</div>'
+      : serviceKey === "cmuemu"
+        ? buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo)
       : serviceKey === "cm" || serviceKey === "cmMvpd"
         ? ""
         : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
@@ -30217,6 +31878,9 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     if (!initialCollapsed) {
       void section.__underparRefreshCm();
     }
+  } else if (serviceKey === "cmuemu") {
+    ensureCmuemuWorkspaceRuntimeListener();
+    ensureCmuemuWorkspaceTabWatcher();
   }
 
   if (serviceKey === "restV2") {
@@ -30271,6 +31935,26 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     syncMvpdWorkspaceToolForSection(section, programmer, servicesForProgrammer);
   }
 
+  if (serviceKey === "cmuemu") {
+    const openCmuemuWorkspaceButton = section.querySelector(".cmuemu-open-workspace-btn");
+    if (openCmuemuWorkspaceButton) {
+      openCmuemuWorkspaceButton.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const servicesForProgrammer = programmer?.programmerId
+          ? state.premiumAppsByProgrammerId.get(programmer.programmerId) || null
+          : null;
+        try {
+          await cmuemuWorkspaceOpen(programmer, servicesForProgrammer, {
+            activate: true,
+          });
+        } catch (error) {
+          setStatus(error instanceof Error ? error.message : String(error), "error");
+        }
+      });
+    }
+  }
+
   const runAutoRefreshCheck = async () => {
     const selected = resolveSelectedProgrammer();
     if (!selected || !programmer || selected.programmerId !== programmer.programmerId) {
@@ -30295,12 +31979,18 @@ function renderPremiumServicesLoading(programmer, options = {}) {
   if (!els.premiumServicesContainer) {
     return;
   }
+  ensureCmuemuWorkspaceRuntimeListener();
+  ensureCmuemuWorkspaceTabWatcher();
   clearPremiumServiceAutoRefreshTimers();
   const controllerReason = String(options?.controllerReason || "").trim();
   esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, {
     controllerReason,
     esmAvailabilityResolved: false,
     esmContainerVisible: null,
+  });
+  cmuemuWorkspaceBroadcastSelectedControllerState(programmer, null, 0, {
+    cmuemuAvailabilityResolved: false,
+    cmuemuContainerVisible: null,
   });
   cmBroadcastSelectedControllerState(programmer, null, 0, {
     controllerReason,
@@ -30320,12 +32010,18 @@ function renderPremiumServicesError(error, options = {}) {
   if (!els.premiumServicesContainer) {
     return;
   }
+  ensureCmuemuWorkspaceRuntimeListener();
+  ensureCmuemuWorkspaceTabWatcher();
   clearPremiumServiceAutoRefreshTimers();
   const controllerReason = String(options?.controllerReason || "").trim();
   esmWorkspaceBroadcastSelectedControllerState(resolveSelectedProgrammer(), null, 0, {
     controllerReason,
     esmAvailabilityResolved: false,
     esmContainerVisible: null,
+  });
+  cmuemuWorkspaceBroadcastSelectedControllerState(resolveSelectedProgrammer(), null, 0, {
+    cmuemuAvailabilityResolved: false,
+    cmuemuContainerVisible: null,
   });
   cmBroadcastSelectedControllerState(resolveSelectedProgrammer(), null, 0, {
     controllerReason,
@@ -30351,6 +32047,8 @@ function renderPremiumServices(services, programmer = null, options = {}) {
   if (!els.premiumServicesContainer) {
     return;
   }
+  ensureCmuemuWorkspaceRuntimeListener();
+  ensureCmuemuWorkspaceTabWatcher();
   clearPremiumServiceAutoRefreshTimers();
   const controllerReason = String(options?.controllerReason || "").trim();
 
@@ -30359,6 +32057,10 @@ function renderPremiumServices(services, programmer = null, options = {}) {
       controllerReason,
       esmAvailabilityResolved: false,
       esmContainerVisible: null,
+    });
+    cmuemuWorkspaceBroadcastSelectedControllerState(programmer, null, 0, {
+      cmuemuAvailabilityResolved: false,
+      cmuemuContainerVisible: null,
     });
     cmBroadcastSelectedControllerState(programmer, null, 0, {
       controllerReason,
@@ -30397,10 +32099,18 @@ function renderPremiumServices(services, programmer = null, options = {}) {
     if (serviceKey === "esmWorkspace") {
       return hasEsmScopedApp(services);
     }
+    if (serviceKey === "cmuemu") {
+      return shouldShowCmuemuService(services);
+    }
     if (serviceKey === "cm" || serviceKey === "cmMvpd") {
       return shouldShowCmService(services?.[serviceKey]);
     }
     return Boolean(services?.[serviceKey]);
+  });
+  const hasCmuemuContainer = availableKeys.includes("cmuemu");
+  cmuemuWorkspaceBroadcastSelectedControllerState(programmer, services, 0, {
+    cmuemuAvailabilityResolved: true,
+    cmuemuContainerVisible: hasCmuemuContainer,
   });
   const hasCmContainer = availableKeys.includes("cm") || availableKeys.includes("cmMvpd");
   cmBroadcastSelectedControllerState(programmer, services, 0, {
@@ -30462,6 +32172,9 @@ function resetWorkflowForLoggedOut() {
   state.cmLastHydratedAccessToken = "";
   state.cmTenantBundleByTenantKey.clear();
   state.cmTenantBundlePromiseByTenantKey.clear();
+  state.cmuemuWorkspaceTabId = 0;
+  state.cmuemuWorkspaceWindowId = 0;
+  state.cmuemuWorkspaceTabIdByWindowId.clear();
   state.cmWorkspaceTabId = 0;
   state.cmWorkspaceWindowId = 0;
   state.cmWorkspaceTabIdByWindowId.clear();
@@ -30523,6 +32236,31 @@ function resetWorkflowForLoggedOut() {
     profileHarvestList: [],
     updatedAt: Date.now(),
   });
+  void cmuemuWorkspaceSendWorkspaceMessage("controller-state", {
+    controllerOnline: false,
+    cmuemuAvailable: null,
+    cmuemuAvailabilityResolved: false,
+    cmuemuContainerVisible: null,
+    incidentId: "CMUEMU",
+    programmerId: "",
+    programmerName: "",
+    requestorId: "",
+    mvpdId: "",
+    requestorIds: [],
+    mvpdIds: [],
+    mvpdLabel: "",
+    requestorMvpdLabel: "",
+    tenantScope: "",
+    esmAppName: "",
+    esmAppGuid: "",
+    cmTenantCount: 0,
+    cmTenantNames: [],
+    profileHarvest: null,
+    profileHarvestList: [],
+    timeWindowDays: 30,
+    updatedAt: Date.now(),
+  });
+  void cmuemuWorkspaceSendWorkspaceMessage("workspace-clear", {});
   void cmSendWorkspaceMessage("controller-state", {
     controllerOnline: false,
     cmAvailable: null,
@@ -41302,9 +43040,10 @@ function formatCmUsageDateValue(date) {
 }
 
 const CM_USAGE_TENANT_QUERY_KEYS = ["tenant", "tenant_id", "tenant-id"];
-const CM_USAGE_ROOT_SEGMENTS = ["year", "tenant"];
+const CM_USAGE_REQUIRED_SEGMENT = "year";
+const CM_USAGE_ROOT_SEGMENTS = ["year"];
 const CM_USAGE_ROOT_SEGMENT_SET = new Set(CM_USAGE_ROOT_SEGMENTS);
-const CM_USAGE_CANONICAL_PREFIX = `/${["v2", ...CM_USAGE_ROOT_SEGMENTS].join("/")}`;
+const CM_USAGE_CANONICAL_PREFIX = "/v2/year";
 let cmUsageCanonicalTemplatePathsCache = null;
 
 function resolveCmUsageTenantScopeValue(...candidates) {
@@ -41456,11 +43195,18 @@ function enforceCmUsageTenantScope(urlValue, tenantScope = "") {
 
 function buildCmUsageQueryString(path, profileHarvest = null, tenantScope = "") {
   const zoomKey = cmuUsageGetZoomKey(cmuUsageExtractPathParts(path), String(path || ""));
-  const timeWindow = clickEsmComputeTimeWindow(zoomKey);
+  const timeWindow = zoomKey === "HR"
+    ? {
+        start: clickEsmIso(new Date(Date.now() - 24 * 60 * 60 * 1000)),
+        end: "",
+      }
+    : clickEsmComputeTimeWindow(zoomKey);
   const nowIso = clickEsmIso(new Date());
   const params = new URLSearchParams();
   params.set("start", String(timeWindow?.start || nowIso));
-  params.set("end", String(timeWindow?.end || nowIso));
+  if (timeWindow?.end) {
+    params.set("end", String(timeWindow.end));
+  }
   params.set("limit", "1000");
   if (/\/tenant(?:\/|$)/i.test(String(path || "")) || /\/hour(?:\/|$)/i.test(String(path || ""))) {
     params.set("metrics", "users");
