@@ -912,6 +912,7 @@ const state = {
   esmWorkspaceWorkspaceTabId: 0,
   esmWorkspaceWorkspaceWindowId: 0,
   esmWorkspaceWorkspaceTabIdByWindowId: new Map(),
+  esmWorkspaceControllerStateVersion: 0,
   esmWorkspaceRuntimeListenerBound: false,
   esmWorkspaceWorkspaceTabWatcherBound: false,
   esmWorkspaceDebugFlowId: "",
@@ -15845,6 +15846,11 @@ function esmWorkspaceGetBoundWorkspaceTabId(windowId) {
   return Number(state.esmWorkspaceWorkspaceTabId || 0);
 }
 
+function nextEsmWorkspaceControllerStateVersion() {
+  state.esmWorkspaceControllerStateVersion = Number(state.esmWorkspaceControllerStateVersion || 0) + 1;
+  return state.esmWorkspaceControllerStateVersion;
+}
+
 function esmWorkspaceGetControllerStatePayload(esmWorkspaceState) {
   const selections = getGlobalRequestorMvpdSelections();
   const requestorIds = selections.requestorIds;
@@ -15865,6 +15871,7 @@ function esmWorkspaceGetControllerStatePayload(esmWorkspaceState) {
     programmerName: String(esmWorkspaceState?.programmer?.programmerName || ""),
     requestorIds,
     mvpdIds,
+    controllerStateVersion: nextEsmWorkspaceControllerStateVersion(),
     profileHarvest:
       profileHarvest && typeof profileHarvest === "object"
         ? {
@@ -15892,10 +15899,8 @@ function hasResolvedPremiumServiceSnapshotForEsm(services = null) {
 function esmWorkspaceGetSelectedControllerStatePayload(programmer = null, services = null, options = {}) {
   const resolvedProgrammer =
     programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
-  let resolvedServices = services;
-  if (!resolvedServices && resolvedProgrammer?.programmerId) {
-    resolvedServices = state.premiumAppsByProgrammerId.get(resolvedProgrammer.programmerId) || null;
-  }
+  // `services === null` means "loading / unknown" and must not fallback to cached service state.
+  const resolvedServices = services && typeof services === "object" ? services : null;
   const controllerReason = String(options?.controllerReason || "").trim();
   const hasResolvedSnapshot = hasResolvedPremiumServiceSnapshotForEsm(resolvedServices);
 
@@ -15938,6 +15943,7 @@ function esmWorkspaceGetSelectedControllerStatePayload(programmer = null, servic
     programmerName: String(resolvedProgrammer?.programmerName || ""),
     requestorIds,
     mvpdIds,
+    controllerStateVersion: nextEsmWorkspaceControllerStateVersion(),
     profileHarvest:
       profileHarvest && typeof profileHarvest === "object"
         ? {
@@ -30147,6 +30153,7 @@ function resetWorkflowForLoggedOut() {
   state.esmWorkspaceWorkspaceTabId = 0;
   state.esmWorkspaceWorkspaceWindowId = 0;
   state.esmWorkspaceWorkspaceTabIdByWindowId.clear();
+  state.esmWorkspaceControllerStateVersion = 0;
 
   void esmWorkspaceSendWorkspaceMessage("controller-state", {
     controllerOnline: false,

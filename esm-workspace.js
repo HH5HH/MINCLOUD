@@ -95,6 +95,8 @@ const state = {
   mvpdIds: [],
   profileHarvest: null,
   profileHarvestList: [],
+  controllerStateVersion: 0,
+  controllerStateUpdatedAt: 0,
   cardsById: new Map(),
   batchRunning: false,
   workspaceLocked: false,
@@ -2434,6 +2436,42 @@ function applyReportResult(payload) {
 }
 
 function applyControllerState(payload) {
+  const incomingControllerStateVersion = Number(payload?.controllerStateVersion || 0);
+  const incomingControllerUpdatedAt = Number(payload?.updatedAt || 0);
+  const currentControllerStateVersion = Number(state.controllerStateVersion || 0);
+  const currentControllerUpdatedAt = Number(state.controllerStateUpdatedAt || 0);
+  const hasIncomingUpdatedAt = Number.isFinite(incomingControllerUpdatedAt) && incomingControllerUpdatedAt > 0;
+  const hasCurrentUpdatedAt = Number.isFinite(currentControllerUpdatedAt) && currentControllerUpdatedAt > 0;
+
+  if (hasIncomingUpdatedAt && hasCurrentUpdatedAt && incomingControllerUpdatedAt < currentControllerUpdatedAt) {
+    return;
+  }
+  if (
+    hasIncomingUpdatedAt &&
+    hasCurrentUpdatedAt &&
+    incomingControllerUpdatedAt === currentControllerUpdatedAt &&
+    incomingControllerStateVersion > 0 &&
+    currentControllerStateVersion > 0 &&
+    incomingControllerStateVersion < currentControllerStateVersion
+  ) {
+    return;
+  }
+  if (
+    !hasIncomingUpdatedAt &&
+    incomingControllerStateVersion > 0 &&
+    currentControllerStateVersion > 0 &&
+    incomingControllerStateVersion < currentControllerStateVersion
+  ) {
+    return;
+  }
+
+  if (incomingControllerStateVersion > 0) {
+    state.controllerStateVersion = incomingControllerStateVersion;
+  }
+  if (hasIncomingUpdatedAt) {
+    state.controllerStateUpdatedAt = incomingControllerUpdatedAt;
+  }
+
   const previousProgrammerId = String(state.programmerId || "");
   const previousProgrammerName = String(state.programmerName || "");
   const previousProgrammerKey = getProgrammerIdentityKey(previousProgrammerId, previousProgrammerName);
