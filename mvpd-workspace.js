@@ -7,8 +7,9 @@ const CM_WORKSPACE_RUNTIME_TOKEN_INPUT_NAME = "access_token";
 const CM_WORKSPACE_RUNTIME_CLIENT_IDS_INPUT_NAME = "cm_client_ids";
 const CM_WORKSPACE_RUNTIME_USER_ID_INPUT_NAME = "cm_user_id";
 const CM_WORKSPACE_RUNTIME_SCOPE_INPUT_NAME = "cm_scope";
+const CM_WORKSPACE_PRIMARY_CLIENT_ID = "cm-console-ui";
 const CM_WORKSPACE_IMS_DEFAULT_SCOPE =
-  "AdobeID,openid,read_organizations,additional_info.projectedProductContext";
+  "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
 const CM_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
 const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 const WORKSPACE_TABLE_VISIBLE_ROW_CAP = 10;
@@ -32,16 +33,49 @@ const CM_METRIC_COLUMNS = new Set([
   "decision-successful",
   "decision-failed",
   "decision-media-tokens",
+  "users",
+  "active-users",
+  "active-sessions",
+  "started-sessions",
+  "completed-sessions",
+  "failed-attempts",
+  "dismissed-sessions",
+  "killed-sessions",
+  "duration-0-15",
+  "duration-15-30",
+  "duration-30-60",
+  "duration-60-120",
+  "duration-2h-4h",
+  "duration-4h-8h",
+  "duration-8h-16h",
+  "duration-16h-1d",
+  "duration-1d-3d",
+  "duration-3d-7d",
+  "duration-1w-1m",
+  "duration-over-1m",
+  "bstreams-15",
+  "bstreams-30",
+  "bstreams-45",
+  "bstreams-60",
+  "bstreams-75",
+  "bstreams-90",
+  "bstreams-105",
+  "bstreams-120",
 ]);
 const CM_DATE_DIMENSION_KEYS = new Set(["year", "month", "day", "hour", "minute", "second", "date", "time", "timestamp"]);
 const CM_FILTER_BLOCKED_COLUMNS = new Set([
-  "tenant",
-  "tenant-id",
-  "tenant_id",
+  "media-company",
   "v2",
   "view",
-  "activity-level",
-  "activity_level",
+]);
+const CM_CMU_NON_DIMENSION_PATH_SEGMENTS = new Set([
+  "cmu",
+  "v2",
+  "summary",
+  "concurrency",
+  "report",
+  "reports",
+  "usage",
 ]);
 const CM_TENANT_QUERY_PARAM_KEYS = ["tenant", "tenant_id", "tenant-id"];
 
@@ -1022,7 +1056,77 @@ function isCmMetricColumn(columnName) {
   return CM_METRIC_COLUMNS.has(canonical);
 }
 
-function isDisplayableCmuUsageColumn(columnName) {
+function addCmuPathDimensionAliases(targetSet, segment) {
+  if (!(targetSet instanceof Set)) {
+    return;
+  }
+  const normalized = normalizeCmColumnName(segment);
+  if (!normalized) {
+    return;
+  }
+  const canonical = normalized.replace(/_/g, "-");
+  targetSet.add(normalized);
+  targetSet.add(canonical);
+  if (canonical === "tenant") {
+    targetSet.add("tenant-id");
+    targetSet.add("tenant_id");
+  } else if (canonical === "application-id") {
+    targetSet.add("application_id");
+  } else if (canonical === "decision-type") {
+    targetSet.add("decision_type");
+  } else if (canonical === "service-provider") {
+    targetSet.add("service_provider");
+  } else if (canonical === "activity-level") {
+    targetSet.add("activity_level");
+  } else if (canonical === "concurrency-level") {
+    targetSet.add("concurrency_level");
+  }
+}
+
+function resolveCmuPathDimensionSet(cardState = null) {
+  const requestUrl = String(cardState?.baseRequestUrl || cardState?.requestUrl || cardState?.endpointUrl || "").trim();
+  if (!requestUrl) {
+    return null;
+  }
+  let pathname = "";
+  try {
+    pathname = String(new URL(requestUrl).pathname || "");
+  } catch (_error) {
+    pathname = String(requestUrl || "").split("?", 1)[0] || "";
+  }
+  const segments = pathname
+    .split("/")
+    .map((segment) => {
+      try {
+        return decodeURIComponent(String(segment || "").trim());
+      } catch (_error) {
+        return String(segment || "").trim();
+      }
+    })
+    .map((segment) => normalizeCmColumnName(segment))
+    .filter(Boolean);
+  if (segments.length === 0) {
+    return null;
+  }
+  const supported = new Set();
+  segments.forEach((segment) => {
+    const canonical = segment.replace(/_/g, "-");
+    if (
+      CM_CMU_NON_DIMENSION_PATH_SEGMENTS.has(segment) ||
+      CM_CMU_NON_DIMENSION_PATH_SEGMENTS.has(canonical) ||
+      CM_FILTER_BLOCKED_COLUMNS.has(segment) ||
+      CM_FILTER_BLOCKED_COLUMNS.has(canonical) ||
+      isCmDateTimeColumn(segment) ||
+      isCmMetricColumn(segment)
+    ) {
+      return;
+    }
+    addCmuPathDimensionAliases(supported, segment);
+  });
+  return supported.size > 0 ? supported : null;
+}
+
+function isDisplayableCmuUsageColumn(cardState, columnName) {
   const normalized = normalizeCmColumnName(columnName);
   if (!normalized || normalized.startsWith("__")) {
     return false;
@@ -1034,6 +1138,15 @@ function isDisplayableCmuUsageColumn(columnName) {
   if (isCmDateTimeColumn(normalized) || isCmMetricColumn(normalized)) {
     return false;
   }
+  const supportedDimensions = resolveCmuPathDimensionSet(cardState);
+  if (
+    supportedDimensions instanceof Set &&
+    supportedDimensions.size > 0 &&
+    !supportedDimensions.has(normalized) &&
+    !supportedDimensions.has(canonical)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -1041,14 +1154,14 @@ function isDisplayableCmuColumn(cardState, columnName) {
   if (!isCmuUsageCard(cardState)) {
     return false;
   }
-  return isDisplayableCmuUsageColumn(columnName);
+  return isDisplayableCmuUsageColumn(cardState, columnName);
 }
 
 function isFilterableCmuColumn(cardState, columnName) {
   if (!isCmuUsageCard(cardState)) {
     return false;
   }
-  return isDisplayableCmuUsageColumn(columnName);
+  return isDisplayableCmuUsageColumn(cardState, columnName);
 }
 
 const CM_WORKSPACE_ROW_FLATTEN_MAX_DEPTH = 4;
@@ -2196,7 +2309,7 @@ function getCmuUsageDisplayColumns(cardState) {
   return output;
 }
 
-function getCmuUsageTableDisplayColumns(row) {
+function getCmuUsageTableDisplayColumns(cardState, row) {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
     return [];
   }
@@ -2204,7 +2317,7 @@ function getCmuUsageTableDisplayColumns(row) {
   const seen = new Set();
   Object.keys(row).forEach((columnName) => {
     const normalized = normalizeCmColumnName(columnName);
-    if (!normalized || seen.has(normalized) || !isDisplayableCmuUsageColumn(normalized)) {
+    if (!normalized || seen.has(normalized) || !isDisplayableCmuUsageColumn(cardState, normalized)) {
       return;
     }
     seen.add(normalized);
@@ -2918,7 +3031,7 @@ function renderCardTable(cardState, rows, lastModified) {
     getRowValueByColumn(firstRow, "authz-attempts") != null &&
     getRowValueByColumn(firstRow, "authz-successful") != null;
   const hasCount = usageCard && getRowValueByColumn(firstRow, "count") != null;
-  const displayColumns = usageCard ? getCmuUsageTableDisplayColumns(firstRow) : [];
+  const displayColumns = usageCard ? getCmuUsageTableDisplayColumns(cardState, firstRow) : [];
   const headers = usageCard
     ? [
         ...(hasDate ? ["DATE"] : []),
@@ -3923,7 +4036,7 @@ function buildWorkspaceTearsheetHtml(snapshot, templateHtml, stylesheetText, run
       dedupeCandidateStrings(
         (Array.isArray(authContext?.clientIds) ? authContext.clientIds : [])
           .map((value) => String(value || "").trim())
-          .filter(Boolean)
+          .filter((value) => String(value || "").trim().toLowerCase() === CM_WORKSPACE_PRIMARY_CLIENT_ID)
       )
     )
   );

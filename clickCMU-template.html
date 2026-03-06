@@ -412,7 +412,12 @@
         const CM_REPORTS_BASE_URL = "https://cm-reports.adobeprimetime.com";
         const IMS_VALIDATE_TOKEN_URL = "https://ims-na1.adobelogin.com/ims/validate_token/v1?jslVersion=underpar-clickcmu";
         const IMS_CHECK_TOKEN_URL = "https://adobeid-na1.services.adobe.com/ims/check/v6/token";
-        const DEFAULT_SCOPE = "AdobeID,openid,read_organizations,additional_info.projectedProductContext";
+        const CMU_CLIENT_ID = "cm-console-ui";
+        const CMU_CONSOLE_ORIGIN = "https://experience.adobe.com";
+        const CMU_CONSOLE_REFERER = `${CMU_CONSOLE_ORIGIN}/`;
+        const CMU_REPORTS_ORIGIN = "https://cdn.experience.adobe.net";
+        const CMU_REPORTS_REFERER = `${CMU_REPORTS_ORIGIN}/`;
+        const DEFAULT_SCOPE = "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
         const TOKEN_FRESH_SKEW_MS = 45 * 1000;
         const REQUEST_TIMEOUT_MS = 45 * 1000;
         const CMU_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
@@ -722,6 +727,39 @@
             .filter(Boolean);
         }
 
+        function tokenSupportsCmCatalog(token) {
+          const normalized = normalizeToken(token);
+          if (!normalized) {
+            return false;
+          }
+          const claims = parseJwtPayload(normalized) || {};
+          if (!claims || typeof claims !== "object") {
+            return false;
+          }
+          const clientId = String(claims.client_id || claims.clientId || "").trim().toLowerCase();
+          return clientId === CMU_CLIENT_ID;
+        }
+
+        function collectRuntimeUserIdCandidates() {
+          const tokenClaims = parseJwtPayload(state.accessToken) || {};
+          const orderedCandidates = [state.userId, tokenClaims.user_id, tokenClaims.userId];
+          const output = [];
+          const seen = new Set();
+          orderedCandidates.forEach((value) => {
+            const normalized = String(value || "").trim();
+            if (!normalized) {
+              return;
+            }
+            const key = normalized.toLowerCase();
+            if (seen.has(key)) {
+              return;
+            }
+            seen.add(key);
+            output.push(normalized);
+          });
+          return output;
+        }
+
         function uniqueStrings(values) {
           const output = [];
           const seen = new Set();
@@ -738,6 +776,41 @@
             output.push(text);
           });
           return output;
+        }
+
+        function hasHeaderName(headersLike, headerName) {
+          const normalizedHeaderName = String(headerName || "").trim().toLowerCase();
+          if (!normalizedHeaderName || !headersLike || typeof headersLike !== "object") {
+            return false;
+          }
+          return Object.keys(headersLike).some((key) => String(key || "").trim().toLowerCase() === normalizedHeaderName);
+        }
+
+        function isCmuReportsUrl(urlValue = "") {
+          const raw = String(urlValue || "").trim();
+          if (!raw) {
+            return false;
+          }
+          try {
+            const parsed = new URL(raw);
+            return String(parsed.hostname || "").trim().toLowerCase() === "cm-reports.adobeprimetime.com";
+          } catch {
+            return false;
+          }
+        }
+
+        function withCmuReportHeaders(headersLike = {}, endpointUrl = "") {
+          const nextHeaders = headersLike && typeof headersLike === "object" ? { ...headersLike } : {};
+          if (!isCmuReportsUrl(endpointUrl)) {
+            return nextHeaders;
+          }
+          if (!hasHeaderName(nextHeaders, "Origin")) {
+            nextHeaders.Origin = CMU_REPORTS_ORIGIN;
+          }
+          if (!hasHeaderName(nextHeaders, "Referer")) {
+            nextHeaders.Referer = CMU_REPORTS_REFERER;
+          }
+          return nextHeaders;
         }
 
         function extractTokenFromPayload(payload) {
@@ -789,14 +862,18 @@
           if (!seedToken) {
             return null;
           }
-          const candidateClientIds = uniqueStrings([...state.clientIds, "cm-console-ui", "AdobePass1"]);
+          const candidateClientIds = uniqueStrings([...state.clientIds, CMU_CLIENT_ID]).filter(
+            (clientId) => String(clientId || "").trim().toLowerCase() === CMU_CLIENT_ID
+          );
           for (const clientId of candidateClientIds) {
             const body = buildValidateTokenBody(seedToken, clientId);
             const response = await fetchWithTimeout(IMS_VALIDATE_TOKEN_URL, {
               method: "POST",
               credentials: "include",
               headers: {
-                Accept: "application/json, text/plain, */*",
+                Accept: "*/*",
+                Origin: CMU_CONSOLE_ORIGIN,
+                Referer: CMU_CONSOLE_REFERER,
                 "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
                 ...(clientId ? { client_id: clientId } : {}),
               },
@@ -811,10 +888,10 @@
               continue;
             }
             const refreshed = extractTokenFromPayload(parsed);
-            if (refreshed && (!forceFresh || isTokenFresh(refreshed, TOKEN_FRESH_SKEW_MS))) {
+            if (refreshed && tokenSupportsCmCatalog(refreshed) && (!forceFresh || isTokenFresh(refreshed, TOKEN_FRESH_SKEW_MS))) {
               return { token: refreshed, source: `validate:${clientId}` };
             }
-            if (parsed.valid === true && !forceFresh) {
+            if (parsed.valid === true && !forceFresh && tokenSupportsCmCatalog(seedToken)) {
               return { token: seedToken, source: `validate-existing:${clientId}` };
             }
           }
@@ -836,45 +913,58 @@
         }
 
         async function refreshTokenViaImsCheck(forceFresh = false) {
-          const resolvedUserId = String(state.userId || "").trim();
-          if (!resolvedUserId) {
-            return null;
+          const userIdCandidates = [];
+          collectRuntimeUserIdCandidates().forEach((candidate) => {
+            if (!userIdCandidates.includes(candidate)) {
+              userIdCandidates.push(candidate);
+            }
+          });
+          if (!userIdCandidates.includes("")) {
+            userIdCandidates.push("");
           }
-          const candidateClientIds = uniqueStrings([...state.clientIds, "cm-console-ui", "AdobePass1"]);
+          const candidateClientIds = uniqueStrings([...state.clientIds, CMU_CLIENT_ID]).filter(
+            (clientId) => String(clientId || "").trim().toLowerCase() === CMU_CLIENT_ID
+          );
           const scopeCandidates = uniqueStrings([state.scope, DEFAULT_SCOPE].flatMap((value) => tokenizeScopeSet(value).join(",")));
           for (const clientId of candidateClientIds) {
             for (const scope of scopeCandidates.length > 0 ? scopeCandidates : [DEFAULT_SCOPE]) {
-              const requestUrl = buildImsCheckUrl(clientId, scope, resolvedUserId);
-              const response = await fetchWithTimeout(requestUrl, {
-                method: "POST",
-                credentials: "include",
-                headers: {
-                  Accept: "application/json, text/plain, */*",
-                },
-              }).catch(() => null);
-              if (!response || !response.ok) {
-                continue;
+              for (const userIdCandidate of userIdCandidates) {
+                const requestUrl = buildImsCheckUrl(clientId, scope, userIdCandidate);
+                for (const credentials of ["include", "omit"]) {
+                  const response = await fetchWithTimeout(requestUrl, {
+                    method: "POST",
+                    credentials,
+                    headers: {
+                      Accept: "*/*",
+                      Origin: CMU_CONSOLE_ORIGIN,
+                      Referer: CMU_CONSOLE_REFERER,
+                    },
+                  }).catch(() => null);
+                  if (!response || !response.ok) {
+                    continue;
+                  }
+                  const rawText = await response.text().catch(() => "");
+                  const parsed = safeJsonParse(rawText, null);
+                  if (!parsed || typeof parsed !== "object") {
+                    continue;
+                  }
+                  const refreshed = extractTokenFromPayload(parsed);
+                  if (!refreshed || !tokenSupportsCmCatalog(refreshed)) {
+                    continue;
+                  }
+                  if (forceFresh && !isTokenFresh(refreshed, TOKEN_FRESH_SKEW_MS)) {
+                    continue;
+                  }
+                  return { token: refreshed, source: `check:${clientId}:${credentials}` };
+                }
               }
-              const rawText = await response.text().catch(() => "");
-              const parsed = safeJsonParse(rawText, null);
-              if (!parsed || typeof parsed !== "object") {
-                continue;
-              }
-              const refreshed = extractTokenFromPayload(parsed);
-              if (!refreshed) {
-                continue;
-              }
-              if (forceFresh && !isTokenFresh(refreshed, TOKEN_FRESH_SKEW_MS)) {
-                continue;
-              }
-              return { token: refreshed, source: `check:${clientId}` };
             }
           }
           return null;
         }
 
         async function ensureAccessToken(forceRefresh = false) {
-          if (!forceRefresh && isTokenFresh(state.accessToken, TOKEN_FRESH_SKEW_MS)) {
+          if (!forceRefresh && isTokenFresh(state.accessToken, TOKEN_FRESH_SKEW_MS) && tokenSupportsCmCatalog(state.accessToken)) {
             return state.accessToken;
           }
           let refreshResult = null;
@@ -897,7 +987,7 @@
             updateTokenMeta();
             return state.accessToken;
           }
-          if (!forceRefresh && state.accessToken) {
+          if (!forceRefresh && tokenSupportsCmCatalog(state.accessToken)) {
             return state.accessToken;
           }
           return "";
@@ -970,18 +1060,22 @@
 
         async function fetchEndpointPayload(endpoint, forceRefreshToken = false) {
           const token = await ensureAccessToken(forceRefreshToken);
-          if (!token) {
+          if (!token || !tokenSupportsCmCatalog(token)) {
             throw new Error(
-              "No IMS access token is available. Sign in to Adobe Pass Console in this browser, then retry."
+              "UnderPAR could not auto-hydrate a cm-console-ui bearer from the current Adobe IMS session. Sign in again and retry."
             );
           }
+          const requestHeaders = withCmuReportHeaders(
+            {
+              Accept: "*/*",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            endpoint.url
+          );
           const response = await fetchWithTimeout(endpoint.url, {
             method: "GET",
             credentials: "include",
-            headers: {
-              Accept: "application/json, text/plain, */*",
-              Authorization: `Bearer ${token}`,
-            },
+            headers: requestHeaders,
           });
           const text = await response.text().catch(() => "");
           const parsed = safeJsonParse(text, null);
@@ -993,6 +1087,9 @@
             if (retriedToken) {
               return fetchEndpointPayload(endpoint, true);
             }
+            throw new Error(
+              "UnderPAR could not auto-hydrate a cm-console-ui bearer from the current Adobe IMS session. Sign in again and retry."
+            );
           }
           if (!response.ok) {
             const detailText = String(
@@ -1542,7 +1639,9 @@
           const rawScope = readEncodedInput("cmu-scope");
           const rawEndpoints = safeJsonParse(readEncodedInput("cmu-endpoints-json"), []);
           state.accessToken = normalizeToken(rawSeedToken);
-          state.clientIds = uniqueStrings(rawClientIds);
+          state.clientIds = uniqueStrings(rawClientIds).filter(
+            (clientId) => String(clientId || "").trim().toLowerCase() === CMU_CLIENT_ID
+          );
           state.userId = String(rawUserId || "").trim();
           state.scope = String(rawScope || DEFAULT_SCOPE).trim() || DEFAULT_SCOPE;
           state.endpoints = normalizeEndpoints(rawEndpoints);

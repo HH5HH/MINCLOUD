@@ -116,6 +116,10 @@ const IMS_SESSION_MONITOR_INACTIVE_CONFIRM_TICKS = 2;
 const EXPERIENCE_CLOUD_SSO_TOKEN_ENDPOINT =
   "https://auth.services.adobe.com/signin/v2/tokens?credential=sso&checkReauth=false&puser=&t2Only=false&euid=&pbaPolicy=";
 const EXPERIENCE_CLOUD_SSO_CLIENT_ID = "exc_app";
+const EXPERIENCE_CLOUD_EARLY_TOKEN_SCOPE =
+  "ab.manage,account_cluster.read,additional_info,additional_info.job_function,additional_info.projectedProductContext,additional_info.roles,AdobeID,adobeio.appregistry.read,adobeio_api,aem.frontend.all,audiencemanager_api,creative_cloud,mps,openid,org.read,pps.read,read_organizations,read_pc,read_pc.acp,read_pc.dma_tartan,service_principals.write,session";
+const EXPERIENCE_CLOUD_EARLY_TOKEN_FILTER =
+  '{"findFirst":true, "fallbackToAA":true, "preferForwardProfile":true}; hasPC("dma_tartan")';
 const EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER =
   '{"findFirst":true, "preferForwardProfile":true}';
 const CLICK_ESM_ENDPOINTS_PATH = "click-esm-endpoints.json";
@@ -674,10 +678,15 @@ const CM_BASE_URL_CANDIDATES = [
 ];
 const CM_V2_API_BASE_DEFAULT = "https://streams-stage.adobeprimetime.com";
 const CM_IMS_CHECK_TOKEN_ENDPOINT = "https://adobeid-na1.services.adobe.com/ims/check/v6/token";
+const CM_IMS_PRIMARY_CLIENT_ID = "cm-console-ui";
+const CM_CONSOLE_APP_ORIGIN = "https://experience.adobe.com";
+const CM_CONSOLE_APP_REFERER = `${CM_CONSOLE_APP_ORIGIN}/`;
+const CM_REPORTS_APP_ORIGIN = "https://cdn.experience.adobe.net";
+const CM_REPORTS_APP_REFERER = `${CM_REPORTS_APP_ORIGIN}/`;
 const CM_IMS_CHECK_DEFAULT_SCOPE =
-  "AdobeID,openid,read_organizations,additional_info.projectedProductContext";
-const CM_IMS_VALIDATE_CLIENT_IDS = ["cm-console-ui", "AdobePass1", IMS_CLIENT_ID];
-const CM_IMS_CHECK_CLIENT_IDS = ["cm-console-ui", "AdobePass1", IMS_CLIENT_ID];
+  "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
+const CM_IMS_VALIDATE_CLIENT_IDS = [CM_IMS_PRIMARY_CLIENT_ID];
+const CM_IMS_CHECK_CLIENT_IDS = [CM_IMS_PRIMARY_CLIENT_ID];
 const CM_IMS_FORCE_REFRESH_SKEW_MS = 30 * 1000;
 const CM_BOOTSTRAP_PARALLELISM = 6;
 const CM_BOOTSTRAP_CACHE_MAX_AGE_MS = 10 * 60 * 1000;
@@ -892,6 +901,8 @@ const state = {
   cmConsoleBootstrapPromise: null,
   cmAuthBootstrapPromise: null,
   cmAuthBootstrapLastAttemptAt: 0,
+  cmConsoleTokenConsoleEmitKey: "",
+  cmLastHydratedAccessToken: "",
   cmTenantBundleByTenantKey: new Map(),
   cmTenantBundlePromiseByTenantKey: new Map(),
   premiumSectionCollapsedByKey: new Map(),
@@ -928,6 +939,7 @@ const state = {
   cmWorkspaceTabId: 0,
   cmWorkspaceWindowId: 0,
   cmWorkspaceTabIdByWindowId: new Map(),
+  cmWorkspaceControllerStateVersion: 0,
   cmRuntimeListenerBound: false,
   cmWorkspaceTabWatcherBound: false,
   cmWorkspaceActivityDebugFlowId: "",
@@ -1182,6 +1194,84 @@ async function sendRuntimeMessageSafe(payload) {
   }
 }
 
+function isImsRelayEligibleUrl(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw || !/^https?:\/\//i.test(raw)) {
+    return false;
+  }
+  try {
+    const parsed = new URL(raw);
+    if (parsed.protocol !== "https:") {
+      return false;
+    }
+    const host = String(parsed.hostname || "").toLowerCase();
+    return (
+      host === "ims-na1.adobelogin.com" ||
+      host.endsWith(".adobelogin.com") ||
+      host === "adobeid-na1.services.adobe.com" ||
+      (host.startsWith("adobeid-") && host.endsWith(".services.adobe.com")) ||
+      host === "auth.services.adobe.com" ||
+      host.endsWith(".auth.services.adobe.com") ||
+      host === "idg.adobe.com" ||
+      host.endsWith(".idg.adobe.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function normalizeRelayCredentials(value = "", fallback = "omit") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "include" || normalized === "same-origin" || normalized === "omit") {
+    return normalized;
+  }
+  return fallback;
+}
+
+function mapRelayPayloadToFetchLikeResponse(payload = {}, requestUrl = "") {
+  const bodyText = typeof payload?.bodyText === "string" ? payload.bodyText : "";
+  const headers =
+    payload?.headers && typeof payload.headers === "object" ? new Headers(payload.headers) : new Headers();
+  return {
+    ok: Boolean(payload?.ok),
+    status: Number(payload?.status || 0),
+    statusText: String(payload?.statusText || ""),
+    url: String(payload?.url || requestUrl),
+    redirected: Boolean(payload?.redirected),
+    headers,
+    text: async () => bodyText,
+  };
+}
+
+async function directRelayFetch(url, options = {}, fallbackCredentials = "omit") {
+  const method = String(options?.method || "GET").trim().toUpperCase();
+  const credentials = normalizeRelayCredentials(options?.credentials, fallbackCredentials);
+  const headers = options?.headers && typeof options.headers === "object" ? { ...options.headers } : {};
+  const body = typeof options?.body === "string" ? options.body : "";
+
+  const response = await fetch(url, {
+    method,
+    credentials,
+    cache: "no-store",
+    redirect: "follow",
+    headers,
+    body: method === "POST" ? body : undefined,
+  });
+  const text = await response.text().catch(() => "");
+  return mapRelayPayloadToFetchLikeResponse(
+    {
+      ok: response.ok,
+      status: Number(response.status || 0),
+      statusText: String(response.statusText || ""),
+      url: String(response.url || url),
+      redirected: Boolean(response.redirected),
+      headers: Object.fromEntries(response.headers.entries()),
+      bodyText: text,
+    },
+    url
+  );
+}
+
 async function relayImsFetch(endpoint, options = {}) {
   const url = String(endpoint || "").trim();
   if (!url) {
@@ -1205,23 +1295,17 @@ async function relayImsFetch(endpoint, options = {}) {
     });
   }
   if (!response || response.ok !== true || !response.response || typeof response.response !== "object") {
+    if (isImsRelayEligibleUrl(url)) {
+      try {
+        return await directRelayFetch(url, options, "omit");
+      } catch {
+        // Fall through to standard relay error.
+      }
+    }
     throw new Error(String(response?.error || "IMS relay request failed."));
   }
 
-  const payload = response.response;
-  const bodyText = typeof payload?.bodyText === "string" ? payload.bodyText : "";
-  const headers =
-    payload?.headers && typeof payload.headers === "object" ? new Headers(payload.headers) : new Headers();
-
-  return {
-    ok: Boolean(payload?.ok),
-    status: Number(payload?.status || 0),
-    statusText: String(payload?.statusText || ""),
-    url: String(payload?.url || url),
-    redirected: Boolean(payload?.redirected),
-    headers,
-    text: async () => bodyText,
-  };
+  return mapRelayPayloadToFetchLikeResponse(response.response, url);
 }
 
 function isCmRelayEligibleUrl(value = "") {
@@ -1265,23 +1349,17 @@ async function relayCmFetch(endpoint, options = {}) {
     });
   }
   if (!response || response.ok !== true || !response.response || typeof response.response !== "object") {
+    if (isCmRelayEligibleUrl(url)) {
+      try {
+        return await directRelayFetch(url, options, "include");
+      } catch {
+        // Fall through to standard relay error.
+      }
+    }
     throw new Error(String(response?.error || "CM relay request failed."));
   }
 
-  const payload = response.response;
-  const bodyText = typeof payload?.bodyText === "string" ? payload.bodyText : "";
-  const headers =
-    payload?.headers && typeof payload.headers === "object" ? new Headers(payload.headers) : new Headers();
-
-  return {
-    ok: Boolean(payload?.ok),
-    status: Number(payload?.status || 0),
-    statusText: String(payload?.statusText || ""),
-    url: String(payload?.url || url),
-    redirected: Boolean(payload?.redirected),
-    headers,
-    text: async () => bodyText,
-  };
+  return mapRelayPayloadToFetchLikeResponse(response.response, url);
 }
 
 async function relaySplunkFetch(endpoint, options = {}) {
@@ -1414,6 +1492,41 @@ function detectCmAuthMode(headersLike) {
     return "bearer";
   }
   return "custom";
+}
+
+function hasHeaderName(headersLike, headerName) {
+  const normalizedHeaderName = String(headerName || "").trim().toLowerCase();
+  if (!normalizedHeaderName || !headersLike || typeof headersLike !== "object") {
+    return false;
+  }
+  return Object.keys(headersLike).some((key) => String(key || "").trim().toLowerCase() === normalizedHeaderName);
+}
+
+function isCmReportsRequestUrl(urlValue = "") {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return false;
+  }
+  try {
+    const parsed = new URL(raw);
+    return String(parsed.hostname || "").trim().toLowerCase() === "cm-reports.adobeprimetime.com";
+  } catch {
+    return false;
+  }
+}
+
+function withCmReportContextHeaders(headersLike = {}, requestUrl = "") {
+  const nextHeaders = headersLike && typeof headersLike === "object" ? { ...headersLike } : {};
+  if (!isCmReportsRequestUrl(requestUrl)) {
+    return nextHeaders;
+  }
+  if (!hasHeaderName(nextHeaders, "Origin")) {
+    nextHeaders.Origin = CM_REPORTS_APP_ORIGIN;
+  }
+  if (!hasHeaderName(nextHeaders, "Referer")) {
+    nextHeaders.Referer = CM_REPORTS_APP_REFERER;
+  }
+  return nextHeaders;
 }
 
 function normalizeWorkspaceDebugKey(value = "") {
@@ -12921,12 +13034,7 @@ function cmBuildUsageReportExampleRequestUrl(example = null, options = {}) {
       parsed.searchParams.set("end", String(timeWindow?.end || clickEsmIso(new Date())));
     }
     if (tenantScope) {
-      const existingTenantScope = resolveCmUsageTenantScopeValue(
-        parsed.searchParams.get("tenant"),
-        parsed.searchParams.get("tenant_id"),
-        parsed.searchParams.get("tenant-id")
-      );
-      applyCmUsageTenantScopeToSearchParams(parsed.searchParams, existingTenantScope || tenantScope);
+      applyCmUsageTenantScopeToSearchParams(parsed.searchParams, tenantScope);
     }
     if (example?.hasMvpdDimension === true) {
       const mvpdId = String(options?.mvpdId || state.selectedMvpdId || "").trim();
@@ -13675,12 +13783,7 @@ function ensureCmUsageEndpointFormat(url, options = {}) {
       }
     }
     if (tenantScope && isCanonicalCmuUsagePath(parsed.pathname)) {
-      const existingTenantScope = resolveCmUsageTenantScopeValue(
-        parsed.searchParams.get("tenant"),
-        parsed.searchParams.get("tenant_id"),
-        parsed.searchParams.get("tenant-id")
-      );
-      applyCmUsageTenantScopeToSearchParams(parsed.searchParams, existingTenantScope || tenantScope);
+      applyCmUsageTenantScopeToSearchParams(parsed.searchParams, tenantScope);
     }
     return parsed.toString();
   } catch {
@@ -14048,7 +14151,7 @@ function buildClickCmuRuntimePatchSnippet(context = {}) {
     clientIds: uniqueSorted(
       (Array.isArray(context.clientIds) ? context.clientIds : [])
         .map((value) => String(value || "").trim())
-        .filter(Boolean)
+        .filter((value) => String(value || "").trim().toLowerCase() === CM_IMS_PRIMARY_CLIENT_ID)
     ),
     userId: String(context.userId || "").trim(),
     scope: String(context.scope || CM_IMS_CHECK_DEFAULT_SCOPE).trim() || CM_IMS_CHECK_DEFAULT_SCOPE,
@@ -14163,7 +14266,8 @@ body[data-theme="dark"]{
   const CM_REPORTS_BASE_URL = "https://cm-reports.adobeprimetime.com";
   const IMS_VALIDATE_TOKEN_URL = "https://ims-na1.adobelogin.com/ims/validate_token/v1?jslVersion=underpar-clickcmu";
   const IMS_CHECK_TOKEN_URL = "https://adobeid-na1.services.adobe.com/ims/check/v6/token";
-  const DEFAULT_SCOPE = "AdobeID,openid,read_organizations,additional_info.projectedProductContext";
+  const CMU_CLIENT_ID = "cm-console-ui";
+  const DEFAULT_SCOPE = "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
   const TOKEN_FRESH_SKEW_MS = 45 * 1000;
   const REQUEST_TIMEOUT_MS = 45 * 1000;
 
@@ -14253,12 +14357,11 @@ body[data-theme="dark"]{
       return false;
     }
     const claims = parseJwtPayload(normalized) || {};
-    const clientId = String(claims.client_id || claims.clientId || "").trim().toLowerCase();
-    if (clientId === "cm-console-ui") {
-      return true;
+    if (!claims || typeof claims !== "object") {
+      return false;
     }
-    const scopes = new Set(tokenizeScopeSet(claims.scope || "").map((scope) => scope.toLowerCase()));
-    return scopes.has("read_organizations");
+    const clientId = String(claims.client_id || claims.clientId || "").trim().toLowerCase();
+    return clientId === CMU_CLIENT_ID;
   }
 
   function extractTokenFromPayload(payload) {
@@ -14295,12 +14398,9 @@ body[data-theme="dark"]{
   }
 
   function resolveClientIds() {
-    return uniqueStrings([
-      ...(Array.isArray(runtime.clientIds) ? runtime.clientIds : []),
-      "cm-console-ui",
-      "AdobePass1",
-      "exc_app",
-    ]);
+    return uniqueStrings([...(Array.isArray(runtime.clientIds) ? runtime.clientIds : []), CMU_CLIENT_ID]).filter(
+      (value) => String(value || "").trim().toLowerCase() === CMU_CLIENT_ID
+    );
   }
 
   function buildValidateTokenBody(token, clientId) {
@@ -14337,7 +14437,7 @@ body[data-theme="dark"]{
           continue;
         }
         const refreshed = extractTokenFromPayload(parsed);
-        if (refreshed && (!forceFresh || isTokenFresh(refreshed, TOKEN_FRESH_SKEW_MS))) {
+        if (refreshed && tokenSupportsCmCatalog(refreshed) && (!forceFresh || isTokenFresh(refreshed, TOKEN_FRESH_SKEW_MS))) {
           return refreshed;
         }
         if (parsed.valid === true && !forceFresh && tokenSupportsCmCatalog(seedToken)) {
@@ -14389,7 +14489,7 @@ body[data-theme="dark"]{
           continue;
         }
         const refreshed = extractTokenFromPayload(parsed);
-        if (!refreshed) {
+        if (!refreshed || !tokenSupportsCmCatalog(refreshed)) {
           continue;
         }
         if (forceFresh && !isTokenFresh(refreshed, TOKEN_FRESH_SKEW_MS)) {
@@ -14782,12 +14882,25 @@ body[data-theme="dark"]{
     "decision-failed",
     "decision-media-tokens",
     "users",
+    "active-users",
     "active-sessions",
     "started-sessions",
     "completed-sessions",
     "dismissed-sessions",
     "failed-attempts",
     "killed-sessions",
+    "duration-0-15",
+    "duration-15-30",
+    "duration-30-60",
+    "duration-60-120",
+    "duration-2h-4h",
+    "duration-4h-8h",
+    "duration-8h-16h",
+    "duration-16h-1d",
+    "duration-1d-3d",
+    "duration-3d-7d",
+    "duration-1w-1m",
+    "duration-over-1m",
     "bstreams-15",
     "bstreams-30",
     "bstreams-45",
@@ -14800,19 +14913,29 @@ body[data-theme="dark"]{
   const CMU_FILTER_DATE_DIMENSION_KEYS = new Set(["year", "month", "day", "hour", "minute", "second", "date", "time", "timestamp"]);
   const CMU_FILTER_BLOCKED_COLUMNS = new Set([
     "media-company",
-    "tenant",
-    "tenant-id",
-    "tenant_id",
     "v2",
     "view",
-    "activity-level",
-    "activity_level",
+  ]);
+  const CMU_NON_DIMENSION_PATH_SEGMENTS = new Set([
+    "cmu",
+    "v2",
+    "summary",
+    "concurrency",
+    "report",
+    "reports",
+    "usage",
   ]);
   const CMU_DIMENSION_LABELS = new Map([
     ["tenant", "Concurrency Monitoring tenant"],
     ["mvpd", "MVPD ID"],
     ["duration", "Session duration bucket"],
     ["occurrences", "Occurrence bucket"],
+    ["application", "Application"],
+    ["application-id", "Application ID"],
+    ["channel", "Channel"],
+    ["platform", "Platform"],
+    ["decision-type", "Decision type"],
+    ["service-provider", "Service provider"],
     ["activity-level", "Activity level bucket"],
     ["concurrency-level", "Concurrency level bucket"],
   ]);
@@ -14848,7 +14971,81 @@ body[data-theme="dark"]{
     return CMU_FILTER_METRIC_COLUMNS.has(canonical);
   }
 
-  function isCmuFilterableColumn(columnName) {
+  function addCmuPathDimensionAliases(targetSet, segment) {
+    if (!(targetSet instanceof Set)) {
+      return;
+    }
+    const normalized = normalizeCmuFilterColumnName(segment);
+    if (!normalized) {
+      return;
+    }
+    const canonical = normalized.replace(/_/g, "-");
+    targetSet.add(normalized);
+    targetSet.add(canonical);
+    if (canonical === "tenant") {
+      targetSet.add("tenant-id");
+      targetSet.add("tenant_id");
+    } else if (canonical === "application-id") {
+      targetSet.add("application_id");
+    } else if (canonical === "decision-type") {
+      targetSet.add("decision_type");
+    } else if (canonical === "service-provider") {
+      targetSet.add("service_provider");
+    } else if (canonical === "activity-level") {
+      targetSet.add("activity_level");
+    } else if (canonical === "concurrency-level") {
+      targetSet.add("concurrency_level");
+    }
+  }
+
+  function resolveCmuPathDimensionSet(href = "") {
+    const raw = String(href || "").trim();
+    if (!raw) {
+      return null;
+    }
+    let pathname = "";
+    try {
+      pathname = String(new URL(raw, CM_REPORTS_BASE_URL).pathname || "");
+    } catch {
+      pathname = String(raw || "").split("?", 1)[0] || "";
+    }
+    const segments = pathname
+      .split("/")
+      .map((segment) => {
+        const text = String(segment || "").trim();
+        if (!text) {
+          return "";
+        }
+        try {
+          return decodeURIComponent(text);
+        } catch {
+          return text;
+        }
+      })
+      .map((segment) => normalizeCmuFilterColumnName(segment))
+      .filter(Boolean);
+    if (segments.length === 0) {
+      return null;
+    }
+    const supported = new Set();
+    segments.forEach((segment) => {
+      const canonical = segment.replace(/_/g, "-");
+      if (
+        CMU_NON_DIMENSION_PATH_SEGMENTS.has(segment) ||
+        CMU_NON_DIMENSION_PATH_SEGMENTS.has(canonical) ||
+        CMU_FILTER_BLOCKED_COLUMNS.has(segment) ||
+        CMU_FILTER_BLOCKED_COLUMNS.has(canonical) ||
+        isCmuDateTimeColumn(segment) ||
+        isCmuMetricColumn(segment)
+      ) {
+        return;
+      }
+      addCmuPathDimensionAliases(supported, segment);
+    });
+    return supported.size > 0 ? supported : null;
+  }
+
+  function isCmuFilterableColumn(columnName, href = "") {
     const normalized = normalizeCmuFilterColumnName(columnName);
     if (!normalized) {
       return false;
@@ -14858,6 +15055,15 @@ body[data-theme="dark"]{
       return false;
     }
     if (isCmuDateTimeColumn(normalized) || isCmuMetricColumn(normalized)) {
+      return false;
+    }
+    const supportedDimensions = resolveCmuPathDimensionSet(href);
+    if (
+      supportedDimensions instanceof Set &&
+      supportedDimensions.size > 0 &&
+      !supportedDimensions.has(normalized) &&
+      !supportedDimensions.has(canonical)
+    ) {
       return false;
     }
     return true;
@@ -14878,8 +15084,8 @@ body[data-theme="dark"]{
     return isCmuDateTimeColumn(normalized) || isCmuMetricColumn(normalized);
   };
 
-  window.__isSupportedDimension = function cmuSupportedDimension(columnName, _href) {
-    return isCmuFilterableColumn(columnName);
+  window.__isSupportedDimension = function cmuSupportedDimension(columnName, href) {
+    return isCmuFilterableColumn(columnName, href);
   };
 
   window.__isDisplayableDimension = function cmuDisplayableDimension(columnName, href) {
@@ -14909,7 +15115,7 @@ body[data-theme="dark"]{
     if (!normalized) {
       return "";
     }
-    if (isCmuFilterableColumn(normalized)) {
+    if (isCmuFilterableColumn(normalized, href)) {
       if (CMU_DIMENSION_LABELS.has(normalized)) {
         return String(CMU_DIMENSION_LABELS.get(normalized) || "").trim();
       }
@@ -15322,25 +15528,45 @@ async function resolveClickCmuAuthContext(context, requestToken, options = {}) {
     throw new Error("CM controller is no longer active for the selected media company.");
   }
 
-  const accessToken = await ensureCmApiAccessToken({
+  let accessToken = await ensureCmApiAccessToken({
     forceRefresh: options.forceRefresh === true,
     freshLeewayMs: 60 * 1000,
   });
+  const initialClaims = parseJwtPayload(String(accessToken || "").trim()) || {};
+  const initialClientId = String(firstNonEmptyString([initialClaims.client_id, initialClaims.clientId]) || "")
+    .trim()
+    .toLowerCase();
+  if (accessToken && !isCmConsoleClientId(initialClientId)) {
+    accessToken = await ensureCmApiAccessToken({
+      forceRefresh: true,
+      freshLeewayMs: 60 * 1000,
+    });
+  }
   const normalizedToken = String(accessToken || "").trim();
   if (!normalizedToken) {
     throw new Error(
       "Unable to resolve CMU IMS token. Sign in to Adobe Pass Console, then retry clickCMU generation."
     );
   }
+  if (!tokenSupportsCmTenantCatalog(normalizedToken)) {
+    const claims = parseJwtPayload(normalizedToken) || {};
+    const detectedClientId = String(firstNonEmptyString([claims.client_id, claims.clientId]) || "unknown");
+    throw new Error(
+      `Warning: token client_id='${detectedClientId}', expected 'cm-console-ui' for CMU console tokens.`
+    );
+  }
 
   const hints = resolveCmImsTokenHints(normalizedToken);
   const claims = parseJwtPayload(normalizedToken) || {};
-  const clientIds = uniqueSorted(
-    [hints.clientId, claims.client_id, claims.clientId, ...CM_IMS_VALIDATE_CLIENT_IDS, ...CM_IMS_CHECK_CLIENT_IDS]
-      .map((value) => String(value || "").trim())
-      .filter(Boolean)
-  );
-  const userId = firstNonEmptyString([hints.userId, claims.user_id, claims.userId, state.loginData?.imsSession?.userId]);
+  const clientIds = [CM_IMS_PRIMARY_CLIENT_ID];
+  let profileUserId = "";
+  try {
+    const profilePayload = await fetchImsSessionProfile(normalizedToken);
+    profileUserId = firstNonEmptyString([profilePayload?.userId, profilePayload?.user_id, profilePayload?.sub, profilePayload?.id]);
+  } catch {
+    profileUserId = "";
+  }
+  const userId = firstNonEmptyString([profileUserId, hints.userId, claims.user_id, claims.userId, state.loginData?.imsSession?.userId]);
   const scope = firstNonEmptyString([hints.scope, claims.scope, CM_IMS_CHECK_DEFAULT_SCOPE]);
 
   const programmerLabel = firstNonEmptyString([
@@ -18795,6 +19021,11 @@ function cmGetBoundWorkspaceTabId(windowId) {
   return Number(state.cmWorkspaceTabId || 0);
 }
 
+function nextCmWorkspaceControllerStateVersion() {
+  state.cmWorkspaceControllerStateVersion = Number(state.cmWorkspaceControllerStateVersion || 0) + 1;
+  return state.cmWorkspaceControllerStateVersion;
+}
+
 function cmGetControllerStatePayload(cmState) {
   const requestorIds = state.selectedRequestorId ? [String(state.selectedRequestorId)] : [];
   const mvpdIds = state.selectedMvpdId ? [String(state.selectedMvpdId)] : [];
@@ -18810,11 +19041,14 @@ function cmGetControllerStatePayload(cmState) {
   return {
     controllerOnline: Boolean(cmState?.section?.isConnected),
     cmAvailable: true,
+    cmAvailabilityResolved: true,
+    cmContainerVisible: true,
     programmerId: String(cmState?.programmer?.programmerId || ""),
     programmerName: String(cmState?.programmer?.programmerName || ""),
     tenantScope,
     requestorIds,
     mvpdIds,
+    controllerStateVersion: nextCmWorkspaceControllerStateVersion(),
     profileHarvest:
       profileHarvest && typeof profileHarvest === "object"
         ? {
@@ -18831,18 +19065,46 @@ function cmGetControllerStatePayload(cmState) {
   };
 }
 
-function cmGetSelectedControllerStatePayload(programmer = null, services = null) {
+function hasResolvedPremiumServiceSnapshotForCm(services = null) {
+  return (
+    services &&
+    typeof services === "object" &&
+    (Object.prototype.hasOwnProperty.call(services, "cm") ||
+      Object.prototype.hasOwnProperty.call(services, "cmMvpd") ||
+      Object.prototype.hasOwnProperty.call(services, "esm") ||
+      Object.prototype.hasOwnProperty.call(services, "restV2") ||
+      Object.prototype.hasOwnProperty.call(services, "degradation"))
+  );
+}
+
+function cmGetSelectedControllerStatePayload(programmer = null, services = null, options = {}) {
   const resolvedProgrammer =
     programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
-  let resolvedServices = services;
-  if (!resolvedServices && resolvedProgrammer?.programmerId) {
-    resolvedServices = state.premiumAppsByProgrammerId.get(resolvedProgrammer.programmerId) || null;
-  }
+  // `services === null` means loading/unknown and must not fallback to cached CM service state.
+  const resolvedServices = services && typeof services === "object" ? services : null;
+  const controllerReason = String(options?.controllerReason || "").trim();
+  const hasResolvedSnapshot = hasResolvedPremiumServiceSnapshotForCm(resolvedServices);
 
   let cmAvailable = null;
-  if (resolvedServices && typeof resolvedServices === "object" && Object.prototype.hasOwnProperty.call(resolvedServices, "cm")) {
+  if (hasResolvedSnapshot && Object.prototype.hasOwnProperty.call(resolvedServices, "cm")) {
     cmAvailable = shouldShowCmService(resolvedServices.cm);
   }
+  let cmContainerVisible = null;
+  if (options?.cmContainerVisible === true) {
+    cmContainerVisible = true;
+  } else if (options?.cmContainerVisible === false) {
+    cmContainerVisible = false;
+  } else if (hasResolvedSnapshot && Object.prototype.hasOwnProperty.call(resolvedServices, "cm")) {
+    cmContainerVisible = shouldShowCmService(resolvedServices.cm);
+  }
+  if (cmContainerVisible === true) {
+    cmAvailable = true;
+  }
+  const cmAvailabilityResolved =
+    options?.cmAvailabilityResolved === true || options?.cmAvailabilityResolved === false
+      ? options.cmAvailabilityResolved === true
+      : hasResolvedSnapshot || cmContainerVisible === true || cmContainerVisible === false;
+
   const requestorIds = state.selectedRequestorId ? [String(state.selectedRequestorId)] : [];
   const mvpdIds = state.selectedMvpdId ? [String(state.selectedMvpdId)] : [];
   const profileHarvest = getCmProfileHarvestForProgrammer(resolvedProgrammer);
@@ -18850,11 +19112,14 @@ function cmGetSelectedControllerStatePayload(programmer = null, services = null)
   return {
     controllerOnline: false,
     cmAvailable,
+    cmAvailabilityResolved,
+    cmContainerVisible,
     programmerId: String(resolvedProgrammer?.programmerId || ""),
     programmerName: String(resolvedProgrammer?.programmerName || ""),
     tenantScope: getCmTenantScopeForProgrammer(resolvedProgrammer),
     requestorIds,
     mvpdIds,
+    controllerStateVersion: nextCmWorkspaceControllerStateVersion(),
     profileHarvest:
       profileHarvest && typeof profileHarvest === "object"
         ? {
@@ -18867,6 +19132,7 @@ function cmGetSelectedControllerStatePayload(programmer = null, services = null)
             ...item,
           }))
         : [],
+    controllerReason,
     updatedAt: Date.now(),
   };
 }
@@ -18889,9 +19155,9 @@ async function cmSendWorkspaceMessage(event, payload = {}, options = {}) {
   }
 }
 
-function cmBroadcastSelectedControllerState(programmer = null, services = null, targetWindowId = 0) {
+function cmBroadcastSelectedControllerState(programmer = null, services = null, targetWindowId = 0, options = {}) {
   const resolvedWindowId = Number(targetWindowId || 0) || Number(state.cmWorkspaceWindowId || 0);
-  void cmSendWorkspaceMessage("controller-state", cmGetSelectedControllerStatePayload(programmer, services), {
+  void cmSendWorkspaceMessage("controller-state", cmGetSelectedControllerStatePayload(programmer, services, options), {
     targetWindowId: resolvedWindowId,
   });
 }
@@ -19959,7 +20225,10 @@ function cmuUsagePathPartsToKey(pathParts) {
 }
 
 function cmuUsageNormalizeTreemapPathParts(pathParts) {
-  return canonicalizeCmuUsagePathParts(esmWorkspaceNormalizeEndpointSegments(pathParts));
+  return esmWorkspaceNormalizeEndpointSegments(pathParts)
+    .map((value) => normalizeCmuUsagePathSegment(value))
+    .filter(Boolean)
+    .filter((value) => value !== "cmu" && value !== "v2");
 }
 
 function cmuUsageBuildPathLookupCandidates(pathParts) {
@@ -20052,13 +20321,13 @@ function cmuUsageBuildShellHtml() {
         <div class="esm-workspace-tree-head cmu-jelly-tree-head">
           <button type="button" class="cmu-jelly-panel-toggle cmu-jelly-tree-toggle" aria-expanded="false">
             <span class="cmu-jelly-panel-toggle-icon" aria-hidden="true">▾</span>
-            <span class="esm-workspace-tree-title">CMU JellyBeans</span>
+            <span class="esm-workspace-tree-title">JellyBeans</span>
           </button>
           <button
             type="button"
             class="cmu-jelly-panel-load-all cmu-jelly-tree-load-all"
-            title="Load all visible CMU JellyBeans into CM Workspace"
-            aria-label="Load all visible CMU JellyBeans into CM Workspace"
+            title="Load all visible JellyBeans into CM Workspace"
+            aria-label="Load all visible JellyBeans into CM Workspace"
             disabled
           >
             <span class="cmu-jelly-panel-count cmu-jelly-tree-count">0</span>
@@ -20639,7 +20908,7 @@ function cmMountUsageJellyBeans(cmState, usageRecords, requestToken) {
   cmState.cmuUsageState = cmuUsageState;
   if (cmuUsageState.treeHeadElement) {
     cmuUsageState.treeHeadElement.setAttribute("aria-expanded", "false");
-    cmuUsageState.treeHeadElement.setAttribute("aria-label", "Toggle CMU JellyBeans");
+    cmuUsageState.treeHeadElement.setAttribute("aria-label", "Toggle JellyBeans");
   }
   if (cmuUsageState.treemapHeadElement) {
     cmuUsageState.treemapHeadElement.setAttribute("aria-expanded", "false");
@@ -21395,7 +21664,7 @@ function cmBuildFallbackRecordFromCard(cmState, card = null, options = {}) {
 function cmResolveApplicationDetailUrl(record, fallbackUrl = "") {
   const fallback = String(fallbackUrl || "").trim();
   const normalizedKind = String(record?.kind || "").trim().toLowerCase();
-  if (normalizedKind !== "applications") {
+  if (normalizedKind !== "applications" && normalizedKind !== "policies") {
     return fallback;
   }
   const payload = record?.payload && typeof record.payload === "object" ? record.payload : null;
@@ -21409,6 +21678,23 @@ function cmResolveApplicationDetailUrl(record, fallbackUrl = "") {
     payload?.policyOwnerId,
     payload?.policy_owner_id,
   ]);
+  if (normalizedKind === "policies") {
+    const policyId = firstNonEmptyString([
+      record?.policyId,
+      payload?.policyId,
+      payload?.policy_id,
+      payload?.policy?.id,
+      payload?.applicationPolicyId,
+      payload?.application_policy_id,
+      cmExtractPolicyIdFromDetailUrl(fallback),
+    ]);
+    if (!tenantId || !policyId) {
+      return fallback;
+    }
+    return normalizeCmUrl(
+      `${CM_CONFIG_BASE_URL}/maitai/policy/${encodeURIComponent(String(policyId || "").trim())}?orgId=${encodeURIComponent(tenantId)}`
+    );
+  }
   const applicationId = firstNonEmptyString([
     record?.applicationId,
     record?.entityId,
@@ -21419,12 +21705,6 @@ function cmResolveApplicationDetailUrl(record, fallbackUrl = "") {
     payload?.id,
   ]);
   if (applicationId && tenantId) {
-    if (cmIsApplicationDetailRequestUrl(fallback)) {
-      const fallbackApplicationId = cmExtractApplicationIdFromDetailUrl(fallback);
-      if (fallbackApplicationId && fallbackApplicationId === String(applicationId || "").trim()) {
-        return normalizeCmUrl(fallback) || fallback;
-      }
-    }
     return normalizeCmUrl(
       `${CM_CONFIG_BASE_URL}/maitai/applications/${encodeURIComponent(String(applicationId || "").trim())}?orgId=${encodeURIComponent(tenantId)}`
     );
@@ -21488,12 +21768,7 @@ function cmApplyUsageExampleRequestContext(urlValue, record = null, cmState = nu
     parsed.searchParams.set("end", String(timeWindow?.end || clickEsmIso(new Date())));
     const tenantScope = cmResolveUsageTenantScope(cmState, record);
     if (tenantScope) {
-      const existingTenantScope = resolveCmUsageTenantScopeValue(
-        parsed.searchParams.get("tenant"),
-        parsed.searchParams.get("tenant_id"),
-        parsed.searchParams.get("tenant-id")
-      );
-      applyCmUsageTenantScopeToSearchParams(parsed.searchParams, existingTenantScope || tenantScope);
+      applyCmUsageTenantScopeToSearchParams(parsed.searchParams, tenantScope);
     }
     if (hasMvpdDimension) {
       parsed.searchParams.delete("mvpd");
@@ -21526,7 +21801,19 @@ function cmScopeUsageRequestUrl(urlValue, cmState, record = null) {
     const normalizedUsageUrl = ensureCmUsageEndpointFormat(parsed.toString(), {
       tenantScope: cmResolveUsageTenantScope(cmState, record),
     });
-    return normalizedUsageUrl;
+    const normalizedParsed = new URL(normalizedUsageUrl, CM_REPORTS_BASE_URL);
+    const pathParts = cmuUsageExtractPathParts(normalizedParsed.pathname);
+    const hasMvpdDimension = Array.isArray(pathParts) && pathParts.includes("mvpd");
+    const selectedMvpdId = String(
+      firstNonEmptyString([state.selectedMvpdId, cmState?.cmService?.mvpdId, cmState?.cmService?.mvpd])
+    ).trim();
+    normalizedParsed.searchParams.delete("mvpd");
+    normalizedParsed.searchParams.delete("mvpd_id");
+    normalizedParsed.searchParams.delete("mvpd-id");
+    if (hasMvpdDimension && selectedMvpdId) {
+      normalizedParsed.searchParams.set("mvpd", selectedMvpdId);
+    }
+    return normalizedParsed.toString();
   } catch {
     return raw;
   }
@@ -21942,15 +22229,15 @@ async function handleCmWorkspaceAction(message, sender = null) {
       }
       const fallbackRecord = cmBuildFallbackRecordFromCard(cmState, card, {
         tenantIdCandidates: [
-          String(card?.tenantId || "").trim(),
           String(cmState?.tenantScope || "").trim(),
           String(cmState?.programmer?.programmerId || "").trim(),
+          String(card?.tenantId || "").trim(),
         ],
         tenantNameCandidates: [
-          String(card?.tenantName || "").trim(),
-          String(card?.tenantId || "").trim(),
           String(cmState?.programmer?.programmerName || "").trim(),
           String(cmState?.programmer?.programmerId || "").trim(),
+          String(card?.tenantName || "").trim(),
+          String(card?.tenantId || "").trim(),
           "CM",
         ],
       });
@@ -22022,15 +22309,15 @@ async function handleCmWorkspaceAction(message, sender = null) {
     const fallbackUrl = String(card?.requestUrl || card?.endpointUrl || "").trim();
     const fallbackRecord = cmBuildFallbackRecordFromCard(cmState, card, {
       tenantIdCandidates: [
-        String(card?.tenantId || "").trim(),
         String(cmState?.tenantScope || "").trim(),
         String(cmState?.programmer?.programmerId || "").trim(),
+        String(card?.tenantId || "").trim(),
       ],
       tenantNameCandidates: [
-        String(card?.tenantName || "").trim(),
-        String(card?.tenantId || "").trim(),
         String(cmState?.programmer?.programmerName || "").trim(),
         String(cmState?.programmer?.programmerId || "").trim(),
+        String(card?.tenantName || "").trim(),
+        String(card?.tenantId || "").trim(),
         "CM",
       ],
     });
@@ -22051,17 +22338,68 @@ async function handleCmWorkspaceAction(message, sender = null) {
 
   if (action === "rerun-all") {
     const cards = Array.isArray(message?.cards) ? message.cards : [];
+    const reason = String(message?.reason || "").trim().toLowerCase();
+    const preserveCardRequestContext = reason !== "manual-reload";
     const targetWindowId = senderWindowId || Number(cmState.controllerWindowId || 0);
     void cmSendWorkspaceMessage(
       "batch-start",
       {
         total: cards.length,
+        reason,
         startedAt: Date.now(),
       },
       { targetWindowId }
     );
     for (const card of cards) {
-      const record = cmFindRecordByCard(cmState, card);
+      let record = cmFindRecordByCard(cmState, card);
+      if (!record && card?.operation && typeof card.operation === "object") {
+        record = {
+          cardId: String(card?.cardId || generateRequestId()),
+          kind: "cmv2-op",
+          title: String(card?.operation?.label || "CM V2 Operation"),
+          subtitle: `${String(card?.operation?.method || "GET").toUpperCase()} ${String(card?.operation?.pathTemplate || "").trim()}`,
+          endpointUrl: String(card?.endpointUrl || ""),
+          requestUrl: String(card?.requestUrl || card?.endpointUrl || ""),
+          payload: {
+            operation: card.operation,
+            formDefaults: card?.formValues && typeof card.formValues === "object" ? { ...card.formValues } : {},
+          },
+          columns: Array.isArray(card?.columns) ? card.columns.map((value) => String(value || "")).filter(Boolean) : [],
+        };
+      }
+      if (!record) {
+        const fallbackEndpointUrl = String(card?.endpointUrl || "").trim();
+        const fallbackRequestUrl = preserveCardRequestContext
+          ? String(card?.requestUrl || fallbackEndpointUrl || "").trim()
+          : String(fallbackEndpointUrl || card?.baseRequestUrl || card?.requestUrl || "").trim();
+        const fallbackBaseRequestUrl = preserveCardRequestContext
+          ? String(card?.baseRequestUrl || fallbackEndpointUrl || fallbackRequestUrl || "").trim()
+          : String(fallbackEndpointUrl || card?.baseRequestUrl || card?.requestUrl || "").trim();
+        const fallbackCardContext = {
+          ...(card && typeof card === "object" ? card : {}),
+          endpointUrl: fallbackEndpointUrl || fallbackBaseRequestUrl || fallbackRequestUrl,
+          requestUrl: fallbackRequestUrl || fallbackBaseRequestUrl || fallbackEndpointUrl,
+          baseRequestUrl: fallbackBaseRequestUrl || fallbackRequestUrl || fallbackEndpointUrl,
+        };
+        record = cmBuildFallbackRecordFromCard(cmState, fallbackCardContext, {
+          tenantIdCandidates: [
+            String(cmState?.tenantScope || "").trim(),
+            String(cmState?.programmer?.programmerId || "").trim(),
+            String(card?.tenantId || "").trim(),
+          ],
+          tenantNameCandidates: [
+            String(cmState?.programmer?.programmerName || "").trim(),
+            String(cmState?.programmer?.programmerId || "").trim(),
+            String(card?.tenantName || "").trim(),
+            String(card?.tenantId || "").trim(),
+            "CM",
+          ],
+        });
+        if (record && !String(record.requestUrl || record.endpointUrl || "").trim()) {
+          record.requestUrl = fallbackRequestUrl || fallbackBaseRequestUrl;
+          record.endpointUrl = fallbackBaseRequestUrl || fallbackRequestUrl;
+        }
+      }
       if (!record) {
         continue;
       }
@@ -22075,13 +22413,17 @@ async function handleCmWorkspaceAction(message, sender = null) {
         });
         continue;
       }
+      const requestUrlOverride = preserveCardRequestContext ? String(card?.requestUrl || "").trim() : "";
+      const baseRequestUrl = preserveCardRequestContext
+        ? String(card?.baseRequestUrl || card?.requestUrl || record.requestUrl || record.endpointUrl || "").trim()
+        : String(record.requestUrl || record.endpointUrl || card?.baseRequestUrl || card?.requestUrl || "").trim();
       await cmRunRecordToWorkspace(cmState, record, requestToken, {
         emitStart: true,
         forceRefetch: true,
         cardId: String(card?.cardId || record.cardId || generateRequestId()),
         targetWindowId,
-        requestUrlOverride: String(card?.requestUrl || "").trim(),
-        baseRequestUrl: String(card?.baseRequestUrl || card?.requestUrl || record.requestUrl || record.endpointUrl || "").trim(),
+        requestUrlOverride,
+        baseRequestUrl,
         localColumnFilters: card?.localColumnFilters && typeof card.localColumnFilters === "object" ? card.localColumnFilters : {},
       });
     }
@@ -22089,6 +22431,7 @@ async function handleCmWorkspaceAction(message, sender = null) {
       "batch-end",
       {
         total: cards.length,
+        reason,
         completedAt: Date.now(),
       },
       { targetWindowId }
@@ -27133,7 +27476,6 @@ async function loadCmService(programmer, cmService, section, contentElement, req
   }
 
   contentElement.innerHTML = '<div class="loading">Loading Concurrency Monitoring...</div>';
-
   try {
     const controllerWindowId = await esmWorkspaceGetCurrentWindowId();
     const profileHarvest = getCmProfileHarvestForProgrammer(programmer);
@@ -27170,53 +27512,19 @@ async function loadCmService(programmer, cmService, section, contentElement, req
     const correlationRecords = cmBuildRestV2CorrelationRecords(programmer);
     const credentialHints = cmExtractCredentialHintsFromBundles(bundles);
     const credentialRecords = cmBuildCredentialHintRecords(credentialHints, programmer);
-    const liveUsageRecords = bundleRecords.filter((record) => String(record?.kind || "").trim().toLowerCase() === "usage");
-    let usageExampleRecords = [];
-    if (!isMvpdService) {
-      try {
-        const usageExamplesCatalog = await loadCmUsageReportExamplesCatalog();
-        usageExampleRecords = cmBuildUsageReportExampleWorkspaceRecords(usageExamplesCatalog, {
-          programmer,
-          tenantScope,
-          tenantId: matchedTenants?.[0]?.tenantId,
-          tenantName: matchedTenants?.[0]?.tenantName,
-          mvpdId: String(state.selectedMvpdId || "").trim(),
-          usageRecords: liveUsageRecords,
-        });
-      } catch (error) {
-        log("Unable to load CM usage report examples catalog.", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    const records = [...correlationRecords, ...bundleRecords, ...credentialRecords, ...usageExampleRecords];
+    const records = [...correlationRecords, ...bundleRecords, ...credentialRecords];
     const correlationCardRecords = records.filter((record) => record.kind === "correlation");
     const tenantRecords = records.filter((record) => record.kind === "tenant");
     const applicationRecords = records.filter((record) => record.kind === "applications");
     const credentialHintRecords = records.filter((record) => record.kind === "credential");
     const policyRecords = records.filter((record) => record.kind === "policies");
-    const usageRecords = records.filter((record) => record.kind === "usage" && record?.payload?.usageExample !== true);
-    const usageExampleCardRecords = records.filter((record) => record.kind === "usage" && record?.payload?.usageExample === true);
+    const usageRecords = records.filter((record) => record.kind === "usage");
     const groupDefinitions = [
       {
         key: "correlation",
         label: "MVPD Login History",
         records: correlationCardRecords,
       },
-      {
-        key: "usage",
-        label: "CM Usage (CMU)",
-        records: usageRecords,
-      },
-      ...(!isMvpdService && usageExampleCardRecords.length > 0
-        ? [
-            {
-              key: "usage-examples",
-              label: "CM Usage Reports Examples",
-              records: usageExampleCardRecords,
-            },
-          ]
-        : []),
       {
         key: "tenants",
         label: "CM Tenants",
@@ -27372,31 +27680,16 @@ async function loadCmService(programmer, cmService, section, contentElement, req
       });
     });
 
-    const cmSetGroupCollapsed = (groupElement, collapsed) => {
-      if (!groupElement) {
+    contentElement.querySelectorAll(".cm-group").forEach((groupElement) => {
+      const toggleButton = groupElement.querySelector(".cm-group-toggle");
+      const bodyElement = groupElement.querySelector(".cm-group-body");
+      if (!toggleButton || !bodyElement) {
         return;
       }
-      const isCollapsed = Boolean(collapsed);
-      groupElement.classList.toggle("is-collapsed", isCollapsed);
-      const toggleButton = groupElement.querySelector(".cm-group-toggle");
-      if (toggleButton) {
-        toggleButton.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
-      }
-    };
-
-    contentElement.querySelectorAll(".cm-group").forEach((groupElement) => {
-      cmSetGroupCollapsed(groupElement, true);
-    });
-
-    contentElement.querySelectorAll(".cm-group-toggle").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const groupElement = button.closest(".cm-group");
-        if (!groupElement) {
-          return;
-        }
-        cmSetGroupCollapsed(groupElement, !groupElement.classList.contains("is-collapsed"));
+      wireCollapsibleSection(toggleButton, bodyElement, true, (collapsed) => {
+        groupElement.classList.toggle("is-collapsed", Boolean(collapsed));
       });
+      groupElement.classList.toggle("is-collapsed", true);
     });
 
     contentElement.querySelectorAll(".cm-group-load-all").forEach((button) => {
@@ -29855,7 +30148,7 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       : serviceKey === "degradation"
         ? '<div class="loading">Loading DEGRADATION...</div>'
       : serviceKey === "cm" || serviceKey === "cmMvpd"
-        ? '<div class="loading">Loading Concurrency Monitoring...</div>'
+        ? ""
         : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
   const sectionLabel = title;
   section.innerHTML = `
@@ -29877,10 +30170,8 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   const container = section.querySelector(".service-box-container");
   const contentElement = section.querySelector(".service-content");
   const initialCollapsed = getPremiumSectionCollapsed(programmer?.programmerId, serviceKey);
-  section.classList.toggle("service-open", !initialCollapsed);
   wireCollapsibleSection(toggleButton, container, initialCollapsed, (collapsed) => {
     setPremiumSectionCollapsed(programmer?.programmerId, serviceKey, collapsed);
-    section.classList.toggle("service-open", !collapsed);
     if (!collapsed && typeof section.__underparRunAutoRefreshCheck === "function") {
       void section.__underparRunAutoRefreshCheck();
     }
@@ -29891,7 +30182,10 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       void section.__underparRefreshDegradation();
     }
     if (!collapsed && (serviceKey === "cm" || serviceKey === "cmMvpd") && typeof section.__underparRefreshCm === "function") {
-      void section.__underparRefreshCm();
+      const hasLoadedCmState = Boolean(section.__underparCmState);
+      if (!hasLoadedCmState) {
+        void section.__underparRefreshCm();
+      }
     }
   });
 
@@ -29909,12 +30203,20 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     void section.__underparRefreshDegradation();
   } else if (serviceKey === "cm" || serviceKey === "cmMvpd") {
     section.__underparRefreshCm = () => {
+      if (section.__underparCmLoadPending) {
+        return Promise.resolve();
+      }
+      section.__underparCmLoadPending = true;
       const requestToken = state.premiumPanelRequestToken;
       return loadCmService(programmer, appInfo, section, contentElement, requestToken, {
         serviceType: serviceKey,
+      }).finally(() => {
+        section.__underparCmLoadPending = false;
       });
     };
-    void section.__underparRefreshCm();
+    if (!initialCollapsed) {
+      void section.__underparRefreshCm();
+    }
   }
 
   if (serviceKey === "restV2") {
@@ -30000,7 +30302,11 @@ function renderPremiumServicesLoading(programmer, options = {}) {
     esmAvailabilityResolved: false,
     esmContainerVisible: null,
   });
-  cmBroadcastSelectedControllerState(programmer, null);
+  cmBroadcastSelectedControllerState(programmer, null, 0, {
+    controllerReason,
+    cmAvailabilityResolved: false,
+    cmContainerVisible: null,
+  });
   mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
   degradationWorkspaceBroadcastControllerState(programmer, null);
 
@@ -30021,7 +30327,11 @@ function renderPremiumServicesError(error, options = {}) {
     esmAvailabilityResolved: false,
     esmContainerVisible: null,
   });
-  cmBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
+  cmBroadcastSelectedControllerState(resolveSelectedProgrammer(), null, 0, {
+    controllerReason,
+    cmAvailabilityResolved: false,
+    cmContainerVisible: null,
+  });
   mvpdWorkspaceBroadcastSelectedControllerState(resolveSelectedProgrammer(), null);
   degradationWorkspaceBroadcastControllerState(resolveSelectedProgrammer(), null);
   const reason = error instanceof Error ? error.message : String(error);
@@ -30050,7 +30360,11 @@ function renderPremiumServices(services, programmer = null, options = {}) {
       esmAvailabilityResolved: false,
       esmContainerVisible: null,
     });
-    cmBroadcastSelectedControllerState(programmer, null);
+    cmBroadcastSelectedControllerState(programmer, null, 0, {
+      controllerReason,
+      cmAvailabilityResolved: false,
+      cmContainerVisible: null,
+    });
     mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
     degradationWorkspaceBroadcastControllerState(programmer, null);
     bobtoolsWorkspaceBroadcastControllerState(programmer, {
@@ -30079,10 +30393,6 @@ function renderPremiumServices(services, programmer = null, options = {}) {
       '<p class="metadata-empty">No premium scoped applications loaded yet.</p>';
     return;
   }
-  cmBroadcastSelectedControllerState(programmer, services);
-  mvpdWorkspaceBroadcastSelectedControllerState(programmer, services);
-  degradationWorkspaceBroadcastControllerState(programmer, services);
-
   const availableKeys = PREMIUM_SERVICE_DISPLAY_ORDER.filter((serviceKey) => {
     if (serviceKey === "esmWorkspace") {
       return hasEsmScopedApp(services);
@@ -30092,6 +30402,14 @@ function renderPremiumServices(services, programmer = null, options = {}) {
     }
     return Boolean(services?.[serviceKey]);
   });
+  const hasCmContainer = availableKeys.includes("cm") || availableKeys.includes("cmMvpd");
+  cmBroadcastSelectedControllerState(programmer, services, 0, {
+    controllerReason,
+    cmAvailabilityResolved: true,
+    cmContainerVisible: hasCmContainer,
+  });
+  mvpdWorkspaceBroadcastSelectedControllerState(programmer, services);
+  degradationWorkspaceBroadcastControllerState(programmer, services);
   const hasEsmContainer = availableKeys.includes("esmWorkspace");
   esmWorkspaceBroadcastSelectedControllerState(programmer, services, 0, {
     controllerReason,
@@ -30140,11 +30458,14 @@ function resetWorkflowForLoggedOut() {
   state.cmConsoleBootstrapPromise = null;
   state.cmAuthBootstrapPromise = null;
   state.cmAuthBootstrapLastAttemptAt = 0;
+  state.cmConsoleTokenConsoleEmitKey = "";
+  state.cmLastHydratedAccessToken = "";
   state.cmTenantBundleByTenantKey.clear();
   state.cmTenantBundlePromiseByTenantKey.clear();
   state.cmWorkspaceTabId = 0;
   state.cmWorkspaceWindowId = 0;
   state.cmWorkspaceTabIdByWindowId.clear();
+  state.cmWorkspaceControllerStateVersion = 0;
   state.mvpdWorkspaceTabId = 0;
   state.mvpdWorkspaceWindowId = 0;
   state.mvpdWorkspaceTabIdByWindowId.clear();
@@ -30205,10 +30526,13 @@ function resetWorkflowForLoggedOut() {
   void cmSendWorkspaceMessage("controller-state", {
     controllerOnline: false,
     cmAvailable: null,
+    cmAvailabilityResolved: false,
+    cmContainerVisible: null,
     programmerId: "",
     programmerName: "",
     requestorIds: [],
     mvpdIds: [],
+    controllerStateVersion: nextCmWorkspaceControllerStateVersion(),
     profileHarvest: null,
     profileHarvestList: [],
     updatedAt: Date.now(),
@@ -32913,6 +33237,23 @@ function isAvatarUiSafeUrl(url = "") {
   if (!normalized) {
     return false;
   }
+  if (/^https:\/\//i.test(normalized)) {
+    try {
+      const parsed = new URL(normalized);
+      const host = String(parsed.hostname || "").trim().toLowerCase();
+      const path = String(parsed.pathname || "");
+      if (
+        ((host === "pps.services.adobe.com" || host.endsWith(".pps.services.adobe.com")) &&
+          /\/api\/profile\/[^/]+\/image(\/|$)/i.test(path)) ||
+        ((host === "ims-na1.adobelogin.com" || host.endsWith(".adobelogin.com")) &&
+          /\/ims\/avatar\/download\//i.test(path))
+      ) {
+        return true;
+      }
+    } catch {
+      return false;
+    }
+  }
   return (
     normalized.startsWith("data:image/") ||
     normalized.startsWith("blob:") ||
@@ -33245,6 +33586,7 @@ function buildAvatarMenuEntries(loginData) {
       key: label,
       value: normalizedValue,
       multiline: options.multiline === true,
+      copyValue: String(options.copyValue || "").trim(),
     });
   };
 
@@ -33252,6 +33594,18 @@ function buildAvatarMenuEntries(loginData) {
   pushEntry("Email", getProfileEmail(profile));
   pushEntry("Organization", getOrgDisplayName(loginData));
   pushEntry("Organization ID", loginData?.adobePassOrg?.orgId);
+  const cmConsoleAccessToken = getPreferredCmAccessTokenCandidate();
+  const cmConsoleClaims = parseJwtPayload(cmConsoleAccessToken) || {};
+  const cmConsoleClientId = String(firstNonEmptyString([cmConsoleClaims.client_id, cmConsoleClaims.clientId]) || "")
+    .trim()
+    .toLowerCase();
+  const hasCmConsoleToken = Boolean(cmConsoleAccessToken && isCmConsoleClientId(cmConsoleClientId));
+  if (hasCmConsoleToken) {
+    pushEntry("cm-console-ui access token", cmConsoleAccessToken, {
+      multiline: true,
+      copyValue: cmConsoleAccessToken,
+    });
+  }
   pushEntry("Profile Image URL", profileImageLabel);
   const allProfileImageCandidates = collectProfileImageCandidatesForMenu(profile);
   const allProfileImageLines =
@@ -34525,6 +34879,9 @@ function renderAvatarMenu() {
     for (const entry of entries) {
       const row = document.createElement("div");
       row.className = "avatar-menu-row";
+      if (entry.copyValue) {
+        row.classList.add("avatar-menu-row-copyable");
+      }
 
       const key = document.createElement("span");
       key.className = "avatar-menu-key";
@@ -34539,6 +34896,38 @@ function renderAvatarMenu() {
 
       row.appendChild(key);
       row.appendChild(value);
+      if (entry.copyValue) {
+        const copyButton = document.createElement("button");
+        copyButton.type = "button";
+        copyButton.className = "avatar-menu-copy-btn";
+        copyButton.textContent = "Copy";
+        const copyLabel = `Copy ${entry.key}`;
+        copyButton.title = copyLabel;
+        copyButton.setAttribute("aria-label", copyLabel);
+        copyButton.dataset.copyValue = String(entry.copyValue || "").trim();
+        copyButton.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const copyValue = String(copyButton.dataset.copyValue || "").trim();
+          if (!copyValue) {
+            return;
+          }
+          copyButton.disabled = true;
+          const result = await copyTextToClipboard(copyValue);
+          copyButton.disabled = false;
+          if (!result?.ok) {
+            setStatus(result?.error || `Unable to copy ${entry.key}.`, "error");
+            return;
+          }
+          copyButton.classList.add("copied");
+          copyButton.textContent = "Copied";
+          window.setTimeout(() => {
+            copyButton.classList.remove("copied");
+            copyButton.textContent = "Copy";
+          }, 1400);
+        });
+        row.appendChild(copyButton);
+      }
       els.avatarMenuDetails.appendChild(row);
     }
   }
@@ -34839,6 +35228,10 @@ async function loadStoredLoginData() {
     await chrome.storage.local.remove(STORAGE_KEY);
     return null;
   }
+  if (tokenSupportsCmTenantCatalog(accessToken)) {
+    await chrome.storage.local.remove(STORAGE_KEY);
+    return null;
+  }
 
   const normalizedProfile = resolveLoginProfile(loginData);
   const tokenSnapshot = deriveImsSessionSnapshotFromToken(accessToken);
@@ -34855,6 +35248,22 @@ async function loadStoredLoginData() {
   if (imsSession && (!coercePositiveNumber(imsSession.expiresAt) || Math.abs(coercePositiveNumber(imsSession.expiresAt) - expiresAt) > 2 * 60 * 1000)) {
     imsSession.expiresAt = expiresAt;
   }
+  const storedCmConsoleToken = normalizeBearerTokenValue(firstNonEmptyString([loginData?.cmConsoleAccessToken]));
+  const validStoredCmConsoleToken = tokenSupportsCmTenantCatalog(storedCmConsoleToken) ? storedCmConsoleToken : "";
+  const cmConsoleTokenSnapshot = validStoredCmConsoleToken
+    ? deriveImsSessionSnapshotFromToken(validStoredCmConsoleToken)
+    : null;
+  const cmConsoleExpiresAt = validStoredCmConsoleToken
+    ? resolveStoredSessionExpiresAt({ expiresAt: loginData?.cmConsoleExpiresAt }, cmConsoleTokenSnapshot)
+    : 0;
+  const cmConsoleImsSession = validStoredCmConsoleToken
+    ? mergeImsSessionSnapshots(
+        cmConsoleTokenSnapshot,
+        loginData?.cmConsoleImsSession && typeof loginData.cmConsoleImsSession === "object"
+          ? loginData.cmConsoleImsSession
+          : null
+      )
+    : null;
   return {
     ...loginData,
     accessToken,
@@ -34863,6 +35272,10 @@ async function loadStoredLoginData() {
     scope: compactStorageString(firstNonEmptyString([loginData?.scope]), 2048),
     idToken: compactStorageString(firstNonEmptyString([loginData?.idToken]), 4096),
     refreshToken: compactStorageString(firstNonEmptyString([loginData?.refreshToken]), 4096),
+    cmConsoleAccessToken: cmConsoleExpiresAt > Date.now() ? validStoredCmConsoleToken : "",
+    cmConsoleExpiresAt: cmConsoleExpiresAt > Date.now() ? cmConsoleExpiresAt : 0,
+    cmConsoleScope: compactStorageString(firstNonEmptyString([loginData?.cmConsoleScope]), 2048),
+    cmConsoleImsSession,
     imsSession,
     profile: normalizedProfile,
     imageUrl: resolveLoginImageUrl({
@@ -35088,6 +35501,10 @@ function buildStoredLoginData(loginData, minimal = false) {
     scope: compactStorageString(firstNonEmptyString([loginData?.scope, imsSession?.scope]), 2048),
     idToken: compactStorageString(firstNonEmptyString([loginData?.idToken]), 4096),
     refreshToken: compactStorageString(firstNonEmptyString([loginData?.refreshToken]), 4096),
+    cmConsoleAccessToken: compactStorageString(firstNonEmptyString([loginData?.cmConsoleAccessToken]), 4096),
+    cmConsoleExpiresAt: Number(loginData?.cmConsoleExpiresAt || 0),
+    cmConsoleScope: compactStorageString(firstNonEmptyString([loginData?.cmConsoleScope]), 2048),
+    cmConsoleImsSession: compactImsSessionForStorage(loginData?.cmConsoleImsSession),
     imageUrl: compactStorageAvatarUrl(
       firstNonEmptyString([
         loginData?.imageUrl,
@@ -35178,6 +35595,10 @@ async function saveLoginData(loginData) {
 
   try {
     await chrome.storage.local.set({ [STORAGE_KEY]: normalized });
+    emitCmConsoleTokenForTesting(
+      firstNonEmptyString([normalized.cmConsoleAccessToken, normalized.accessToken]),
+      "save-login-data"
+    );
     return true;
   } catch (error) {
     if (!isStorageQuotaError(error)) {
@@ -35189,6 +35610,10 @@ async function saveLoginData(loginData) {
     if (removedDebugKeys > 0) {
       try {
         await chrome.storage.local.set({ [STORAGE_KEY]: normalized });
+        emitCmConsoleTokenForTesting(
+          firstNonEmptyString([normalized.cmConsoleAccessToken, normalized.accessToken]),
+          "save-login-data-retry"
+        );
         log("Recovered storage quota by clearing persisted UP debug flow keys.", { removedDebugKeys });
         return true;
       } catch {
@@ -35203,6 +35628,10 @@ async function saveLoginData(loginData) {
 
     try {
       await chrome.storage.local.set({ [STORAGE_KEY]: minimal });
+      emitCmConsoleTokenForTesting(
+        firstNonEmptyString([minimal.cmConsoleAccessToken, minimal.accessToken]),
+        "save-login-data-minimal"
+      );
       log("Stored minimal session payload after quota pressure.", { removedDebugKeys });
       return true;
     } catch (retryError) {
@@ -35711,6 +36140,8 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   }
 
   state.loginData = resolvedLoginData;
+  state.cmLastHydratedAccessToken = normalizeBearerTokenValue(firstNonEmptyString([resolvedLoginData.cmConsoleAccessToken || ""]));
+  state.cmConsoleTokenConsoleEmitKey = "";
   writePersistedAvatarCandidate(resolvedLoginData, {
     sourceUrl: resolvedLoginData.imageUrl || "",
     resolvedUrl: resolvedLoginData.imageUrl || "",
@@ -35726,6 +36157,7 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   await saveLoginData(resolvedLoginData);
   scheduleNoTouchRefresh();
   render();
+  queueCmConsoleAutoHydration(`session-activated:${source}`);
   log(`Session activated (${source})`, {
     expiresAt: resolvedLoginData.expiresAt,
     org: resolvedLoginData.adobePassOrg,
@@ -35767,15 +36199,11 @@ async function refreshSessionNoTouch() {
 
 async function attemptSilentBootstrapLogin() {
   const silentVariants = [
-    {},
     {
       client_id: EXPERIENCE_CLOUD_SSO_CLIENT_ID,
       profile_filter: EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER,
     },
-    {
-      client_id: "cm-console-ui",
-      profile_filter: EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER,
-    },
+    {},
     {
       client_id: "AdobePass1",
     },
@@ -36044,7 +36472,11 @@ async function refreshProgrammerPanels(options = {}) {
     return;
   }
   esmWorkspaceBroadcastSelectedControllerState(programmer, null, 0, { controllerReason });
-  cmBroadcastSelectedControllerState(programmer, null);
+  cmBroadcastSelectedControllerState(programmer, null, 0, {
+    controllerReason,
+    cmAvailabilityResolved: false,
+    cmContainerVisible: null,
+  });
   mvpdWorkspaceBroadcastSelectedControllerState(programmer, null);
 
   const cachedServices = state.premiumAppsByProgrammerId.get(programmer.programmerId) || null;
@@ -39508,6 +39940,70 @@ function tokenizeScopeSet(scopeValue = "") {
     .filter(Boolean);
 }
 
+function isCmConsoleClientId(value = "") {
+  return String(value || "").trim().toLowerCase() === CM_IMS_PRIMARY_CLIENT_ID;
+}
+
+function isExperienceCloudConsoleClientId(value = "") {
+  return String(value || "").trim().toLowerCase() === EXPERIENCE_CLOUD_SSO_CLIENT_ID;
+}
+
+function tokenSupportsExperienceCloudConsole(accessToken = "") {
+  const token = normalizeBearerTokenValue(accessToken);
+  if (!token || !isProbablyJwt(token)) {
+    return false;
+  }
+
+  const claims = parseJwtPayload(token) || {};
+  const clientId = String(firstNonEmptyString([claims.client_id, claims.clientId]) || "")
+    .trim()
+    .toLowerCase();
+  return isExperienceCloudConsoleClientId(clientId);
+}
+
+function getPreferredPrimaryImsAccessTokenCandidate() {
+  const token = normalizeBearerTokenValue(firstNonEmptyString([state.loginData?.accessToken || ""]));
+  if (!token || tokenSupportsCmTenantCatalog(token)) {
+    return "";
+  }
+  return token;
+}
+
+function getPreferredCmAccessTokenCandidate() {
+  return normalizeBearerTokenValue(firstNonEmptyString([state.cmLastHydratedAccessToken || "", state.loginData?.cmConsoleAccessToken || ""]));
+}
+
+function emitCmConsoleTokenForTesting(accessToken = "", source = "") {
+  const token = normalizeBearerTokenValue(accessToken);
+  if (!token || !isProbablyJwt(token)) {
+    return false;
+  }
+
+  const claims = parseJwtPayload(token) || {};
+  const clientId = String(firstNonEmptyString([claims.client_id, claims.clientId]) || "")
+    .trim()
+    .toLowerCase();
+  if (!isCmConsoleClientId(clientId)) {
+    return false;
+  }
+  state.cmLastHydratedAccessToken = token;
+
+  const emitKey = firstNonEmptyString([String(claims.id || ""), String(claims.sid || ""), token.slice(-36)]);
+  if (emitKey && state.cmConsoleTokenConsoleEmitKey === emitKey) {
+    return true;
+  }
+  state.cmConsoleTokenConsoleEmitKey = emitKey || token.slice(-36);
+
+  // Explicit plain log requested for shell copy/paste testing.
+  console.log(`cm-console-ui token = ${token}`);
+  log("CM token emitted for testing", {
+    source: String(source || "unknown"),
+    clientId: CM_IMS_PRIMARY_CLIENT_ID,
+    tokenId: String(firstNonEmptyString([claims.id, claims.sid]) || ""),
+  });
+  return true;
+}
+
 function tokenSupportsCmTenantCatalog(accessToken = "") {
   const token = normalizeBearerTokenValue(accessToken);
   if (!token || !isProbablyJwt(token)) {
@@ -39518,31 +40014,52 @@ function tokenSupportsCmTenantCatalog(accessToken = "") {
   const clientId = String(firstNonEmptyString([claims.client_id, claims.clientId]) || "")
     .trim()
     .toLowerCase();
-  if (clientId === "cm-console-ui") {
-    return true;
-  }
-
-  const scopes = new Set(tokenizeScopeSet(firstNonEmptyString([claims.scope])));
-  return scopes.has("read_organizations");
+  return isCmConsoleClientId(clientId);
 }
 
-function resolveCmImsTokenHints(seedToken = "") {
-  const tokenClaims = parseJwtPayload(seedToken) || parseJwtPayload(state.loginData?.accessToken || "") || {};
+function collectCmImsUserIdCandidates(seedToken = "") {
+  const seedClaims = parseJwtPayload(seedToken) || {};
+  const primaryClaims = parseJwtPayload(getPreferredPrimaryImsAccessTokenCandidate()) || {};
   const profile = resolveLoginProfile(state.loginData) || {};
-  const userId = firstNonEmptyString([
-    tokenClaims.user_id,
-    tokenClaims.userId,
+  const orderedCandidates = [
     state.loginData?.imsSession?.userId,
     state.loginData?.sessionKeys?.userId,
-    state.loginData?.adobePassOrg?.userId,
     profile?.userId,
     profile?.user_id,
     profile?.sub,
     profile?.id,
-  ]);
+    primaryClaims.user_id,
+    primaryClaims.userId,
+    seedClaims.user_id,
+    seedClaims.userId,
+    state.loginData?.cmConsoleImsSession?.userId,
+    state.loginData?.adobePassOrg?.userId,
+  ];
+  const output = [];
+  const seen = new Set();
+  orderedCandidates.forEach((value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) {
+      return;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    output.push(normalized);
+  });
+  return output;
+}
+
+function resolveCmImsTokenHints(seedToken = "") {
+  const tokenClaims = parseJwtPayload(seedToken) || parseJwtPayload(getPreferredPrimaryImsAccessTokenCandidate()) || {};
+  const userIdCandidates = collectCmImsUserIdCandidates(seedToken);
+  const userId = String(userIdCandidates[0] || "").trim();
   return {
     clientId: firstNonEmptyString([tokenClaims.client_id, tokenClaims.clientId]),
     userId,
+    userIdCandidates,
     scope: firstNonEmptyString([tokenClaims.scope]),
   };
 }
@@ -39566,6 +40083,108 @@ function buildCmImsCheckUrl(config = {}) {
   return url.toString();
 }
 
+function buildExperienceCloudEarlyTokenFormBody() {
+  const form = new URLSearchParams();
+  form.set("client_id", EXPERIENCE_CLOUD_SSO_CLIENT_ID);
+  form.set("scope", EXPERIENCE_CLOUD_EARLY_TOKEN_SCOPE);
+  form.set("filter", EXPERIENCE_CLOUD_EARLY_TOKEN_FILTER);
+  return form.toString();
+}
+
+async function requestExperienceCloudConsoleToken(options = {}) {
+  const requireFresh = options.requireFresh === true;
+  const currentPrimaryToken = getPreferredPrimaryImsAccessTokenCandidate();
+  if (currentPrimaryToken && tokenSupportsExperienceCloudConsole(currentPrimaryToken)) {
+    if (!requireFresh || isAccessTokenFreshEnough(currentPrimaryToken, CM_IMS_FORCE_REFRESH_SKEW_MS)) {
+      return {
+        accessToken: currentPrimaryToken,
+        expiresAt: coercePositiveNumber(resolveAuthResponseExpiry(currentPrimaryToken, 0)?.expiresAt),
+        expiresIn: 0,
+        scope: firstNonEmptyString([parseJwtPayload(currentPrimaryToken)?.scope, state.loginData?.scope]),
+        imsSession: mergeImsSessionSnapshots(
+          deriveImsSessionSnapshotFromToken(currentPrimaryToken),
+          state.loginData?.imsSession && typeof state.loginData.imsSession === "object" ? state.loginData.imsSession : null
+        ),
+        source: "exc-primary-existing",
+      };
+    }
+  }
+
+  try {
+    const silentAuth = await startLogin({
+      interactive: false,
+      allowFallback: false,
+      extraParams: {
+        client_id: EXPERIENCE_CLOUD_SSO_CLIENT_ID,
+        scope: EXPERIENCE_CLOUD_EARLY_TOKEN_SCOPE,
+        profile_filter: EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER,
+      },
+    });
+    const accessToken = normalizeBearerTokenValue(firstNonEmptyString([silentAuth?.accessToken]));
+    if (accessToken && isProbablyJwt(accessToken) && tokenSupportsExperienceCloudConsole(accessToken)) {
+      if (!requireFresh || isAccessTokenFreshEnough(accessToken, CM_IMS_FORCE_REFRESH_SKEW_MS)) {
+        const claims = parseJwtPayload(accessToken) || {};
+        return {
+          accessToken,
+          expiresAt: coercePositiveNumber(silentAuth?.expiresAt || resolveAuthResponseExpiry(accessToken, 0)?.expiresAt),
+          expiresIn: coercePositiveNumber(claims?.expires_in),
+          scope: firstNonEmptyString([silentAuth?.scope, claims?.scope, EXPERIENCE_CLOUD_EARLY_TOKEN_SCOPE]),
+          imsSession: mergeImsSessionSnapshots(
+            deriveImsSessionSnapshotFromToken(accessToken),
+            silentAuth?.imsSession && typeof silentAuth.imsSession === "object" ? silentAuth.imsSession : null
+          ),
+          source: "exc-silent-auth",
+        };
+      }
+    }
+  } catch {
+    // Fall through to the early-token endpoint.
+  }
+
+  try {
+    const response = await relayImsFetch(CM_IMS_CHECK_TOKEN_ENDPOINT, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "*/*",
+        Origin: CM_CONSOLE_APP_ORIGIN,
+        Referer: CM_CONSOLE_APP_REFERER,
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+      },
+      body: buildExperienceCloudEarlyTokenFormBody(),
+    });
+    if (!response.ok) {
+      return null;
+    }
+
+    const parsed = parseJsonText(await response.text().catch(() => ""), null);
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+
+    const accessToken = normalizeBearerTokenValue(extractImsAccessTokenFromPayload(parsed));
+    if (!accessToken || !isProbablyJwt(accessToken) || !tokenSupportsExperienceCloudConsole(accessToken)) {
+      return null;
+    }
+    if (requireFresh && !isAccessTokenFreshEnough(accessToken, CM_IMS_FORCE_REFRESH_SKEW_MS)) {
+      return null;
+    }
+
+    const claims = parseJwtPayload(accessToken) || {};
+    const tokenExpiry = resolveAuthResponseExpiry(accessToken, coercePositiveNumber(parsed?.expires_in || claims?.expires_in));
+    return {
+      accessToken,
+      expiresAt: coercePositiveNumber(tokenExpiry?.expiresAt),
+      expiresIn: coercePositiveNumber(parsed?.expires_in || claims?.expires_in),
+      scope: firstNonEmptyString([claims?.scope, parsed?.scope, EXPERIENCE_CLOUD_EARLY_TOKEN_SCOPE]),
+      imsSession: mergeImsSessionSnapshots(deriveImsSessionSnapshotFromToken(accessToken), null),
+      source: "exc-earlytoken",
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function requestCmTokenViaValidateToken(seedToken = "", options = {}) {
   const token = normalizeBearerTokenValue(seedToken);
   if (!token || !isProbablyJwt(token)) {
@@ -39574,7 +40193,9 @@ async function requestCmTokenViaValidateToken(seedToken = "", options = {}) {
 
   const hints = resolveCmImsTokenHints(token);
   const clientIds = uniqueSorted(
-    [hints.clientId, ...CM_IMS_VALIDATE_CLIENT_IDS].map((value) => String(value || "").trim()).filter(Boolean)
+    [CM_IMS_PRIMARY_CLIENT_ID, hints.clientId, ...CM_IMS_VALIDATE_CLIENT_IDS]
+      .map((value) => String(value || "").trim())
+      .filter((value) => isCmConsoleClientId(value))
   );
   const requireFresh = options.requireFresh === true;
   const endpoint = `${IMS_BASE_URL}/ims/validate_token/v1?jslVersion=underpar-cm`;
@@ -39595,7 +40216,9 @@ async function requestCmTokenViaValidateToken(seedToken = "", options = {}) {
           method: "POST",
           credentials: attempt.credentials,
           headers: {
-            Accept: "application/json, text/plain, */*",
+            Accept: "*/*",
+            Origin: CM_CONSOLE_APP_ORIGIN,
+            Referer: CM_CONSOLE_APP_REFERER,
             "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
             ...(clientId ? { client_id: clientId } : {}),
           },
@@ -39611,7 +40234,7 @@ async function requestCmTokenViaValidateToken(seedToken = "", options = {}) {
         }
 
         const refreshedToken = normalizeBearerTokenValue(extractImsAccessTokenFromPayload(parsed));
-        if (refreshedToken && isProbablyJwt(refreshedToken)) {
+        if (refreshedToken && isProbablyJwt(refreshedToken) && tokenSupportsCmTenantCatalog(refreshedToken)) {
           if (!requireFresh || isAccessTokenFreshEnough(refreshedToken, CM_IMS_FORCE_REFRESH_SKEW_MS)) {
             const tokenPayload = parsed?.token && typeof parsed.token === "object" ? parsed.token : {};
             const statePayload = parseImsStatePayload(firstNonEmptyString([tokenPayload?.state]));
@@ -39648,7 +40271,7 @@ async function requestCmTokenViaValidateToken(seedToken = "", options = {}) {
           }
         }
 
-        if (parsed?.valid === true && !requireFresh) {
+        if (parsed?.valid === true && !requireFresh && tokenSupportsCmTenantCatalog(token)) {
           return {
             accessToken: token,
             expiresAt: 0,
@@ -39669,62 +40292,125 @@ async function requestCmTokenViaValidateToken(seedToken = "", options = {}) {
 
 async function requestCmTokenViaImsCheck(seedToken = "", options = {}) {
   const hints = resolveCmImsTokenHints(seedToken);
-  const userId = firstNonEmptyString([hints.userId]);
-  if (!userId) {
-    return null;
+  const userIdCandidates = [];
+  const pushUserIdCandidate = (value, preferFront = false) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) {
+      return;
+    }
+    const existingIndex = userIdCandidates.indexOf(normalized);
+    if (existingIndex >= 0) {
+      if (preferFront && existingIndex > 0) {
+        userIdCandidates.splice(existingIndex, 1);
+        userIdCandidates.unshift(normalized);
+      }
+      return;
+    }
+    if (preferFront) {
+      userIdCandidates.unshift(normalized);
+      return;
+    }
+    userIdCandidates.push(normalized);
+  };
+  try {
+    const profileToken = normalizeBearerTokenValue(
+      firstNonEmptyString([seedToken, getPreferredPrimaryImsAccessTokenCandidate()])
+    );
+    const profilePayload = await fetchImsSessionProfile(profileToken);
+    pushUserIdCandidate(firstNonEmptyString([profilePayload?.userId, profilePayload?.user_id, profilePayload?.sub, profilePayload?.id]), true);
+    pushUserIdCandidate(
+      firstNonEmptyString([profilePayload?.additional_info?.userId, profilePayload?.additional_info?.user_id]),
+      true
+    );
+  } catch {
+    // Keep existing candidates best-effort.
+  };
+  (Array.isArray(hints.userIdCandidates) ? hints.userIdCandidates : []).forEach((candidate) => {
+    pushUserIdCandidate(candidate);
+  });
+  if (!userIdCandidates.includes("")) {
+    userIdCandidates.push("");
   }
 
   const clientIds = uniqueSorted(
-    [hints.clientId, ...CM_IMS_CHECK_CLIENT_IDS].map((value) => String(value || "").trim()).filter(Boolean)
+    [CM_IMS_PRIMARY_CLIENT_ID, hints.clientId, ...CM_IMS_CHECK_CLIENT_IDS]
+      .map((value) => String(value || "").trim())
+      .filter((value) => isCmConsoleClientId(value))
   );
   const scopes = uniqueSorted(
-    [hints.scope, CM_IMS_CHECK_DEFAULT_SCOPE].map((value) => String(value || "").trim()).filter(Boolean)
+    [CM_IMS_CHECK_DEFAULT_SCOPE, hints.scope].map((value) => String(value || "").trim()).filter(Boolean)
   );
   const requireFresh = options.requireFresh === true;
 
   for (const clientId of clientIds) {
     for (const scope of scopes) {
-      const requestUrl = buildCmImsCheckUrl({
-        clientId,
-        scope,
-        userId,
-      });
-      try {
-        const response = await relayImsFetch(requestUrl, {
-          method: "POST",
-          credentials: "include",
-          headers: {
-            Accept: "application/json, text/plain, */*",
-          },
+      for (const userIdCandidate of userIdCandidates) {
+        const requestUrl = buildCmImsCheckUrl({
+          clientId,
+          scope,
+          userId: userIdCandidate,
         });
-        if (!response.ok) {
-          continue;
-        }
+        const authSeedTokens = uniqueSorted(
+          [
+            seedToken,
+            getPreferredPrimaryImsAccessTokenCandidate(),
+          ]
+            .map((value) => normalizeBearerTokenValue(value))
+            .filter((value) => isProbablyJwt(value))
+        );
+        const attempts = [{ credentials: "include", headers: {} }, { credentials: "omit", headers: {} }];
+        authSeedTokens.forEach((authToken) => {
+          attempts.push({
+            credentials: "omit",
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+              "X-IMS-ClientId": clientId,
+              "x-api-key": clientId,
+            },
+          });
+        });
+        for (const attempt of attempts) {
+          try {
+            const response = await relayImsFetch(requestUrl, {
+              method: "POST",
+              credentials: attempt.credentials,
+              headers: {
+                Accept: "*/*",
+                Origin: CM_CONSOLE_APP_ORIGIN,
+                Referer: CM_CONSOLE_APP_REFERER,
+                ...(attempt.headers && typeof attempt.headers === "object" ? attempt.headers : {}),
+              },
+            });
+            if (!response.ok) {
+              continue;
+            }
 
-        const parsed = parseJsonText(await response.text().catch(() => ""), null);
-        if (!parsed || typeof parsed !== "object") {
-          continue;
-        }
+            const parsed = parseJsonText(await response.text().catch(() => ""), null);
+            if (!parsed || typeof parsed !== "object") {
+              continue;
+            }
 
-        const refreshedToken = normalizeBearerTokenValue(extractImsAccessTokenFromPayload(parsed));
-        if (!refreshedToken || !isProbablyJwt(refreshedToken)) {
-          continue;
-        }
-        if (requireFresh && !isAccessTokenFreshEnough(refreshedToken, CM_IMS_FORCE_REFRESH_SKEW_MS)) {
-          continue;
-        }
+            const refreshedToken = normalizeBearerTokenValue(extractImsAccessTokenFromPayload(parsed));
+            if (!refreshedToken || !isProbablyJwt(refreshedToken) || !tokenSupportsCmTenantCatalog(refreshedToken)) {
+              continue;
+            }
+            if (requireFresh && !isAccessTokenFreshEnough(refreshedToken, CM_IMS_FORCE_REFRESH_SKEW_MS)) {
+              continue;
+            }
 
-        const claims = parseJwtPayload(refreshedToken) || {};
-        return {
-          accessToken: refreshedToken,
-          expiresAt: 0,
-          expiresIn: coercePositiveNumber(claims?.expires_in || parsed?.expires_in),
-          scope: firstNonEmptyString([claims?.scope, hints.scope, scope]),
-          imsSession: mergeImsSessionSnapshots(deriveImsSessionSnapshotFromToken(refreshedToken), null),
-          source: `check:${clientId}`,
-        };
-      } catch {
-        // Continue best-effort across check variants.
+            const claims = parseJwtPayload(refreshedToken) || {};
+            return {
+              accessToken: refreshedToken,
+              expiresAt: 0,
+              expiresIn: coercePositiveNumber(claims?.expires_in || parsed?.expires_in),
+              scope: firstNonEmptyString([claims?.scope, hints.scope, scope]),
+              imsSession: mergeImsSessionSnapshots(deriveImsSessionSnapshotFromToken(refreshedToken), null),
+              source: `check:${clientId}:${attempt.credentials}`,
+            };
+          } catch {
+            // Continue best-effort across check and credential variants.
+          }
+        }
       }
     }
   }
@@ -39737,6 +40423,12 @@ async function persistCmTokenBootstrapResult(result = {}, options = {}) {
   if (!accessToken || !isProbablyJwt(accessToken)) {
     return "";
   }
+  if (!tokenSupportsCmTenantCatalog(accessToken)) {
+    log("CM token bootstrap rejected unsupported IMS token", {
+      source: String(result?.source || "unknown"),
+    });
+    return "";
+  }
 
   const current = state.loginData || createCookieSessionLoginData();
   const profileMerge = options.profileMerge && typeof options.profileMerge === "object" ? options.profileMerge : null;
@@ -39746,32 +40438,32 @@ async function persistCmTokenBootstrapResult(result = {}, options = {}) {
   const tokenExpiry = resolveAuthResponseExpiry(accessToken, coercePositiveNumber(result?.expiresIn));
   const resolvedExpiresAt =
     coercePositiveNumber(result?.expiresAt) || coercePositiveNumber(tokenExpiry?.expiresAt);
-  const nextExpiresAt = resolvedExpiresAt || coercePositiveNumber(current?.expiresAt) || Date.now() + 30 * 60 * 1000;
+  const nextExpiresAt = resolvedExpiresAt || coercePositiveNumber(current?.cmConsoleExpiresAt) || Date.now() + 30 * 60 * 1000;
   const tokenClaims = parseJwtPayload(accessToken) || {};
   const resolvedImsSession = mergeImsSessionSnapshots(
     mergeImsSessionSnapshots(
       deriveImsSessionSnapshotFromToken(accessToken),
-      current?.imsSession && typeof current.imsSession === "object" ? current.imsSession : null
+      current?.cmConsoleImsSession && typeof current.cmConsoleImsSession === "object" ? current.cmConsoleImsSession : null
     ),
     result?.imsSession && typeof result.imsSession === "object" ? result.imsSession : null
   );
 
   const nextLoginData = {
     ...current,
-    accessToken,
-    expiresAt: nextExpiresAt,
-    tokenType: compactStorageString(firstNonEmptyString([result?.tokenType, current?.tokenType]), 60) || "bearer",
-    scope: compactStorageString(firstNonEmptyString([result?.scope, tokenClaims?.scope, current?.scope]), 2048),
-    imsSession: resolvedImsSession,
+    cmConsoleAccessToken: accessToken,
+    cmConsoleExpiresAt: nextExpiresAt,
+    cmConsoleScope: compactStorageString(firstNonEmptyString([result?.scope, tokenClaims?.scope, current?.cmConsoleScope]), 2048),
+    cmConsoleImsSession: resolvedImsSession,
     profile: mergedProfile,
     imageUrl: resolveLoginImageUrl({
       ...current,
-      accessToken,
+      accessToken: current?.accessToken || "",
       profile: mergedProfile,
     }),
   };
 
   state.loginData = nextLoginData;
+  emitCmConsoleTokenForTesting(accessToken, String(result?.source || "cm-bootstrap"));
   try {
     await saveLoginData(nextLoginData);
   } catch (error) {
@@ -39784,8 +40476,272 @@ async function persistCmTokenBootstrapResult(result = {}, options = {}) {
   return accessToken;
 }
 
+async function findExistingExperienceAdobeTab() {
+  try {
+    const tabs = await chrome.tabs.query({
+      url: [`${CM_CONSOLE_APP_ORIGIN}/*`],
+    });
+    const normalizedTabs = Array.isArray(tabs) ? tabs : [];
+    const scored = normalizedTabs
+      .filter((tab) => Number(tab?.id || 0) > 0)
+      .map((tab) => {
+        const url = String(tab?.url || tab?.pendingUrl || "").trim().toLowerCase();
+        let score = Number(tab?.lastAccessed || 0);
+        if (tab?.active === true) {
+          score += 5000;
+        }
+        if (url.includes("/cm-console")) {
+          score += 2400;
+        }
+        if (url.includes("/pass/authentication")) {
+          score += 1800;
+        }
+        return { tab, score };
+      })
+      .sort((left, right) => right.score - left.score);
+    return scored[0]?.tab || null;
+  } catch {
+    return null;
+  }
+}
+
+async function requestCmConsoleTokenFromExperiencePageContext(options = {}) {
+  if (!chrome.scripting?.executeScript) {
+    return null;
+  }
+
+  const requireFresh = options.requireFresh === true;
+  const userIds = collectCmImsUserIdCandidates();
+  let tab = await findExistingExperienceAdobeTab();
+  let createdTemporaryTab = false;
+
+  if (!tab?.id) {
+    try {
+      tab = await chrome.tabs.create({
+        url: `${CM_CONSOLE_APP_ORIGIN}/`,
+        active: false,
+      });
+      createdTemporaryTab = Boolean(tab?.id);
+      if (createdTemporaryTab) {
+        await waitForTabCompletion(Number(tab.id), 12000, { allowUrlChange: true });
+      }
+    } catch {
+      tab = null;
+      createdTemporaryTab = false;
+    }
+  }
+
+  const tabId = Number(tab?.id || 0);
+  if (tabId <= 0) {
+    return null;
+  }
+
+  try {
+    const executionResults = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      args: [
+        {
+          imsOrigin: CM_IMS_CHECK_TOKEN_ENDPOINT.replace(/\/ims\/check\/v6\/token.*$/i, ""),
+          excClientId: EXPERIENCE_CLOUD_SSO_CLIENT_ID,
+          excScope: EXPERIENCE_CLOUD_EARLY_TOKEN_SCOPE,
+          excFilter: EXPERIENCE_CLOUD_EARLY_TOKEN_FILTER,
+          cmClientId: CM_IMS_PRIMARY_CLIENT_ID,
+          cmScope: CM_IMS_CHECK_DEFAULT_SCOPE,
+          userIds,
+          requireFresh,
+        },
+      ],
+      func: async (config) => {
+        const normalize = (value) => String(value || "").trim().replace(/^Bearer\s+/i, "").trim();
+        const parseJson = (text) => {
+          try {
+            return JSON.parse(String(text || ""));
+          } catch {
+            return null;
+          }
+        };
+        const extractToken = (payload) => {
+          if (!payload || typeof payload !== "object") {
+            return "";
+          }
+          const nestedToken =
+            payload.token && typeof payload.token === "object"
+              ? payload.token.access_token || payload.token.accessToken || payload.token.token || payload.token.value || ""
+              : payload.token || "";
+          return normalize(
+            payload.access_token ||
+              payload.accessToken ||
+              nestedToken ||
+              payload.imsToken ||
+              payload.bearer ||
+              payload.authToken ||
+              payload.authorization ||
+              payload.Authorization ||
+              payload.value ||
+              ""
+          );
+        };
+        const isJwt = (value) => normalize(value).split(".").length === 3;
+        const parseJwt = (value) => {
+          try {
+            const token = normalize(value);
+            const payload = token.split(".")[1] || "";
+            const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
+            const padded = normalized + "=".repeat((4 - (normalized.length % 4 || 4)) % 4);
+            return JSON.parse(atob(padded));
+          } catch {
+            return null;
+          }
+        };
+        const isFreshEnough = (token, skewMs) => {
+          const claims = parseJwt(token) || {};
+          const expSeconds = Number(claims.exp || 0);
+          if (!expSeconds) {
+            return true;
+          }
+          return expSeconds * 1000 > Date.now() + Math.max(0, Number(skewMs || 0));
+        };
+        const fetchJson = async (url, init) => {
+          const response = await fetch(String(url || ""), init);
+          const text = await response.text().catch(() => "");
+          return {
+            ok: Boolean(response.ok),
+            status: Number(response.status || 0),
+            parsed: parseJson(text),
+          };
+        };
+
+        const earlyBody = new URLSearchParams();
+        earlyBody.set("client_id", String(config?.excClientId || "exc_app"));
+        earlyBody.set("scope", String(config?.excScope || ""));
+        earlyBody.set("filter", String(config?.excFilter || ""));
+
+        const earlyTokenResponse = await fetchJson(`${String(config?.imsOrigin || "")}/ims/check/v6/token`, {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded;charset=UTF-8",
+          },
+          body: earlyBody.toString(),
+        }).catch(() => ({ ok: false, status: 0, parsed: null }));
+
+        const excAccessToken = extractToken(earlyTokenResponse?.parsed);
+        if (!isJwt(excAccessToken)) {
+          return {
+            ok: false,
+            stage: "exc_app",
+            status: Number(earlyTokenResponse?.status || 0),
+          };
+        }
+        if (config?.requireFresh && !isFreshEnough(excAccessToken, 45000)) {
+          return {
+            ok: false,
+            stage: "exc_app_stale",
+          };
+        }
+
+        const excClaims = parseJwt(excAccessToken) || {};
+        const orderedUserIds = [];
+        const seen = new Set();
+        const pushUserId = (value) => {
+          const normalized = String(value || "").trim();
+          if (!normalized) {
+            return;
+          }
+          const key = normalized.toLowerCase();
+          if (seen.has(key)) {
+            return;
+          }
+          seen.add(key);
+          orderedUserIds.push(normalized);
+        };
+
+        (Array.isArray(config?.userIds) ? config.userIds : []).forEach(pushUserId);
+        pushUserId(excClaims.user_id);
+        pushUserId(excClaims.userId);
+        pushUserId(earlyTokenResponse?.parsed?.userId);
+        pushUserId(earlyTokenResponse?.parsed?.user_id);
+        pushUserId(earlyTokenResponse?.parsed?.authId);
+        pushUserId("");
+
+        for (const userId of orderedUserIds) {
+          const requestUrl = new URL(`${String(config?.imsOrigin || "")}/ims/check/v6/token`);
+          requestUrl.searchParams.set("client_id", String(config?.cmClientId || "cm-console-ui"));
+          requestUrl.searchParams.set(
+            "scope",
+            String(config?.cmScope || "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext")
+          );
+          if (userId) {
+            requestUrl.searchParams.set("user_id", userId);
+          }
+
+          const cmTokenResponse = await fetchJson(requestUrl.toString(), {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              Accept: "*/*",
+            },
+          }).catch(() => ({ ok: false, status: 0, parsed: null }));
+          const cmAccessToken = extractToken(cmTokenResponse?.parsed);
+          if (!isJwt(cmAccessToken)) {
+            continue;
+          }
+          if (config?.requireFresh && !isFreshEnough(cmAccessToken, 45000)) {
+            continue;
+          }
+          return {
+            ok: true,
+            stage: "cm-console-ui",
+            status: Number(cmTokenResponse?.status || 0),
+            accessToken: cmAccessToken,
+            excAccessToken,
+            userId: userId || "",
+          };
+        }
+
+        return {
+          ok: false,
+          stage: "cm-console-ui",
+          excAccessToken,
+        };
+      },
+    });
+
+    const result = executionResults?.[0]?.result;
+    const accessToken = normalizeBearerTokenValue(result?.accessToken || "");
+    if (!accessToken || !tokenSupportsCmTenantCatalog(accessToken)) {
+      return null;
+    }
+    const claims = parseJwtPayload(accessToken) || {};
+    return {
+      accessToken,
+      expiresAt: coercePositiveNumber(resolveAuthResponseExpiry(accessToken, coercePositiveNumber(claims?.expires_in))?.expiresAt),
+      expiresIn: coercePositiveNumber(claims?.expires_in),
+      scope: firstNonEmptyString([claims?.scope, CM_IMS_CHECK_DEFAULT_SCOPE]),
+      imsSession: mergeImsSessionSnapshots(deriveImsSessionSnapshotFromToken(accessToken), null),
+      source: `page-cm:${tabId}`,
+    };
+  } catch {
+    return null;
+  } finally {
+    if (createdTemporaryTab && tabId > 0) {
+      try {
+        await chrome.tabs.remove(tabId);
+      } catch {
+        // Ignore cleanup failures for temporary tab.
+      }
+    }
+  }
+}
+
 async function tryRefreshCmTokenFromIms(seedToken = "", options = {}) {
   const token = normalizeBearerTokenValue(seedToken);
+  const viaCheck = await requestCmTokenViaImsCheck(token, options);
+  if (viaCheck?.accessToken) {
+    return viaCheck;
+  }
+
   if (!token || !isProbablyJwt(token)) {
     return null;
   }
@@ -39793,11 +40749,6 @@ async function tryRefreshCmTokenFromIms(seedToken = "", options = {}) {
   const viaValidate = await requestCmTokenViaValidateToken(token, options);
   if (viaValidate?.accessToken) {
     return viaValidate;
-  }
-
-  const viaCheck = await requestCmTokenViaImsCheck(token, options);
-  if (viaCheck?.accessToken) {
-    return viaCheck;
   }
 
   return null;
@@ -39809,79 +40760,124 @@ async function ensureCmApiAccessToken(options = {}) {
     Number.isFinite(options.freshLeewayMs) && Number(options.freshLeewayMs) >= 0
       ? Number(options.freshLeewayMs)
       : 60 * 1000;
-  const existingToken = String(state.loginData?.accessToken || "").trim();
-  const existingExpiresAt = Number(state.loginData?.expiresAt || 0);
+  const existingToken = getPreferredCmAccessTokenCandidate();
+  const existingExpiresAt =
+    coercePositiveNumber(resolveAuthResponseExpiry(existingToken, 0)?.expiresAt) || Number(state.loginData?.cmConsoleExpiresAt || 0);
   const hasKnownExpiry = Number.isFinite(existingExpiresAt) && existingExpiresAt > 0;
   const tokenLooksFresh = hasKnownExpiry && existingExpiresAt > Date.now() + tokenFreshLeewayMs;
   const tokenSupportsCatalog = tokenSupportsCmTenantCatalog(existingToken);
   if (existingToken && !forceRefresh && (!hasKnownExpiry || tokenLooksFresh) && tokenSupportsCatalog) {
+    emitCmConsoleTokenForTesting(existingToken, "ensure-existing");
     return existingToken;
   }
 
   if (state.cmAuthBootstrapPromise) {
-    return state.cmAuthBootstrapPromise;
+    const pendingToken = normalizeBearerTokenValue(await state.cmAuthBootstrapPromise);
+    if (pendingToken && tokenSupportsCmTenantCatalog(pendingToken)) {
+      emitCmConsoleTokenForTesting(pendingToken, "ensure-pending");
+      return pendingToken;
+    }
+    return "";
   }
 
   const now = Date.now();
   const lastAttempt = Number(state.cmAuthBootstrapLastAttemptAt || 0);
   const canApplyBackoff = existingToken && tokenSupportsCatalog && (!hasKnownExpiry || existingExpiresAt > now + 5000);
   if (!forceRefresh && canApplyBackoff && lastAttempt > 0 && now - lastAttempt < CM_AUTH_BOOTSTRAP_RETRY_MS) {
+    emitCmConsoleTokenForTesting(existingToken, "ensure-backoff");
     return existingToken;
   }
   state.cmAuthBootstrapLastAttemptAt = now;
 
   const promise = (async () => {
     try {
-      const current = state.loginData || createCookieSessionLoginData();
-      const seedToken = normalizeBearerTokenValue(firstNonEmptyString([current?.accessToken, existingToken]));
-      if (seedToken && isProbablyJwt(seedToken)) {
-        const refreshedFromIms = await tryRefreshCmTokenFromIms(seedToken, {
-          requireFresh: forceRefresh || !tokenLooksFresh || !tokenSupportsCatalog,
+      const requireFresh = forceRefresh || !tokenLooksFresh || !tokenSupportsCatalog;
+      const refreshedFromPageContext = await requestCmConsoleTokenFromExperiencePageContext({
+        requireFresh,
+      });
+      if (refreshedFromPageContext?.accessToken) {
+        const persistedPageContextToken = await persistCmTokenBootstrapResult(refreshedFromPageContext, {});
+        if (persistedPageContextToken && tokenSupportsCmTenantCatalog(persistedPageContextToken)) {
+          emitCmConsoleTokenForTesting(persistedPageContextToken, "ensure-page-context");
+          return persistedPageContextToken;
+        }
+      }
+
+      const refreshedFromCookieSession = await tryRefreshCmTokenFromIms("", {
+        requireFresh,
+      });
+      if (refreshedFromCookieSession?.accessToken) {
+        const persistedCookieSessionToken = await persistCmTokenBootstrapResult(refreshedFromCookieSession, {});
+        if (persistedCookieSessionToken && tokenSupportsCmTenantCatalog(persistedCookieSessionToken)) {
+          emitCmConsoleTokenForTesting(persistedCookieSessionToken, "ensure-cookie-session");
+          return persistedCookieSessionToken;
+        }
+      }
+
+      const primarySeedToken = normalizeBearerTokenValue(getPreferredPrimaryImsAccessTokenCandidate());
+      if (primarySeedToken && tokenSupportsExperienceCloudConsole(primarySeedToken)) {
+        const refreshedFromPrimary = await tryRefreshCmTokenFromIms(primarySeedToken, {
+          requireFresh,
+        });
+        if (refreshedFromPrimary?.accessToken) {
+          const persistedPrimaryToken = await persistCmTokenBootstrapResult(refreshedFromPrimary, {});
+          if (persistedPrimaryToken && tokenSupportsCmTenantCatalog(persistedPrimaryToken)) {
+            emitCmConsoleTokenForTesting(persistedPrimaryToken, "ensure-primary");
+            return persistedPrimaryToken;
+          }
+        }
+      }
+
+      const excConsoleTokenResult = await requestExperienceCloudConsoleToken({
+        requireFresh,
+      });
+      const excConsoleToken = normalizeBearerTokenValue(excConsoleTokenResult?.accessToken || "");
+      if (excConsoleToken && excConsoleToken !== primarySeedToken) {
+        const refreshedFromIms = await tryRefreshCmTokenFromIms(excConsoleToken, {
+          requireFresh,
         });
         if (refreshedFromIms?.accessToken) {
           const persistedRefreshedToken = await persistCmTokenBootstrapResult(refreshedFromIms, {});
           if (persistedRefreshedToken && tokenSupportsCmTenantCatalog(persistedRefreshedToken)) {
+            emitCmConsoleTokenForTesting(persistedRefreshedToken, "ensure-refreshed");
             return persistedRefreshedToken;
           }
         }
       }
 
       const silent = await attemptSilentBootstrapLogin();
-      const accessToken = String(silent?.accessToken || "").trim();
-      if (!accessToken) {
-        const fallbackToken = String(seedToken || existingToken || "").trim();
-        return !forceRefresh && tokenSupportsCmTenantCatalog(fallbackToken) ? fallbackToken : "";
-      }
-
-      const persistedSilentToken = await persistCmTokenBootstrapResult(
-        {
-          accessToken,
-          expiresAt: coercePositiveNumber(silent?.expiresAt),
-          tokenType: firstNonEmptyString([silent?.tokenType]),
-          scope: firstNonEmptyString([silent?.scope]),
-          imsSession: silent?.imsSession && typeof silent.imsSession === "object" ? silent.imsSession : null,
-          source: "silent-bootstrap",
-        },
-        {
-          profileMerge: resolveLoginProfile(silent),
+      const silentSeedToken = normalizeBearerTokenValue(silent?.accessToken || "");
+      if (silentSeedToken) {
+        const refreshedFromSilent = await tryRefreshCmTokenFromIms(silentSeedToken, {
+          requireFresh: true,
+        });
+        if (refreshedFromSilent?.accessToken) {
+          const persistedSilentToken = await persistCmTokenBootstrapResult(refreshedFromSilent, {
+            profileMerge: resolveLoginProfile(silent),
+          });
+          if (persistedSilentToken) {
+            emitCmConsoleTokenForTesting(persistedSilentToken, "ensure-silent");
+            return persistedSilentToken;
+          }
         }
-      );
-      if (persistedSilentToken) {
-        return persistedSilentToken;
       }
-      return accessToken;
+      return "";
     } catch (error) {
       log("CM token bootstrap skipped", {
         error: error instanceof Error ? error.message : String(error),
       });
-      const fallbackToken = String(existingToken || "").trim();
-      return !forceRefresh && tokenSupportsCmTenantCatalog(fallbackToken) ? fallbackToken : "";
+      return "";
     }
   })();
 
   state.cmAuthBootstrapPromise = promise;
   try {
-    return await promise;
+    const resolvedToken = normalizeBearerTokenValue(await promise);
+    if (resolvedToken && tokenSupportsCmTenantCatalog(resolvedToken)) {
+      emitCmConsoleTokenForTesting(resolvedToken, "ensure-resolved");
+      return resolvedToken;
+    }
+    return "";
   } finally {
     if (state.cmAuthBootstrapPromise === promise) {
       state.cmAuthBootstrapPromise = null;
@@ -39889,9 +40885,69 @@ async function ensureCmApiAccessToken(options = {}) {
   }
 }
 
+async function autoHydrateCmConsoleTokenAfterImsLogin(source = "unknown") {
+  if (!state.sessionReady || state.restricted || !state.loginData) {
+    return "";
+  }
+
+  const previousToken = normalizeBearerTokenValue(state.cmLastHydratedAccessToken || "");
+  try {
+    const currentToken = getPreferredCmAccessTokenCandidate();
+    if (currentToken && tokenSupportsCmTenantCatalog(currentToken) && isAccessTokenFreshEnough(currentToken, 45 * 1000)) {
+      emitCmConsoleTokenForTesting(currentToken, `auto-hydrate-existing:${source}`);
+      if (currentToken !== previousToken) {
+        render();
+      }
+      return currentToken;
+    }
+
+    let hydratedToken = normalizeBearerTokenValue(await ensureCmApiAccessToken({ freshLeewayMs: 45 * 1000 }));
+    if (hydratedToken && tokenSupportsCmTenantCatalog(hydratedToken)) {
+      emitCmConsoleTokenForTesting(hydratedToken, `auto-hydrate:${source}`);
+      if (hydratedToken !== previousToken) {
+        render();
+      }
+      logDecisionPoint("CM token auto-hydrated", {
+        source: String(source || "unknown"),
+        mode: "best-effort",
+      });
+      return hydratedToken;
+    }
+
+    hydratedToken = normalizeBearerTokenValue(await ensureCmApiAccessToken({ forceRefresh: true, freshLeewayMs: 45 * 1000 }));
+    if (hydratedToken && tokenSupportsCmTenantCatalog(hydratedToken)) {
+      emitCmConsoleTokenForTesting(hydratedToken, `auto-hydrate-force-refresh:${source}`);
+      if (hydratedToken !== previousToken) {
+        render();
+      }
+      logDecisionPoint("CM token auto-hydrated", {
+        source: String(source || "unknown"),
+        mode: "force-refresh",
+      });
+      return hydratedToken;
+    }
+  } catch (error) {
+    log("CM token auto-hydration failed", {
+      source: String(source || "unknown"),
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return "";
+}
+
 function getCmAuthFingerprint() {
-  const token = String(state.loginData?.accessToken || "").trim();
+  const token = getPreferredCmAccessTokenCandidate();
   return token ? token.slice(-24) : "no-token";
+}
+
+function queueCmConsoleAutoHydration(source = "unknown") {
+  void autoHydrateCmConsoleTokenAfterImsLogin(source).catch((error) => {
+    log("CM token auto-hydration queue failed", {
+      source: String(source || "unknown"),
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
 }
 
 function shouldRetryCachedCmService(cmService) {
@@ -40657,29 +41713,55 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
     options?.headers?.Authorization,
     options?.headers?.authorization,
   ]);
+  let ensuredCmAccessToken = "";
   if (!explicitAuthorizationHeader) {
     try {
-      await ensureCmApiAccessToken({ freshLeewayMs: 45 * 1000 });
+      ensuredCmAccessToken = normalizeBearerTokenValue(await ensureCmApiAccessToken({ freshLeewayMs: 45 * 1000 }));
     } catch {
       // Best-effort bootstrap; request-level retries still handle auth fallback.
+      ensuredCmAccessToken = "";
     }
   }
 
   const method = String(options.method || "GET").toUpperCase();
   const debugMeta = options.debugMeta && typeof options.debugMeta === "object" ? options.debugMeta : {};
-  const baseHeaders = {
-    Accept: "application/json, text/plain, */*",
-    ...(options.headers && typeof options.headers === "object" ? options.headers : {}),
-  };
-  const buildHeaderVariants = () => {
-    const variants = [baseHeaders];
-    const accessToken = String(state.loginData?.accessToken || "").trim();
-    if (accessToken) {
+  const optionHeaders = options.headers && typeof options.headers === "object" ? { ...options.headers } : {};
+  const buildHeaderVariants = (url) => {
+    const baseHeaders = withCmReportContextHeaders(
+      {
+        Accept: "*/*",
+        ...optionHeaders,
+      },
+      url
+    );
+    const baseAuthorizationHeader = firstNonEmptyString([baseHeaders.Authorization, baseHeaders.authorization]);
+    if (baseAuthorizationHeader) {
+      return [baseHeaders];
+    }
+    const variants = [];
+    const candidateTokens = [];
+    const seenTokens = new Set();
+    [
+      ensuredCmAccessToken,
+      normalizeBearerTokenValue(state.cmLastHydratedAccessToken || ""),
+      normalizeBearerTokenValue(state.loginData?.accessToken || ""),
+    ].forEach((accessToken) => {
+      const normalizedToken = normalizeBearerTokenValue(accessToken);
+      if (!normalizedToken || seenTokens.has(normalizedToken)) {
+        return;
+      }
+      seenTokens.add(normalizedToken);
+      candidateTokens.push(normalizedToken);
+    });
+    candidateTokens.forEach((accessToken) => {
+      if (!accessToken || !tokenSupportsCmTenantCatalog(accessToken)) {
+        return;
+      }
       variants.push({
         ...baseHeaders,
         Authorization: `Bearer ${accessToken}`,
       });
-    }
+    });
     return variants;
   };
 
@@ -40688,7 +41770,12 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
   for (const url of urls) {
     const queryDebugInfo = buildCmRequestQueryDebugInfo(url);
     let tokenRefreshAttempted = false;
-    let headerVariants = buildHeaderVariants();
+    let headerVariants = buildHeaderVariants(url);
+    if (headerVariants.length === 0) {
+      throw new Error(
+        `${contextLabel} failed: UnderPAR could not auto-hydrate a cm-console-ui bearer from the current Adobe IMS session. Sign in again and retry.`
+      );
+    }
     headersLoop: for (let headerIndex = 0; headerIndex < headerVariants.length; headerIndex += 1) {
       const headers = headerVariants[headerIndex];
       const authMode = detectCmAuthMode(headers);
@@ -40810,9 +41897,10 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
 
         if (!tokenRefreshAttempted && (authRedirectResponse || tokenExpiredResponse)) {
           tokenRefreshAttempted = true;
-          const refreshedToken = await ensureCmApiAccessToken({ forceRefresh: true });
+          const refreshedToken = normalizeBearerTokenValue(await ensureCmApiAccessToken({ forceRefresh: true }));
           if (String(refreshedToken || "").trim()) {
-            headerVariants = buildHeaderVariants();
+            ensuredCmAccessToken = refreshedToken;
+            headerVariants = buildHeaderVariants(url);
             headerIndex = -1;
             continue headersLoop;
           }
@@ -40911,14 +41999,17 @@ async function fetchCmTenantCatalogWithSession(url = "") {
     throw new Error("CM tenants load failed: tenant catalog URL is missing.");
   }
   const cmBearerToken = normalizeBearerTokenValue(await ensureCmApiAccessToken({ forceRefresh: false }));
+  if (!cmBearerToken || !tokenSupportsCmTenantCatalog(cmBearerToken)) {
+    throw new Error(
+      "CM tenants load failed: UnderPAR could not auto-hydrate a cm-console-ui bearer from the current Adobe IMS session. Sign in again and retry."
+    );
+  }
   const requestHeaders = {
     Accept: "*/*",
     Origin: "https://cdn.experience.adobe.net",
     Referer: "https://cdn.experience.adobe.net/",
+    Authorization: `Bearer ${cmBearerToken}`,
   };
-  if (cmBearerToken) {
-    requestHeaders.Authorization = `Bearer ${cmBearerToken}`;
-  }
   const requestInit = {
     method: "GET",
     credentials: "include",
@@ -43444,6 +44535,10 @@ function createCookieSessionLoginData() {
     refreshToken: "",
     imsSession: null,
     sessionKeys: null,
+    cmConsoleAccessToken: "",
+    cmConsoleExpiresAt: 0,
+    cmConsoleScope: "",
+    cmConsoleImsSession: null,
     profile: null,
     imageUrl: "",
     adobePassOrg: {
@@ -43529,6 +44624,7 @@ async function tryActivateCookieSession(source, options = {}) {
     clearRefreshTimer();
     prefetchCmTenantsCatalogInBackground("cookie-session-activated", { forceRefresh: false });
     render();
+    queueCmConsoleAutoHydration(`cookie-session:${source}`);
 
     if (state.programmers.length === 0) {
       setStatus("No media company records were returned for this account.", "error");
@@ -43630,6 +44726,7 @@ async function hydrateCookieSessionWithProfile() {
     await saveLoginData(hydrated);
     scheduleNoTouchRefresh();
     render();
+    queueCmConsoleAutoHydration("cookie-session-profile-hydrated");
     log("Cookie session profile hydrated.");
   } catch (error) {
     log("Cookie session profile hydration skipped", error?.message || String(error));
@@ -44063,6 +45160,7 @@ function registerEventHandlers() {
     state.selectedMvpdId = "";
     populateRequestorSelect();
     const selectedProgrammer = resolveSelectedProgrammer();
+    const controllerReason = "media-company-change";
     emitGlobalSelectorChangeLog(
       "Media Company",
       state.selectedProgrammerKey,
@@ -44070,6 +45168,18 @@ function registerEventHandlers() {
         ? `${String(selectedProgrammer.programmerName || "").trim()} - ${String(selectedProgrammer.programmerId || "").trim()}`
         : ""
     );
+    // Force active workspaces to redraw immediately for the newly selected Media Company
+    // before async premium panel refresh completes.
+    esmWorkspaceBroadcastSelectedControllerState(selectedProgrammer, null, 0, {
+      controllerReason,
+      esmAvailabilityResolved: false,
+      esmContainerVisible: null,
+    });
+    cmBroadcastSelectedControllerState(selectedProgrammer, null, 0, {
+      controllerReason,
+      cmAvailabilityResolved: false,
+      cmContainerVisible: null,
+    });
     mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, null);
     refreshMvpdWorkspaceTools();
     void mvpdWorkspaceRefreshSelectedSnapshot({
@@ -44079,7 +45189,7 @@ function registerEventHandlers() {
       onlyIfWorkspaceOpen: true,
       surfaceMissingSelectionError: false,
     });
-    void refreshProgrammerPanels({ controllerReason: "media-company-change" });
+    void refreshProgrammerPanels({ controllerReason });
   });
 
   els.requestorSelect.addEventListener("change", async (event) => {

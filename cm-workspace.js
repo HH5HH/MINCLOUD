@@ -9,10 +9,15 @@ const CM_WORKSPACE_RUNTIME_TOKEN_INPUT_NAME = "access_token";
 const CM_WORKSPACE_RUNTIME_CLIENT_IDS_INPUT_NAME = "cm_client_ids";
 const CM_WORKSPACE_RUNTIME_USER_ID_INPUT_NAME = "cm_user_id";
 const CM_WORKSPACE_RUNTIME_SCOPE_INPUT_NAME = "cm_scope";
+const CM_WORKSPACE_PRIMARY_CLIENT_ID = "cm-console-ui";
 const CM_WORKSPACE_IMS_VALIDATE_TOKEN_URL = "https://ims-na1.adobelogin.com/ims/validate_token/v1?jslVersion=underpar-clickcmuws";
 const CM_WORKSPACE_IMS_CHECK_TOKEN_URL = "https://adobeid-na1.services.adobe.com/ims/check/v6/token";
+const CM_WORKSPACE_CONSOLE_ORIGIN = "https://experience.adobe.com";
+const CM_WORKSPACE_CONSOLE_REFERER = `${CM_WORKSPACE_CONSOLE_ORIGIN}/`;
+const CM_WORKSPACE_REPORTS_ORIGIN = "https://cdn.experience.adobe.net";
+const CM_WORKSPACE_REPORTS_REFERER = `${CM_WORKSPACE_REPORTS_ORIGIN}/`;
 const CM_WORKSPACE_IMS_DEFAULT_SCOPE =
-  "AdobeID,openid,read_organizations,additional_info.projectedProductContext";
+  "AdobeID,openid,dma_group_mapping,read_organizations,additional_info.projectedProductContext";
 const CM_WORKSPACE_TOKEN_REFRESH_SKEW_MS = 45 * 1000;
 const CM_WORKSPACE_FETCH_TIMEOUT_MS = 45 * 1000;
 const CM_WORKSPACE_FALLBACK_BASE_URL = "https://streams-stage.adobeprimetime.com";
@@ -40,16 +45,49 @@ const CM_METRIC_COLUMNS = new Set([
   "decision-successful",
   "decision-failed",
   "decision-media-tokens",
+  "users",
+  "active-users",
+  "active-sessions",
+  "started-sessions",
+  "completed-sessions",
+  "failed-attempts",
+  "dismissed-sessions",
+  "killed-sessions",
+  "duration-0-15",
+  "duration-15-30",
+  "duration-30-60",
+  "duration-60-120",
+  "duration-2h-4h",
+  "duration-4h-8h",
+  "duration-8h-16h",
+  "duration-16h-1d",
+  "duration-1d-3d",
+  "duration-3d-7d",
+  "duration-1w-1m",
+  "duration-over-1m",
+  "bstreams-15",
+  "bstreams-30",
+  "bstreams-45",
+  "bstreams-60",
+  "bstreams-75",
+  "bstreams-90",
+  "bstreams-105",
+  "bstreams-120",
 ]);
 const CM_DATE_DIMENSION_KEYS = new Set(["year", "month", "day", "hour", "minute", "second", "date", "time", "timestamp"]);
 const CM_FILTER_BLOCKED_COLUMNS = new Set([
-  "tenant",
-  "tenant-id",
-  "tenant_id",
+  "media-company",
   "v2",
   "view",
-  "activity-level",
-  "activity_level",
+]);
+const CM_CMU_NON_DIMENSION_PATH_SEGMENTS = new Set([
+  "cmu",
+  "v2",
+  "summary",
+  "concurrency",
+  "report",
+  "reports",
+  "usage",
 ]);
 const CM_TENANT_QUERY_PARAM_KEYS = ["tenant", "tenant_id", "tenant-id"];
 
@@ -57,6 +95,8 @@ const state = {
   windowId: 0,
   controllerOnline: false,
   cmAvailable: null,
+  cmAvailabilityResolved: false,
+  cmContainerVisible: null,
   tenantScope: "",
   programmerId: "",
   programmerName: "",
@@ -64,10 +104,18 @@ const state = {
   mvpdIds: [],
   profileHarvest: null,
   profileHarvestList: [],
+  controllerStateVersion: 0,
+  controllerStateUpdatedAt: 0,
   cardsById: new Map(),
   batchRunning: false,
   workspaceLocked: false,
   nonCmMode: false,
+  programmerSwitchLoading: false,
+  programmerSwitchLoadingKey: "",
+  pendingAutoRerunProgrammerKey: "",
+  autoRerunInFlightProgrammerKey: "",
+  pendingAutoRerunCards: [],
+  workspaceReplayCards: [],
 };
 
 const els = {
@@ -156,7 +204,7 @@ const cmWorkspaceRuntimeAuth = {
   accessToken: readHiddenInputValue(CM_WORKSPACE_RUNTIME_TOKEN_INPUT_NAME),
   clientIds: parseJsonArray(readHiddenInputValue(CM_WORKSPACE_RUNTIME_CLIENT_IDS_INPUT_NAME))
     .map((value) => String(value || "").trim())
-    .filter(Boolean),
+    .filter((value) => String(value || "").trim().toLowerCase() === CM_WORKSPACE_PRIMARY_CLIENT_ID),
   userId: readHiddenInputValue(CM_WORKSPACE_RUNTIME_USER_ID_INPUT_NAME),
   scope: readHiddenInputValue(CM_WORKSPACE_RUNTIME_SCOPE_INPUT_NAME) || CM_WORKSPACE_IMS_DEFAULT_SCOPE,
 };
@@ -196,6 +244,41 @@ function dedupeCandidateStrings(values = []) {
     output.push(normalized);
   });
   return output;
+}
+
+function hasHeaderName(headersLike, headerName) {
+  const normalizedHeaderName = String(headerName || "").trim().toLowerCase();
+  if (!normalizedHeaderName || !headersLike || typeof headersLike !== "object") {
+    return false;
+  }
+  return Object.keys(headersLike).some((key) => String(key || "").trim().toLowerCase() === normalizedHeaderName);
+}
+
+function isCmWorkspaceReportsUrl(urlValue = "") {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return false;
+  }
+  try {
+    const parsed = new URL(raw);
+    return String(parsed.hostname || "").trim().toLowerCase() === "cm-reports.adobeprimetime.com";
+  } catch {
+    return false;
+  }
+}
+
+function withCmWorkspaceReportHeaders(headersLike = {}, requestUrl = "") {
+  const nextHeaders = headersLike && typeof headersLike === "object" ? { ...headersLike } : {};
+  if (!isCmWorkspaceReportsUrl(requestUrl)) {
+    return nextHeaders;
+  }
+  if (!hasHeaderName(nextHeaders, "Origin")) {
+    nextHeaders.Origin = CM_WORKSPACE_REPORTS_ORIGIN;
+  }
+  if (!hasHeaderName(nextHeaders, "Referer")) {
+    nextHeaders.Referer = CM_WORKSPACE_REPORTS_REFERER;
+  }
+  return nextHeaders;
 }
 
 function safeJsonParse(value, fallback = null) {
@@ -266,12 +349,35 @@ function tokenSupportsCmCatalog(tokenValue) {
     return false;
   }
   const claims = parseJwtPayload(token) || {};
-  const clientId = String(claims.client_id || claims.clientId || "").trim().toLowerCase();
-  if (clientId === "cm-console-ui") {
-    return true;
+  if (!claims || typeof claims !== "object") {
+    return false;
   }
-  const scopes = new Set(tokenizeScopeSet(claims.scope || "").map((scope) => scope.toLowerCase()));
-  return scopes.has("read_organizations");
+  const clientId = String(claims.client_id || claims.clientId || "").trim().toLowerCase();
+  return clientId === CM_WORKSPACE_PRIMARY_CLIENT_ID;
+}
+
+function collectWorkspaceUserIdCandidates() {
+  const tokenClaims = parseJwtPayload(cmWorkspaceRuntimeAuth.accessToken || "") || {};
+  const orderedCandidates = [
+    cmWorkspaceRuntimeAuth.userId,
+    tokenClaims.user_id,
+    tokenClaims.userId,
+  ];
+  const output = [];
+  const seen = new Set();
+  orderedCandidates.forEach((value) => {
+    const normalized = String(value || "").trim();
+    if (!normalized) {
+      return;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    output.push(normalized);
+  });
+  return output;
 }
 
 function extractImsAccessTokenFromPayload(payload) {
@@ -474,10 +580,7 @@ function applyWorkspaceTenantScopeToUsageUrl(urlValue, tenantScope = "") {
     if (!isCmuUsageRequestUrl(parsed.toString())) {
       return parsed.toString();
     }
-    const existingTenantScope = normalizeWorkspaceTenantScopeValue(
-      parsed.searchParams.get("tenant") || parsed.searchParams.get("tenant_id") || parsed.searchParams.get("tenant-id")
-    );
-    applyWorkspaceTenantScopeToSearchParams(parsed.searchParams, existingTenantScope || normalizedTenantScope);
+    applyWorkspaceTenantScopeToSearchParams(parsed.searchParams, normalizedTenantScope);
     return parsed.toString();
   } catch {
     return raw;
@@ -487,10 +590,10 @@ function applyWorkspaceTenantScopeToUsageUrl(urlValue, tenantScope = "") {
 function resolveWorkspaceTenantScope(cardState = null, cardPayload = null) {
   return normalizeWorkspaceTenantScopeValue(
     firstNonEmptyString([
-      cardPayload?.tenantId,
-      cardState?.tenantId,
       state.tenantScope,
       state.programmerId,
+      cardPayload?.tenantId,
+      cardState?.tenantId,
       cardPayload?.tenantName,
       cardState?.tenantName,
     ])
@@ -542,10 +645,8 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = CM_WORKSPACE_FETCH_T
 function resolveWorkspaceRuntimeClientIds() {
   return dedupeCandidateStrings([
     ...(Array.isArray(cmWorkspaceRuntimeAuth.clientIds) ? cmWorkspaceRuntimeAuth.clientIds : []),
-    "cm-console-ui",
-    "AdobePass1",
-    "exc_app",
-  ]);
+    CM_WORKSPACE_PRIMARY_CLIENT_ID,
+  ]).filter((value) => String(value || "").trim().toLowerCase() === CM_WORKSPACE_PRIMARY_CLIENT_ID);
 }
 
 function buildValidateTokenFormBody(tokenValue, clientId) {
@@ -581,7 +682,9 @@ async function refreshTokenViaValidateToken(seedToken, forceFresh = false) {
         method: "POST",
         credentials,
         headers: {
-          Accept: "application/json, text/plain, */*",
+          Accept: "*/*",
+          Origin: CM_WORKSPACE_CONSOLE_ORIGIN,
+          Referer: CM_WORKSPACE_CONSOLE_REFERER,
           "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
           ...(clientId ? { client_id: clientId } : {}),
         },
@@ -595,7 +698,11 @@ async function refreshTokenViaValidateToken(seedToken, forceFresh = false) {
         continue;
       }
       const refreshedToken = extractImsAccessTokenFromPayload(parsed);
-      if (refreshedToken && (!forceFresh || isBearerTokenFresh(refreshedToken, CM_WORKSPACE_TOKEN_REFRESH_SKEW_MS))) {
+      if (
+        refreshedToken &&
+        tokenSupportsCmCatalog(refreshedToken) &&
+        (!forceFresh || isBearerTokenFresh(refreshedToken, CM_WORKSPACE_TOKEN_REFRESH_SKEW_MS))
+      ) {
         return refreshedToken;
       }
       if (parsed.valid === true && !forceFresh && tokenSupportsCmCatalog(seedToken)) {
@@ -607,37 +714,49 @@ async function refreshTokenViaValidateToken(seedToken, forceFresh = false) {
 }
 
 async function refreshTokenViaImsCheck(forceFresh = false) {
-  const userId = String(cmWorkspaceRuntimeAuth.userId || "").trim();
-  if (!userId) {
-    return "";
+  const userIdCandidates = [];
+  collectWorkspaceUserIdCandidates().forEach((candidate) => {
+    if (!userIdCandidates.includes(candidate)) {
+      userIdCandidates.push(candidate);
+    }
+  });
+  if (!userIdCandidates.includes("")) {
+    userIdCandidates.push("");
   }
   const scopeValue = String(cmWorkspaceRuntimeAuth.scope || CM_WORKSPACE_IMS_DEFAULT_SCOPE).trim() || CM_WORKSPACE_IMS_DEFAULT_SCOPE;
   const scopeCandidates = dedupeCandidateStrings([scopeValue, CM_WORKSPACE_IMS_DEFAULT_SCOPE].map((value) => tokenizeScopeSet(value).join(",")));
   const scopes = scopeCandidates.length > 0 ? scopeCandidates : [CM_WORKSPACE_IMS_DEFAULT_SCOPE];
   for (const clientId of resolveWorkspaceRuntimeClientIds()) {
     for (const scope of scopes) {
-      const response = await fetchWithTimeout(buildImsCheckTokenUrl(clientId, scope, userId), {
-        method: "POST",
-        credentials: "include",
-        headers: {
-          Accept: "application/json, text/plain, */*",
-        },
-      }).catch(() => null);
-      if (!response || !response.ok) {
-        continue;
+      for (const userIdCandidate of userIdCandidates) {
+        const requestUrl = buildImsCheckTokenUrl(clientId, scope, userIdCandidate);
+        for (const credentials of ["include", "omit"]) {
+          const response = await fetchWithTimeout(requestUrl, {
+            method: "POST",
+            credentials,
+            headers: {
+              Accept: "*/*",
+              Origin: CM_WORKSPACE_CONSOLE_ORIGIN,
+              Referer: CM_WORKSPACE_CONSOLE_REFERER,
+            },
+          }).catch(() => null);
+          if (!response || !response.ok) {
+            continue;
+          }
+          const parsed = safeJsonParse(await response.text().catch(() => ""), null);
+          if (!parsed || typeof parsed !== "object") {
+            continue;
+          }
+          const refreshedToken = extractImsAccessTokenFromPayload(parsed);
+          if (!refreshedToken || !tokenSupportsCmCatalog(refreshedToken)) {
+            continue;
+          }
+          if (forceFresh && !isBearerTokenFresh(refreshedToken, CM_WORKSPACE_TOKEN_REFRESH_SKEW_MS)) {
+            continue;
+          }
+          return refreshedToken;
+        }
       }
-      const parsed = safeJsonParse(await response.text().catch(() => ""), null);
-      if (!parsed || typeof parsed !== "object") {
-        continue;
-      }
-      const refreshedToken = extractImsAccessTokenFromPayload(parsed);
-      if (!refreshedToken) {
-        continue;
-      }
-      if (forceFresh && !isBearerTokenFresh(refreshedToken, CM_WORKSPACE_TOKEN_REFRESH_SKEW_MS)) {
-        continue;
-      }
-      return refreshedToken;
     }
   }
   return "";
@@ -657,18 +776,17 @@ function setWorkspaceRuntimeAccessToken(tokenValue) {
 
 async function refreshCmWorkspaceAccessToken(forceFresh = false) {
   const seedToken = normalizeBearerTokenValue(cmWorkspaceRuntimeAuth.accessToken || "");
-  if (!seedToken) {
-    return "";
-  }
-  if (!forceFresh && isBearerTokenFresh(seedToken, CM_WORKSPACE_TOKEN_REFRESH_SKEW_MS) && tokenSupportsCmCatalog(seedToken)) {
+  if (!forceFresh && seedToken && isBearerTokenFresh(seedToken, CM_WORKSPACE_TOKEN_REFRESH_SKEW_MS) && tokenSupportsCmCatalog(seedToken)) {
     setWorkspaceRuntimeAccessToken(seedToken);
     return seedToken;
   }
   let refreshedToken = "";
-  try {
-    refreshedToken = await refreshTokenViaValidateToken(seedToken, forceFresh);
-  } catch {
-    refreshedToken = "";
+  if (seedToken) {
+    try {
+      refreshedToken = await refreshTokenViaValidateToken(seedToken, forceFresh);
+    } catch {
+      refreshedToken = "";
+    }
   }
   if (!refreshedToken) {
     try {
@@ -691,19 +809,26 @@ async function fetchCmWorkspaceWithAuth(urlValue, init = {}, options = {}) {
     throw new Error("CM request URL is required.");
   }
   const method = String(init?.method || "GET").trim().toUpperCase() || "GET";
-  const headers = {
-    Accept: "application/json, text/plain, */*",
-    ...(init?.headers && typeof init.headers === "object" ? init.headers : {}),
-  };
-  const hasBasicAuthorization = isBasicAuthHeader(headers.Authorization || headers.authorization || "");
+  const baseHeaders = withCmWorkspaceReportHeaders(
+    {
+      Accept: "*/*",
+      ...(init?.headers && typeof init.headers === "object" ? init.headers : {}),
+    },
+    requestUrl
+  );
+  const headers = { ...baseHeaders };
+  const hasBasicAuthorization = isBasicAuthHeader(baseHeaders.Authorization || baseHeaders.authorization || "");
   if (!hasBasicAuthorization) {
     let token = normalizeBearerTokenValue(cmWorkspaceRuntimeAuth.accessToken || "");
     if (!token || !isBearerTokenFresh(token, CM_WORKSPACE_TOKEN_REFRESH_SKEW_MS) || !tokenSupportsCmCatalog(token)) {
       token = await refreshCmWorkspaceAccessToken(false);
     }
-    if (token) {
-      headers.Authorization = `Bearer ${token}`;
+    if (!token || !tokenSupportsCmCatalog(token)) {
+      throw new Error(
+        "CM request failed: UnderPAR could not auto-hydrate a cm-console-ui bearer from the current Adobe IMS session. Sign in again and retry."
+      );
     }
+    headers.Authorization = `Bearer ${token}`;
   }
 
   const requestInit = {
@@ -720,7 +845,7 @@ async function fetchCmWorkspaceWithAuth(urlValue, init = {}, options = {}) {
     const refreshedToken = await refreshCmWorkspaceAccessToken(true);
     if (refreshedToken) {
       const retryHeaders = {
-        ...headers,
+        ...baseHeaders,
         Authorization: `Bearer ${refreshedToken}`,
       };
       response = await fetchWithTimeout(
@@ -730,6 +855,10 @@ async function fetchCmWorkspaceWithAuth(urlValue, init = {}, options = {}) {
           headers: retryHeaders,
         },
         options.timeoutMs || CM_WORKSPACE_FETCH_TIMEOUT_MS
+      );
+    } else {
+      throw new Error(
+        "CM request failed: UnderPAR could not auto-hydrate a cm-console-ui bearer from the current Adobe IMS session. Sign in again and retry."
       );
     }
   }
@@ -859,7 +988,77 @@ function isCmMetricColumn(columnName) {
   return CM_METRIC_COLUMNS.has(canonical);
 }
 
-function isDisplayableCmuUsageColumn(columnName) {
+function addCmuPathDimensionAliases(targetSet, segment) {
+  if (!(targetSet instanceof Set)) {
+    return;
+  }
+  const normalized = normalizeCmColumnName(segment);
+  if (!normalized) {
+    return;
+  }
+  const canonical = normalized.replace(/_/g, "-");
+  targetSet.add(normalized);
+  targetSet.add(canonical);
+  if (canonical === "tenant") {
+    targetSet.add("tenant-id");
+    targetSet.add("tenant_id");
+  } else if (canonical === "application-id") {
+    targetSet.add("application_id");
+  } else if (canonical === "decision-type") {
+    targetSet.add("decision_type");
+  } else if (canonical === "service-provider") {
+    targetSet.add("service_provider");
+  } else if (canonical === "activity-level") {
+    targetSet.add("activity_level");
+  } else if (canonical === "concurrency-level") {
+    targetSet.add("concurrency_level");
+  }
+}
+
+function resolveCmuPathDimensionSet(cardState = null) {
+  const requestUrl = String(cardState?.baseRequestUrl || cardState?.requestUrl || cardState?.endpointUrl || "").trim();
+  if (!requestUrl) {
+    return null;
+  }
+  let pathname = "";
+  try {
+    pathname = String(new URL(requestUrl).pathname || "");
+  } catch (_error) {
+    pathname = String(requestUrl || "").split("?", 1)[0] || "";
+  }
+  const segments = pathname
+    .split("/")
+    .map((segment) => {
+      try {
+        return decodeURIComponent(String(segment || "").trim());
+      } catch (_error) {
+        return String(segment || "").trim();
+      }
+    })
+    .map((segment) => normalizeCmColumnName(segment))
+    .filter(Boolean);
+  if (segments.length === 0) {
+    return null;
+  }
+  const supported = new Set();
+  segments.forEach((segment) => {
+    const canonical = segment.replace(/_/g, "-");
+    if (
+      CM_CMU_NON_DIMENSION_PATH_SEGMENTS.has(segment) ||
+      CM_CMU_NON_DIMENSION_PATH_SEGMENTS.has(canonical) ||
+      CM_FILTER_BLOCKED_COLUMNS.has(segment) ||
+      CM_FILTER_BLOCKED_COLUMNS.has(canonical) ||
+      isCmDateTimeColumn(segment) ||
+      isCmMetricColumn(segment)
+    ) {
+      return;
+    }
+    addCmuPathDimensionAliases(supported, segment);
+  });
+  return supported.size > 0 ? supported : null;
+}
+
+function isDisplayableCmuUsageColumn(cardState, columnName) {
   const normalized = normalizeCmColumnName(columnName);
   if (!normalized || normalized.startsWith("__")) {
     return false;
@@ -871,6 +1070,15 @@ function isDisplayableCmuUsageColumn(columnName) {
   if (isCmDateTimeColumn(normalized) || isCmMetricColumn(normalized)) {
     return false;
   }
+  const supportedDimensions = resolveCmuPathDimensionSet(cardState);
+  if (
+    supportedDimensions instanceof Set &&
+    supportedDimensions.size > 0 &&
+    !supportedDimensions.has(normalized) &&
+    !supportedDimensions.has(canonical)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -878,14 +1086,14 @@ function isDisplayableCmuColumn(cardState, columnName) {
   if (!isCmuUsageCard(cardState)) {
     return false;
   }
-  return isDisplayableCmuUsageColumn(columnName);
+  return isDisplayableCmuUsageColumn(cardState, columnName);
 }
 
 function isFilterableCmuColumn(cardState, columnName) {
   if (!isCmuUsageCard(cardState)) {
     return false;
   }
-  return isDisplayableCmuUsageColumn(columnName);
+  return isDisplayableCmuUsageColumn(cardState, columnName);
 }
 
 function collectHarvestCandidateValues(harvestList = []) {
@@ -1036,10 +1244,77 @@ function hasProgrammerContext() {
 }
 
 function shouldShowNonCmMode() {
-  return !state.controllerOnline && state.cmAvailable === false && hasProgrammerContext();
+  return (
+    state.cmAvailabilityResolved === true &&
+    state.cmAvailable === false &&
+    state.cmContainerVisible === false &&
+    hasProgrammerContext()
+  );
 }
 
-function clearWorkspaceCards() {
+function normalizeWorkspaceReplayCardPayload(card = null) {
+  if (!card || typeof card !== "object") {
+    return null;
+  }
+  const normalizedCardId = String(card?.cardId || buildWorkspaceCardId("replay")).trim();
+  const endpointUrl = String(card?.endpointUrl || "").trim();
+  const requestUrl = String(card?.requestUrl || endpointUrl || "").trim();
+  const baseRequestUrl = String(card?.baseRequestUrl || requestUrl || endpointUrl || "").trim();
+  return {
+    cardId: normalizedCardId || buildWorkspaceCardId("replay"),
+    endpointUrl,
+    requestUrl,
+    baseRequestUrl,
+    zoomKey: String(card?.zoomKey || "").trim(),
+    columns: Array.isArray(card?.columns) ? card.columns.map((column) => String(column || "")).filter(Boolean) : [],
+    localColumnFilters:
+      card?.localColumnFilters && typeof card.localColumnFilters === "object" ? { ...card.localColumnFilters } : {},
+    operation: card?.operation && typeof card.operation === "object" ? { ...card.operation } : null,
+    formValues: card?.formValues && typeof card.formValues === "object" ? { ...card.formValues } : {},
+    tenantId: String(card?.tenantId || "").trim(),
+    tenantName: String(card?.tenantName || "").trim(),
+  };
+}
+
+function cloneWorkspaceReplayCards(cards = []) {
+  return (Array.isArray(cards) ? cards : [])
+    .map((card) => normalizeWorkspaceReplayCardPayload(card))
+    .filter(Boolean);
+}
+
+function getWorkspaceReplayCardsFromCurrentState() {
+  const cards = getOrderedCardStates();
+  if (!Array.isArray(cards) || cards.length === 0) {
+    return [];
+  }
+  return cloneWorkspaceReplayCards(cards.map((cardState) => getCardPayload(cardState)));
+}
+
+function getWorkspaceReplayCards() {
+  const fromCurrentState = getWorkspaceReplayCardsFromCurrentState();
+  if (fromCurrentState.length > 0) {
+    state.workspaceReplayCards = cloneWorkspaceReplayCards(fromCurrentState);
+    return cloneWorkspaceReplayCards(fromCurrentState);
+  }
+  return cloneWorkspaceReplayCards(state.workspaceReplayCards);
+}
+
+function syncWorkspaceReplayCardsFromCurrentCards() {
+  const fromCurrentState = getWorkspaceReplayCardsFromCurrentState();
+  if (fromCurrentState.length > 0) {
+    state.workspaceReplayCards = cloneWorkspaceReplayCards(fromCurrentState);
+    return;
+  }
+  if (state.cardsById.size === 0) {
+    state.workspaceReplayCards = [];
+  }
+}
+
+function clearWorkspaceCards(options = {}) {
+  const preserveReplayContext = options?.preserveReplayContext === true;
+  if (!preserveReplayContext) {
+    state.workspaceReplayCards = [];
+  }
   state.cardsById.forEach((cardState) => {
     cardState.element?.remove();
   });
@@ -1051,28 +1326,39 @@ function hasWorkspaceCardContext() {
   return state.cardsById instanceof Map && state.cardsById.size > 0;
 }
 
+function hasWorkspaceReplayContext() {
+  return getWorkspaceReplayCards().length > 0;
+}
+
 function updateNonCmMode() {
-  const shouldShow = shouldShowNonCmMode();
-  state.nonCmMode = shouldShow;
+  const shouldShowNoCm = shouldShowNonCmMode();
+  const shouldShowSwitchLoading = state.programmerSwitchLoading === true && hasProgrammerContext();
+  const shouldShowInterimScreen = shouldShowNoCm || shouldShowSwitchLoading;
+  state.nonCmMode = shouldShowNoCm;
   if (els.nonCmHeadline) {
-    els.nonCmHeadline.textContent = `No Soup for ${getProgrammerLabel()}. No Premium, No CM, No Dice.`;
+    if (shouldShowSwitchLoading) {
+      els.nonCmHeadline.textContent = `Checking CM availability for ${getProgrammerLabel()}...`;
+    } else {
+      els.nonCmHeadline.textContent = `No Soup for ${getProgrammerLabel()}. No Premium, No CM, No Dice.`;
+    }
   }
   if (els.nonCmNote) {
-    els.nonCmNote.innerHTML = buildNotPremiumConsoleLinkHtml("CM");
-  }
-
-  if (shouldShow) {
-    clearWorkspaceCards();
+    if (shouldShowSwitchLoading) {
+      els.nonCmNote.textContent =
+        "Clearing previous CM context while UnderPAR validates premium CM availability for the selected Media Company.";
+    } else {
+      els.nonCmNote.innerHTML = buildNotPremiumConsoleLinkHtml("CM");
+    }
   }
 
   if (els.stylesheet) {
-    els.stylesheet.disabled = shouldShow;
+    els.stylesheet.disabled = shouldShowInterimScreen;
   }
   if (els.appRoot) {
-    els.appRoot.hidden = shouldShow;
+    els.appRoot.hidden = shouldShowInterimScreen;
   }
   if (els.nonCmScreen) {
-    els.nonCmScreen.hidden = !shouldShow;
+    els.nonCmScreen.hidden = !shouldShowInterimScreen;
   }
 }
 
@@ -1096,11 +1382,13 @@ function updateControllerBanner() {
   }
 
   const hasProgrammerContext = Boolean(String(state.programmerId || "").trim() || String(state.programmerName || "").trim());
+  if (state.workspaceLocked) {
+    els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
+    els.filterState.textContent = "CM workspace is locked for this media company. No Premium, No CM, No Dice.";
+    return;
+  }
   if (!state.controllerOnline) {
-    if (state.workspaceLocked) {
-      els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
-      els.filterState.textContent = "CM workspace is locked for this media company. No Premium, No CM, No Dice.";
-    } else if (hasProgrammerContext) {
+    if (hasProgrammerContext) {
       els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
       els.filterState.textContent = "Waiting for CM controller sync from UnderPAR side panel...";
     } else {
@@ -1138,6 +1426,123 @@ function updateControllerBanner() {
       ? `${harvestCountSummary}${harvestStatusSummary}${harvestIdentitySummary}`
       : "";
   els.filterState.textContent = `RequestorId(s): ${requestorLabel} | MVPD(s): ${mvpdLabel}${harvestSummary}`;
+}
+
+function getProgrammerIdentityKey(programmerId = "", programmerName = "") {
+  const id = String(programmerId || "").trim();
+  if (id) {
+    return `id:${id}`;
+  }
+  const name = String(programmerName || "").trim().toLowerCase();
+  return name ? `name:${name}` : "";
+}
+
+function hasProgrammerIdentityChanged(previousProgrammerId = "", previousProgrammerName = "", nextProgrammerId = "", nextProgrammerName = "") {
+  const previousId = String(previousProgrammerId || "").trim();
+  const nextId = String(nextProgrammerId || "").trim();
+  if (previousId && nextId) {
+    return previousId !== nextId;
+  }
+
+  const previousName = String(previousProgrammerName || "").trim().toLowerCase();
+  const nextName = String(nextProgrammerName || "").trim().toLowerCase();
+  if (previousName && nextName) {
+    return previousName !== nextName;
+  }
+
+  if (!previousId && !nextId && !previousName && !nextName) {
+    return false;
+  }
+  // Ignore transient partial identity payloads (e.g. id present in one state and name-only in another).
+  return false;
+}
+
+function clearPendingProgrammerSwitchTransition() {
+  state.programmerSwitchLoading = false;
+  state.programmerSwitchLoadingKey = "";
+  state.pendingAutoRerunProgrammerKey = "";
+  state.autoRerunInFlightProgrammerKey = "";
+  state.pendingAutoRerunCards = [];
+}
+
+async function autoRerunCardsForProgrammerSwitch(expectedProgrammerKey = "") {
+  const currentProgrammerKey = getProgrammerIdentityKey(state.programmerId, state.programmerName);
+  if (!currentProgrammerKey) {
+    return false;
+  }
+  if (expectedProgrammerKey && currentProgrammerKey !== expectedProgrammerKey) {
+    return false;
+  }
+  if (state.cmAvailable !== true || state.workspaceLocked || state.nonCmMode || state.batchRunning) {
+    return false;
+  }
+
+  const queuedCards =
+    Array.isArray(state.pendingAutoRerunCards) && state.pendingAutoRerunCards.length > 0
+      ? cloneWorkspaceReplayCards(state.pendingAutoRerunCards)
+      : getWorkspaceReplayCards();
+  const cards = cloneWorkspaceReplayCards(queuedCards);
+  if (cards.length === 0) {
+    return false;
+  }
+
+  await rerunAllCards({
+    // Keep media-company switch refresh behavior aligned with the same code path
+    // users trigger via the workspace Re-Run All button.
+    reason: "manual-reload",
+    cards,
+  });
+  return true;
+}
+
+function maybeConsumePendingAutoRerun() {
+  const pendingProgrammerKey = String(state.pendingAutoRerunProgrammerKey || "").trim();
+  if (!pendingProgrammerKey) {
+    return;
+  }
+  if (state.controllerOnline !== true) {
+    return;
+  }
+  if (state.programmerSwitchLoading === true) {
+    return;
+  }
+
+  const currentProgrammerKey = getProgrammerIdentityKey(state.programmerId, state.programmerName);
+  if (!currentProgrammerKey || currentProgrammerKey !== pendingProgrammerKey) {
+    return;
+  }
+
+  if (state.cmAvailabilityResolved !== true) {
+    return;
+  }
+  if (state.cmAvailabilityResolved === true && state.cmAvailable === false) {
+    clearPendingProgrammerSwitchTransition();
+    return;
+  }
+  if (state.cmAvailable !== true) {
+    return;
+  }
+
+  if (state.batchRunning || state.workspaceLocked || state.nonCmMode) {
+    return;
+  }
+
+  const cards =
+    Array.isArray(state.pendingAutoRerunCards) && state.pendingAutoRerunCards.length > 0
+      ? cloneWorkspaceReplayCards(state.pendingAutoRerunCards)
+      : getWorkspaceReplayCards();
+  if (cards.length === 0) {
+    clearPendingProgrammerSwitchTransition();
+    return;
+  }
+
+  state.pendingAutoRerunProgrammerKey = "";
+  state.autoRerunInFlightProgrammerKey = currentProgrammerKey;
+  void autoRerunCardsForProgrammerSwitch(currentProgrammerKey).finally(() => {
+    if (String(state.autoRerunInFlightProgrammerKey || "").trim() === currentProgrammerKey) {
+      state.autoRerunInFlightProgrammerKey = "";
+    }
+  });
 }
 
 const CM_WORKSPACE_ROW_FLATTEN_MAX_DEPTH = 4;
@@ -1949,6 +2354,7 @@ function updateTableWrapperViewport(tableState) {
 
 function getCardPayload(cardState) {
   const effectiveRequestUrl = getCardEffectiveRequestUrl(cardState);
+  const tenantScope = resolveWorkspaceTenantScope(cardState);
   return {
     cardId: cardState.cardId,
     endpointUrl: cardState.endpointUrl,
@@ -1959,8 +2365,8 @@ function getCardPayload(cardState) {
     localColumnFilters: serializeCmLocalColumnFilters(cardState?.localColumnFilters, cardState),
     operation: cardState.operation && typeof cardState.operation === "object" ? { ...cardState.operation } : null,
     formValues: cardState.formValues && typeof cardState.formValues === "object" ? { ...cardState.formValues } : {},
-    tenantId: String(cardState?.tenantId || state.programmerId || ""),
-    tenantName: String(cardState?.tenantName || state.programmerName || state.programmerId || ""),
+    tenantId: String(tenantScope || ""),
+    tenantName: String(firstNonEmptyString([state.programmerName, state.programmerId, cardState?.tenantName, cardState?.tenantId]) || ""),
   };
 }
 
@@ -2274,7 +2680,7 @@ function getCmuUsageDisplayColumns(cardState) {
   return output;
 }
 
-function getCmuUsageTableDisplayColumns(row) {
+function getCmuUsageTableDisplayColumns(cardState, row) {
   if (!row || typeof row !== "object" || Array.isArray(row)) {
     return [];
   }
@@ -2282,7 +2688,7 @@ function getCmuUsageTableDisplayColumns(row) {
   const seen = new Set();
   Object.keys(row).forEach((columnName) => {
     const normalized = normalizeCmColumnName(columnName);
-    if (!normalized || seen.has(normalized) || !isDisplayableCmuUsageColumn(normalized)) {
+    if (!normalized || seen.has(normalized) || !isDisplayableCmuUsageColumn(cardState, normalized)) {
       return;
     }
     seen.add(normalized);
@@ -3058,6 +3464,7 @@ function ensureCard(cardMeta) {
     }
     cardState.element?.remove();
     state.cardsById.delete(cardState.cardId);
+    syncWorkspaceReplayCardsFromCurrentCards();
     syncActionButtonsDisabled();
   });
 
@@ -3153,7 +3560,7 @@ function renderCardTable(cardState, rows, lastModified) {
     getRowValueByColumn(firstRow, "authz-attempts") != null &&
     getRowValueByColumn(firstRow, "authz-successful") != null;
   const hasCount = usageCard && getRowValueByColumn(firstRow, "count") != null;
-  const displayColumns = usageCard ? getCmuUsageTableDisplayColumns(firstRow) : [];
+  const displayColumns = usageCard ? getCmuUsageTableDisplayColumns(cardState, firstRow) : [];
   const headers = usageCard
     ? [
         ...(hasDate ? ["DATE"] : []),
@@ -3353,6 +3760,7 @@ function applyReportStart(payload) {
   if (!cardState) {
     return;
   }
+  syncWorkspaceReplayCardsFromCurrentCards();
   cardState.running = true;
   cardState.rows = [];
   cardState.sourceRows = [];
@@ -3370,6 +3778,7 @@ function applyReportForm(payload) {
   if (!cardState) {
     return;
   }
+  syncWorkspaceReplayCardsFromCurrentCards();
   if (payload?.operation && typeof payload.operation === "object") {
     cardState.operation = normalizeOperationDescriptor(payload.operation);
   }
@@ -3391,6 +3800,7 @@ function applyReportResult(payload) {
   if (!cardState) {
     return;
   }
+  syncWorkspaceReplayCardsFromCurrentCards();
   cardState.running = false;
 
   if (!payload?.ok) {
@@ -3421,6 +3831,47 @@ function applyReportResult(payload) {
 }
 
 function applyControllerState(payload) {
+  const incomingControllerStateVersion = Number(payload?.controllerStateVersion || 0);
+  const incomingControllerUpdatedAt = Number(payload?.updatedAt || 0);
+  const currentControllerStateVersion = Number(state.controllerStateVersion || 0);
+  const currentControllerUpdatedAt = Number(state.controllerStateUpdatedAt || 0);
+  const hasIncomingUpdatedAt = Number.isFinite(incomingControllerUpdatedAt) && incomingControllerUpdatedAt > 0;
+  const hasCurrentUpdatedAt = Number.isFinite(currentControllerUpdatedAt) && currentControllerUpdatedAt > 0;
+
+  if (hasIncomingUpdatedAt && hasCurrentUpdatedAt && incomingControllerUpdatedAt < currentControllerUpdatedAt) {
+    return;
+  }
+  if (
+    hasIncomingUpdatedAt &&
+    hasCurrentUpdatedAt &&
+    incomingControllerUpdatedAt === currentControllerUpdatedAt &&
+    incomingControllerStateVersion > 0 &&
+    currentControllerStateVersion > 0 &&
+    incomingControllerStateVersion < currentControllerStateVersion
+  ) {
+    return;
+  }
+  if (
+    !hasIncomingUpdatedAt &&
+    incomingControllerStateVersion > 0 &&
+    currentControllerStateVersion > 0 &&
+    incomingControllerStateVersion < currentControllerStateVersion
+  ) {
+    return;
+  }
+
+  if (incomingControllerStateVersion > 0) {
+    state.controllerStateVersion = incomingControllerStateVersion;
+  }
+  if (hasIncomingUpdatedAt) {
+    state.controllerStateUpdatedAt = incomingControllerUpdatedAt;
+  }
+
+  const previousProgrammerId = String(state.programmerId || "");
+  const previousProgrammerName = String(state.programmerName || "");
+  const previousProgrammerKey = getProgrammerIdentityKey(previousProgrammerId, previousProgrammerName);
+  const controllerReason = String(payload?.controllerReason || "").trim().toLowerCase();
+
   state.controllerOnline = payload?.controllerOnline === true;
   if (payload?.cmAvailable === true) {
     state.cmAvailable = true;
@@ -3428,6 +3879,20 @@ function applyControllerState(payload) {
     state.cmAvailable = false;
   } else {
     state.cmAvailable = null;
+  }
+  if (payload?.cmAvailabilityResolved === true) {
+    state.cmAvailabilityResolved = true;
+  } else if (payload?.cmAvailabilityResolved === false) {
+    state.cmAvailabilityResolved = false;
+  } else {
+    state.cmAvailabilityResolved = state.cmAvailable === true || state.cmAvailable === false;
+  }
+  if (payload?.cmContainerVisible === true) {
+    state.cmContainerVisible = true;
+  } else if (payload?.cmContainerVisible === false) {
+    state.cmContainerVisible = false;
+  } else {
+    state.cmContainerVisible = null;
   }
   state.programmerId = String(payload?.programmerId || "");
   state.programmerName = String(payload?.programmerName || "");
@@ -3451,6 +3916,23 @@ function applyControllerState(payload) {
         ? [{ ...state.profileHarvest }]
         : [];
 
+  const programmerChanged = hasProgrammerIdentityChanged(
+    previousProgrammerId,
+    previousProgrammerName,
+    state.programmerId,
+    state.programmerName
+  );
+  if (programmerChanged) {
+    state.batchRunning = false;
+    state.autoRerunInFlightProgrammerKey = "";
+    state.cardsById.forEach((cardState) => {
+      if (cardState) {
+        cardState.running = false;
+      }
+    });
+    syncActionButtonsDisabled();
+  }
+
   state.cardsById.forEach((cardState) => {
     if (!normalizeOperationDescriptor(cardState?.operation)) {
       return;
@@ -3469,9 +3951,50 @@ function applyControllerState(payload) {
     }
   });
 
+  const currentProgrammerKey = getProgrammerIdentityKey(state.programmerId, state.programmerName);
+  const shouldStartProgrammerSwitchLoading = programmerChanged && Boolean(previousProgrammerKey);
+  if (shouldStartProgrammerSwitchLoading && currentProgrammerKey) {
+    state.programmerSwitchLoadingKey = currentProgrammerKey;
+    state.programmerSwitchLoading = state.cmAvailabilityResolved !== true;
+  } else if (programmerChanged) {
+    state.programmerSwitchLoading = false;
+    state.programmerSwitchLoadingKey = "";
+  }
+  if (state.programmerSwitchLoading) {
+    const loadingProgrammerKey = String(state.programmerSwitchLoadingKey || "").trim();
+    if (!currentProgrammerKey || (loadingProgrammerKey && loadingProgrammerKey !== currentProgrammerKey)) {
+      state.programmerSwitchLoading = false;
+      state.programmerSwitchLoadingKey = "";
+    } else if (state.cmAvailabilityResolved === true) {
+      state.programmerSwitchLoading = false;
+      state.programmerSwitchLoadingKey = "";
+    }
+  }
+  const replayCardsForSwitch = getWorkspaceReplayCards();
+  const shouldTriggerWorkspaceRedraw =
+    programmerChanged &&
+    Boolean(previousProgrammerKey) &&
+    replayCardsForSwitch.length > 0 &&
+    (controllerReason === "media-company-change" || !controllerReason);
+  if (shouldTriggerWorkspaceRedraw && currentProgrammerKey) {
+    state.workspaceReplayCards = cloneWorkspaceReplayCards(replayCardsForSwitch);
+    state.pendingAutoRerunCards = cloneWorkspaceReplayCards(replayCardsForSwitch);
+    clearWorkspaceCards({ preserveReplayContext: true });
+    setStatus(
+      state.pendingAutoRerunCards.length > 0
+        ? `Refreshing ${state.pendingAutoRerunCards.length} report(s) for ${getProgrammerLabel()}...`
+        : "Refreshing workspace for selected Media Company..."
+    );
+    state.pendingAutoRerunProgrammerKey = currentProgrammerKey;
+  } else if (programmerChanged) {
+    state.pendingAutoRerunProgrammerKey = "";
+    state.pendingAutoRerunCards = [];
+  }
+
   syncTearsheetButtonsVisibility();
   updateWorkspaceLockState();
   updateControllerBanner();
+  maybeConsumePendingAutoRerun();
 }
 
 function handleWorkspaceEvent(eventName, payload) {
@@ -3485,6 +4008,7 @@ function handleWorkspaceEvent(eventName, payload) {
     return;
   }
   if (event === "report-start") {
+    clearPendingProgrammerSwitchTransition();
     applyReportStart(payload);
     return;
   }
@@ -3500,14 +4024,26 @@ function handleWorkspaceEvent(eventName, payload) {
     state.batchRunning = true;
     syncActionButtonsDisabled();
     const total = Number(payload?.total || 0);
-    setStatus(total > 0 ? `Re-running ${total} report(s)...` : "Re-running reports...");
+    const reason = String(payload?.reason || "").trim().toLowerCase();
+    if (reason === "manual-reload") {
+      setStatus(total > 0 ? `Reloading ${total} report(s)...` : "Reloading reports...");
+    } else {
+      setStatus(total > 0 ? `Re-running ${total} report(s)...` : "Re-running reports...");
+    }
     return;
   }
   if (event === "batch-end") {
     state.batchRunning = false;
+    state.cardsById.forEach((cardState) => {
+      if (cardState) {
+        cardState.running = false;
+      }
+    });
+    syncWorkspaceReplayCardsFromCurrentCards();
     syncActionButtonsDisabled();
     const total = Number(payload?.total || 0);
     setStatus(total > 0 ? `Re-run completed for ${total} report(s).` : "Re-run completed.");
+    maybeConsumePendingAutoRerun();
   }
 }
 
@@ -3757,7 +4293,7 @@ function buildWorkspaceTearsheetHtml(snapshot, templateHtml, stylesheetText, run
       dedupeCandidateStrings(
         (Array.isArray(authContext?.clientIds) ? authContext.clientIds : [])
           .map((value) => String(value || "").trim())
-          .filter(Boolean)
+          .filter((value) => String(value || "").trim().toLowerCase() === CM_WORKSPACE_PRIMARY_CLIENT_ID)
       )
     )
   );
@@ -4144,7 +4680,7 @@ function buildStandaloneCsvRows(cardState, sortRule = null) {
   const hasAuthN = getRowValueByColumn(firstRow, "authn-attempts") != null && getRowValueByColumn(firstRow, "authn-successful") != null;
   const hasAuthZ = getRowValueByColumn(firstRow, "authz-attempts") != null && getRowValueByColumn(firstRow, "authz-successful") != null;
   const hasCount = getRowValueByColumn(firstRow, "count") != null;
-  const displayColumns = getCmuUsageTableDisplayColumns(firstRow);
+  const displayColumns = getCmuUsageTableDisplayColumns(cardState, firstRow);
   const headers = [
     "DATE",
     ...(hasAuthN ? ["AuthN Success"] : []),
@@ -4287,20 +4823,35 @@ async function sendWorkspaceAction(action, payload = {}) {
   }
 }
 
-async function rerunAllCards() {
+async function rerunAllCards(options = {}) {
   if (!ensureWorkspaceUnlocked()) {
     return;
   }
-  if (state.cardsById.size === 0) {
+  const reason = String(options?.reason || "").trim().toLowerCase();
+  const explicitCards =
+    Array.isArray(options?.cards) && options.cards.length > 0
+      ? cloneWorkspaceReplayCards(options.cards)
+      : [];
+  const cards =
+    explicitCards.length > 0
+      ? explicitCards
+      : [...state.cardsById.values()].map((cardState) => getCardPayload(cardState));
+  if (cards.length === 0) {
     setStatus("No reports are open.");
     return;
   }
 
-  const cards = [...state.cardsById.values()].map((cardState) => getCardPayload(cardState));
+  if (cards.length > 0) {
+    state.workspaceReplayCards = cloneWorkspaceReplayCards(cards);
+  }
   state.batchRunning = true;
   syncActionButtonsDisabled();
-  setStatus(`Re-running ${cards.length} report(s)...`);
-  const result = await sendWorkspaceAction("rerun-all", { cards });
+  if (reason === "manual-reload") {
+    setStatus(`Reloading ${cards.length} report(s)...`);
+  } else {
+    setStatus(`Re-running ${cards.length} report(s)...`);
+  }
+  const result = await sendWorkspaceAction("rerun-all", { cards, reason });
   if (!result?.ok) {
     state.batchRunning = false;
     syncActionButtonsDisabled();
@@ -4376,6 +4927,7 @@ function clearWorkspace() {
   if (!ensureWorkspaceUnlocked()) {
     return;
   }
+  clearPendingProgrammerSwitchTransition();
   clearWorkspaceCards();
 }
 
@@ -4489,6 +5041,7 @@ function hydrateWorkspaceFromExportPayload(payload = workspaceExportPayload) {
     }
     renderCardMessage(cardState, "No data");
   });
+  syncWorkspaceReplayCardsFromCurrentCards();
 
   const total = state.cardsById.size;
   setStatus(

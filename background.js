@@ -615,6 +615,12 @@ function isAllowedImsRelayUrl(value) {
     if (host === "ims-na1.adobelogin.com" || host.endsWith(".adobelogin.com")) {
       return true;
     }
+    if (host === "adobeid-na1.services.adobe.com") {
+      return true;
+    }
+    if (host.startsWith("adobeid-") && host.endsWith(".services.adobe.com")) {
+      return true;
+    }
     if (host === "auth.services.adobe.com" || host.endsWith(".auth.services.adobe.com")) {
       return true;
     }
