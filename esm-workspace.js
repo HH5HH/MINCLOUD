@@ -350,18 +350,27 @@ function getSupportedDimensionsFromHref(hrefValue = "") {
     seen.add(normalized);
     output.push(normalized);
   });
+  parseRawQueryPairs(rawHref).forEach((pair) => {
+    const normalized = normalizeDimensionName(pair?.key);
+    if (
+      pair?.hasValue ||
+      !normalized ||
+      isSuppressedEsmColumn(normalized) ||
+      !isDisplayableDimension(normalized, rawHref) ||
+      seen.has(normalized)
+    ) {
+      return;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  });
   return output;
 }
 
 function buildDisplayDimensions(columns, hrefValue = "") {
-  const fromHref = getSupportedDimensionsFromHref(hrefValue);
-  if (fromHref.length > 0) {
-    return fromHref;
-  }
-
   const output = [];
   const seen = new Set();
-  normalizeEsmColumns(columns).forEach((columnName) => {
+  const appendColumn = (columnName) => {
     const normalized = normalizeDimensionName(columnName);
     if (
       !normalized ||
@@ -373,6 +382,13 @@ function buildDisplayDimensions(columns, hrefValue = "") {
     }
     seen.add(normalized);
     output.push(normalized);
+  };
+
+  getSupportedDimensionsFromHref(hrefValue).forEach((columnName) => {
+    appendColumn(columnName);
+  });
+  normalizeEsmColumns(columns).forEach((columnName) => {
+    appendColumn(columnName);
   });
   return output;
 }
@@ -537,17 +553,21 @@ function matchesLocalFilterValue(rowValue, selectedValues) {
   return false;
 }
 
-function applyLocalColumnFiltersToRows(rows, filterMap) {
+function applyLocalColumnFiltersToRows(rows, filterMap, exclusionMap = null) {
   const list = Array.isArray(rows) ? rows : [];
   if (!list.length) {
     return list;
   }
 
   const normalizedFilters = normalizeLocalColumnFilters(filterMap);
-  const entries = [...normalizedFilters.entries()].filter(
+  const inclusionEntries = [...normalizedFilters.entries()].filter(
     ([columnName, values]) => String(columnName || "").trim() && values instanceof Set && values.size > 0
   );
-  if (!entries.length) {
+  const normalizedExclusions = normalizeLocalColumnFilters(exclusionMap);
+  const exclusionEntries = [...normalizedExclusions.entries()].filter(
+    ([columnName, values]) => String(columnName || "").trim() && values instanceof Set && values.size > 0
+  );
+  if (!inclusionEntries.length && !exclusionEntries.length) {
     return list;
   }
 
@@ -555,8 +575,13 @@ function applyLocalColumnFiltersToRows(rows, filterMap) {
     if (!row || typeof row !== "object" || Array.isArray(row)) {
       return false;
     }
-    for (const [columnName, values] of entries) {
+    for (const [columnName, values] of inclusionEntries) {
       if (!matchesLocalFilterValue(row[columnName], values)) {
+        return false;
+      }
+    }
+    for (const [columnName, values] of exclusionEntries) {
+      if (matchesLocalFilterValue(row[columnName], values)) {
         return false;
       }
     }
@@ -1542,7 +1567,9 @@ function getCardPayload(cardState) {
     requestUrl: cardState.requestUrl,
     zoomKey: cardState.zoomKey,
     columns: cardState.columns,
+    preserveQueryContext: cardState?.preserveQueryContext === true,
     localColumnFilters: serializeLocalColumnFilters(cardState?.localColumnFilters),
+    localColumnExclusions: serializeLocalColumnFilters(cardState?.localColumnExclusions),
   };
 }
 
@@ -1607,6 +1634,19 @@ function parseRawQueryPairs(urlValue) {
         hasValue: true,
       };
     });
+}
+
+function extractRawQueryText(urlValue) {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return "";
+  }
+  const queryIndex = raw.indexOf("?");
+  if (queryIndex < 0) {
+    return "";
+  }
+  const hashIndex = raw.indexOf("#", queryIndex + 1);
+  return raw.slice(queryIndex + 1, hashIndex >= 0 ? hashIndex : undefined).trim();
 }
 
 function parseEsmRequestContext(urlValue) {
@@ -1687,13 +1727,90 @@ function buildInheritedRequestUrl(endpointUrl, sourceRequestUrl) {
       return endpointParsed.toString();
     }
 
-    const sourceParsed = new URL(sourceRaw);
-    sourceParsed.searchParams.forEach((value, key) => {
-      endpointParsed.searchParams.append(key, value);
-    });
-    return endpointParsed.toString();
+    const rawQueryText = extractRawQueryText(sourceRaw);
+    if (!rawQueryText) {
+      return endpointParsed.toString();
+    }
+    return `${endpointParsed.toString()}?${rawQueryText}`;
   } catch (_error) {
     return endpointRaw;
+  }
+}
+
+function buildCardDisplayRequestUrl(cardState) {
+  const sourceRaw = String(cardState?.requestUrl || cardState?.endpointUrl || "").trim();
+  if (!sourceRaw) {
+    return "";
+  }
+
+  const normalizedFilters = normalizeLocalColumnFilters(cardState?.localColumnFilters);
+  const normalizedExclusions = normalizeLocalColumnFilters(cardState?.localColumnExclusions);
+  const controlColumns = new Set([
+    ...normalizedFilters.keys(),
+    ...normalizedExclusions.keys(),
+  ]);
+
+  const nextPairs = parseRawQueryPairs(sourceRaw).filter((pair) => {
+    if (!pair?.hasValue) {
+      return true;
+    }
+    const normalizedKey = normalizeDimensionName(pair?.key);
+    const candidateColumn = normalizedKey.endsWith("!") ? normalizedKey.slice(0, -1) : normalizedKey;
+    if (!candidateColumn || !controlColumns.has(candidateColumn)) {
+      return true;
+    }
+    return false;
+  });
+
+  normalizedExclusions.forEach((values, columnName) => {
+    [...values]
+      .sort((left, right) => compareColumnValues(left, right))
+      .forEach((value) => {
+        nextPairs.push({
+          key: `${columnName}!`,
+          value,
+          hasValue: true,
+        });
+      });
+  });
+
+  normalizedFilters.forEach((values, columnName) => {
+    if (normalizedExclusions.has(columnName)) {
+      return;
+    }
+    [...values]
+      .sort((left, right) => compareColumnValues(left, right))
+      .forEach((value) => {
+        nextPairs.push({
+          key: columnName,
+          value,
+          hasValue: true,
+        });
+      });
+  });
+
+  const queryText = nextPairs
+    .map((pair) => {
+      const key = encodeURIComponent(String(pair?.key || "").trim()).replace(/%20/g, "+");
+      if (!key) {
+        return "";
+      }
+      if (pair?.hasValue) {
+        return `${key}=${String(pair?.value || "")}`;
+      }
+      return key;
+    })
+    .filter(Boolean)
+    .join("&");
+
+  try {
+    const parsed = new URL(sourceRaw);
+    parsed.hash = "";
+    parsed.search = queryText ? `?${queryText}` : "";
+    return parsed.toString();
+  } catch (_error) {
+    const pathOnly = sourceRaw.split(/[?#]/, 1)[0] || sourceRaw;
+    return queryText ? `${pathOnly}?${queryText}` : pathOnly;
   }
 }
 
@@ -1853,12 +1970,77 @@ function resetCardLocalFilterBaseline(cardState) {
   cardState.pickerOpenColumn = "";
 }
 
+function seedCardLocalFilterBaselineSelections(cardState, requestUrl = "") {
+  if (!cardState) {
+    return;
+  }
+  const normalizedFilters = normalizeLocalColumnFilters(cardState.localColumnFilters);
+  normalizedFilters.forEach((values, columnName) => {
+    const sortedValues = [...values].sort((left, right) => compareColumnValues(left, right));
+    if (sortedValues.length === 0) {
+      return;
+    }
+    const existingValues = new Set(cardState.localDistinctByColumn.get(columnName) || []);
+    sortedValues.forEach((value) => {
+      existingValues.add(value);
+    });
+    cardState.localDistinctByColumn.set(
+      columnName,
+      [...existingValues].sort((left, right) => compareColumnValues(left, right))
+    );
+    const description = getDimensionDescription(columnName, requestUrl);
+    if (description) {
+      cardState.localDescriptionByColumn.set(columnName, description);
+    }
+  });
+  cardState.localHasBaselineData = cardState.localDistinctByColumn.size > 0;
+}
+
+function resolvePendingLocalColumnExclusions(cardState, requestUrl = "") {
+  if (!cardState) {
+    return;
+  }
+  const normalizedExclusions = normalizeLocalColumnFilters(cardState.localColumnExclusions);
+  if (normalizedExclusions.size === 0) {
+    return;
+  }
+
+  const nextFilters = normalizeLocalColumnFilters(cardState.localColumnFilters);
+  const remainingExclusions = new Map();
+
+  normalizedExclusions.forEach((excludedValues, columnName) => {
+    const availableValues = Array.isArray(cardState.localDistinctByColumn.get(columnName))
+      ? cardState.localDistinctByColumn.get(columnName)
+      : [];
+    if (!availableValues.length) {
+      remainingExclusions.set(columnName, new Set(excludedValues));
+      return;
+    }
+
+    const includedValues = availableValues.filter((value) => !matchesLocalFilterValue(value, excludedValues));
+    if (includedValues.length > 0) {
+      nextFilters.set(columnName, new Set(includedValues));
+      const description = getDimensionDescription(columnName, requestUrl);
+      if (description) {
+        cardState.localDescriptionByColumn.set(columnName, description);
+      }
+    }
+
+    remainingExclusions.set(columnName, new Set(excludedValues));
+  });
+
+  cardState.localColumnFilters = nextFilters;
+  cardState.localColumnExclusions = remainingExclusions;
+}
+
 function initializeCardLocalFilterBaseline(cardState, rows, requestUrl) {
   if (!cardState) {
     return;
   }
   resetCardLocalFilterBaseline(cardState);
   if (!Array.isArray(rows) || rows.length === 0) {
+    seedCardLocalFilterBaselineSelections(cardState, requestUrl);
+    resolvePendingLocalColumnExclusions(cardState, requestUrl);
     return;
   }
 
@@ -1867,7 +2049,11 @@ function initializeCardLocalFilterBaseline(cardState, rows, requestUrl) {
     .map((columnName) => normalizeDimensionName(columnName))
     .filter(Boolean)
     .filter((columnName) => !isSuppressedEsmColumn(columnName));
-  const candidateColumns = normalizeEsmColumns(cardState.columns, { href: requestUrl })
+  const candidateColumns = [
+    ...normalizeEsmColumns(cardState.columns, { href: requestUrl }),
+    ...normalizeLocalColumnFilters(cardState.localColumnFilters).keys(),
+    ...normalizeLocalColumnFilters(cardState.localColumnExclusions).keys(),
+  ]
     .map((columnName) => normalizeDimensionName(columnName))
     .filter(Boolean)
     .filter((columnName) => !isSuppressedEsmColumn(columnName));
@@ -1887,6 +2073,8 @@ function initializeCardLocalFilterBaseline(cardState, rows, requestUrl) {
     }
   });
   cardState.localHasBaselineData = cardState.localDistinctByColumn.size > 0;
+  seedCardLocalFilterBaselineSelections(cardState, requestUrl);
+  resolvePendingLocalColumnExclusions(cardState, requestUrl);
 
   if (!cardState.localHasBaselineData) {
     return;
@@ -1908,7 +2096,7 @@ function initializeCardLocalFilterBaseline(cardState, rows, requestUrl) {
 }
 
 function buildCardLocalFilterResetMarkup(cardState, { compact = false } = {}) {
-  if (!hasLocalColumnFilters(cardState?.localColumnFilters)) {
+  if (!hasLocalColumnFilters(cardState?.localColumnFilters) && !hasLocalColumnFilters(cardState?.localColumnExclusions)) {
     return "";
   }
   const className = compact
@@ -1922,15 +2110,20 @@ function buildCardLocalFilterResetMarkup(cardState, { compact = false } = {}) {
 
 function buildCardColumnsMarkup(cardState) {
   const requestUrl = String(cardState?.requestUrl || cardState?.endpointUrl || "").trim();
+  const displayRequestUrl = buildCardDisplayRequestUrl(cardState) || requestUrl;
+  const filterColumns = [
+    ...normalizeLocalColumnFilters(cardState?.localColumnFilters).keys(),
+    ...normalizeLocalColumnFilters(cardState?.localColumnExclusions).keys(),
+  ];
   const sourceColumns =
     cardState?.localDistinctByColumn && cardState.localDistinctByColumn.size > 0
-      ? [...cardState.localDistinctByColumn.keys()]
-      : normalizeEsmColumns(cardState?.columns, { href: requestUrl });
+      ? [...cardState.localDistinctByColumn.keys(), ...filterColumns]
+      : [...normalizeEsmColumns(cardState?.columns, { href: requestUrl }), ...filterColumns];
   const displayColumns = buildDisplayDimensions(sourceColumns, requestUrl);
   const nodeLabel = getEsmNodeLabel(requestUrl);
-  const endpointMarkup = requestUrl
+  const endpointMarkup = displayRequestUrl
     ? `<a class="card-col-parent-url card-rerun-url" href="${escapeHtml(requestUrl)}" title="${escapeHtml(
-        requestUrl
+        displayRequestUrl
       )}">${escapeHtml(nodeLabel)}</a>`
     : `<span class="card-col-parent-url card-col-parent-url-empty">node</span>`;
   const normalizedFilterableColumns = displayColumns.filter((column) => isFilterableDimension(column, requestUrl));
@@ -2038,8 +2231,9 @@ function createCardElements(cardState) {
 
 function updateCardHeader(cardState) {
   const requestUrl = String(cardState.requestUrl || cardState.endpointUrl || "").trim();
-  cardState.titleElement.innerHTML = buildCardHeaderContextMarkup(requestUrl, String(cardState.endpointUrl || ""));
-  cardState.titleElement.title = requestUrl || "No ESM URL";
+  const displayRequestUrl = buildCardDisplayRequestUrl(cardState) || requestUrl;
+  cardState.titleElement.innerHTML = buildCardHeaderContextMarkup(displayRequestUrl, String(cardState.endpointUrl || ""));
+  cardState.titleElement.title = displayRequestUrl || "No ESM URL";
   const zoom = cardState.zoomKey ? `Zoom: ${cardState.zoomKey}` : "Zoom: --";
   const rows = Array.isArray(cardState.rows) ? cardState.rows.length : 0;
   cardState.subtitleElement.textContent = `${zoom} | Rows: ${rows}`;
@@ -2080,6 +2274,7 @@ function wireCardRerunAndFilterActions(cardState) {
     button.addEventListener("click", (event) => {
       event.preventDefault();
       cardState.localColumnFilters = new Map();
+      cardState.localColumnExclusions = new Map();
       cardState.pickerOpenColumn = "";
       void rerunCard(cardState);
     });
@@ -2251,7 +2446,9 @@ function wireCardColumnFilterCloud(cardState) {
     } else {
       cardState.localColumnFilters.delete(columnName);
     }
+    cardState.localColumnExclusions.delete(columnName);
     updateVisualState();
+    updateCardHeader(cardState);
   });
 
   const openColumn = normalizeDimensionName(cardState.pickerOpenColumn || "");
@@ -2291,12 +2488,19 @@ function ensureCard(cardMeta) {
     if (Array.isArray(cardMeta?.columns)) {
       existing.columns = normalizeEsmColumns(cardMeta.columns);
     }
+    if ("preserveQueryContext" in (cardMeta || {})) {
+      existing.preserveQueryContext = cardMeta?.preserveQueryContext === true;
+    }
     if (cardMeta?.localColumnFilters && typeof cardMeta.localColumnFilters === "object") {
       existing.localColumnFilters = normalizeLocalColumnFilters(cardMeta.localColumnFilters);
+    }
+    if (cardMeta?.localColumnExclusions && typeof cardMeta.localColumnExclusions === "object") {
+      existing.localColumnExclusions = normalizeLocalColumnFilters(cardMeta.localColumnExclusions);
     }
     const nextEndpointKey = getWorkspaceEndpointKey(String(existing.endpointUrl || existing.requestUrl || ""));
     if (previousEndpointKey && nextEndpointKey && previousEndpointKey !== nextEndpointKey) {
       existing.localColumnFilters = new Map();
+      existing.localColumnExclusions = new Map();
       existing.localDistinctByColumn.clear();
       existing.localDescriptionByColumn.clear();
       existing.localHasBaselineData = false;
@@ -2312,10 +2516,12 @@ function ensureCard(cardMeta) {
     requestUrl: String(cardMeta?.requestUrl || cardMeta?.endpointUrl || ""),
     zoomKey: String(cardMeta?.zoomKey || ""),
     columns: normalizeEsmColumns(cardMeta?.columns),
+    preserveQueryContext: cardMeta?.preserveQueryContext === true,
     rows: [],
     sortStack: getDefaultSortStack(),
     lastModified: "",
     localColumnFilters: normalizeLocalColumnFilters(cardMeta?.localColumnFilters),
+    localColumnExclusions: normalizeLocalColumnFilters(cardMeta?.localColumnExclusions),
     localDistinctByColumn: new Map(),
     localDescriptionByColumn: new Map(),
     localHasBaselineData: false,
@@ -2554,14 +2760,20 @@ function applyReportResult(payload) {
     return;
   }
 
-  const rows = applyLocalColumnFiltersToRows(
-    Array.isArray(payload?.rows) ? payload.rows : [],
-    cardState.localColumnFilters
-  );
-  cardState.rows = rows;
+  const sourceRows = Array.isArray(payload?.rows) ? payload.rows : [];
   cardState.lastModified = String(payload?.lastModified || "");
   cardState.sortStack = getDefaultSortStack();
-  initializeCardLocalFilterBaseline(cardState, rows, String(payload?.requestUrl || cardState.requestUrl || cardState.endpointUrl || ""));
+  initializeCardLocalFilterBaseline(
+    cardState,
+    sourceRows,
+    String(payload?.requestUrl || cardState.requestUrl || cardState.endpointUrl || "")
+  );
+  const rows = applyLocalColumnFiltersToRows(
+    sourceRows,
+    cardState.localColumnFilters,
+    cardState.localColumnExclusions
+  );
+  cardState.rows = rows;
   updateCardHeader(cardState);
 
   if (rows.length === 0) {

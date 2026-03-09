@@ -195,7 +195,9 @@ input[type="datetime-local"] {
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 4px 6px;
+  padding: 4px 2px;
+  border: 0;
+  background: transparent;
 }
 
 .page-env-badge {
@@ -373,7 +375,8 @@ input[type="datetime-local"] {
 }
 
 #workspace-status.error {
-  background: #f6f6f6;
+  background: #f8f1f1;
+  color: #8a4f4f;
 }
 
 .meg-client-shell {
@@ -423,7 +426,7 @@ input[type="datetime-local"] {
   flex-wrap: nowrap;
 }
 
-.meg-export-pack button {
+.meg-export-pack-button {
   min-height: 32px;
   min-width: 56px;
   padding: 0 12px;
@@ -437,19 +440,40 @@ input[type="datetime-local"] {
   text-transform: uppercase;
 }
 
-.meg-export-pack button:hover:not(:disabled),
-.meg-export-pack button:active:not(:disabled) {
+.meg-export-pack-button:hover:not(:disabled),
+.meg-export-pack-button:active:not(:disabled) {
   background: #000000;
   color: #ffffff;
 }
 
-.meg-export-pack button:focus-visible {
+.meg-export-pack-button:focus-visible {
   outline: 2px solid #000000;
   outline-offset: 2px;
 }
 
-.meg-export-pack button:disabled {
+.meg-export-pack-button:disabled {
   opacity: 0.58;
+}
+
+.meg-export-pack-button--icon {
+  min-width: 32px;
+  width: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.meg-export-pack-icon {
+  width: 18px;
+  height: 18px;
+  display: inline-block;
+}
+
+.meg-export-pack-icon svg {
+  width: 100%;
+  height: 100%;
+  display: block;
 }
 
 .meg-results-panel {
@@ -534,6 +558,11 @@ input[type="datetime-local"] {
   border: 1px solid #000000;
 }
 
+#stat_bkt.meg-console-error {
+  background-color: #f4eded;
+  color: #7a4d4d;
+}
+
 .meg-info-panel {
   flex: 0 0 auto;
   position: sticky;
@@ -563,6 +592,10 @@ input[type="datetime-local"] {
 #meg-reset-url:focus-visible,
 #fldEsmUrl:focus-visible,
 input[type="datetime-local"]:focus-visible,
+a.meg-saved-query-btn:focus-visible,
+button.meg-saved-query-btn:focus-visible,
+.meg-saved-query-select:focus-visible,
+.meg-saved-query-name:focus-visible,
 a:focus-visible {
   outline: 2px solid #000000;
   outline-offset: 2px;
@@ -600,6 +633,126 @@ a:focus-visible {
 
 .meg-info-section h1 {
   margin-bottom: 8px;
+}
+
+.meg-saved-query-section {
+  --meg-saved-query-capri: #005f84;
+  display: block;
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+  box-sizing: border-box;
+  border: 2px solid #000000;
+  background: #ffffff;
+  overflow: visible;
+  padding: 12px;
+}
+
+.meg-saved-query-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: nowrap;
+  width: 100%;
+  min-width: 0;
+}
+
+.meg-saved-query-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.meg-saved-query-group--left {
+  flex: 0 0 auto;
+}
+
+.meg-saved-query-group--right {
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.meg-saved-query-title {
+  margin: 0;
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  color: var(--meg-saved-query-capri);
+  white-space: nowrap;
+  flex: 0 0 auto;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.meg-saved-query-name,
+.meg-saved-query-select {
+  min-height: 38px;
+  border: 1px solid #000000;
+  border-radius: 0;
+  background: #ffffff;
+  color: #000000;
+  font-size: 13px;
+  padding: 0 10px;
+}
+
+.meg-saved-query-name {
+  flex: 0 0 220px;
+  width: 220px;
+}
+
+.meg-saved-query-select {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 18ch;
+  max-width: 44ch;
+}
+
+.meg-saved-query-btn {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid #000000;
+  border-radius: 0;
+  background: linear-gradient(180deg, #f4f4f4 0%, #c7c7c7 100%);
+  color: #000000;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.meg-saved-query-btn:hover:not(:disabled),
+.meg-saved-query-btn:active:not(:disabled) {
+  background: #000000;
+  color: #ffffff;
+}
+
+.meg-saved-query-btn:disabled {
+  opacity: 0.58;
+}
+
+.meg-saved-query-btn--danger {
+  background: linear-gradient(180deg, #ffe0e0 0%, #f0aaaa 100%);
+  color: #8d0000;
+  border-color: #8d0000;
+}
+
+.meg-saved-query-btn--danger:hover:not(:disabled),
+.meg-saved-query-btn--danger:active:not(:disabled) {
+  background: #8d0000;
+  color: #ffffff;
+}
+
+.meg-saved-query-name.meg-save-query-cued,
+.meg-saved-query-btn.meg-save-query-cued {
+  box-shadow: 0 0 0 2px rgba(0, 95, 132, 0.18), 0 0 0 5px rgba(0, 95, 132, 0.08);
+}
+
+.meg-saved-query-name.meg-save-query-cued {
+  background: #f6fbfe;
 }
 
 @media (max-width: 1120px) {

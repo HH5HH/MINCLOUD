@@ -37,6 +37,11 @@
           </div>
         </div>
         <div class="workspace-actions">
+          <span id="page-env-badge" class="page-env-badge" aria-label="Data Environment" title="Data Environment">
+            <span class="page-env-badge-prefix">ENV</span>
+            <span class="page-env-badge-sep">|</span>
+            <span id="page-env-badge-value" class="page-env-badge-value"></span>
+          </span>
           <button
             id="workspace-make-clickesmws"
             class="workspace-icon-btn workspace-icon-btn--tearsheet workspace-icon-btn--accent workspace-icon-btn--workspace-tearsheet"
@@ -100,13 +105,6 @@
         >
       </p>
     </main>
-    <div class="page-env-badge-row">
-      <span id="page-env-badge" class="page-env-badge" aria-label="Data Environment" title="Data Environment">
-        <span class="page-env-badge-prefix">ENV</span>
-        <span class="page-env-badge-sep">|</span>
-        <span id="page-env-badge-value" class="page-env-badge-value"></span>
-      </span>
-    </div>
     <script src="underpar-environment.js"></script>
     <script src="esm-workspace.js"></script>
   </body>

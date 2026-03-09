@@ -1,6 +1,7 @@
 const MEG_WORKSPACE_MESSAGE_TYPE = "underpar:meg-workspace";
 const MEG_EXPORT_FORMATS = Object.freeze(["csv", "json", "xml", "html"]);
 const MEG_SUPPRESSED_COLUMNS = new Set(["media-company"]);
+const SAVED_QUERY_STORAGE_PREFIX = "underpar:saved-esm-query:";
 const DEFAULT_MEG_URLS = Object.freeze([
   "/esm/v3/media-company/year?requestor-id&api&metrics=authz-successful,media-tokens",
   "/esm/v3/media-company/year/month/day?event&requestor-id&mvpd&reason!=None",
@@ -32,8 +33,8 @@ const state = {
   lastLaunchTokenHandled: "",
   workspaceLocked: false,
   nonEsmMode: false,
-  pendingAutoRerunProgrammerKey: "",
-  autoRerunInFlightProgrammerKey: "",
+  pendingAutoRerunContextKey: "",
+  autoRerunInFlightContextKey: "",
   requestVersion: 0,
   rawTable: {
     headers: [],
@@ -54,11 +55,17 @@ const pageEnvBadge = document.getElementById("page-env-badge");
 const pageEnvBadgeValue = document.getElementById("page-env-badge-value");
 const rerunIndicator = document.getElementById("workspace-rerun-indicator");
 const statusElement = document.getElementById("workspace-status");
+const statBucket = document.getElementById("stat_bkt");
 const resetHeading = document.getElementById("meg-reset-url");
 const infoPanel = document.getElementById("meg-info-panel");
 const infoToggle = document.getElementById("meg-info-toggle");
 const infoBody = document.getElementById("meg-info-body");
+const savedQuerySection = document.getElementById("meg-saved-query-section");
 const loadProgress = document.getElementById("load_progress");
+const fldSavedQueryName = document.getElementById("fldSavedQueryName");
+const savedQueryPicker = document.getElementById("savedEsmQueryPicker");
+const btnSaveQuery = document.getElementById("btnSaveQuery");
+const btnDeleteQuery = document.getElementById("btnDeleteQuery");
 
 ack("MEG TOOL - OPEN WIDE, get the story from your data");
 ack("UNDER CONSTRUCTION DISCLAIMER: Please forgive the mess, it's a live develop as needed situation...");
@@ -110,6 +117,7 @@ function setStatus(message = "", type = "info") {
   statusElement.textContent = text;
   statusElement.hidden = !text;
   statusElement.classList.toggle("error", type === "error" && Boolean(text));
+  statBucket?.classList.toggle("meg-console-error", type === "error" && Boolean(text));
 }
 
 function setRerunBusy(isBusy) {
@@ -148,6 +156,39 @@ function setInfoPanelCollapsed(collapsed = true) {
   infoToggle.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
   infoToggle.title = isCollapsed ? "Expand INFO" : "Collapse INFO";
   infoToggle.setAttribute("aria-label", isCollapsed ? "Expand INFO" : "Collapse INFO");
+}
+
+function setSavedQueryCue(active = false) {
+  const nextState = Boolean(active);
+  fldSavedQueryName?.classList.toggle("meg-save-query-cued", nextState);
+  btnSaveQuery?.classList.toggle("meg-save-query-cued", nextState);
+}
+
+function beginSavedQueryFlow() {
+  if (!hasMegRunnableContext()) {
+    reportSavedQueryStatus("An ESM URL is required to save a Saved ESM Query.", "error");
+    fldEsmUrl?.focus();
+    return;
+  }
+
+  setInfoPanelCollapsed(false);
+  setSavedQueryCue(true);
+
+  requestAnimationFrame(() => {
+    infoBody?.scrollTo({
+      top: infoBody.scrollHeight,
+      behavior: "smooth",
+    });
+    savedQuerySection?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+      behavior: "smooth",
+    });
+    requestAnimationFrame(() => {
+      fldSavedQueryName?.focus({ preventScroll: true });
+      fldSavedQueryName?.select?.();
+    });
+  });
 }
 
 function buildFallbackEnvironmentFromInputs() {
@@ -197,6 +238,16 @@ function hasProgrammerIdentityChanged(previousProgrammerId = "", previousProgram
   }
 
   return false;
+}
+
+function getMegControllerContextKey(programmerId = "", programmerName = "", environmentKey = "") {
+  const programmerKey = getProgrammerIdentityKey(programmerId, programmerName);
+  const normalizedEnvironmentKey =
+    String(environmentKey || DEFAULT_ADOBEPASS_ENVIRONMENT.key || "release-production").trim() || "release-production";
+  if (!programmerKey) {
+    return "";
+  }
+  return `${programmerKey}|env:${normalizedEnvironmentKey}`;
 }
 
 function getProgrammerConsoleApplicationsUrl() {
@@ -289,9 +340,9 @@ function ensureMegWorkspaceAccess(actionLabel = "run MEGSPACE") {
   return false;
 }
 
-function clearPendingMegProgrammerSwitchTransition() {
-  state.pendingAutoRerunProgrammerKey = "";
-  state.autoRerunInFlightProgrammerKey = "";
+function clearPendingMegContextTransition() {
+  state.pendingAutoRerunContextKey = "";
+  state.autoRerunInFlightContextKey = "";
 }
 
 function nextMegRequestVersion() {
@@ -309,55 +360,63 @@ function isMegRequestCurrent(requestVersion) {
   );
 }
 
-async function autoRerunMegForProgrammerSwitch(expectedProgrammerKey = "") {
-  const currentProgrammerKey = getProgrammerIdentityKey(state.programmerId, state.programmerName);
-  if (!currentProgrammerKey) {
+async function autoRerunMegForContextChange(expectedContextKey = "") {
+  const currentContextKey = getMegControllerContextKey(
+    state.programmerId,
+    state.programmerName,
+    state.adobePassEnvironment?.key
+  );
+  if (!currentContextKey) {
     return false;
   }
-  if (expectedProgrammerKey && currentProgrammerKey !== expectedProgrammerKey) {
+  if (expectedContextKey && currentContextKey !== expectedContextKey) {
     return false;
   }
   if (!hasMegRunnableContext() || state.esmAvailable !== true || state.workspaceLocked || state.nonEsmMode) {
     return false;
   }
 
-  await runMeg("programmer-switch");
+  await runMeg("rerun-all");
   return true;
 }
 
 function maybeConsumePendingAutoRerun() {
-  const pendingProgrammerKey = String(state.pendingAutoRerunProgrammerKey || "").trim();
-  if (!pendingProgrammerKey) {
+  const pendingContextKey = String(state.pendingAutoRerunContextKey || "").trim();
+  if (!pendingContextKey) {
     return;
   }
 
-  const currentProgrammerKey = getProgrammerIdentityKey(state.programmerId, state.programmerName);
-  if (!currentProgrammerKey || currentProgrammerKey !== pendingProgrammerKey) {
+  const currentContextKey = getMegControllerContextKey(
+    state.programmerId,
+    state.programmerName,
+    state.adobePassEnvironment?.key
+  );
+  if (!currentContextKey || currentContextKey !== pendingContextKey) {
     return;
   }
 
   if (!hasMegRunnableContext()) {
-    clearPendingMegProgrammerSwitchTransition();
+    clearPendingMegContextTransition();
     return;
   }
   if (state.esmAvailabilityResolved === true && state.esmAvailable === false) {
-    clearPendingMegProgrammerSwitchTransition();
+    clearPendingMegContextTransition();
     return;
   }
   if (state.esmAvailable !== true || state.workspaceLocked || state.nonEsmMode) {
     return;
   }
 
-  state.pendingAutoRerunProgrammerKey = "";
-  state.autoRerunInFlightProgrammerKey = currentProgrammerKey;
+  state.pendingAutoRerunContextKey = "";
+  state.autoRerunInFlightContextKey = currentContextKey;
   setStatus(
     `Refreshing MEGTOOL for ${getProgrammerLabel()} in ${String(
       state.adobePassEnvironment?.label || DEFAULT_ADOBEPASS_ENVIRONMENT.label
     )}...`
   );
-  void autoRerunMegForProgrammerSwitch(currentProgrammerKey).finally(() => {
-    if (String(state.autoRerunInFlightProgrammerKey || "").trim() === currentProgrammerKey) {
-      state.autoRerunInFlightProgrammerKey = "";
+  void autoRerunMegForContextChange(currentContextKey).finally(() => {
+    if (String(state.autoRerunInFlightContextKey || "").trim() === currentContextKey) {
+      state.autoRerunInFlightContextKey = "";
     }
   });
 }
@@ -434,7 +493,6 @@ function applyControllerState(payload = {}) {
   const environmentChanged = Boolean(incomingEnvironmentKey) && incomingEnvironmentKey !== previousEnvironmentKey;
   const previousProgrammerId = String(state.programmerId || "");
   const previousProgrammerName = String(state.programmerName || "");
-  const previousProgrammerKey = getProgrammerIdentityKey(previousProgrammerId, previousProgrammerName);
   const controllerReason = String(payload?.controllerReason || "").trim().toLowerCase();
 
   state.controllerOnline = payload?.controllerOnline === true;
@@ -473,26 +531,26 @@ function applyControllerState(payload = {}) {
     state.programmerId,
     state.programmerName
   );
+  const currentContextKey = getMegControllerContextKey(state.programmerId, state.programmerName, state.adobePassEnvironment?.key);
   if (programmerChanged || environmentChanged) {
-    state.autoRerunInFlightProgrammerKey = "";
+    state.autoRerunInFlightContextKey = "";
   }
 
-  const currentProgrammerKey = getProgrammerIdentityKey(state.programmerId, state.programmerName);
   const shouldTriggerWorkspaceRedraw =
     hasMegRunnableContext() &&
-    Boolean(currentProgrammerKey) &&
-    ((programmerChanged && Boolean(previousProgrammerKey) && controllerReason === "media-company-change") ||
+    Boolean(currentContextKey) &&
+    ((programmerChanged && controllerReason === "media-company-change") ||
       (environmentChanged && controllerReason === "environment-switch"));
 
   if (shouldTriggerWorkspaceRedraw) {
-    state.pendingAutoRerunProgrammerKey = currentProgrammerKey;
+    state.pendingAutoRerunContextKey = currentContextKey;
     setStatus(
       `Refreshing MEGTOOL for ${getProgrammerLabel()} in ${String(
         state.adobePassEnvironment?.label || incomingEnvironmentKey || DEFAULT_ADOBEPASS_ENVIRONMENT.label
       )}...`
     );
   } else if (programmerChanged || environmentChanged) {
-    state.pendingAutoRerunProgrammerKey = "";
+    state.pendingAutoRerunContextKey = "";
     if (environmentChanged && !hasMegRunnableContext()) {
       setStatus(`Environment changed to ${String(state.adobePassEnvironment?.label || incomingEnvironmentKey || "Production")}.`);
     }
@@ -909,8 +967,28 @@ function generateDD_TBL(data) {
   const exportPack = document.createElement("div");
   exportPack.className = "meg-export-pack";
 
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.className = "meg-export-pack-button meg-export-pack-button--icon";
+  saveButton.title = "Save ESM Query for use in ESM Workspace";
+  saveButton.setAttribute("aria-label", "Save ESM Query for use in ESM Workspace");
+  saveButton.innerHTML = `
+    <span class="meg-export-pack-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5.25 4.5h10.5L19.5 8.25v10.5a1.5 1.5 0 0 1-1.5 1.5H6.75a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z"></path>
+        <path d="M8.25 4.5v5.25h7.5V4.5"></path>
+        <path d="M9 15.75h6"></path>
+      </svg>
+    </span>
+  `;
+  saveButton.addEventListener("click", () => {
+    beginSavedQueryFlow();
+  });
+  exportPack.appendChild(saveButton);
+
   MEG_EXPORT_FORMATS.forEach((format) => {
     const exportButton = document.createElement("button");
+    exportButton.className = "meg-export-pack-button";
     const normalizedFormat = normalizeMegExportFormat(format);
     exportButton.textContent = normalizedFormat.toUpperCase();
     exportButton.title = `Export query as ${normalizedFormat.toUpperCase()}`;
@@ -1084,6 +1162,224 @@ function ack(msg) {
   document.getElementById("stat_bkt").value = `${Date.now()} ${msg}\n${existingVal}`;
 }
 
+function normalizeSavedQueryName(value = "") {
+  return String(value || "").replace(/\|+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function buildSavedQueryStorageKey(name = "") {
+  return `${SAVED_QUERY_STORAGE_PREFIX}${encodeURIComponent(String(name || "").trim())}`;
+}
+
+function buildSavedQueryPayload(name = "", esmUrl = "") {
+  return `${String(name || "").trim()}|${String(esmUrl || "").trim()}`;
+}
+
+function parseSavedQueryRecord(storageKey = "", payload = "") {
+  const normalizedStorageKey = String(storageKey || "").trim();
+  if (!normalizedStorageKey.startsWith(SAVED_QUERY_STORAGE_PREFIX)) {
+    return null;
+  }
+  const normalizedPayload = String(payload || "").trim();
+  const separatorIndex = normalizedPayload.indexOf("|");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  const name = normalizeSavedQueryName(normalizedPayload.slice(0, separatorIndex));
+  const url = String(normalizedPayload.slice(separatorIndex + 1) || "").trim();
+  if (!name || !url) {
+    return null;
+  }
+  return {
+    storageKey: normalizedStorageKey,
+    name,
+    url,
+  };
+}
+
+function getSavedQueryRecords() {
+  const records = [];
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const storageKey = String(localStorage.key(index) || "").trim();
+      if (!storageKey.startsWith(SAVED_QUERY_STORAGE_PREFIX)) {
+        continue;
+      }
+      const record = parseSavedQueryRecord(storageKey, localStorage.getItem(storageKey));
+      if (record) {
+        records.push(record);
+      }
+    }
+  } catch (error) {
+    ack(`Saved query localStorage read failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return records.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+}
+
+function getSelectedSavedQueryOption() {
+  const selectedOption = savedQueryPicker?.selectedOptions?.[0] || null;
+  if (!selectedOption || !String(selectedOption.value || "").trim()) {
+    return null;
+  }
+  return selectedOption;
+}
+
+function syncSavedQueryButtonsDisabled() {
+  const hasSelection = Boolean(getSelectedSavedQueryOption());
+  if (btnDeleteQuery) {
+    btnDeleteQuery.disabled = !hasSelection;
+  }
+}
+
+function syncSavedQueryPickerTitle() {
+  if (!savedQueryPicker) {
+    return;
+  }
+  const selectedOption = getSelectedSavedQueryOption();
+  const widthLabel = String(selectedOption?.textContent || "").trim() || "Saved Queries";
+  const nextWidthCh = Math.min(Math.max(widthLabel.length + 4, 18), 44);
+  const title = selectedOption ? String(selectedOption.value || "").trim() : "Saved Queries";
+  savedQueryPicker.style.width = `${nextWidthCh}ch`;
+  savedQueryPicker.title = title;
+  savedQueryPicker.setAttribute("aria-label", selectedOption ? `Saved ESM Query: ${selectedOption.textContent || ""}` : "Saved Queries");
+}
+
+function populateSavedQuerySelect(preferredStorageKey = "") {
+  if (!savedQueryPicker) {
+    return;
+  }
+
+  const fallbackStorageKey =
+    String(preferredStorageKey || "").trim() ||
+    String(savedQueryPicker.selectedOptions?.[0]?.dataset.storageKey || "").trim();
+  const records = getSavedQueryRecords();
+
+  savedQueryPicker.innerHTML = "";
+
+  const defaultOption = document.createElement("option");
+  defaultOption.textContent = "Saved Queries";
+  defaultOption.value = "";
+  savedQueryPicker.appendChild(defaultOption);
+
+  records.forEach((record) => {
+    const option = document.createElement("option");
+    option.textContent = record.name;
+    option.value = record.url;
+    option.dataset.storageKey = record.storageKey;
+    option.title = record.url;
+    if (fallbackStorageKey && record.storageKey === fallbackStorageKey) {
+      option.selected = true;
+    }
+    savedQueryPicker.appendChild(option);
+  });
+
+  syncSavedQueryPickerTitle();
+  syncSavedQueryButtonsDisabled();
+}
+
+function reportSavedQueryStatus(message = "", type = "info") {
+  const normalizedMessage = String(message || "").trim();
+  if (!normalizedMessage) {
+    return;
+  }
+  setStatus(normalizedMessage, type);
+  ack(normalizedMessage);
+}
+
+function saveCurrentQuery() {
+  const queryName = normalizeSavedQueryName(fldSavedQueryName?.value || "");
+  const esmUrl = String(fldEsmUrl?.value || "").trim();
+  if (!queryName) {
+    reportSavedQueryStatus("Query Name is required to save a Saved ESM Query.", "error");
+    fldSavedQueryName?.focus();
+    return;
+  }
+  if (!esmUrl) {
+    reportSavedQueryStatus("An ESM URL is required to save a Saved ESM Query.", "error");
+    fldEsmUrl?.focus();
+    return;
+  }
+
+  const storageKey = buildSavedQueryStorageKey(queryName);
+  const existingPayload = localStorage.getItem(storageKey);
+  const nextPayload = buildSavedQueryPayload(queryName, esmUrl);
+
+  try {
+    localStorage.setItem(storageKey, nextPayload);
+  } catch (error) {
+    reportSavedQueryStatus(
+      `Unable to save Saved ESM Query: ${error instanceof Error ? error.message : String(error)}`,
+      "error"
+    );
+    return;
+  }
+
+  populateSavedQuerySelect(storageKey);
+  setSavedQueryCue(false);
+  if (fldSavedQueryName) {
+    fldSavedQueryName.value = "";
+    fldSavedQueryName.blur();
+  }
+  reportSavedQueryStatus(existingPayload ? `Updated Saved ESM Query "${queryName}".` : `Saved ESM Query "${queryName}".`);
+}
+
+async function loadSelectedSavedQuery() {
+  const selectedOption = getSelectedSavedQueryOption();
+  if (!selectedOption) {
+    reportSavedQueryStatus("Select a Saved ESM Query to load.", "error");
+    return;
+  }
+
+  const savedQueryUrl = String(selectedOption.value || "").trim();
+  const savedQueryName = String(selectedOption.textContent || "").trim();
+  fldEsmUrl.value = savedQueryUrl;
+  state.currentSelection = normalizeSelection({
+    endpointPath: savedQueryUrl,
+    endpointLabel: savedQueryName,
+  });
+  reportSavedQueryStatus(`Loaded Saved ESM Query "${savedQueryName}". Running query...`);
+
+  try {
+    await runMeg("saved-query-load");
+  } catch (error) {
+    reportSavedQueryStatus(
+      `Loaded Saved ESM Query "${savedQueryName}" but auto-run failed: ${error instanceof Error ? error.message : String(error)}`,
+      "error"
+    );
+    fldEsmUrl.focus();
+    return;
+  }
+
+  fldEsmUrl.focus();
+}
+
+function deleteSelectedSavedQuery() {
+  const selectedOption = getSelectedSavedQueryOption();
+  if (!selectedOption) {
+    reportSavedQueryStatus("Select a Saved ESM Query to delete.", "error");
+    return;
+  }
+
+  const storageKey = String(selectedOption.dataset.storageKey || "").trim();
+  const savedQueryName = String(selectedOption.textContent || "").trim();
+  if (!storageKey) {
+    reportSavedQueryStatus("Selected Saved ESM Query could not be resolved for deletion.", "error");
+    return;
+  }
+
+  try {
+    localStorage.removeItem(storageKey);
+  } catch (error) {
+    reportSavedQueryStatus(
+      `Unable to delete Saved ESM Query: ${error instanceof Error ? error.message : String(error)}`,
+      "error"
+    );
+    return;
+  }
+
+  populateSavedQuerySelect();
+  reportSavedQueryStatus(`Deleted Saved ESM Query "${savedQueryName}".`);
+}
+
 function setupUrl() {
   const currentValue = String(fldEsmUrl?.value || "").trim();
   const currentIndex = DEFAULT_MEG_URLS.findIndex((value) => value === currentValue);
@@ -1131,6 +1427,27 @@ function handleWorkspaceEvent(event, payload = {}) {
     applyControllerState(payload);
     return;
   }
+  if (normalizedEvent === "environment-switch-rerun") {
+    const currentContextKey = getMegControllerContextKey(
+      state.programmerId,
+      state.programmerName,
+      state.adobePassEnvironment?.key
+    );
+    if (!hasMegRunnableContext() || !currentContextKey) {
+      return;
+    }
+    if (String(state.autoRerunInFlightContextKey || "").trim() === currentContextKey) {
+      return;
+    }
+    if (state.esmAvailable === true && !state.workspaceLocked && !state.nonEsmMode) {
+      clearPendingMegContextTransition();
+      void runMeg("rerun-all");
+      return;
+    }
+    state.pendingAutoRerunContextKey = currentContextKey;
+    maybeConsumePendingAutoRerun();
+    return;
+  }
   if (normalizedEvent === "selection-change") {
     const selection = normalizeSelection(payload);
     if (!selection) {
@@ -1150,7 +1467,7 @@ function handleWorkspaceEvent(event, payload = {}) {
     return;
   }
   if (normalizedEvent === "workspace-clear") {
-    clearPendingMegProgrammerSwitchTransition();
+    clearPendingMegContextTransition();
     state.requestVersion = Number(state.requestVersion || 0) + 1;
     clearTables();
     setStatus("");
@@ -1202,6 +1519,31 @@ function registerEventHandlers() {
     dateSink("end", event.target.value);
   });
 
+  fldSavedQueryName?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    saveCurrentQuery();
+  });
+
+  savedQueryPicker?.addEventListener("change", () => {
+    syncSavedQueryPickerTitle();
+    syncSavedQueryButtonsDisabled();
+    if (!getSelectedSavedQueryOption()) {
+      return;
+    }
+    void loadSelectedSavedQuery();
+  });
+
+  btnSaveQuery?.addEventListener("click", () => {
+    saveCurrentQuery();
+  });
+
+  btnDeleteQuery?.addEventListener("click", () => {
+    deleteSelectedSavedQuery();
+  });
+
   infoToggle?.addEventListener("click", () => {
     setInfoPanelCollapsed(!infoPanel?.classList.contains("is-collapsed"));
   });
@@ -1245,6 +1587,7 @@ async function init() {
   }
 
   registerEventHandlers();
+  populateSavedQuerySelect();
   setInfoPanelCollapsed(true);
   setRerunBusy(false);
 

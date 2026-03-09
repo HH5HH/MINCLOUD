@@ -119,6 +119,41 @@
               </li>
             </ul>
           </div>
+
+          <div id="meg-saved-query-section" class="meg-info-section meg-saved-query-section">
+            <div class="meg-saved-query-row">
+              <div class="meg-saved-query-group meg-saved-query-group--left">
+                <input
+                  type="text"
+                  id="fldSavedQueryName"
+                  class="meg-saved-query-name"
+                  placeholder="Query Name"
+                  title="Name this artisinal ESM query"
+                  aria-label="Saved ESM Query Name"
+                />
+                <button id="btnSaveQuery" class="meg-saved-query-btn" type="button" title="Save current ESM URL as a Saved ESM Query">
+                  SAVE
+                </button>
+              </div>
+              <div class="meg-saved-query-group meg-saved-query-group--right">
+                <h1 class="meg-saved-query-title">SAVED ESM QUERIES</h1>
+                <select
+                  id="savedEsmQueryPicker"
+                  class="meg-saved-query-select"
+                  title="Saved Queries"
+                  aria-label="Saved Queries"
+                ></select>
+                <button
+                  id="btnDeleteQuery"
+                  class="meg-saved-query-btn meg-saved-query-btn--danger"
+                  type="button"
+                  title="Delete selected Saved ESM Query"
+                >
+                  DELETE
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </section>
     </main>

@@ -1269,6 +1269,7 @@ select:disabled {
 
 .service-esm .esm-workspace-meg-toggle:focus-visible,
 .service-esm .esm-workspace-meg-select:focus-visible,
+.service-esm .esm-workspace-meg-saved-select:focus-visible,
 .service-esm .esm-workspace-meg-open-btn:focus-visible {
   outline: 2px solid #000000;
   outline-offset: 2px;
@@ -1310,6 +1311,18 @@ select:disabled {
   font-size: 12px;
 }
 
+.service-esm .esm-workspace-meg-saved-select {
+  grid-column: 1 / -1;
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid #000000;
+  border-radius: 0;
+  background: #ffffff;
+  color: #000000;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
 .service-esm .esm-workspace-meg-open-btn {
   min-height: 32px;
   min-width: 72px;
@@ -1335,7 +1348,8 @@ select:disabled {
 }
 
 .service-esm .esm-workspace-meg-open-btn:disabled,
-.service-esm .esm-workspace-meg-select:disabled {
+.service-esm .esm-workspace-meg-select:disabled,
+.service-esm .esm-workspace-meg-saved-select:disabled {
   opacity: 0.58;
 }
 

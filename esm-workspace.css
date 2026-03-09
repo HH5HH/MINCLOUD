@@ -103,14 +103,6 @@ body::after {
   animation: workspace-enter 240ms ease-out;
 }
 
-.page-env-badge-row {
-  width: min(1380px, 100%);
-  margin: 0 auto;
-  padding: 0 18px 18px;
-  display: flex;
-  justify-content: flex-start;
-}
-
 .page-env-badge {
   display: inline-flex;
   align-items: center;

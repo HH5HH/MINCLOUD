@@ -566,10 +566,10 @@ async function refreshOpenWorkspacesForEnvironmentSwitch(programmer = null, serv
     state.esmWorkspaceWorkspaceWindowId,
     state.esmWorkspaceWorkspaceTabIdByWindowId
   );
+  const esmWorkspaceState = getActiveEsmWorkspaceState();
+  const esmAvailabilityResolved = hasResolvedPremiumServiceSnapshotForEsm(services);
+  const esmContainerVisible = esmWorkspaceState ? true : esmAvailabilityResolved ? hasEsmScopedApp(services) : null;
   if (esmWindowIds.length > 0) {
-    const esmWorkspaceState = getActiveEsmWorkspaceState();
-    const esmAvailabilityResolved = hasResolvedPremiumServiceSnapshotForEsm(services);
-    const esmContainerVisible = esmWorkspaceState ? true : esmAvailabilityResolved ? hasEsmScopedApp(services) : null;
     for (const targetWindowId of esmWindowIds) {
       await esmWorkspaceSendWorkspaceMessage(
         "controller-state",
@@ -588,6 +588,31 @@ async function refreshOpenWorkspacesForEnvironmentSwitch(programmer = null, serv
         });
       }
       await esmWorkspaceSendWorkspaceMessage("environment-switch-rerun", environmentPayload, {
+        targetWindowId,
+      });
+    }
+  }
+
+  const megWindowIds = collectBoundWorkspaceWindowIds(state.megWorkspaceWindowId, state.megWorkspaceTabIdByWindowId);
+  if (megWindowIds.length > 0) {
+    for (const targetWindowId of megWindowIds) {
+      await megWorkspaceSendWorkspaceMessage(
+        "controller-state",
+        esmWorkspaceGetSelectedControllerStatePayload(programmer, services, {
+          controllerReason: "environment-switch",
+          esmAvailabilityResolved,
+          esmContainerVisible,
+        }),
+        {
+          targetWindowId,
+        }
+      );
+      if (esmWorkspaceState) {
+        await megWorkspaceSendWorkspaceMessage("controller-state", esmWorkspaceGetControllerStatePayload(esmWorkspaceState), {
+          targetWindowId,
+        });
+      }
+      await megWorkspaceSendWorkspaceMessage("environment-switch-rerun", environmentPayload, {
         targetWindowId,
       });
     }
@@ -999,11 +1024,41 @@ const ESM_WORKSPACE_INLINE_RESULT_LIMIT = 100;
 const ESM_WORKSPACE_CSV_RESULT_LIMIT = 10000;
 const ESM_LOCAL_FILTER_EXCLUDED_COLUMNS = new Set(["year", "month", "day", "hour", "minute"]);
 const ESM_DEPRECATED_COLUMN_KEYS = new Set(["clientless-failures", "clientless-tokens"]);
+const ESM_WORKSPACE_LOCAL_FILTER_DIMENSION_KEYS = new Set([
+  "dc",
+  "proxy",
+  "mvpd",
+  "requestor-id",
+  "channel",
+  "resource-id",
+  "device",
+  "eap",
+  "os-family",
+  "browser-family",
+  "cdt",
+  "platform-version",
+  "os-type",
+  "browser-version",
+  "nsdk",
+  "nsdk-version",
+  "event",
+  "reason",
+  "sso-type",
+  "platform",
+  "application-name",
+  "application-version",
+  "customer-app",
+  "content-category",
+  "api",
+  "sdk-type",
+  "decision-type",
+]);
 const ESM_WORKSPACE_WORKSPACE_PATH = "esm-workspace.html";
 const ESM_WORKSPACE_MESSAGE_TYPE = "underpar:esm-workspace";
 const LEGACY_ESM_WORKSPACE_MESSAGE_TYPE = "mincloud:esm-workspace";
 const MEG_WORKSPACE_PATH = "meg-workspace.html";
 const MEG_WORKSPACE_MESSAGE_TYPE = "underpar:meg-workspace";
+const SAVED_ESM_QUERY_STORAGE_PREFIX = "underpar:saved-esm-query:";
 const ESM_JELLYBEANS_FILTER_TOOLTIP = "Use 'Click and Find' above to filter JellyBeans contents";
 const ESM_MEGTOOL_FILTER_TOOLTIP = "Use 'Click and Find' above to filter MEGTOOL contents";
 const LEGACY_MEG_WORKSPACE_MESSAGE_TYPE = "mincloud:meg-workspace";
@@ -13330,6 +13385,176 @@ function stripServerManagedTimeParams(urlValue, baseUrl = window.location.href) 
   }
 }
 
+function popupSafeDecodeUrlSegment(segment = "") {
+  const raw = String(segment || "");
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return raw;
+  }
+}
+
+function popupParseEsmRawQueryPairs(urlValue = "") {
+  const raw = String(urlValue || "").trim();
+  if (!raw) {
+    return [];
+  }
+  const queryIndex = raw.indexOf("?");
+  if (queryIndex < 0) {
+    return [];
+  }
+  const hashIndex = raw.indexOf("#", queryIndex + 1);
+  const queryText = raw.slice(queryIndex + 1, hashIndex >= 0 ? hashIndex : undefined).trim();
+  if (!queryText) {
+    return [];
+  }
+  return queryText
+    .split("&")
+    .map((entry) => String(entry || "").trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const equalsIndex = entry.indexOf("=");
+      if (equalsIndex < 0) {
+        return {
+          key: popupSafeDecodeUrlSegment(entry.replace(/\+/g, " ")),
+          value: "",
+          hasValue: false,
+        };
+      }
+      return {
+        key: popupSafeDecodeUrlSegment(entry.slice(0, equalsIndex).replace(/\+/g, " ")),
+        value: entry.slice(equalsIndex + 1),
+        hasValue: true,
+      };
+    });
+}
+
+function popupSerializeEsmRawQueryPairs(queryPairs = []) {
+  return (Array.isArray(queryPairs) ? queryPairs : [])
+    .map((pair) => {
+      const key = encodeURIComponent(String(pair?.key || "").trim()).replace(/%20/g, "+");
+      if (!key) {
+        return "";
+      }
+      if (pair?.hasValue) {
+        return `${key}=${String(pair?.value || "")}`;
+      }
+      return key;
+    })
+    .filter(Boolean)
+    .join("&");
+}
+
+function esmWorkspaceMergeLocalColumnFilters(...filterSources) {
+  const merged = {};
+  (Array.isArray(filterSources) ? filterSources : []).forEach((source) => {
+    const normalized = esmWorkspaceNormalizeLocalColumnFilters(source);
+    Object.entries(normalized).forEach(([columnName, values]) => {
+      const current = new Set(Array.isArray(merged[columnName]) ? merged[columnName] : []);
+      (Array.isArray(values) ? values : []).forEach((value) => {
+        const normalizedValue = String(value || "").trim();
+        if (normalizedValue) {
+          current.add(normalizedValue);
+        }
+      });
+      if (current.size > 0) {
+        merged[columnName] = [...current].sort((left, right) =>
+          String(left).localeCompare(String(right), undefined, { numeric: true, sensitivity: "base" })
+        );
+      }
+    });
+  });
+  return merged;
+}
+
+function esmWorkspaceExtractPresetLocalFilterContext(urlValue = "") {
+  const rawUrl = String(urlValue || "").trim();
+  if (!rawUrl) {
+    return {
+      baseUrl: "",
+      localColumnFilters: {},
+      localColumnExclusions: {},
+      columns: [],
+    };
+  }
+
+  const preservedPairs = [];
+  const extractedFilters = {};
+  const extractedExclusions = {};
+  const extractedColumns = [];
+  const extractedColumnSet = new Set();
+
+  popupParseEsmRawQueryPairs(rawUrl).forEach((pair) => {
+    const normalizedColumn = String(pair?.key || "").trim().toLowerCase();
+    const exclusionColumn = normalizedColumn.endsWith("!") ? normalizedColumn.slice(0, -1) : "";
+    const decodedValue = popupSafeDecodeUrlSegment(String(pair?.value || "").replace(/\+/g, " ")).trim();
+    const isSupportedLocalFilter =
+      pair?.hasValue === true &&
+      normalizedColumn &&
+      !/[!<>~]$/.test(normalizedColumn) &&
+      normalizedColumn !== "media-company" &&
+      !ESM_LOCAL_FILTER_EXCLUDED_COLUMNS.has(normalizedColumn) &&
+      !ESM_DEPRECATED_COLUMN_KEYS.has(normalizedColumn) &&
+      ESM_WORKSPACE_LOCAL_FILTER_DIMENSION_KEYS.has(normalizedColumn);
+    const isSupportedLocalExclusion =
+      pair?.hasValue === true &&
+      exclusionColumn &&
+      exclusionColumn !== "media-company" &&
+      !ESM_LOCAL_FILTER_EXCLUDED_COLUMNS.has(exclusionColumn) &&
+      !ESM_DEPRECATED_COLUMN_KEYS.has(exclusionColumn) &&
+      ESM_WORKSPACE_LOCAL_FILTER_DIMENSION_KEYS.has(exclusionColumn);
+
+    if (!isSupportedLocalFilter || !decodedValue) {
+      if (isSupportedLocalExclusion && decodedValue) {
+        if (!Array.isArray(extractedExclusions[exclusionColumn])) {
+          extractedExclusions[exclusionColumn] = [];
+        }
+        if (!extractedExclusions[exclusionColumn].includes(decodedValue)) {
+          extractedExclusions[exclusionColumn].push(decodedValue);
+        }
+        if (!extractedColumnSet.has(exclusionColumn)) {
+          extractedColumnSet.add(exclusionColumn);
+          extractedColumns.push(exclusionColumn);
+        }
+        return;
+      }
+      preservedPairs.push(pair);
+      return;
+    }
+
+    if (!Array.isArray(extractedFilters[normalizedColumn])) {
+      extractedFilters[normalizedColumn] = [];
+    }
+    if (!extractedFilters[normalizedColumn].includes(decodedValue)) {
+      extractedFilters[normalizedColumn].push(decodedValue);
+    }
+    if (!extractedColumnSet.has(normalizedColumn)) {
+      extractedColumnSet.add(normalizedColumn);
+      extractedColumns.push(normalizedColumn);
+    }
+  });
+
+  let baseUrl = rawUrl;
+  try {
+    const parsed = new URL(rawUrl, window.location.href);
+    parsed.hash = "";
+    const preservedQuery = popupSerializeEsmRawQueryPairs(preservedPairs);
+    parsed.search = preservedQuery ? `?${preservedQuery}` : "";
+    baseUrl = parsed.toString();
+  } catch {
+    const pathOnly = rawUrl.split(/[?#]/, 1)[0] || rawUrl;
+    const preservedQuery = popupSerializeEsmRawQueryPairs(preservedPairs);
+    baseUrl = preservedQuery ? `${pathOnly}?${preservedQuery}` : pathOnly;
+  }
+
+  return {
+    baseUrl,
+    localColumnFilters: extractedFilters,
+    localColumnExclusions: extractedExclusions,
+    columns: extractedColumns,
+  };
+}
+
 function clickEsmGetSelectedValues(selectElement) {
   if (!selectElement) {
     return [];
@@ -13385,6 +13610,22 @@ function extractEsmDisplayDimensionsFromHref(href = "") {
   dimensionSegments.forEach((segment) => {
     const normalized = String(segment || "").trim().toLowerCase();
     if (
+      !normalized ||
+      normalized === "media-company" ||
+      ESM_LOCAL_FILTER_EXCLUDED_COLUMNS.has(normalized) ||
+      ESM_DEPRECATED_COLUMN_KEYS.has(normalized) ||
+      seen.has(normalized)
+    ) {
+      return;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  });
+
+  popupParseEsmRawQueryPairs(rawHref).forEach((pair) => {
+    const normalized = String(pair?.key || "").trim().toLowerCase();
+    if (
+      pair?.hasValue ||
       !normalized ||
       normalized === "media-company" ||
       ESM_LOCAL_FILTER_EXCLUDED_COLUMNS.has(normalized) ||
@@ -17602,9 +17843,7 @@ function esmWorkspaceBroadcastSelectedControllerState(programmer = null, service
   void esmWorkspaceSendWorkspaceMessage("controller-state", payload, {
     targetWindowId: resolvedWindowId,
   });
-  void megWorkspaceSendWorkspaceMessage("controller-state", payload, {
-    targetWindowId: resolvedWindowId || Number(state.megWorkspaceWindowId || 0),
-  });
+  megWorkspaceBroadcastSelectedControllerState(programmer, services, 0, options);
 }
 
 async function esmWorkspaceSendWorkspaceMessage(event, payload = {}, options = {}) {
@@ -17635,9 +17874,7 @@ function esmWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId 
   void esmWorkspaceSendWorkspaceMessage("controller-state", payload, {
     targetWindowId: resolvedWindowId,
   });
-  void megWorkspaceSendWorkspaceMessage("controller-state", payload, {
-    targetWindowId: resolvedWindowId || Number(state.megWorkspaceWindowId || 0),
-  });
+  megWorkspaceBroadcastControllerState(esmWorkspaceState);
 }
 
 async function esmWorkspaceEnsureWorkspaceTab(options = {}) {
@@ -17708,26 +17945,41 @@ async function megWorkspaceSendWorkspaceMessage(event, payload = {}, options = {
   }
 }
 
+function megWorkspaceGetBroadcastWindowIds(targetWindowId = 0) {
+  const normalizedTargetWindowId = Number(targetWindowId || 0);
+  if (normalizedTargetWindowId > 0) {
+    return [normalizedTargetWindowId];
+  }
+  return collectBoundWorkspaceWindowIds(state.megWorkspaceWindowId, state.megWorkspaceTabIdByWindowId);
+}
+
 function megWorkspaceBroadcastSelectedControllerState(programmer = null, services = null, targetWindowId = 0, options = {}) {
-  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.megWorkspaceWindowId || 0);
-  void megWorkspaceSendWorkspaceMessage(
-    "controller-state",
-    esmWorkspaceGetSelectedControllerStatePayload(programmer, services, options),
-    {
+  const targetWindowIds = megWorkspaceGetBroadcastWindowIds(targetWindowId);
+  if (targetWindowIds.length === 0) {
+    return;
+  }
+  const payload = esmWorkspaceGetSelectedControllerStatePayload(programmer, services, options);
+  for (const resolvedWindowId of targetWindowIds) {
+    void megWorkspaceSendWorkspaceMessage("controller-state", payload, {
       targetWindowId: resolvedWindowId,
-    }
-  );
+    });
+  }
 }
 
 function megWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId = 0) {
   if (!esmWorkspaceState) {
     return;
   }
-  const resolvedWindowId =
-    Number(targetWindowId || 0) || Number(esmWorkspaceState.controllerWindowId || 0) || Number(state.megWorkspaceWindowId || 0);
-  void megWorkspaceSendWorkspaceMessage("controller-state", esmWorkspaceGetControllerStatePayload(esmWorkspaceState), {
-    targetWindowId: resolvedWindowId,
-  });
+  const targetWindowIds = megWorkspaceGetBroadcastWindowIds(targetWindowId);
+  if (targetWindowIds.length === 0) {
+    return;
+  }
+  const payload = esmWorkspaceGetControllerStatePayload(esmWorkspaceState);
+  for (const resolvedWindowId of targetWindowIds) {
+    void megWorkspaceSendWorkspaceMessage("controller-state", payload, {
+      targetWindowId: resolvedWindowId,
+    });
+  }
 }
 
 async function megWorkspaceEnsureWorkspaceTab(options = {}) {
@@ -18522,6 +18774,7 @@ function esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint) {
   const selections = getGlobalRequestorMvpdSelections();
   const requestorIds = selections.requestorIds;
   const mvpdIds = selections.mvpdIds;
+  const preserveQueryContext = endpoint?.preserveQueryContext === true;
 
   const endpointSegments = Array.isArray(endpoint?.segs)
     ? endpoint.segs.map((segment) => String(segment || "").trim()).filter(Boolean)
@@ -18531,9 +18784,13 @@ function esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint) {
   if (endpointSegments.length > 0) {
     parsed.pathname = `/esm/v3/media-company/${endpointSegments.join("/")}`;
   } else if (rawEndpointUrl) {
-    const source = new URL(stripServerManagedTimeParams(rawEndpointUrl));
+    const source = new URL(stripServerManagedTimeParams(rawEndpointUrl), activeEsmBase || ADOBE_MGMT_BASE);
     parsed.pathname = String(source.pathname || parsed.pathname || "");
     parsed.search = String(source.search || "");
+  }
+  parsed.hash = "";
+  if (preserveQueryContext) {
+    return stripServerManagedTimeParams(parsed.toString());
   }
   parsed.searchParams.delete("start");
   parsed.searchParams.delete("end");
@@ -18627,33 +18884,7 @@ function esmWorkspaceBuildLocalFilterResetKeys(normalizedFilters = {}) {
     "day",
     "hour",
     "minute",
-    "dc",
-    "proxy",
-    "mvpd",
-    "requestor-id",
-    "channel",
-    "resource-id",
-    "device",
-    "eap",
-    "os-family",
-    "browser-family",
-    "cdt",
-    "platform-version",
-    "os-type",
-    "browser-version",
-    "nsdk",
-    "nsdk-version",
-    "event",
-    "reason",
-    "sso-type",
-    "platform",
-    "application-name",
-    "application-version",
-    "customer-app",
-    "content-category",
-    "api",
-    "sdk-type",
-    "decision-type",
+    ...ESM_WORKSPACE_LOCAL_FILTER_DIMENSION_KEYS,
   ]);
 
   Object.keys(normalizedFilters || {}).forEach((columnName) => {
@@ -18876,6 +19107,7 @@ function esmWorkspaceFindEndpointByUrl(esmWorkspaceState, endpointUrl, fallback 
     url: normalizedUrl,
     zoomKey: String(fallback.zoomKey || clickEsmGetZoomKey({ url: normalizedUrl }) || ""),
     columns: normalizeEsmColumns(fallback.columns, { href: normalizedUrl }),
+    preserveQueryContext: fallback?.preserveQueryContext === true,
   };
 }
 
@@ -18974,20 +19206,35 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
   const normalizedCardId = String(cardId || generateRequestId());
   const runId = generateRequestId();
   const requestUrlOverride = esmWorkspaceNormalizeRunRequestUrlOverride(endpoint.url, options.requestUrlOverride);
-  const normalizedLocalColumnFilters = esmWorkspaceNormalizeLocalColumnFilters(options.localColumnFilters);
   const baseRequestUrl = requestUrlOverride || esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint);
+  const presetLocalFilterContext = esmWorkspaceExtractPresetLocalFilterContext(baseRequestUrl);
+  const normalizedLocalColumnFilters = esmWorkspaceMergeLocalColumnFilters(
+    presetLocalFilterContext.localColumnFilters,
+    options.localColumnFilters
+  );
+  const normalizedLocalColumnExclusions = esmWorkspaceMergeLocalColumnFilters(
+    presetLocalFilterContext.localColumnExclusions,
+    options.localColumnExclusions
+  );
+  const effectiveBaseRequestUrl = String(presetLocalFilterContext.baseUrl || baseRequestUrl).trim() || baseRequestUrl;
   const requestUrl = clickEsmEnsureLimit(
-    esmWorkspaceAppendLocalColumnFilters(baseRequestUrl, normalizedLocalColumnFilters),
+    esmWorkspaceAppendLocalColumnFilters(effectiveBaseRequestUrl, normalizedLocalColumnFilters),
     ESM_WORKSPACE_INLINE_RESULT_LIMIT
   );
   const activeFlowId = getActiveEsmWorkspaceDebugFlowId();
+  const reportColumns = normalizeEsmColumns(
+    [...normalizeEsmColumns(endpoint.columns, { href: endpoint.url }), ...presetLocalFilterContext.columns],
+    { href: endpoint.url }
+  );
   const reportMeta = {
     cardId: normalizedCardId,
-    endpointUrl: endpoint.url,
+    endpointUrl: effectiveBaseRequestUrl,
     requestUrl,
     zoomKey: clickEsmGetZoomKey(endpoint),
-    columns: normalizeEsmColumns(endpoint.columns, { href: endpoint.url }),
+    columns: reportColumns,
+    preserveQueryContext: endpoint?.preserveQueryContext === true,
     localColumnFilters: normalizedLocalColumnFilters,
+    localColumnExclusions: normalizedLocalColumnExclusions,
     runId,
   };
   const targetWindowId = Number(esmWorkspaceState?.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0);
@@ -19224,6 +19471,12 @@ function esmWorkspaceBuildShellHtml() {
             aria-label="Launch the currently selected JellyBean node into MEGSPACE"
           ></select>
           <button type="button" class="esm-workspace-meg-open-btn">GO</button>
+          <select
+            class="esm-workspace-meg-saved-select"
+            title="Saved Queries"
+            aria-label="Saved Queries"
+            hidden
+          ></select>
         </div>
       </section>
       <div class="esm-workspace-footer">
@@ -19373,6 +19626,51 @@ async function esmWorkspaceRunEndpointFromUi(esmWorkspaceState, endpoint, reques
   }
 }
 
+function popupNormalizeSavedEsmQueryName(value = "") {
+  return String(value || "").replace(/\|+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function popupParseSavedEsmQueryRecord(storageKey = "", payload = "") {
+  const normalizedStorageKey = String(storageKey || "").trim();
+  if (!normalizedStorageKey.startsWith(SAVED_ESM_QUERY_STORAGE_PREFIX)) {
+    return null;
+  }
+  const normalizedPayload = String(payload || "").trim();
+  const separatorIndex = normalizedPayload.indexOf("|");
+  if (separatorIndex <= 0) {
+    return null;
+  }
+  const name = popupNormalizeSavedEsmQueryName(normalizedPayload.slice(0, separatorIndex));
+  const url = String(normalizedPayload.slice(separatorIndex + 1) || "").trim();
+  if (!name || !url) {
+    return null;
+  }
+  return {
+    storageKey: normalizedStorageKey,
+    name,
+    url,
+  };
+}
+
+function popupGetSavedEsmQueryRecords() {
+  const records = [];
+  try {
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const storageKey = String(localStorage.key(index) || "").trim();
+      if (!storageKey.startsWith(SAVED_ESM_QUERY_STORAGE_PREFIX)) {
+        continue;
+      }
+      const record = popupParseSavedEsmQueryRecord(storageKey, localStorage.getItem(storageKey));
+      if (record) {
+        records.push(record);
+      }
+    }
+  } catch (_error) {
+    return [];
+  }
+  return records.sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+}
+
 function esmWorkspaceBuildMegOptionLabel(endpoint) {
   const segments = Array.isArray(endpoint?.segs)
     ? endpoint.segs.map((segment) => String(segment || "").trim()).filter(Boolean)
@@ -19387,6 +19685,97 @@ function esmWorkspaceBuildMegLaunchTooltip(endpointUrl = "") {
   }
   return `Launch ${normalizedUrl} load in MEGTOOL`;
 }
+
+async function esmWorkspaceOpenSavedQueryFromUi(esmWorkspaceState, savedQueryUrl, requestToken, savedQueryName = "") {
+  const normalizedSavedQueryUrl = String(savedQueryUrl || "").trim();
+  if (!esmWorkspaceState || !normalizedSavedQueryUrl) {
+    return;
+  }
+
+  try {
+    const targetWindowId = Number(esmWorkspaceState.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0);
+    const environment = getActiveAdobePassEnvironment();
+    const absoluteSavedQueryUrl = megWorkspaceBuildAbsoluteServiceUrl(
+      String(environment?.esmBase || environment?.mgmtBase || ADOBE_MGMT_BASE).trim(),
+      normalizedSavedQueryUrl
+    );
+    await esmWorkspaceEnsureWorkspaceTab({ activate: true, windowId: targetWindowId });
+    esmWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId);
+    const endpoint =
+      esmWorkspaceFindEndpointByUrl(esmWorkspaceState, absoluteSavedQueryUrl, {
+        url: absoluteSavedQueryUrl,
+        zoomKey: String(clickEsmGetZoomKey({ url: absoluteSavedQueryUrl }) || ""),
+        columns: normalizeEsmColumns([], { href: absoluteSavedQueryUrl }),
+        preserveQueryContext: true,
+      }) || null;
+    if (!endpoint) {
+      throw new Error("Saved Query URL is required.");
+    }
+    await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, generateRequestId(), requestToken, {
+      emitStart: true,
+      requestSource: "saved-query",
+    });
+  } catch (error) {
+    const suffix = savedQueryName ? ` "${savedQueryName}"` : "";
+    setStatus(`Unable to open Saved Query${suffix} in ESM Workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
+  }
+}
+
+function esmWorkspaceSyncMegSavedQueryUi(esmWorkspaceState) {
+  const selectElement = esmWorkspaceState?.megSavedQuerySelectElement || null;
+  if (!selectElement) {
+    return;
+  }
+
+  const records = popupGetSavedEsmQueryRecords();
+  selectElement.innerHTML = "";
+
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = "Saved Queries";
+  defaultOption.title = "Saved Queries";
+  selectElement.appendChild(defaultOption);
+
+  if (records.length === 0) {
+    selectElement.hidden = true;
+    selectElement.disabled = true;
+    selectElement.title = "Saved Queries";
+    selectElement.setAttribute("aria-label", "Saved Queries");
+    return;
+  }
+
+  records.forEach((record) => {
+    const option = document.createElement("option");
+    option.value = record.url;
+    option.textContent = record.name;
+    option.title = record.url;
+    selectElement.appendChild(option);
+  });
+
+  selectElement.value = "";
+  selectElement.hidden = false;
+  selectElement.disabled = false;
+  selectElement.title = "Saved Queries";
+  selectElement.setAttribute("aria-label", "Saved Queries");
+}
+
+function refreshAllEsmWorkspaceMegSavedQuerySelectors() {
+  const sections = document.querySelectorAll(".premium-service-section.service-esm");
+  sections.forEach((section) => {
+    const esmWorkspaceState = section?.__underparEsmWorkspaceState || null;
+    if (esmWorkspaceState?.section?.isConnected) {
+      esmWorkspaceSyncMegSavedQueryUi(esmWorkspaceState);
+    }
+  });
+}
+
+window.addEventListener("storage", (event) => {
+  const normalizedKey = String(event?.key || "").trim();
+  if (normalizedKey && !normalizedKey.startsWith(SAVED_ESM_QUERY_STORAGE_PREFIX)) {
+    return;
+  }
+  refreshAllEsmWorkspaceMegSavedQuerySelectors();
+});
 
 function esmWorkspaceSyncMegSelectionUi(esmWorkspaceState) {
   const selectElement = esmWorkspaceState?.megSelectElement;
@@ -19942,9 +20331,23 @@ function wireEsmWorkspaceInteractions(esmWorkspaceState, requestToken) {
     esmWorkspaceSyncMegSelectionUi(esmWorkspaceState);
   });
 
+  esmWorkspaceState.megSavedQuerySelectElement?.addEventListener("change", (event) => {
+    const selectElement = event.target;
+    const savedQueryUrl = String(selectElement?.value || "").trim();
+    if (!savedQueryUrl) {
+      return;
+    }
+    const savedQueryName = String(selectElement?.selectedOptions?.[0]?.textContent || "").trim();
+    selectElement.value = "";
+    selectElement.title = "Saved Queries";
+    selectElement.setAttribute("aria-label", "Saved Queries");
+    void esmWorkspaceOpenSavedQueryFromUi(esmWorkspaceState, savedQueryUrl, requestToken, savedQueryName);
+  });
+
   esmWorkspaceState.megToggleButton?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    esmWorkspaceSyncMegSavedQueryUi(esmWorkspaceState);
     esmWorkspaceSetMegPanelCollapsed(
       esmWorkspaceState,
       !esmWorkspaceState?.megPanelElement?.classList.contains("is-collapsed")
@@ -20132,6 +20535,7 @@ async function handleEsmWorkspaceWorkspaceAction(message, sender = null) {
       requestSource,
       requestUrlOverride,
       localColumnFilters: card?.localColumnFilters,
+      localColumnExclusions: card?.localColumnExclusions,
     });
     return { ok: true };
   }
@@ -20162,6 +20566,7 @@ async function handleEsmWorkspaceWorkspaceAction(message, sender = null) {
         emitStart: true,
         requestSource: requestSourceForRerun,
         localColumnFilters: card?.localColumnFilters,
+        localColumnExclusions: card?.localColumnExclusions,
       });
     }
     void esmWorkspaceSendWorkspaceMessage("batch-end", {
@@ -20530,6 +20935,7 @@ async function loadEsmWorkspaceService(programmer, appInfo, section, contentElem
       megToggleButton: contentElement.querySelector(".esm-workspace-meg-toggle"),
       megBodyElement: contentElement.querySelector(".esm-workspace-meg-body"),
       megSelectElement: contentElement.querySelector(".esm-workspace-meg-select"),
+      megSavedQuerySelectElement: contentElement.querySelector(".esm-workspace-meg-saved-select"),
       megLaunchButton: contentElement.querySelector(".esm-workspace-meg-open-btn"),
       megSelectedEndpointUrl: "",
       visibleEndpointIndexes: [],
@@ -20548,6 +20954,7 @@ async function loadEsmWorkspaceService(programmer, appInfo, section, contentElem
     wireEsmWorkspaceInteractions(esmWorkspaceState, requestToken);
     esmWorkspaceSetTreeCollapsed(esmWorkspaceState, true);
     esmWorkspaceSetMegPanelCollapsed(esmWorkspaceState, true);
+    esmWorkspaceSyncMegSavedQueryUi(esmWorkspaceState);
     syncEsmWorkspaceRecordingControls(esmWorkspaceState);
     esmWorkspaceBuildTree(esmWorkspaceState, requestToken);
     syncEsmWorkspaceRecordingControls(esmWorkspaceState);
