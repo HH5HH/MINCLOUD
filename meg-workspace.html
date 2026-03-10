@@ -35,8 +35,8 @@
             id="workspace-make-megtool"
             class="workspace-icon-btn workspace-icon-btn--tearsheet"
             type="button"
-            title="Generate MEGTOOL for selected Media Company"
-            aria-label="Generate MEGTOOL for selected Media Company"
+            title="Generate MEGTOOL tearsheet"
+            aria-label="Generate MEGTOOL tearsheet"
           >
             <span class="workspace-icon workspace-icon--tearsheet" aria-hidden="true">
               <svg viewBox="0 0 24 24" focusable="false">
@@ -67,8 +67,8 @@
             id="workspace-theme-toggle"
             class="theme-toggle"
             type="button"
-            title="Switch to dark theme"
-            aria-label="Switch to dark theme"
+            title="Switch to Modern theme"
+            aria-label="Switch to Modern theme"
             hidden
           ></button>
         </div>
@@ -76,26 +76,43 @@
 
       <p id="workspace-status" hidden></p>
 
-      <section class="meg-client-shell">
-        <div class="meg-drilldown-panel">
-          <table align="center" border="0" id="DD_TBL">
-            <thead><tr></tr></thead>
-            <tbody></tbody>
-          </table>
-          <progress
-            id="load_progress"
-            max="100"
-            value="0"
-            title="Great ESM queries take time--patience is progress!"
-          ></progress>
-        </div>
+      <section class="meg-view-stack">
+        <section id="meg-modern-shell" class="meg-client-shell meg-client-shell--modern">
+          <div class="meg-drilldown-panel">
+            <table align="center" border="0" id="DD_TBL">
+              <thead><tr></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
 
-        <div class="scrollable-table meg-results-panel">
-          <table id="RAW_TBL">
-            <thead><tr></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
+          <div class="scrollable-table meg-results-panel">
+            <table id="RAW_TBL">
+              <thead><tr></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="meg-retro-shell" class="meg-retro-shell" hidden aria-hidden="true">
+          <div class="meg-retro-nav-panel">
+            <div id="MEG_RETRO_NAV" class="meg-retro-nav"></div>
+            <div id="MEG_RETRO_EXPORT" class="meg-retro-export"></div>
+          </div>
+
+          <div class="scrollable-table meg-retro-results-panel">
+            <table id="RETRO_RAW_TBL" class="meg-retro-table">
+              <thead><tr></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <progress
+          id="load_progress"
+          max="100"
+          value="0"
+          title="Great ESM queries take time--patience is progress!"
+        ></progress>
       </section>
 
       <section id="meg-info-panel" class="meg-info-panel is-collapsed">
@@ -162,7 +179,7 @@
                 </button>
               </div>
               <div class="meg-saved-query-group meg-saved-query-group--right">
-                <h1 class="meg-saved-query-title">SAVED ESM QUERIES</h1>
+                <h1 class="meg-saved-query-title">ESM</h1>
                 <select
                   id="savedEsmQueryPicker"
                   class="meg-saved-query-select"
@@ -186,7 +203,7 @@
 
     <main id="workspace-non-esm-screen" class="meg-non-esm-screen" hidden>
       <h1>
-        <code><tt id="workspace-non-esm-headline">No Soup for Selected Media Company. No Premium, No ESM, No Dice.</tt></code>
+        <code><tt id="workspace-non-esm-headline">No Soup for Current ESM Scope. No Premium, No ESM, No Dice.</tt></code>
       </h1>
       <p id="workspace-non-esm-note" class="meg-non-esm-note">
         * Please ensure the Adobe Pass console has all expected ESM Scoped Registered Applications across all up to date

@@ -1924,6 +1924,8 @@ const els = {
   buildInfo: document.getElementById("build-info"),
   pageEnvBadge: document.getElementById("page-env-badge"),
   pageEnvBadgeValue: document.getElementById("page-env-badge-value"),
+  signInView: document.getElementById("sign-in-view"),
+  signInHeroBtn: document.getElementById("sign-in-hero-btn"),
   restrictedView: document.getElementById("restricted-view"),
   restrictedOrgSelect: document.getElementById("restricted-org-select"),
   restrictedOrgHint: document.getElementById("restricted-org-hint"),
@@ -2059,16 +2061,23 @@ function setBusy(isBusy, context = "") {
     }
   }
 
-  if (!state.sessionReady) {
-    els.authBtn.disabled = isBusy;
+  els.authBtn.disabled = isBusy;
+  if (!state.sessionReady || state.restricted) {
     const busyLabel = context && context.toLowerCase().includes("sign") ? "Signing In..." : "Checking...";
-    els.authBtn.textContent = isBusy ? busyLabel : "Sign In";
-    els.authBtn.title = context || "Sign in to AdobePass";
+    els.authBtn.title = isBusy ? busyLabel : "Sign in to AdobePass";
+    els.authBtn.setAttribute("aria-label", isBusy ? busyLabel : "Sign in to AdobePass");
+    if (els.signInHeroBtn) {
+      els.signInHeroBtn.disabled = isBusy;
+      els.signInHeroBtn.textContent = isBusy ? busyLabel : "Sign In";
+    }
     return;
   }
 
-  els.authBtn.disabled = isBusy;
   els.authBtn.title = isBusy ? "Working..." : "Account menu";
+  if (els.signInHeroBtn) {
+    els.signInHeroBtn.disabled = isBusy;
+    els.signInHeroBtn.textContent = "Sign In";
+  }
 }
 
 function truncateDebugText(value, limit = DEBUG_TEXT_PREVIEW_LIMIT) {
@@ -13631,9 +13640,19 @@ function esmWorkspaceMergeLocalColumnFilters(...filterSources) {
   return merged;
 }
 
-function esmWorkspaceBuildGlobalSeedLocalColumnFilters(existingFilters = {}, requestSource = "") {
+function esmWorkspaceShouldApplyGlobalSeedLocalColumnFilters(requestSource = "") {
   const normalizedRequestSource = String(requestSource || "").trim().toLowerCase();
-  if (normalizedRequestSource.startsWith("workspace")) {
+  if (!normalizedRequestSource) {
+    return true;
+  }
+  if (normalizedRequestSource.startsWith("workspace") || normalizedRequestSource.includes("saved-query")) {
+    return false;
+  }
+  return true;
+}
+
+function esmWorkspaceBuildGlobalSeedLocalColumnFilters(existingFilters = {}, requestSource = "") {
+  if (!esmWorkspaceShouldApplyGlobalSeedLocalColumnFilters(requestSource)) {
     return {};
   }
 
@@ -14653,12 +14672,12 @@ function buildMegWorkspaceTearsheetSnapshot(context = {}, options = {}) {
   const programmer = context?.programmer || resolveSelectedProgrammer() || null;
   const programmerName = String(programmer?.programmerName || programmer?.mediaCompanyName || "").trim();
   const programmerId = String(programmer?.programmerId || "").trim();
-  const currentUrl = String(options?.currentUrl || "").trim();
+  const currentUrl = stripMegWorkspaceMediaCompanyQueryParam(String(options?.currentUrl || "").trim());
   const selection =
     options?.selection && typeof options.selection === "object"
       ? {
-          endpointPath: String(options.selection.endpointPath || currentUrl || "").trim(),
-          endpointUrl: String(options.selection.endpointUrl || "").trim(),
+          endpointPath: stripMegWorkspaceMediaCompanyQueryParam(String(options.selection.endpointPath || currentUrl || "").trim()),
+          endpointUrl: stripMegWorkspaceMediaCompanyQueryParam(String(options.selection.endpointUrl || "").trim()),
           endpointLabel: String(options.selection.endpointLabel || "").trim(),
         }
       : currentUrl
@@ -14670,7 +14689,7 @@ function buildMegWorkspaceTearsheetSnapshot(context = {}, options = {}) {
         : null;
   return {
     standalone: true,
-    title: `${firstNonEmptyString([programmerName, programmerId, "Media Company"])} MEGTOOL`,
+    title: `${firstNonEmptyString([programmerName, programmerId, "ESM Scope"])} MEGTOOL`,
     savedQueryBridgeUrl: chrome.runtime.getURL("saved-query-bridge.html"),
     adobePassEnvironment: {
       ...getActiveAdobePassEnvironment(),
@@ -14688,17 +14707,18 @@ function buildMegWorkspaceTearsheetSnapshot(context = {}, options = {}) {
     generatedAt: new Date().toISOString(),
     savedQueries: popupGetSavedEsmQueryRecords().map((record) => ({
       name: String(record?.name || "").trim(),
-      url: String(record?.url || "").trim(),
+      url: stripMegWorkspaceMediaCompanyQueryParam(String(record?.url || "").trim()),
+      explicitRequestorId: record?.explicitRequestorId === true,
     })),
   };
 }
 
 function buildMegWorkspaceTearsheetFileName(snapshot = {}) {
-  const mediaCompany = sanitizeDownloadFileSegment(
-    firstNonEmptyString([snapshot?.programmerName, snapshot?.programmerId, "MediaCompany"]),
-    "MediaCompany"
+  const scopeLabel = sanitizeDownloadFileSegment(
+    firstNonEmptyString([snapshot?.programmerName, snapshot?.programmerId, "EsmScope"]),
+    "EsmScope"
   );
-  return `${mediaCompany}_MEG_${Date.now()}.html`;
+  return `${scopeLabel}_MEG_${Date.now()}.html`;
 }
 
 function buildMegWorkspaceTearsheetHtml(snapshot, templateHtml, stylesheetText, runtimeScriptText, authContext = {}) {
@@ -17776,7 +17796,7 @@ function megWorkspaceGetBoundWorkspaceTabId(windowId) {
 }
 
 function megWorkspaceNormalizeSelection(endpoint = null, options = {}) {
-  const endpointUrl = String(endpoint?.url || options.endpointUrl || "").trim();
+  const endpointUrl = stripMegWorkspaceMediaCompanyQueryParam(String(endpoint?.url || options.endpointUrl || "").trim());
   if (!endpointUrl) {
     return null;
   }
@@ -17810,8 +17830,8 @@ function megWorkspaceRememberSelection(windowId, selection) {
   const normalizedSelection =
     selection && typeof selection === "object"
       ? {
-          endpointUrl: String(selection.endpointUrl || "").trim(),
-          endpointPath: String(selection.endpointPath || "").trim(),
+          endpointUrl: stripMegWorkspaceMediaCompanyQueryParam(String(selection.endpointUrl || "").trim()),
+          endpointPath: stripMegWorkspaceMediaCompanyQueryParam(String(selection.endpointPath || "").trim()),
           endpointSegments: Array.isArray(selection.endpointSegments) ? selection.endpointSegments.slice(0, 24) : [],
           endpointLabel: String(selection.endpointLabel || "").trim(),
           launchToken: String(selection.launchToken || "").trim(),
@@ -17880,8 +17900,40 @@ function megWorkspaceBuildAbsoluteServiceUrl(baseOrigin, value) {
   }
 }
 
+function stripMegWorkspaceScopedQueryParams(rawUrl = "", options = {}) {
+  const normalized = String(rawUrl || "").trim();
+  if (!normalized) {
+    return "";
+  }
+  const stripRequestorId = options?.stripRequestorId === true;
+  const hasAbsoluteScheme = /^[a-z][a-z\d+.-]*:/i.test(normalized);
+  try {
+    const parsed = hasAbsoluteScheme ? new URL(normalized) : new URL(normalized, "https://example.invalid");
+    parsed.searchParams.delete("media-company");
+    if (stripRequestorId) {
+      parsed.searchParams.delete("requestor-id");
+    }
+    parsed.hash = "";
+    return hasAbsoluteScheme ? parsed.toString() : `${String(parsed.pathname || "")}${String(parsed.search || "")}`;
+  } catch (_error) {
+    const withoutHash = normalized.split("#")[0] || "";
+    const [path, query = ""] = withoutHash.split("?");
+    const params = new URLSearchParams(query);
+    params.delete("media-company");
+    if (stripRequestorId) {
+      params.delete("requestor-id");
+    }
+    const nextQuery = params.toString();
+    return nextQuery ? `${path}?${nextQuery}` : path;
+  }
+}
+
+function stripMegWorkspaceMediaCompanyQueryParam(rawUrl = "") {
+  return stripMegWorkspaceScopedQueryParams(rawUrl);
+}
+
 function megWorkspaceCheckForCountCall(url) {
-  const rawUrl = String(url || "").trim();
+  const rawUrl = stripMegWorkspaceMediaCompanyQueryParam(String(url || "").trim());
   if (!rawUrl) {
     return "";
   }
@@ -17901,13 +17953,6 @@ function megWorkspaceCheckForCountCall(url) {
   }
 
   if (!path.includes("/event") && !path.includes("/event/")) {
-    if (nextUrl.includes("/dc")) {
-      const indexOfDC = nextUrl.indexOf("/dc");
-      const substringBeforeDC = nextUrl.substring(0, indexOfDC);
-      if (!substringBeforeDC.includes("/requestor-id/")) {
-        nextUrl = nextUrl.replace(/requestor-id/g, "media-company");
-      }
-    }
     return nextUrl;
   }
 
@@ -17949,7 +17994,7 @@ function megWorkspaceBuildRequestUrl(rawUrl, options = {}) {
   const format = megWorkspaceNormalizeExportFormat(options.format, "");
   const requestUrl = megWorkspaceBuildAbsoluteServiceUrl(
     environment?.mgmtBase || ADOBE_MGMT_BASE,
-    String(rawUrl || "").trim()
+    stripMegWorkspaceMediaCompanyQueryParam(String(rawUrl || "").trim())
   );
   if (!requestUrl) {
     return "";
@@ -17959,6 +18004,7 @@ function megWorkspaceBuildRequestUrl(rawUrl, options = {}) {
   parsed.hash = "";
   parsed.pathname = megWorkspaceApplyFormatToPath(parsed.pathname, format);
   parsed.searchParams.delete("format");
+  parsed.searchParams.delete("media-company");
 
   return megWorkspaceCheckForCountCall(parsed.toString());
 }
@@ -17966,13 +18012,13 @@ function megWorkspaceBuildRequestUrl(rawUrl, options = {}) {
 async function megWorkspaceResolveContext(requestToken) {
   const context = await resolveClickEsmDownloadContext(getActiveEsmWorkspaceState());
   if (!context?.programmer?.programmerId || !context?.appInfo?.guid) {
-    throw new Error("Select a media company with ESM access to run MEGSPACE.");
+    throw new Error("Select an ESM-scoped programmer to run MEGSPACE.");
   }
   if (
     context?.section &&
     !isEsmServiceRequestActive(context.section, requestToken, context.programmer.programmerId)
   ) {
-    throw new Error("ESM controller is no longer active for the selected media company.");
+    throw new Error("ESM controller is no longer active for the selected programmer.");
   }
   return context;
 }
@@ -18094,7 +18140,7 @@ async function megWorkspaceDownloadTearsheet(requestToken, options = {}) {
   const context = await megWorkspaceResolveContext(requestToken);
   const programmer = context?.programmer || null;
   if (!programmer?.programmerId) {
-    throw new Error("Select a media company with ESM access to generate MEGTOOL.");
+    throw new Error("Select an ESM-scoped programmer to generate MEGTOOL.");
   }
   const authContext = await resolveClickEsmAuthContext(context, requestToken, {
     source: "meg-workspace-tearsheet",
@@ -18293,7 +18339,7 @@ async function esmWorkspaceSendControllerQuery(action, payload = {}, options = {
 }
 
 function esmWorkspaceBuildOriginCardKey(endpoint, options = {}) {
-  const explicitKey = String(options?.originCardKey || "").trim();
+  const explicitKey = stripMegWorkspaceMediaCompanyQueryParam(String(options?.originCardKey || "").trim());
   if (explicitKey) {
     return explicitKey;
   }
@@ -18306,17 +18352,21 @@ function esmWorkspaceBuildOriginCardKey(endpoint, options = {}) {
     endpoint?.url,
     options?.seedRequestUrl,
   ];
-  const rawOriginUrl = candidateUrls.map((value) => String(value || "").trim()).find(Boolean) || "";
+  const rawOriginUrl =
+    candidateUrls
+      .map((value) => stripMegWorkspaceMediaCompanyQueryParam(String(value || "").trim()))
+      .find(Boolean) || "";
   if (!rawOriginUrl) {
     return "";
   }
   try {
     const parsed = new URL(rawOriginUrl, baseUrl);
     parsed.hash = "";
+    parsed.searchParams.delete("media-company");
     const normalizedPath = String(parsed.pathname || "").replace(/\/+$/g, "") || "/";
     return `${normalizedPath}${String(parsed.search || "")}`;
   } catch {
-    return String(rawOriginUrl || "").split("#", 1)[0].trim();
+    return stripMegWorkspaceMediaCompanyQueryParam(String(rawOriginUrl || "").split("#", 1)[0].trim());
   }
 }
 
@@ -19253,11 +19303,12 @@ function esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint) {
   if (endpointSegments.length > 0) {
     parsed.pathname = `/esm/v3/media-company/${endpointSegments.join("/")}`;
   } else if (rawEndpointUrl) {
-    const source = new URL(rawEndpointUrl, activeEsmBase || ADOBE_MGMT_BASE);
+    const source = new URL(stripMegWorkspaceMediaCompanyQueryParam(rawEndpointUrl), activeEsmBase || ADOBE_MGMT_BASE);
     parsed.pathname = String(source.pathname || parsed.pathname || "");
     parsed.search = String(source.search || "");
   }
   parsed.hash = "";
+  parsed.searchParams.delete("media-company");
   if (preserveQueryContext) {
     return parsed.toString();
   }
@@ -19268,8 +19319,8 @@ function esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint) {
 }
 
 function esmWorkspaceNormalizeRunRequestUrlOverride(endpointUrl, requestUrlOverride) {
-  const endpointRaw = String(endpointUrl || "").trim();
-  const overrideRaw = String(requestUrlOverride || "").trim();
+  const endpointRaw = stripMegWorkspaceMediaCompanyQueryParam(String(endpointUrl || "").trim());
+  const overrideRaw = stripMegWorkspaceMediaCompanyQueryParam(String(requestUrlOverride || "").trim());
   if (!endpointRaw || !overrideRaw) {
     return "";
   }
@@ -19282,6 +19333,7 @@ function esmWorkspaceNormalizeRunRequestUrlOverride(endpointUrl, requestUrlOverr
     if (endpointParsed.origin !== overrideParsed.origin || endpointPath !== overridePath) {
       return "";
     }
+    overrideParsed.searchParams.delete("media-company");
     overrideParsed.hash = "";
     return overrideParsed.toString();
   } catch (_error) {
@@ -19536,7 +19588,7 @@ function esmWorkspaceBuildCsvFileName(esmWorkspaceState, endpointUrl) {
 }
 
 function esmWorkspaceFindEndpointByUrl(esmWorkspaceState, endpointUrl, fallback = {}) {
-  const normalizedUrl = String(endpointUrl || "").trim();
+  const normalizedUrl = stripMegWorkspaceMediaCompanyQueryParam(String(endpointUrl || "").trim());
   if (!normalizedUrl) {
     return null;
   }
@@ -19570,11 +19622,12 @@ function esmWorkspaceFindEndpointByUrl(esmWorkspaceState, endpointUrl, fallback 
 async function esmWorkspaceDownloadCsvForCard(esmWorkspaceState, endpoint, sortRule, requestToken, cardId = "", localColumnFilters = {}) {
   const targetWindowId = Number(esmWorkspaceState?.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0);
   const normalizedSort = esmWorkspaceNormalizeSortRule(sortRule);
+  const endpointUrl = stripMegWorkspaceMediaCompanyQueryParam(String(endpoint?.url || "").trim());
   const dataUrl = esmWorkspaceAppendLocalColumnFilters(esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint), localColumnFilters);
   const activeFlowId = getActiveEsmWorkspaceDebugFlowId();
   emitEsmWorkspaceDebugEvent(activeFlowId, {
     phase: "csv-download-start",
-    endpointUrl: String(endpoint?.url || ""),
+    endpointUrl,
     cardId: String(cardId || ""),
     requestUrl: dataUrl,
   });
@@ -19587,14 +19640,14 @@ async function esmWorkspaceDownloadCsvForCard(esmWorkspaceState, endpoint, sortR
       ESM_WORKSPACE_CSV_RESULT_LIMIT,
       {
         scope: "esm-csv",
-        endpointUrl: endpoint?.url || "",
+        endpointUrl,
         cardId: String(cardId || ""),
       }
     );
   } catch (error) {
     emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "csv-download-error",
-      endpointUrl: String(endpoint?.url || ""),
+      endpointUrl,
       cardId: String(cardId || ""),
       error: error instanceof Error ? error.message : String(error),
     });
@@ -19606,7 +19659,7 @@ async function esmWorkspaceDownloadCsvForCard(esmWorkspaceState, endpoint, sortR
   if (!response.ok) {
     emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "csv-download-failed",
-      endpointUrl: String(endpoint?.url || ""),
+      endpointUrl,
       cardId: String(cardId || ""),
       status: Number(response.status || 0),
       statusText: String(response.statusText || ""),
@@ -19620,7 +19673,7 @@ async function esmWorkspaceDownloadCsvForCard(esmWorkspaceState, endpoint, sortR
   if (filteredRows.length === 0) {
     emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "csv-download-no-data",
-      endpointUrl: String(endpoint?.url || ""),
+      endpointUrl,
       cardId: String(cardId || ""),
     });
     return;
@@ -19636,18 +19689,18 @@ async function esmWorkspaceDownloadCsvForCard(esmWorkspaceState, endpoint, sortR
     filteredRows,
     normalizedSort || getDefaultEsmSortStack()[0],
     context,
-    esmWorkspaceBuildCsvFileName(esmWorkspaceState, endpoint.url)
+    esmWorkspaceBuildCsvFileName(esmWorkspaceState, endpointUrl)
   );
   emitEsmWorkspaceDebugEvent(activeFlowId, {
     phase: "csv-download-complete",
-    endpointUrl: String(endpoint?.url || ""),
+    endpointUrl,
     cardId: String(cardId || ""),
     rowCount: filteredRows.length,
   });
   if (cardId) {
     void esmWorkspaceSendWorkspaceMessage("csv-complete", {
       cardId: String(cardId),
-      endpointUrl: endpoint.url,
+      endpointUrl,
       completedAt: Date.now(),
     }, {
       targetWindowId,
@@ -19656,22 +19709,33 @@ async function esmWorkspaceDownloadCsvForCard(esmWorkspaceState, endpoint, sortR
 }
 
 async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, cardId, requestToken, options = {}) {
-  if (!endpoint?.url) {
+  const rawEndpointUrl = String(endpoint?.url || "").trim();
+  const sanitizedEndpointUrl = stripMegWorkspaceMediaCompanyQueryParam(rawEndpointUrl);
+  if (!sanitizedEndpointUrl) {
     return;
   }
+  const normalizedEndpoint =
+    sanitizedEndpointUrl === rawEndpointUrl
+      ? endpoint
+      : {
+          ...endpoint,
+          url: sanitizedEndpointUrl,
+        };
   const normalizedCardId = String(cardId || generateRequestId());
   const runId = generateRequestId();
   const requestSource = String(options.requestSource || "").trim().toLowerCase();
-  const requestUrlOverride = esmWorkspaceNormalizeRunRequestUrlOverride(endpoint.url, options.requestUrlOverride);
+  const requestUrlOverride = esmWorkspaceNormalizeRunRequestUrlOverride(normalizedEndpoint.url, options.requestUrlOverride);
   const targetWindowId =
     Number(options.targetWindowId || 0) ||
     Number(esmWorkspaceState?.controllerWindowId || 0) ||
     Number(state.esmWorkspaceWorkspaceWindowId || 0);
-  const originCardKey = esmWorkspaceBuildOriginCardKey(endpoint, {
+  const sanitizedSeedEndpointUrl = stripMegWorkspaceMediaCompanyQueryParam(String(options.seedEndpointUrl || "").trim());
+  const sanitizedSeedRequestUrl = stripMegWorkspaceMediaCompanyQueryParam(String(options.seedRequestUrl || "").trim());
+  const originCardKey = esmWorkspaceBuildOriginCardKey(normalizedEndpoint, {
     originCardKey: options.originCardKey,
     requestUrlOverride,
-    seedEndpointUrl: options.seedEndpointUrl,
-    seedRequestUrl: options.seedRequestUrl,
+    seedEndpointUrl: sanitizedSeedEndpointUrl,
+    seedRequestUrl: sanitizedSeedRequestUrl,
   });
   if (options.skipOriginLookup !== true && originCardKey && targetWindowId > 0) {
     const existingCard = await esmWorkspaceFindExistingOriginCard(originCardKey, targetWindowId);
@@ -19687,8 +19751,8 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
           skipOriginLookup: true,
           displayNodeLabel: String(existingCard?.displayNodeLabel || ""),
           presetLocalFilterBootstrapPending: existingCard?.presetLocalFilterBootstrapPending === true,
-          seedEndpointUrl: existingCard?.seedEndpointUrl,
-          seedRequestUrl: existingCard?.seedRequestUrl,
+          seedEndpointUrl: stripMegWorkspaceMediaCompanyQueryParam(String(existingCard?.seedEndpointUrl || "").trim()),
+          seedRequestUrl: stripMegWorkspaceMediaCompanyQueryParam(String(existingCard?.seedRequestUrl || "").trim()),
           seedLocalColumnFilters: existingCard?.seedLocalColumnFilters,
           seedLocalColumnExclusions: existingCard?.seedLocalColumnExclusions,
           seedPresetLocalFilterBootstrapPending: existingCard?.seedPresetLocalFilterBootstrapPending === true,
@@ -19699,7 +19763,9 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
       }
     }
   }
-  const baseRequestUrl = requestUrlOverride || esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint);
+  const baseRequestUrl = stripMegWorkspaceMediaCompanyQueryParam(
+    requestUrlOverride || esmWorkspaceBuildEndpointUrl(esmWorkspaceState, normalizedEndpoint)
+  );
   const presetLocalFilterContext = esmWorkspaceExtractPresetLocalFilterContext(baseRequestUrl);
   const requestedLocalColumnFilters = esmWorkspaceMergeLocalColumnFilters(
     presetLocalFilterContext.localColumnFilters,
@@ -19717,48 +19783,50 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
     presetLocalFilterContext.localColumnExclusions,
     options.localColumnExclusions
   );
-  const effectiveBaseRequestUrl = String(presetLocalFilterContext.baseUrl || baseRequestUrl).trim() || baseRequestUrl;
-  const requestUrl = clickEsmEnsureLimit(
+  const effectiveBaseRequestUrl =
+    stripMegWorkspaceMediaCompanyQueryParam(String(presetLocalFilterContext.baseUrl || baseRequestUrl).trim()) || baseRequestUrl;
+  const requestUrl = stripMegWorkspaceMediaCompanyQueryParam(clickEsmEnsureLimit(
     esmWorkspaceAppendLocalColumnFilters(effectiveBaseRequestUrl, normalizedLocalColumnFilters),
     ESM_WORKSPACE_INLINE_RESULT_LIMIT
-  );
+  ));
   const computedPresetLocalFilterBootstrapPending =
     Object.keys(globalSeedLocalColumnFilters || {}).length > 0 ||
     Object.keys(presetLocalFilterContext.localColumnFilters || {}).length > 0 ||
     Object.keys(presetLocalFilterContext.localColumnExclusions || {}).length > 0;
+  const hasSeedOrigin = Boolean(sanitizedSeedEndpointUrl || sanitizedSeedRequestUrl);
   const seedLocalColumnFilters = esmWorkspaceMergeLocalColumnFilters(
     options.seedLocalColumnFilters,
-    options.seedEndpointUrl || options.seedRequestUrl ? {} : normalizedLocalColumnFilters
+    hasSeedOrigin ? {} : normalizedLocalColumnFilters
   );
   const seedLocalColumnExclusions = esmWorkspaceMergeLocalColumnFilters(
     options.seedLocalColumnExclusions,
-    options.seedEndpointUrl || options.seedRequestUrl ? {} : normalizedLocalColumnExclusions
+    hasSeedOrigin ? {} : normalizedLocalColumnExclusions
   );
   const seedEndpointUrl =
-    String(options.seedEndpointUrl || "").trim() || effectiveBaseRequestUrl;
+    sanitizedSeedEndpointUrl || effectiveBaseRequestUrl;
   const seedRequestUrl =
-    String(options.seedRequestUrl || "").trim() || requestUrl;
+    sanitizedSeedRequestUrl || requestUrl;
   const seedPresetLocalFilterBootstrapPending =
     options.seedPresetLocalFilterBootstrapPending === true || computedPresetLocalFilterBootstrapPending;
   const activeFlowId = getActiveEsmWorkspaceDebugFlowId();
   const reportColumns = normalizeEsmColumns(
     [
-      ...normalizeEsmColumns(endpoint.columns, { href: endpoint.url }),
+      ...normalizeEsmColumns(normalizedEndpoint.columns, { href: normalizedEndpoint.url }),
       ...presetLocalFilterContext.columns,
       ...Object.keys(normalizedLocalColumnFilters || {}),
       ...Object.keys(normalizedLocalColumnExclusions || {}),
     ],
-    { href: endpoint.url }
+    { href: normalizedEndpoint.url }
   );
   const reportMeta = {
     cardId: normalizedCardId,
     originCardKey,
     endpointUrl: effectiveBaseRequestUrl,
     requestUrl,
-    zoomKey: clickEsmGetZoomKey(endpoint),
+    zoomKey: clickEsmGetZoomKey(normalizedEndpoint),
     columns: reportColumns,
-    preserveQueryContext: endpoint?.preserveQueryContext === true,
-    displayNodeLabel: String(options.displayNodeLabel || endpoint?.displayNodeLabel || "").trim(),
+    preserveQueryContext: normalizedEndpoint?.preserveQueryContext === true,
+    displayNodeLabel: String(options.displayNodeLabel || normalizedEndpoint?.displayNodeLabel || "").trim(),
     presetLocalFilterBootstrapPending:
       options.presetLocalFilterBootstrapPending === true || computedPresetLocalFilterBootstrapPending,
     seedEndpointUrl,
@@ -19779,7 +19847,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
     emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "report-start",
       cardId: normalizedCardId,
-      endpointUrl: endpoint.url,
+      endpointUrl: normalizedEndpoint.url,
       requestUrl,
       requestSource: String(requestSource || "tree"),
     });
@@ -19819,7 +19887,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
       ESM_WORKSPACE_INLINE_RESULT_LIMIT,
       {
         scope: "esm-report",
-        endpointUrl: endpoint.url,
+        endpointUrl: normalizedEndpoint.url,
         cardId: normalizedCardId,
       }
     );
@@ -19827,7 +19895,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
     emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "report-fetch-error",
       cardId: normalizedCardId,
-      endpointUrl: endpoint.url,
+      endpointUrl: normalizedEndpoint.url,
       error: error instanceof Error ? error.message : String(error),
     });
     void esmWorkspaceSendWorkspaceMessage("report-result", {
@@ -19865,7 +19933,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
     emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "report-http-error",
       cardId: normalizedCardId,
-      endpointUrl: endpoint.url,
+      endpointUrl: normalizedEndpoint.url,
       status: Number(response.status || 0),
       statusText: String(response.statusText || ""),
       responsePreview: truncateDebugText(bodyText, 2000),
@@ -19897,7 +19965,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
     emitEsmWorkspaceDebugEvent(activeFlowId, {
       phase: "report-parse-error",
       cardId: normalizedCardId,
-      endpointUrl: endpoint.url,
+      endpointUrl: normalizedEndpoint.url,
       error: "Response was not valid JSON.",
       responsePreview: truncateDebugText(bodyText, 2000),
     });
@@ -19918,7 +19986,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
   emitEsmWorkspaceDebugEvent(activeFlowId, {
     phase: "report-result",
     cardId: normalizedCardId,
-    endpointUrl: endpoint.url,
+    endpointUrl: normalizedEndpoint.url,
     rowCount: filteredRows.length,
     noData: filteredRows.length === 0,
     lastModified: response.headers.get("Last-Modified") || response.headers.get("Date") || "",
@@ -20164,6 +20232,34 @@ function popupNormalizeSavedEsmQueryName(value = "") {
   return String(value || "").replace(/\|+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function popupBuildSavedEsmQueryRecord(name = "", rawUrl = "", options = {}) {
+  const normalizedName = popupNormalizeSavedEsmQueryName(name);
+  const explicitRequestorId = options?.explicitRequestorId === true;
+  const normalizedUrl = stripMegWorkspaceScopedQueryParams(String(rawUrl || "").trim(), {
+    stripRequestorId: explicitRequestorId !== true,
+  });
+  if (!normalizedName || !normalizedUrl) {
+    return null;
+  }
+  return {
+    name: normalizedName,
+    url: normalizedUrl,
+    explicitRequestorId,
+  };
+}
+
+function popupBuildSavedEsmQueryPayload(name = "", rawUrl = "", options = {}) {
+  const record = popupBuildSavedEsmQueryRecord(name, rawUrl, options);
+  if (!record) {
+    return "";
+  }
+  return JSON.stringify({
+    name: record.name,
+    url: record.url,
+    explicitRequestorId: record.explicitRequestorId,
+  });
+}
+
 function popupParseSavedEsmQueryRecord(storageKey = "", payload = "") {
   const normalizedStorageKey = String(storageKey || "").trim();
   if (!normalizedStorageKey.startsWith(SAVED_ESM_QUERY_STORAGE_PREFIX)) {
@@ -20173,13 +20269,13 @@ function popupParseSavedEsmQueryRecord(storageKey = "", payload = "") {
   try {
     const parsed = JSON.parse(normalizedPayload);
     if (parsed && typeof parsed === "object") {
-      const parsedName = popupNormalizeSavedEsmQueryName(parsed.name || "");
-      const parsedUrl = String(parsed.url || parsed.esmUrl || "").trim();
-      if (parsedName && parsedUrl) {
+      const record = popupBuildSavedEsmQueryRecord(parsed.name || "", parsed.url || parsed.esmUrl || "", {
+        explicitRequestorId: parsed.explicitRequestorId === true,
+      });
+      if (record) {
         return {
           storageKey: normalizedStorageKey,
-          name: parsedName,
-          url: parsedUrl,
+          ...record,
         };
       }
     }
@@ -20188,28 +20284,30 @@ function popupParseSavedEsmQueryRecord(storageKey = "", payload = "") {
   }
   const separatorIndex = normalizedPayload.indexOf("|");
   if (separatorIndex <= 0) {
-    const rawName = popupNormalizeSavedEsmQueryName(
-      decodeURIComponent(normalizedStorageKey.slice(SAVED_ESM_QUERY_STORAGE_PREFIX.length) || "")
+    const record = popupBuildSavedEsmQueryRecord(
+      decodeURIComponent(normalizedStorageKey.slice(SAVED_ESM_QUERY_STORAGE_PREFIX.length) || ""),
+      normalizedPayload,
+      { explicitRequestorId: false }
     );
-    const rawUrl = normalizedPayload;
-    if (rawName && rawUrl) {
+    if (record) {
       return {
         storageKey: normalizedStorageKey,
-        name: rawName,
-        url: rawUrl,
+        ...record,
       };
     }
     return null;
   }
-  const name = popupNormalizeSavedEsmQueryName(normalizedPayload.slice(0, separatorIndex));
-  const url = String(normalizedPayload.slice(separatorIndex + 1) || "").trim();
-  if (!name || !url) {
+  const record = popupBuildSavedEsmQueryRecord(
+    normalizedPayload.slice(0, separatorIndex),
+    String(normalizedPayload.slice(separatorIndex + 1) || "").trim(),
+    { explicitRequestorId: false }
+  );
+  if (!record) {
     return null;
   }
   return {
     storageKey: normalizedStorageKey,
-    name,
-    url,
+    ...record,
   };
 }
 
@@ -20221,8 +20319,15 @@ function popupGetSavedEsmQueryRecords() {
       if (!storageKey.startsWith(SAVED_ESM_QUERY_STORAGE_PREFIX)) {
         continue;
       }
-      const record = popupParseSavedEsmQueryRecord(storageKey, localStorage.getItem(storageKey));
+      const payload = localStorage.getItem(storageKey);
+      const record = popupParseSavedEsmQueryRecord(storageKey, payload);
       if (record) {
+        const normalizedPayload = popupBuildSavedEsmQueryPayload(record.name, record.url, {
+          explicitRequestorId: record.explicitRequestorId === true,
+        });
+        if (payload !== normalizedPayload) {
+          localStorage.setItem(storageKey, normalizedPayload);
+        }
         records.push(record);
       }
     }
@@ -20240,7 +20345,7 @@ function esmWorkspaceBuildMegOptionLabel(endpoint) {
 }
 
 function esmWorkspaceBuildMegLaunchTooltip(endpointUrl = "") {
-  const normalizedUrl = String(endpointUrl || "").trim();
+  const normalizedUrl = stripMegWorkspaceMediaCompanyQueryParam(String(endpointUrl || "").trim());
   if (!normalizedUrl) {
     return "No ESM node available to load in MEGTOOL";
   }
@@ -20248,7 +20353,7 @@ function esmWorkspaceBuildMegLaunchTooltip(endpointUrl = "") {
 }
 
 async function esmWorkspaceOpenSavedQueryFromUi(esmWorkspaceState, savedQueryUrl, requestToken, savedQueryName = "") {
-  const normalizedSavedQueryUrl = String(savedQueryUrl || "").trim();
+  const normalizedSavedQueryUrl = stripMegWorkspaceMediaCompanyQueryParam(String(savedQueryUrl || "").trim());
   if (!esmWorkspaceState || !normalizedSavedQueryUrl) {
     return;
   }
@@ -21273,7 +21378,7 @@ async function handleMegWorkspaceWorkspaceAction(message, sender = null) {
   if (action === "resolve-run-context") {
     const context = await resolveClickEsmDownloadContext(esmWorkspaceState);
     if (!context) {
-      return { ok: false, error: "Select a media company with ESM access to run MEGSPACE." };
+      return { ok: false, error: "Select an ESM-scoped programmer to run MEGSPACE." };
     }
     const requestToken = Number(state.premiumPanelRequestToken || 0);
     const authContext = await resolveClickEsmAuthContext(context, requestToken, {
@@ -32712,7 +32817,8 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     serviceKey === "esmWorkspace" || serviceKey === "degradation" || serviceKey === "cm" || serviceKey === "cmMvpd"
       ? ""
       : buildPremiumServiceSummaryHtml(programmer, serviceKey, appInfo);
-  const sectionLabel = title;
+  const sectionLabel =
+    serviceKey === "cm" || serviceKey === "cmMvpd" ? String(title || serviceKey).toUpperCase() : title;
   section.innerHTML = `
     <button type="button" class="metadata-header service-box-header" title="${escapeHtml(serviceHoverMessage)}" aria-label="${escapeHtml(
       serviceHoverMessage
@@ -37384,15 +37490,16 @@ function renderAvatarMenu() {
     return;
   }
 
-  const avatarUrl = getSafeAvatarRenderUrl(state.loginData).replace(/"/g, "");
   const profile = resolveLoginProfile(state.loginData) || {};
   const name = getProfileDisplayName(profile);
   const email = getProfileEmail(profile) || "No email available";
 
-  els.avatarMenuImage.style.backgroundImage = `url("${avatarUrl}"), url("${FALLBACK_AVATAR}")`;
+  els.avatarMenuImage.style.backgroundImage = "";
+  els.avatarMenuImage.classList.remove("avatar-loading");
+  els.avatarMenuImage.classList.add("avatar-ready");
   els.avatarMenuImage.setAttribute("role", "img");
   els.avatarMenuImage.setAttribute("aria-hidden", "false");
-  els.avatarMenuImage.setAttribute("aria-label", `${name} avatar`);
+  els.avatarMenuImage.setAttribute("aria-label", "UnderPAR account badge");
   els.avatarMenuName.textContent = name;
   els.avatarMenuEmail.textContent = email;
   els.avatarMenuOrg.textContent = `Organization: ${getOrgDisplayName(state.loginData)}`;
@@ -47382,36 +47489,52 @@ function render() {
   if (state.restricted) {
     clearResolvedAvatar();
     closeAvatarMenu();
-    els.authBtn.hidden = true;
+    els.authBtn.hidden = false;
+    if (els.signInView) {
+      els.signInView.hidden = true;
+    }
     els.restrictedView.hidden = false;
     els.workflow.hidden = true;
+    els.authBtn.classList.add("avatar", "avatar-ready");
+    els.authBtn.classList.remove("avatar-loading");
+    els.authBtn.style.backgroundImage = "";
+    els.authBtn.textContent = "";
+    els.authBtn.setAttribute("aria-label", "Sign in to AdobePass");
+    if (!state.busy) {
+      els.authBtn.title = "Sign in to AdobePass";
+    }
     renderRestrictedView();
     return;
   }
 
   els.authBtn.hidden = false;
+  if (els.signInView) {
+    els.signInView.hidden = Boolean(state.sessionReady && state.loginData);
+  }
   els.restrictedView.hidden = true;
-  els.workflow.hidden = !state.sessionReady;
+  els.workflow.hidden = !(state.sessionReady && state.loginData);
 
   if (!state.sessionReady || !state.loginData) {
     clearResolvedAvatar();
     closeAvatarMenu();
-    els.authBtn.classList.remove("avatar");
-    els.authBtn.classList.remove("avatar-loading", "avatar-ready");
-    els.authBtn.style.backgroundImage = "none";
+    els.authBtn.classList.add("avatar", "avatar-ready");
+    els.authBtn.classList.remove("avatar-loading");
+    els.authBtn.style.backgroundImage = "";
     els.authBtn.setAttribute("aria-label", "Sign in to AdobePass");
+    els.authBtn.textContent = "";
     if (!state.busy) {
-      els.authBtn.textContent = "Sign In";
       els.authBtn.title = "Sign in to AdobePass";
+      if (els.signInHeroBtn) {
+        els.signInHeroBtn.textContent = "Sign In";
+      }
     }
     return;
   }
 
-  const avatarUrl = getSafeAvatarRenderUrl(state.loginData).replace(/"/g, "");
   els.authBtn.classList.add("avatar");
-  els.authBtn.classList.toggle("avatar-loading", state.avatarResolving);
-  els.authBtn.classList.toggle("avatar-ready", !state.avatarResolving);
-  els.authBtn.style.backgroundImage = `url("${avatarUrl}"), url("${FALLBACK_AVATAR}")`;
+  els.authBtn.classList.remove("avatar-loading");
+  els.authBtn.classList.add("avatar-ready");
+  els.authBtn.style.backgroundImage = "";
   els.authBtn.textContent = "";
   els.authBtn.setAttribute("aria-label", `${getProfileDisplayName(resolveLoginProfile(state.loginData) || {})} account menu`);
   if (!state.busy) {
@@ -47419,7 +47542,6 @@ function render() {
   }
   syncGlobalMvpdWorkspaceLauncher();
   renderAvatarMenu();
-  void ensureResolvedAvatarUrl();
 }
 
 async function signInInteractive() {
@@ -47600,6 +47722,11 @@ async function onAuthClick() {
     return;
   }
 
+  if (state.restricted) {
+    await signInInteractive();
+    return;
+  }
+
   if (!state.sessionReady) {
     await signInInteractive();
     return;
@@ -47689,6 +47816,12 @@ function registerEventHandlers() {
     void onAuthClick();
   });
 
+  if (els.signInHeroBtn) {
+    els.signInHeroBtn.addEventListener("click", () => {
+      void onAuthClick();
+    });
+  }
+
   if (els.restrictedOrgSelect) {
     els.restrictedOrgSelect.addEventListener("change", (event) => {
       state.selectedRestrictedOrgKey = String(event.target.value || "");
@@ -47748,7 +47881,7 @@ function registerEventHandlers() {
     state.selectedMvpdId = "";
     populateRequestorSelect();
     const selectedProgrammer = resolveSelectedProgrammer();
-    const controllerReason = "media-company-change";
+    const controllerReason = "programmer-change";
     emitGlobalSelectorChangeLog(
       "Media Company",
       state.selectedProgrammerKey,

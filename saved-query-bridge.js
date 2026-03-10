@@ -10,8 +10,60 @@ function buildSavedQueryStorageKey(name = "") {
   return `${SAVED_QUERY_STORAGE_PREFIX}${encodeURIComponent(String(name || "").trim())}`;
 }
 
-function buildSavedQueryPayload(name = "", esmUrl = "") {
-  return `${String(name || "").trim()}|${String(esmUrl || "").trim()}`;
+function stripSavedQueryScopedQueryParams(rawUrl = "", options = {}) {
+  const normalized = String(rawUrl || "").trim();
+  if (!normalized) {
+    return "";
+  }
+  const stripRequestorId = options?.stripRequestorId === true;
+  const hasAbsoluteScheme = /^[a-z][a-z\d+.-]*:/i.test(normalized);
+  try {
+    const parsed = hasAbsoluteScheme ? new URL(normalized) : new URL(normalized, "https://example.invalid");
+    parsed.searchParams.delete("media-company");
+    if (stripRequestorId) {
+      parsed.searchParams.delete("requestor-id");
+    }
+    parsed.hash = "";
+    return hasAbsoluteScheme ? parsed.toString() : `${String(parsed.pathname || "")}${String(parsed.search || "")}`;
+  } catch (_error) {
+    const withoutHash = normalized.split("#")[0] || "";
+    const [path, query = ""] = withoutHash.split("?");
+    const params = new URLSearchParams(query);
+    params.delete("media-company");
+    if (stripRequestorId) {
+      params.delete("requestor-id");
+    }
+    const nextQuery = params.toString();
+    return nextQuery ? `${path}?${nextQuery}` : path;
+  }
+}
+
+function buildSavedQueryRecord(name = "", rawUrl = "", options = {}) {
+  const normalizedName = normalizeSavedQueryName(name);
+  const explicitRequestorId = options?.explicitRequestorId === true;
+  const normalizedUrl = stripSavedQueryScopedQueryParams(String(rawUrl || "").trim(), {
+    stripRequestorId: explicitRequestorId !== true,
+  });
+  if (!normalizedName || !normalizedUrl) {
+    return null;
+  }
+  return {
+    name: normalizedName,
+    url: normalizedUrl,
+    explicitRequestorId,
+  };
+}
+
+function buildSavedQueryPayload(name = "", esmUrl = "", options = {}) {
+  const record = buildSavedQueryRecord(name, esmUrl, options);
+  if (!record) {
+    return "";
+  }
+  return JSON.stringify({
+    name: record.name,
+    url: record.url,
+    explicitRequestorId: record.explicitRequestorId,
+  });
 }
 
 function parseSavedQueryRecord(storageKey = "", payload = "") {
@@ -23,13 +75,13 @@ function parseSavedQueryRecord(storageKey = "", payload = "") {
   try {
     const parsed = JSON.parse(normalizedPayload);
     if (parsed && typeof parsed === "object") {
-      const parsedName = normalizeSavedQueryName(parsed.name || "");
-      const parsedUrl = String(parsed.url || parsed.esmUrl || "").trim();
-      if (parsedName && parsedUrl) {
+      const record = buildSavedQueryRecord(parsed.name || "", parsed.url || parsed.esmUrl || "", {
+        explicitRequestorId: parsed.explicitRequestorId === true,
+      });
+      if (record) {
         return {
           storageKey: normalizedStorageKey,
-          name: parsedName,
-          url: parsedUrl,
+          ...record,
         };
       }
     }
@@ -38,28 +90,30 @@ function parseSavedQueryRecord(storageKey = "", payload = "") {
   }
   const separatorIndex = normalizedPayload.indexOf("|");
   if (separatorIndex <= 0) {
-    const rawName = normalizeSavedQueryName(
-      decodeURIComponent(normalizedStorageKey.slice(SAVED_QUERY_STORAGE_PREFIX.length) || "")
+    const record = buildSavedQueryRecord(
+      decodeURIComponent(normalizedStorageKey.slice(SAVED_QUERY_STORAGE_PREFIX.length) || ""),
+      normalizedPayload,
+      { explicitRequestorId: false }
     );
-    const rawUrl = normalizedPayload;
-    if (rawName && rawUrl) {
+    if (record) {
       return {
         storageKey: normalizedStorageKey,
-        name: rawName,
-        url: rawUrl,
+        ...record,
       };
     }
     return null;
   }
-  const name = normalizeSavedQueryName(normalizedPayload.slice(0, separatorIndex));
-  const url = String(normalizedPayload.slice(separatorIndex + 1) || "").trim();
-  if (!name || !url) {
+  const record = buildSavedQueryRecord(
+    normalizedPayload.slice(0, separatorIndex),
+    String(normalizedPayload.slice(separatorIndex + 1) || "").trim(),
+    { explicitRequestorId: false }
+  );
+  if (!record) {
     return null;
   }
   return {
     storageKey: normalizedStorageKey,
-    name,
-    url,
+    ...record,
   };
 }
 
@@ -71,8 +125,15 @@ function getSavedQueryRecords() {
       if (!storageKey.startsWith(SAVED_QUERY_STORAGE_PREFIX)) {
         continue;
       }
-      const record = parseSavedQueryRecord(storageKey, localStorage.getItem(storageKey));
+      const payload = localStorage.getItem(storageKey);
+      const record = parseSavedQueryRecord(storageKey, payload);
       if (record) {
+        const normalizedPayload = buildSavedQueryPayload(record.name, record.url, {
+          explicitRequestorId: record.explicitRequestorId === true,
+        });
+        if (payload !== normalizedPayload) {
+          localStorage.setItem(storageKey, normalizedPayload);
+        }
         records.push(record);
       }
     }
@@ -110,14 +171,16 @@ window.addEventListener("message", (event) => {
 
     if (action === "put-record") {
       const name = normalizeSavedQueryName(payload?.payload?.name || "");
-      const url = String(payload?.payload?.url || "").trim();
-      if (!name || !url) {
+      const record = buildSavedQueryRecord(name, payload?.payload?.url || "", {
+        explicitRequestorId: payload?.payload?.explicitRequestorId === true,
+      });
+      if (!record) {
         respond(false, null, "Saved Query name and URL are required.");
         return;
       }
-      const storageKey = buildSavedQueryStorageKey(name);
+      const storageKey = buildSavedQueryStorageKey(record.name);
       const existed = localStorage.getItem(storageKey) !== null;
-      localStorage.setItem(storageKey, buildSavedQueryPayload(name, url));
+      localStorage.setItem(storageKey, buildSavedQueryPayload(record.name, record.url, record));
       respond(true, {
         storageKey,
         existed,

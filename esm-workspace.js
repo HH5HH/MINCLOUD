@@ -1408,7 +1408,7 @@ async function autoRerunCardsForProgrammerSwitch(expectedProgrammerKey = "") {
   }
 
   await rerunAllCards({
-    // Keep media-company switch refresh behavior aligned with the same code path
+    // Keep programmer switch refresh behavior aligned with the same code path
     // users trigger via the workspace Re-Run All button.
     reason: "manual-reload",
   });
@@ -3674,7 +3674,7 @@ function applyControllerState(payload) {
     ((programmerChanged &&
       Boolean(previousProgrammerKey) &&
       state.controllerOnline === false &&
-      controllerReason === "media-company-change") ||
+      (controllerReason === "programmer-change" || controllerReason === "media-company-change")) ||
       (environmentChanged && controllerReason === "environment-switch"));
   if (shouldTriggerWorkspaceRedraw && currentProgrammerKey) {
     state.pendingAutoRerunProgrammerKey = currentProgrammerKey;

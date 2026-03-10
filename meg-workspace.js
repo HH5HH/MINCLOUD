@@ -1,12 +1,32 @@
 const MEG_WORKSPACE_MESSAGE_TYPE = "underpar:meg-workspace";
 const MEG_EXPORT_FORMATS = Object.freeze(["csv", "json", "xml", "html"]);
 const MEG_SUPPRESSED_COLUMNS = new Set(["media-company"]);
+const MEG_DIMENSION_COLUMNS = new Set([
+  "media-company",
+  "year",
+  "month",
+  "day",
+  "hour",
+  "minute",
+  "date",
+  "event",
+  "proxy",
+  "requestor-id",
+  "mvpd",
+  "api",
+  "dc",
+  "reason",
+  "country",
+  "state",
+  "city",
+]);
 const SAVED_QUERY_STORAGE_PREFIX = "underpar:saved-esm-query:";
 const THEME_STORAGE_KEY_PREFIX = "underpar:megtool-theme";
 const MEG_WORKSPACE_PAYLOAD_NODE_ID = "meg-workspace-payload";
 const MEG_SAVED_QUERY_BRIDGE_MESSAGE_TYPE = "underpar:meg-saved-query-bridge";
 const MEG_SAVED_QUERY_BRIDGE_RESPONSE_TYPE = `${MEG_SAVED_QUERY_BRIDGE_MESSAGE_TYPE}:response`;
 const MEG_SAVED_QUERY_BRIDGE_TIMEOUT_MS = 4000;
+const MEG_RETRO_NUMBER_FORMATTER = new Intl.NumberFormat("en-US");
 const DEFAULT_MEG_URLS = Object.freeze([
   "/esm/v3/media-company/year?requestor-id&api&metrics=authz-successful,media-tokens",
   "/esm/v3/media-company/year/month/day?event&requestor-id&mvpd&reason!=None",
@@ -62,6 +82,7 @@ const state = {
     headers: [],
     rows: [],
     sortStack: [],
+    requestUrl: "",
   },
 };
 
@@ -74,6 +95,10 @@ const btnMakeMegtool = document.getElementById("workspace-make-megtool");
 const fldEsmUrl = document.getElementById("fldEsmUrl");
 const fldStart = document.getElementById("fldEsmStart");
 const fldEnd = document.getElementById("fldEsmEnd");
+const modernShell = document.getElementById("meg-modern-shell");
+const retroShell = document.getElementById("meg-retro-shell");
+const retroNav = document.getElementById("MEG_RETRO_NAV");
+const retroExport = document.getElementById("MEG_RETRO_EXPORT");
 const themeToggle = document.getElementById("workspace-theme-toggle");
 const pageEnvBadge = document.getElementById("page-env-badge");
 const pageEnvBadgeValue = document.getElementById("page-env-badge-value");
@@ -141,11 +166,14 @@ function getMegStandaloneSavedQueryRecords() {
   return rawRecords
     .map((entry) => {
       const name = normalizeSavedQueryName(entry?.name || "");
-      const url = String(entry?.url || "").trim();
+      const explicitRequestorId = entry?.explicitRequestorId === true;
+      const url = stripMegScopedQueryParams(String(entry?.url || "").trim(), {
+        stripRequestorId: explicitRequestorId !== true,
+      });
       if (!name || !url) {
         return null;
       }
-      return { name, url };
+      return { name, url, explicitRequestorId };
     })
     .filter(Boolean);
 }
@@ -156,10 +184,30 @@ function syncStandaloneThemeToggle() {
   if (themeToggle) {
     themeToggle.hidden = !standalone;
   }
+  syncThemeShellState();
 }
 
 function normalizeTheme(theme) {
-  return String(theme || "").trim().toLowerCase() === "dark" ? "dark" : "light";
+  const normalized = String(theme || "").trim().toLowerCase();
+  if (normalized === "modern" || normalized === "dark") {
+    return "modern";
+  }
+  if (normalized === "retro" || normalized === "light") {
+    return "retro";
+  }
+  return "retro";
+}
+
+function syncThemeShellState() {
+  const retroActive = isMegStandaloneMode() && getActiveTheme() === "retro";
+  if (modernShell) {
+    modernShell.hidden = retroActive;
+    modernShell.setAttribute("aria-hidden", retroActive ? "true" : "false");
+  }
+  if (retroShell) {
+    retroShell.hidden = !retroActive;
+    retroShell.setAttribute("aria-hidden", retroActive ? "false" : "true");
+  }
 }
 
 function syncThemeScope() {
@@ -217,10 +265,13 @@ function refreshThemeToggleUi() {
   if (!themeToggle) {
     return;
   }
-  const nextTheme = getActiveTheme() === "dark" ? "light" : "dark";
-  const label = `Switch to ${nextTheme} theme`;
+  const activeTheme = getActiveTheme();
+  const nextTheme = activeTheme === "modern" ? "retro" : "modern";
+  const label = `Switch to ${nextTheme.charAt(0).toUpperCase()}${nextTheme.slice(1)} theme`;
   themeToggle.title = label;
   themeToggle.setAttribute("aria-label", label);
+  themeToggle.dataset.themeCurrent = activeTheme;
+  themeToggle.dataset.themeTarget = nextTheme;
 }
 
 function applyTheme(theme, { persist = true } = {}) {
@@ -230,18 +281,20 @@ function applyTheme(theme, { persist = true } = {}) {
     storeTheme(normalized);
   }
   refreshThemeToggleUi();
+  syncThemeShellState();
 }
 
 function toggleTheme() {
-  applyTheme(getActiveTheme() === "dark" ? "light" : "dark");
+  applyTheme(getActiveTheme() === "modern" ? "retro" : "modern");
 }
 
 function initTheme() {
   if (!isMegStandaloneMode()) {
+    syncThemeShellState();
     return;
   }
   syncThemeScope();
-  applyTheme(readStoredTheme(), { persist: false });
+  applyTheme(readStoredTheme() || "retro", { persist: false });
 }
 
 function buildWorkspaceEnvironmentTooltip(environment) {
@@ -271,8 +324,7 @@ function syncFloatingContext() {
     pageEnvBadge.setAttribute("aria-label", title);
   }
   if (btnMakeMegtool) {
-    const programmerLabel = getProgrammerLabel();
-    const buttonTitle = `Generate MEGTOOL for ${programmerLabel}`;
+    const buttonTitle = "Generate MEGTOOL tearsheet";
     btnMakeMegtool.title = buttonTitle;
     btnMakeMegtool.setAttribute("aria-label", buttonTitle);
   }
@@ -409,6 +461,56 @@ function buildMegAbsoluteUrl(urlValue = "") {
   }
 }
 
+function stripMegScopedQueryParams(rawUrl = "", options = {}) {
+  const normalized = String(rawUrl || "").trim();
+  if (!normalized) {
+    return "";
+  }
+  const stripRequestorId = options?.stripRequestorId === true;
+  const hasAbsoluteScheme = /^[a-z][a-z\d+.-]*:/i.test(normalized);
+  try {
+    const parsed = hasAbsoluteScheme ? new URL(normalized) : new URL(normalized, "https://example.invalid");
+    parsed.searchParams.delete("media-company");
+    if (stripRequestorId) {
+      parsed.searchParams.delete("requestor-id");
+    }
+    parsed.hash = "";
+    return hasAbsoluteScheme ? parsed.toString() : `${String(parsed.pathname || "")}${String(parsed.search || "")}`;
+  } catch (_error) {
+    const withoutHash = normalized.split("#")[0] || "";
+    const [path, query = ""] = withoutHash.split("?");
+    const params = new URLSearchParams(query);
+    params.delete("media-company");
+    if (stripRequestorId) {
+      params.delete("requestor-id");
+    }
+    const nextQuery = params.toString();
+    return nextQuery ? `${path}?${nextQuery}` : path;
+  }
+}
+
+function stripMegMediaCompanyQueryParam(rawUrl = "") {
+  return stripMegScopedQueryParams(rawUrl);
+}
+
+function megUrlHasQueryParam(rawUrl = "", queryKey = "") {
+  const normalizedUrl = String(rawUrl || "").trim();
+  const normalizedQueryKey = String(queryKey || "").trim().toLowerCase();
+  if (!normalizedUrl || !normalizedQueryKey) {
+    return false;
+  }
+  const hasAbsoluteScheme = /^[a-z][a-z\d+.-]*:/i.test(normalizedUrl);
+  try {
+    const parsed = hasAbsoluteScheme ? new URL(normalizedUrl) : new URL(normalizedUrl, "https://example.invalid");
+    return parsed.searchParams.has(normalizedQueryKey);
+  } catch (_error) {
+    const withoutHash = normalizedUrl.split("#")[0] || "";
+    const [, query = ""] = withoutHash.split("?");
+    const params = new URLSearchParams(query);
+    return params.has(normalizedQueryKey);
+  }
+}
+
 function logMegConsoleUrl(label = "URL", urlValue = "") {
   const resolvedUrl = buildMegAbsoluteUrl(urlValue);
   if (!resolvedUrl) {
@@ -453,8 +555,7 @@ function setRerunBusy(isBusy) {
 
 function clearTables() {
   const ddTable = document.getElementById("DD_TBL");
-  const rawTable = document.getElementById("RAW_TBL");
-  [ddTable, rawTable].forEach((table) => {
+  [ddTable, ...getMegResultTables().map((entry) => entry.table)].forEach((table) => {
     const thead = table?.querySelector("thead tr");
     const tbody = table?.querySelector("tbody");
     if (thead) {
@@ -464,9 +565,16 @@ function clearTables() {
       tbody.innerHTML = "";
     }
   });
+  if (retroNav) {
+    retroNav.innerHTML = "";
+  }
+  if (retroExport) {
+    retroExport.innerHTML = "";
+  }
   state.rawTable.headers = [];
   state.rawTable.rows = [];
   state.rawTable.sortStack = [];
+  state.rawTable.requestUrl = "";
 }
 
 function setInfoPanelCollapsed(collapsed = true) {
@@ -625,7 +733,7 @@ function megWorkspaceApplyFormatToPath(pathname = "", format = "") {
 
 function buildMegRequestUrl(rawUrl = "", format = "json") {
   const normalizedFormat = normalizeMegExportFormat(format, "json");
-  const absoluteUrl = buildMegAbsoluteUrl(rawUrl);
+  const absoluteUrl = buildMegAbsoluteUrl(stripMegMediaCompanyQueryParam(rawUrl));
   if (!absoluteUrl) {
     return "";
   }
@@ -633,6 +741,7 @@ function buildMegRequestUrl(rawUrl = "", format = "json") {
   parsed.hash = "";
   parsed.pathname = megWorkspaceApplyFormatToPath(parsed.pathname, normalizedFormat);
   parsed.searchParams.delete("format");
+  parsed.searchParams.delete("media-company");
   return checkForCountCall(parsed.toString());
 }
 
@@ -676,7 +785,7 @@ async function megStandaloneFetchResponse(rawUrl = "", format = "json") {
 }
 
 function getProgrammerLabel() {
-  return String(state.programmerName || state.programmerId || "Selected Media Company").trim() || "Selected Media Company";
+  return String(state.programmerName || state.programmerId || "Selected Programmer").trim() || "Selected Programmer";
 }
 
 function getProgrammerIdentityKey(programmerId = "", programmerName = "") {
@@ -737,9 +846,9 @@ function getProgrammerConsoleApplicationsUrl() {
 function buildNotPremiumConsoleLinkHtml(serviceLabel = "ESM") {
   const consoleUrl = getProgrammerConsoleApplicationsUrl();
   if (!consoleUrl) {
-    return `* If this looks wrong, no Media Company id is available for an Adobe Pass Console deeplink for ${serviceLabel}.`;
+    return `* If this looks wrong, no programmer id is available for an Adobe Pass Console deeplink for ${serviceLabel}.`;
   }
-  return `* If this looks wrong, <a href="${consoleUrl}" target="_blank" rel="noopener noreferrer">click here to inspect this Media Company in Adobe Pass Console</a> and verify legacy applications and premium scopes for ${serviceLabel}.`;
+  return `* If this looks wrong, <a href="${consoleUrl}" target="_blank" rel="noopener noreferrer">click here to inspect the current programmer in Adobe Pass Console</a> and verify legacy applications and premium scopes for ${serviceLabel}.`;
 }
 
 function hasProgrammerContext() {
@@ -775,7 +884,7 @@ function updateNonEsmMode() {
   const shouldShow = shouldShowNonEsmMode();
   state.nonEsmMode = shouldShow;
   if (nonEsmHeadline) {
-    nonEsmHeadline.textContent = `No Soup for ${getProgrammerLabel()}. No Premium, No ESM, No Dice.`;
+    nonEsmHeadline.textContent = "No Soup for Current ESM Scope. No Premium, No ESM, No Dice.";
   }
   if (nonEsmNote) {
     nonEsmNote.innerHTML = buildNotPremiumConsoleLinkHtml("ESM");
@@ -795,7 +904,7 @@ function updateWorkspaceLockState() {
   document.body.classList.toggle("workspace-locked", shouldLock);
   if (shouldLock && !wasLocked) {
     teardownMegWorkspaceForNonEsm();
-    ack(`MEGSPACE locked -> ${getProgrammerLabel()} has no Premium ESM access`);
+    ack("MEGSPACE locked -> Premium ESM access unavailable for current ESM scope");
   }
   updateNonEsmMode();
 }
@@ -804,7 +913,7 @@ function ensureMegWorkspaceAccess(actionLabel = "run MEGSPACE") {
   if (!state.workspaceLocked && !state.nonEsmMode) {
     return true;
   }
-  ack(`Blocked ${actionLabel}: ${getProgrammerLabel()} has no Premium ESM access`);
+  ack(`Blocked ${actionLabel}: Premium ESM access unavailable for current ESM scope`);
   return false;
 }
 
@@ -878,9 +987,7 @@ function maybeConsumePendingAutoRerun() {
   state.pendingAutoRerunContextKey = "";
   state.autoRerunInFlightContextKey = currentContextKey;
   setStatus(
-    `Refreshing MEGTOOL for ${getProgrammerLabel()} in ${String(
-      state.adobePassEnvironment?.label || DEFAULT_ADOBEPASS_ENVIRONMENT.label
-    )}...`
+    `Refreshing MEGTOOL in ${String(state.adobePassEnvironment?.label || DEFAULT_ADOBEPASS_ENVIRONMENT.label)}...`
   );
   void autoRerunMegForContextChange(currentContextKey).finally(() => {
     if (String(state.autoRerunInFlightContextKey || "").trim() === currentContextKey) {
@@ -1007,13 +1114,13 @@ function applyControllerState(payload = {}) {
   const shouldTriggerWorkspaceRedraw =
     hasMegRunnableContext() &&
     Boolean(currentContextKey) &&
-    ((programmerChanged && controllerReason === "media-company-change") ||
+    ((programmerChanged && (controllerReason === "programmer-change" || controllerReason === "media-company-change")) ||
       (environmentChanged && controllerReason === "environment-switch"));
 
   if (shouldTriggerWorkspaceRedraw) {
     state.pendingAutoRerunContextKey = currentContextKey;
     setStatus(
-      `Refreshing MEGTOOL for ${getProgrammerLabel()} in ${String(
+      `Refreshing MEGTOOL in ${String(
         state.adobePassEnvironment?.label || incomingEnvironmentKey || DEFAULT_ADOBEPASS_ENVIRONMENT.label
       )}...`
     );
@@ -1033,8 +1140,8 @@ function applyControllerState(payload = {}) {
 }
 
 function normalizeSelection(payload = {}) {
-  const endpointUrl = String(payload?.endpointUrl || "").trim();
-  let endpointPath = String(payload?.endpointPath || "").trim();
+  const endpointUrl = stripMegMediaCompanyQueryParam(String(payload?.endpointUrl || "").trim());
+  let endpointPath = stripMegMediaCompanyQueryParam(String(payload?.endpointPath || "").trim());
   if (!endpointPath && endpointUrl) {
     try {
       const parsed = new URL(endpointUrl);
@@ -1120,7 +1227,12 @@ function seedStandaloneSavedQueries() {
   }
   records.forEach((record) => {
     try {
-      localStorage.setItem(buildSavedQueryStorageKey(record.name), buildSavedQueryPayload(record.name, record.url));
+      localStorage.setItem(
+        buildSavedQueryStorageKey(record.name),
+        buildSavedQueryPayload(record.name, record.url, {
+          explicitRequestorId: record?.explicitRequestorId === true,
+        })
+      );
     } catch (error) {
       ack(`Saved query standalone seed failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -1137,7 +1249,7 @@ function applyStandaloneBootstrapState() {
   if (selection) {
     applySelection(selection);
   }
-  const initialUrl = String(payload?.initialUrl || "").trim();
+  const initialUrl = stripMegMediaCompanyQueryParam(String(payload?.initialUrl || "").trim());
   if (initialUrl) {
     fldEsmUrl.value = initialUrl;
   }
@@ -1232,7 +1344,7 @@ async function sendWorkspaceAction(action, payload = {}) {
 
 function sanitizeMegDownloadSegment(value = "") {
   const normalized = String(value || "").trim().replace(/[^a-z0-9._-]+/gi, "_").replace(/^_+|_+$/g, "");
-  return normalized || "MediaCompany";
+  return normalized || "EsmScope";
 }
 
 async function resolveRunContext(source = "workspace") {
@@ -1252,8 +1364,17 @@ async function resolveRunContext(source = "workspace") {
   return result;
 }
 
-function formatMegCellDisplayValue(value) {
-  return value == null ? "" : String(value);
+function formatMegCellDisplayValue(value, { variant = "modern", isMetric = false } = {}) {
+  if (value == null) {
+    return "";
+  }
+  if (variant === "retro" && isMetric) {
+    const numericValue = megToNumber(value);
+    if (numericValue != null) {
+      return MEG_RETRO_NUMBER_FORMATTER.format(numericValue);
+    }
+  }
+  return String(value);
 }
 
 function isMegSuppressedColumn(columnName = "") {
@@ -1267,11 +1388,35 @@ function getMegDisplayHeaders(rows = []) {
   return headers.filter((header) => !isMegSuppressedColumn(header));
 }
 
-function createMegCell(value) {
+function isMegMetricHeader(header = "", rows = []) {
+  const normalizedHeader = String(header || "").trim().toLowerCase();
+  if (!normalizedHeader || MEG_DIMENSION_COLUMNS.has(normalizedHeader)) {
+    return false;
+  }
+  const nonEmptyValues = (Array.isArray(rows) ? rows : [])
+    .map((row) => row?.[header])
+    .filter((value) => value != null && String(value).trim() !== "");
+  return nonEmptyValues.length > 0 && nonEmptyValues.every((value) => megToNumber(value) != null);
+}
+
+function getMegMetricHeaders(rows = [], headers = []) {
+  const metricHeaders = new Set();
+  (Array.isArray(headers) ? headers : []).forEach((header) => {
+    if (isMegMetricHeader(header, rows)) {
+      metricHeaders.add(header);
+    }
+  });
+  return metricHeaders;
+}
+
+function createMegCell(value, { variant = "modern", isMetric = false } = {}) {
   const cell = document.createElement("td");
-  const text = formatMegCellDisplayValue(value);
+  const text = formatMegCellDisplayValue(value, { variant, isMetric });
   cell.textContent = text;
   cell.title = text;
+  if (isMetric) {
+    cell.classList.add("metric");
+  }
   return cell;
 }
 
@@ -1366,6 +1511,57 @@ function sortMegRows(rows = [], sortStack = [], headers = []) {
   });
 }
 
+function getMegResultTables() {
+  return [
+    { table: document.getElementById("RAW_TBL"), variant: "modern" },
+    { table: document.getElementById("RETRO_RAW_TBL"), variant: "retro" },
+  ].filter((entry) => entry.table);
+}
+
+function clearMegTable(table) {
+  const thead = table?.querySelector("thead tr");
+  const tbody = table?.querySelector("tbody");
+  if (thead) {
+    thead.innerHTML = "";
+  }
+  if (tbody) {
+    tbody.innerHTML = "";
+  }
+}
+
+function renderMegMessageRow(table, message, variant = "modern") {
+  const tbody = table?.querySelector("tbody");
+  const thead = table?.querySelector("thead tr");
+  if (!tbody) {
+    return;
+  }
+  const row = document.createElement("tr");
+  if (variant === "retro") {
+    row.className = "even";
+  }
+  const cell = document.createElement("td");
+  cell.colSpan = Math.max(1, Number(thead?.children?.length || 1));
+  cell.textContent = String(message || "").trim();
+  cell.title = cell.textContent;
+  row.appendChild(cell);
+  tbody.appendChild(row);
+}
+
+function updateMegSort(header) {
+  const normalizedHeader = String(header || "").trim();
+  if (!normalizedHeader || !state.rawTable.headers.includes(normalizedHeader)) {
+    return;
+  }
+  const existingRule = state.rawTable.sortStack[0]?.col === normalizedHeader ? state.rawTable.sortStack[0] : null;
+  state.rawTable.sortStack = [
+    {
+      col: normalizedHeader,
+      dir: existingRule ? (existingRule.dir === "DESC" ? "ASC" : "DESC") : "DESC",
+    },
+  ];
+  renderMegTableViews();
+}
+
 function refreshMegHeaderStates(tableState) {
   tableState?.thead?.querySelectorAll("th").forEach((headerCell) => {
     if (typeof headerCell._updateState === "function") {
@@ -1376,58 +1572,43 @@ function refreshMegHeaderStates(tableState) {
 
 function renderMegTableBody(tableState) {
   tableState.tbody.innerHTML = "";
-  tableState.data.forEach((item) => {
+  tableState.data.forEach((item, rowIndex) => {
     const row = document.createElement("tr");
+    if (tableState.variant === "retro") {
+      row.className = rowIndex % 2 === 0 ? "even" : "odd";
+    }
     tableState.headers.forEach((header) => {
-      row.appendChild(createMegCell(item?.[header]));
+      row.appendChild(
+        createMegCell(item?.[header], {
+          variant: tableState.variant,
+          isMetric: tableState.metricHeaders.has(header),
+        })
+      );
     });
     tableState.tbody.appendChild(row);
   });
 }
 
-function generateTable(data, requestUrl = "") {
-  const table = document.getElementById("RAW_TBL");
+function renderMegTableVariant({ table, variant, headers, rows, sortStack, metricHeaders }) {
+  if (!table) {
+    return;
+  }
   const thead = table.querySelector("thead tr");
   const tbody = table.querySelector("tbody");
-  const rows = Array.isArray(data)
-    ? data.filter((item) => item && typeof item === "object" && !Array.isArray(item))
-    : data && typeof data === "object"
-      ? [data]
-      : [];
-  const headers = getMegDisplayHeaders(rows);
-  const normalizedSortStack = normalizeMegSortStack(state.rawTable.sortStack, headers);
-  const activeSortStack = normalizedSortStack.length > 0 ? normalizedSortStack : getDefaultMegSortStack(headers);
   const tableState = {
     table,
     thead: table.querySelector("thead"),
     tbody,
+    variant,
     headers,
+    metricHeaders,
     sourceRows: rows.slice(),
-    data: sortMegRows(rows, activeSortStack, headers),
-    sortStack: activeSortStack,
+    data: sortMegRows(rows, sortStack, headers),
+    sortStack: sortStack.map((rule) => ({ ...rule })),
   };
 
   thead.innerHTML = "";
   tbody.innerHTML = "";
-  state.rawTable.headers = headers.slice();
-  state.rawTable.rows = rows.slice();
-  state.rawTable.sortStack = activeSortStack.map((rule) => ({ ...rule }));
-
-  if (rows.length === 0) {
-    reportMegDataCondition("No data returned from ESM.", requestUrl);
-    return;
-  }
-
-  if (rows.length > 0 && headers.length === 0) {
-    reportMegDataCondition("No visible report columns were returned from ESM.", requestUrl);
-    const row = document.createElement("tr");
-    const cell = document.createElement("td");
-    cell.textContent = "No visible report columns.";
-    cell.title = "No visible report columns.";
-    row.appendChild(cell);
-    tbody.appendChild(row);
-    return;
-  }
 
   headers.forEach((header) => {
     const th = document.createElement("th");
@@ -1435,16 +1616,16 @@ function generateTable(data, requestUrl = "") {
     th.title = `Sort by ${header}`;
 
     const button = document.createElement("button");
-    button.className = "meg-sort-button";
+    button.className = variant === "retro" ? "meg-retro-sort-button" : "meg-sort-button";
     button.type = "button";
     button.title = `Sort by ${header}`;
 
     const label = document.createElement("span");
-    label.className = "meg-sort-label";
-    label.textContent = header;
+    label.className = variant === "retro" ? "meg-retro-sort-label" : "meg-sort-label";
+    label.textContent = variant === "retro" ? String(header || "").toUpperCase() : header;
 
     const icon = document.createElement("span");
-    icon.className = "sort-icon";
+    icon.className = variant === "retro" ? "sort-icon meg-retro-sort-icon" : "sort-icon";
     icon.setAttribute("aria-hidden", "true");
 
     th._updateState = () => {
@@ -1456,22 +1637,8 @@ function generateTable(data, requestUrl = "") {
       button.setAttribute("aria-label", isActive ? `Sort by ${header}, currently ${direction === "ASC" ? "ascending" : "descending"}` : `Sort by ${header}`);
     };
 
-    const applySort = () => {
-      const existingRule = tableState.sortStack[0]?.col === header ? tableState.sortStack[0] : null;
-      tableState.sortStack = [
-        {
-          col: header,
-          dir: existingRule ? (existingRule.dir === "DESC" ? "ASC" : "DESC") : "DESC",
-        },
-      ];
-      tableState.data = sortMegRows(tableState.sourceRows, tableState.sortStack, tableState.headers);
-      renderMegTableBody(tableState);
-      refreshMegHeaderStates(tableState);
-      state.rawTable.sortStack = tableState.sortStack.map((rule) => ({ ...rule }));
-    };
-
     button.addEventListener("click", () => {
-      applySort();
+      updateMegSort(header);
     });
     button.appendChild(label);
     button.appendChild(icon);
@@ -1481,6 +1648,61 @@ function generateTable(data, requestUrl = "") {
 
   renderMegTableBody(tableState);
   refreshMegHeaderStates(tableState);
+}
+
+function renderMegTableViews() {
+  const headers = state.rawTable.headers.slice();
+  const rows = state.rawTable.rows.slice();
+  const normalizedSortStack = normalizeMegSortStack(state.rawTable.sortStack, headers);
+  const activeSortStack = normalizedSortStack.length > 0 ? normalizedSortStack : getDefaultMegSortStack(headers);
+  const metricHeaders = getMegMetricHeaders(rows, headers);
+  state.rawTable.sortStack = activeSortStack.map((rule) => ({ ...rule }));
+  getMegResultTables().forEach(({ table, variant }) => {
+    renderMegTableVariant({
+      table,
+      variant,
+      headers,
+      rows,
+      sortStack: activeSortStack,
+      metricHeaders,
+    });
+  });
+}
+
+function generateTable(data, requestUrl = "") {
+  const rows = Array.isArray(data)
+    ? data.filter((item) => item && typeof item === "object" && !Array.isArray(item))
+    : data && typeof data === "object"
+      ? [data]
+      : [];
+  const headers = getMegDisplayHeaders(rows);
+
+  getMegResultTables().forEach(({ table }) => {
+    clearMegTable(table);
+  });
+
+  state.rawTable.headers = headers.slice();
+  state.rawTable.rows = rows.slice();
+  state.rawTable.requestUrl = String(requestUrl || "").trim();
+  state.rawTable.sortStack = normalizeMegSortStack(state.rawTable.sortStack, headers);
+
+  if (rows.length === 0) {
+    reportMegDataCondition("No data returned from ESM.", requestUrl);
+    getMegResultTables().forEach(({ table, variant }) => {
+      renderMegMessageRow(table, "No data returned from ESM.", variant);
+    });
+    return;
+  }
+
+  if (rows.length > 0 && headers.length === 0) {
+    reportMegDataCondition("No visible report columns were returned from ESM.", requestUrl);
+    getMegResultTables().forEach(({ table, variant }) => {
+      renderMegMessageRow(table, "No visible report columns.", variant);
+    });
+    return;
+  }
+
+  renderMegTableViews();
 }
 
 const dateSink = (key, value) => {
@@ -1523,6 +1745,132 @@ function syncDatePickersFromServerHref(href = "") {
   }
 };
 
+function normalizeMegDrilldownItems(rawValue) {
+  if (Array.isArray(rawValue)) {
+    return rawValue.filter((item) => item && typeof item === "object" && String(item.href || "").trim());
+  }
+  if (rawValue && typeof rawValue === "object" && String(rawValue.href || "").trim()) {
+    return [rawValue];
+  }
+  return [];
+}
+
+function createMegNavigationLink(label, href, titleText = "") {
+  const normalizedLabel = String(label || "").trim();
+  const normalizedHref = String(href || "").trim();
+  if (!normalizedHref) {
+    const text = document.createElement("span");
+    text.textContent = normalizedLabel;
+    return text;
+  }
+  const link = document.createElement("a");
+  link.href = "#";
+  link.textContent = normalizedLabel;
+  if (titleText) {
+    link.title = titleText;
+  }
+  link.addEventListener("click", (event) => {
+    event.preventDefault();
+    urlSink(normalizedHref);
+  });
+  return link;
+}
+
+function buildMegExportPack(variant = "modern") {
+  const exportPack = document.createElement("div");
+  exportPack.className = `meg-export-pack meg-export-pack--${variant}`;
+
+  const saveButton = document.createElement("button");
+  saveButton.type = "button";
+  saveButton.className = `meg-export-pack-button meg-export-pack-button--icon meg-export-pack-button--${variant}`;
+  saveButton.title = "Save ESM Query for use in ESM Workspace";
+  saveButton.setAttribute("aria-label", "Save ESM Query for use in ESM Workspace");
+  saveButton.innerHTML = `
+    <span class="meg-export-pack-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M5.25 4.5h10.5L19.5 8.25v10.5a1.5 1.5 0 0 1-1.5 1.5H6.75a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z"></path>
+        <path d="M8.25 4.5v5.25h7.5V4.5"></path>
+        <path d="M9 15.75h6"></path>
+      </svg>
+    </span>
+  `;
+  saveButton.addEventListener("click", () => {
+    beginSavedQueryFlow();
+  });
+  exportPack.appendChild(saveButton);
+
+  MEG_EXPORT_FORMATS.forEach((format) => {
+    const exportButton = document.createElement("button");
+    const normalizedFormat = normalizeMegExportFormat(format);
+    exportButton.className = `meg-export-pack-button meg-export-pack-button--${variant}`;
+    exportButton.textContent = normalizedFormat.toUpperCase();
+    exportButton.title = `Export query as ${normalizedFormat.toUpperCase()}`;
+    exportButton.setAttribute("aria-label", `Export query as ${normalizedFormat.toUpperCase()}`);
+    exportButton.addEventListener("click", () => {
+      void exportMeg(normalizedFormat);
+    });
+    exportPack.appendChild(exportButton);
+  });
+
+  return exportPack;
+}
+
+function renderRetroNavigation(data = {}) {
+  if (retroNav) {
+    retroNav.innerHTML = "";
+  }
+  if (retroExport) {
+    retroExport.innerHTML = "";
+    retroExport.appendChild(buildMegExportPack("retro"));
+  }
+  if (!retroNav) {
+    return;
+  }
+
+  const rollUp = data?.["roll-up"] && data["roll-up"].href !== "/esm/v3" ? data["roll-up"] : null;
+  const drillDownItems = normalizeMegDrilldownItems(data?.["drill-down"]);
+  const currentHref = stripMegMediaCompanyQueryParam(String(data?.self?.href || fldEsmUrl?.value || "").trim());
+  const currentSelectionText =
+    buildMegAbsoluteUrl(currentHref) ||
+    firstNonEmptyString([String(state.currentSelection?.endpointPath || "").trim(), String(fldEsmUrl?.value || "").trim()]);
+
+  const rootList = document.createElement("ul");
+
+  if (rollUp) {
+    const rollUpItem = document.createElement("li");
+    rollUpItem.appendChild(
+      createMegNavigationLink(String(rollUp.name || "").trim(), rollUp.href, `Roll up to '${String(rollUp.name || "").trim()}'`)
+    );
+    rootList.appendChild(rollUpItem);
+  }
+
+  const currentBranch = document.createElement("ul");
+  const currentItem = document.createElement("li");
+  const emphasis = document.createElement("em");
+  emphasis.appendChild(createMegNavigationLink(currentSelectionText, currentHref, "Current selection"));
+  currentItem.appendChild(emphasis);
+  currentBranch.appendChild(currentItem);
+
+  if (drillDownItems.length > 0) {
+    const drillDownBranch = document.createElement("ul");
+    drillDownItems.forEach((item) => {
+      const drillDownItem = document.createElement("li");
+      drillDownItem.appendChild(
+        createMegNavigationLink(
+          String(item.name || "").trim(),
+          item.href,
+          `Drill down to '${String(item.name || "").trim()}'`
+        )
+      );
+      drillDownBranch.appendChild(drillDownItem);
+    });
+    currentBranch.appendChild(drillDownBranch);
+  }
+
+  rootList.appendChild(currentBranch);
+  retroNav.appendChild(rootList);
+}
+
 function generateDD_TBL(data) {
   const table = document.getElementById("DD_TBL");
   const thead = table.querySelector("thead tr");
@@ -1530,6 +1878,8 @@ function generateDD_TBL(data) {
 
   thead.innerHTML = "";
   tbody.innerHTML = "";
+
+  renderRetroNavigation(data);
 
   if (data.length > 0) {
     const headers = Object.keys(data[0]);
@@ -1592,43 +1942,7 @@ function generateDD_TBL(data) {
 
   const exportCell = document.createElement("th");
   exportCell.className = "meg-export-pack-cell";
-
-  const exportPack = document.createElement("div");
-  exportPack.className = "meg-export-pack";
-
-  const saveButton = document.createElement("button");
-  saveButton.type = "button";
-  saveButton.className = "meg-export-pack-button meg-export-pack-button--icon";
-  saveButton.title = "Save ESM Query for use in ESM Workspace";
-  saveButton.setAttribute("aria-label", "Save ESM Query for use in ESM Workspace");
-  saveButton.innerHTML = `
-    <span class="meg-export-pack-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24" focusable="false" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M5.25 4.5h10.5L19.5 8.25v10.5a1.5 1.5 0 0 1-1.5 1.5H6.75a1.5 1.5 0 0 1-1.5-1.5V6a1.5 1.5 0 0 1 1.5-1.5Z"></path>
-        <path d="M8.25 4.5v5.25h7.5V4.5"></path>
-        <path d="M9 15.75h6"></path>
-      </svg>
-    </span>
-  `;
-  saveButton.addEventListener("click", () => {
-    beginSavedQueryFlow();
-  });
-  exportPack.appendChild(saveButton);
-
-  MEG_EXPORT_FORMATS.forEach((format) => {
-    const exportButton = document.createElement("button");
-    exportButton.className = "meg-export-pack-button";
-    const normalizedFormat = normalizeMegExportFormat(format);
-    exportButton.textContent = normalizedFormat.toUpperCase();
-    exportButton.title = `Export query as ${normalizedFormat.toUpperCase()}`;
-    exportButton.setAttribute("aria-label", `Export query as ${normalizedFormat.toUpperCase()}`);
-    exportButton.addEventListener("click", () => {
-      void exportMeg(normalizedFormat);
-    });
-    exportPack.appendChild(exportButton);
-  });
-
-  exportCell.appendChild(exportPack);
+  exportCell.appendChild(buildMegExportPack("modern"));
   row.appendChild(exportCell);
   tbody.appendChild(row);
 }
@@ -1855,8 +2169,32 @@ function buildSavedQueryStorageKey(name = "") {
   return `${SAVED_QUERY_STORAGE_PREFIX}${encodeURIComponent(String(name || "").trim())}`;
 }
 
-function buildSavedQueryPayload(name = "", esmUrl = "") {
-  return `${String(name || "").trim()}|${String(esmUrl || "").trim()}`;
+function buildSavedQueryRecord(name = "", rawUrl = "", options = {}) {
+  const normalizedName = normalizeSavedQueryName(name);
+  const explicitRequestorId = options?.explicitRequestorId === true;
+  const normalizedUrl = stripMegScopedQueryParams(String(rawUrl || "").trim(), {
+    stripRequestorId: explicitRequestorId !== true,
+  });
+  if (!normalizedName || !normalizedUrl) {
+    return null;
+  }
+  return {
+    name: normalizedName,
+    url: normalizedUrl,
+    explicitRequestorId,
+  };
+}
+
+function buildSavedQueryPayload(name = "", esmUrl = "", options = {}) {
+  const record = buildSavedQueryRecord(name, esmUrl, options);
+  if (!record) {
+    return "";
+  }
+  return JSON.stringify({
+    name: record.name,
+    url: record.url,
+    explicitRequestorId: record.explicitRequestorId,
+  });
 }
 
 function parseSavedQueryRecord(storageKey = "", payload = "") {
@@ -1868,13 +2206,13 @@ function parseSavedQueryRecord(storageKey = "", payload = "") {
   try {
     const parsed = JSON.parse(normalizedPayload);
     if (parsed && typeof parsed === "object") {
-      const parsedName = normalizeSavedQueryName(parsed.name || "");
-      const parsedUrl = String(parsed.url || parsed.esmUrl || "").trim();
-      if (parsedName && parsedUrl) {
+      const record = buildSavedQueryRecord(parsed.name || "", parsed.url || parsed.esmUrl || "", {
+        explicitRequestorId: parsed.explicitRequestorId === true,
+      });
+      if (record) {
         return {
           storageKey: normalizedStorageKey,
-          name: parsedName,
-          url: parsedUrl,
+          ...record,
         };
       }
     }
@@ -1883,28 +2221,30 @@ function parseSavedQueryRecord(storageKey = "", payload = "") {
   }
   const separatorIndex = normalizedPayload.indexOf("|");
   if (separatorIndex <= 0) {
-    const rawName = normalizeSavedQueryName(
-      decodeURIComponent(normalizedStorageKey.slice(SAVED_QUERY_STORAGE_PREFIX.length) || "")
+    const record = buildSavedQueryRecord(
+      decodeURIComponent(normalizedStorageKey.slice(SAVED_QUERY_STORAGE_PREFIX.length) || ""),
+      normalizedPayload,
+      { explicitRequestorId: false }
     );
-    const rawUrl = normalizedPayload;
-    if (rawName && rawUrl) {
+    if (record) {
       return {
         storageKey: normalizedStorageKey,
-        name: rawName,
-        url: rawUrl,
+        ...record,
       };
     }
     return null;
   }
-  const name = normalizeSavedQueryName(normalizedPayload.slice(0, separatorIndex));
-  const url = String(normalizedPayload.slice(separatorIndex + 1) || "").trim();
-  if (!name || !url) {
+  const record = buildSavedQueryRecord(
+    normalizedPayload.slice(0, separatorIndex),
+    String(normalizedPayload.slice(separatorIndex + 1) || "").trim(),
+    { explicitRequestorId: false }
+  );
+  if (!record) {
     return null;
   }
   return {
     storageKey: normalizedStorageKey,
-    name,
-    url,
+    ...record,
   };
 }
 
@@ -1916,8 +2256,15 @@ function getSavedQueryRecords() {
       if (!storageKey.startsWith(SAVED_QUERY_STORAGE_PREFIX)) {
         continue;
       }
-      const record = parseSavedQueryRecord(storageKey, localStorage.getItem(storageKey));
+      const payload = localStorage.getItem(storageKey);
+      const record = parseSavedQueryRecord(storageKey, payload);
       if (record) {
+        const normalizedPayload = buildSavedQueryPayload(record.name, record.url, {
+          explicitRequestorId: record.explicitRequestorId === true,
+        });
+        if (payload !== normalizedPayload) {
+          localStorage.setItem(storageKey, normalizedPayload);
+        }
         records.push(record);
       }
     }
@@ -1998,7 +2345,10 @@ async function loadSavedQueryRecords() {
       return rawRecords
         .map((record) => {
           const name = normalizeSavedQueryName(record?.name || "");
-          const url = String(record?.url || "").trim();
+          const explicitRequestorId = record?.explicitRequestorId === true;
+          const url = stripMegScopedQueryParams(String(record?.url || "").trim(), {
+            stripRequestorId: explicitRequestorId !== true,
+          });
           const storageKey = String(record?.storageKey || buildSavedQueryStorageKey(name)).trim();
           if (!name || !url || !storageKey) {
             return null;
@@ -2007,6 +2357,7 @@ async function loadSavedQueryRecords() {
             storageKey,
             name,
             url,
+            explicitRequestorId,
           };
         })
         .filter(Boolean)
@@ -2025,12 +2376,19 @@ async function refreshSavedQuerySelect(preferredStorageKey = "") {
 
 async function persistSavedQueryRecord(queryName = "", esmUrl = "") {
   const storageKey = buildSavedQueryStorageKey(queryName);
-  const nextPayload = buildSavedQueryPayload(queryName, esmUrl);
+  const explicitRequestorId = megUrlHasQueryParam(esmUrl, "requestor-id");
+  const sanitizedUrl = stripMegScopedQueryParams(esmUrl, {
+    stripRequestorId: explicitRequestorId !== true,
+  });
+  const nextPayload = buildSavedQueryPayload(queryName, sanitizedUrl, {
+    explicitRequestorId,
+  });
   if (canUseMegSavedQueryBridge()) {
     try {
       const result = await requestMegSavedQueryBridge("put-record", {
         name: queryName,
-        url: esmUrl,
+        url: sanitizedUrl,
+        explicitRequestorId,
         storageKey,
         payload: nextPayload,
       });
@@ -2079,7 +2437,11 @@ function reportSavedQueryStatus(message = "", type = "info") {
 
 async function saveCurrentQuery() {
   const queryName = normalizeSavedQueryName(fldSavedQueryName?.value || "");
-  const esmUrl = String(fldEsmUrl?.value || "").trim();
+  const rawEsmUrl = String(fldEsmUrl?.value || "").trim();
+  const explicitRequestorId = megUrlHasQueryParam(rawEsmUrl, "requestor-id");
+  const esmUrl = stripMegScopedQueryParams(rawEsmUrl, {
+    stripRequestorId: explicitRequestorId !== true,
+  });
   if (!queryName) {
     reportSavedQueryStatus("Query Name is required to save a Saved ESM Query.", "error");
     fldSavedQueryName?.focus();
@@ -2089,6 +2451,9 @@ async function saveCurrentQuery() {
     reportSavedQueryStatus("An ESM URL is required to save a Saved ESM Query.", "error");
     fldEsmUrl?.focus();
     return;
+  }
+  if (fldEsmUrl) {
+    fldEsmUrl.value = esmUrl;
   }
 
   try {
@@ -2117,7 +2482,7 @@ async function loadSelectedSavedQuery() {
     return;
   }
 
-  const savedQueryUrl = String(selectedOption.value || "").trim();
+  const savedQueryUrl = stripMegMediaCompanyQueryParam(String(selectedOption.value || "").trim());
   const savedQueryName = String(selectedOption.textContent || "").trim();
   fldEsmUrl.value = savedQueryUrl;
   state.currentSelection = normalizeSelection({
@@ -2174,6 +2539,7 @@ function setupUrl() {
 }
 
 function checkForCountCall(url) {
+  url = stripMegMediaCompanyQueryParam(url);
   const [path, query] = url.split("?");
 
   if (url.includes("channel")) {
@@ -2188,15 +2554,6 @@ function checkForCountCall(url) {
   }
 
   if (!path.includes("/event") && !path.includes("/event/")) {
-    if (url.includes("/dc")) {
-      const indexOfDC = url.indexOf("/dc");
-      const substringBeforeDC = url.substring(0, indexOfDC);
-
-      if (!substringBeforeDC.includes("/requestor-id/")) {
-        url = url.replace(/requestor-id/g, "media-company");
-      }
-    }
-
     return url;
   }
 
