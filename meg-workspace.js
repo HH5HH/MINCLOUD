@@ -2,6 +2,10 @@ const MEG_WORKSPACE_MESSAGE_TYPE = "underpar:meg-workspace";
 const MEG_EXPORT_FORMATS = Object.freeze(["csv", "json", "xml", "html"]);
 const MEG_SUPPRESSED_COLUMNS = new Set(["media-company"]);
 const SAVED_QUERY_STORAGE_PREFIX = "underpar:saved-esm-query:";
+const MEG_WORKSPACE_PAYLOAD_NODE_ID = "meg-workspace-payload";
+const MEG_SAVED_QUERY_BRIDGE_MESSAGE_TYPE = "underpar:meg-saved-query-bridge";
+const MEG_SAVED_QUERY_BRIDGE_RESPONSE_TYPE = `${MEG_SAVED_QUERY_BRIDGE_MESSAGE_TYPE}:response`;
+const MEG_SAVED_QUERY_BRIDGE_TIMEOUT_MS = 4000;
 const DEFAULT_MEG_URLS = Object.freeze([
   "/esm/v3/media-company/year?requestor-id&api&metrics=authz-successful,media-tokens",
   "/esm/v3/media-company/year/month/day?event&requestor-id&mvpd&reason!=None",
@@ -17,6 +21,20 @@ const DEFAULT_ADOBEPASS_ENVIRONMENT = Object.freeze({
   spBase: "https://sp.auth.adobe.com",
   esmBase: "https://mgmt.auth.adobe.com/esm/v3/media-company/",
 });
+
+const MEG_STANDALONE_PAYLOAD = (() => {
+  const payloadNode = document.getElementById(MEG_WORKSPACE_PAYLOAD_NODE_ID);
+  if (!payloadNode) {
+    return {};
+  }
+  try {
+    return JSON.parse(String(payloadNode.textContent || "{}"));
+  } catch (_error) {
+    return {};
+  }
+})();
+
+const MEG_HAS_RUNTIME_MESSAGING = Boolean(globalThis.chrome?.runtime?.sendMessage);
 
 const state = {
   windowId: 0,
@@ -36,6 +54,9 @@ const state = {
   pendingAutoRerunContextKey: "",
   autoRerunInFlightContextKey: "",
   requestVersion: 0,
+  standaloneMode: !MEG_HAS_RUNTIME_MESSAGING,
+  standaloneSavedQueriesSeeded: false,
+  savedQueryRecords: [],
   rawTable: {
     headers: [],
     rows: [],
@@ -48,6 +69,7 @@ const nonEsmScreen = document.getElementById("workspace-non-esm-screen");
 const nonEsmHeadline = document.getElementById("workspace-non-esm-headline");
 const nonEsmNote = document.getElementById("workspace-non-esm-note");
 const btnRerunAll = document.getElementById("workspace-rerun-all");
+const btnMakeMegtool = document.getElementById("workspace-make-megtool");
 const fldEsmUrl = document.getElementById("fldEsmUrl");
 const fldStart = document.getElementById("fldEsmStart");
 const fldEnd = document.getElementById("fldEsmEnd");
@@ -66,6 +88,11 @@ const fldSavedQueryName = document.getElementById("fldSavedQueryName");
 const savedQueryPicker = document.getElementById("savedEsmQueryPicker");
 const btnSaveQuery = document.getElementById("btnSaveQuery");
 const btnDeleteQuery = document.getElementById("btnDeleteQuery");
+let megSavedQueryBridgeFrame = null;
+let megSavedQueryBridgeLoadPromise = null;
+let megSavedQueryBridgeTargetOrigin = "";
+let megSavedQueryBridgeRequestCounter = 0;
+const megSavedQueryBridgePending = new Map();
 
 ack("MEG TOOL - OPEN WIDE, get the story from your data");
 ack("UNDER CONSTRUCTION DISCLAIMER: Please forgive the mess, it's a live develop as needed situation...");
@@ -79,6 +106,36 @@ function setEmbeddedInputValue(name, value) {
   if (input) {
     input.value = String(value ?? "").trim();
   }
+}
+
+function getMegWorkspacePayload() {
+  return MEG_STANDALONE_PAYLOAD && typeof MEG_STANDALONE_PAYLOAD === "object" ? MEG_STANDALONE_PAYLOAD : {};
+}
+
+function getMegSavedQueryBridgeUrl() {
+  return String(getMegWorkspacePayload()?.savedQueryBridgeUrl || "").trim();
+}
+
+function canUseMegSavedQueryBridge() {
+  return isMegStandaloneMode() && Boolean(getMegSavedQueryBridgeUrl());
+}
+
+function isMegStandaloneMode() {
+  return state.standaloneMode === true || !MEG_HAS_RUNTIME_MESSAGING;
+}
+
+function getMegStandaloneSavedQueryRecords() {
+  const rawRecords = Array.isArray(getMegWorkspacePayload()?.savedQueries) ? getMegWorkspacePayload().savedQueries : [];
+  return rawRecords
+    .map((entry) => {
+      const name = normalizeSavedQueryName(entry?.name || "");
+      const url = String(entry?.url || "").trim();
+      if (!name || !url) {
+        return null;
+      }
+      return { name, url };
+    })
+    .filter(Boolean);
 }
 
 function buildWorkspaceEnvironmentTooltip(environment) {
@@ -107,6 +164,12 @@ function syncFloatingContext() {
     pageEnvBadge.title = title;
     pageEnvBadge.setAttribute("aria-label", title);
   }
+  if (btnMakeMegtool) {
+    const programmerLabel = getProgrammerLabel();
+    const buttonTitle = `Generate MEGTOOL for ${programmerLabel}`;
+    btnMakeMegtool.title = buttonTitle;
+    btnMakeMegtool.setAttribute("aria-label", buttonTitle);
+  }
 }
 
 function setStatus(message = "", type = "info") {
@@ -118,6 +181,160 @@ function setStatus(message = "", type = "info") {
   statusElement.hidden = !text;
   statusElement.classList.toggle("error", type === "error" && Boolean(text));
   statBucket?.classList.toggle("meg-console-error", type === "error" && Boolean(text));
+}
+
+function handleMegSavedQueryBridgeMessage(event) {
+  if (event?.source !== megSavedQueryBridgeFrame?.contentWindow) {
+    return;
+  }
+  const payload = event?.data;
+  if (!payload || payload.type !== MEG_SAVED_QUERY_BRIDGE_RESPONSE_TYPE) {
+    return;
+  }
+  const requestId = String(payload.requestId || "").trim();
+  const pending = requestId ? megSavedQueryBridgePending.get(requestId) : null;
+  if (!pending) {
+    return;
+  }
+  megSavedQueryBridgePending.delete(requestId);
+  window.clearTimeout(pending.timeoutId);
+  if (payload.ok === false) {
+    pending.reject(new Error(String(payload.error || "Saved query bridge request failed.")));
+    return;
+  }
+  pending.resolve(payload.result ?? null);
+}
+
+async function ensureMegSavedQueryBridgeFrame() {
+  if (!canUseMegSavedQueryBridge()) {
+    throw new Error("Saved query bridge is unavailable.");
+  }
+  if (megSavedQueryBridgeFrame?.contentWindow) {
+    return megSavedQueryBridgeFrame;
+  }
+  if (megSavedQueryBridgeLoadPromise) {
+    return megSavedQueryBridgeLoadPromise;
+  }
+  const bridgeUrl = getMegSavedQueryBridgeUrl();
+  if (!bridgeUrl) {
+    throw new Error("Saved query bridge URL is missing.");
+  }
+  try {
+    megSavedQueryBridgeTargetOrigin = new URL(bridgeUrl).origin;
+  } catch (_error) {
+    megSavedQueryBridgeTargetOrigin = "*";
+  }
+  megSavedQueryBridgeLoadPromise = new Promise((resolve, reject) => {
+    const iframe = document.createElement("iframe");
+    iframe.hidden = true;
+    iframe.setAttribute("aria-hidden", "true");
+    iframe.tabIndex = -1;
+    iframe.src = bridgeUrl;
+    iframe.style.cssText = "display:none;width:0;height:0;border:0;";
+    const timeoutId = window.setTimeout(() => {
+      cleanup();
+      iframe.remove();
+      megSavedQueryBridgeLoadPromise = null;
+      reject(new Error("Saved query bridge load timed out."));
+    }, MEG_SAVED_QUERY_BRIDGE_TIMEOUT_MS);
+    const cleanup = () => {
+      window.clearTimeout(timeoutId);
+      iframe.removeEventListener("load", handleLoad);
+      iframe.removeEventListener("error", handleError);
+    };
+    const handleLoad = () => {
+      cleanup();
+      megSavedQueryBridgeFrame = iframe;
+      resolve(iframe);
+    };
+    const handleError = () => {
+      cleanup();
+      megSavedQueryBridgeLoadPromise = null;
+      reject(new Error("Unable to load saved query bridge."));
+    };
+    iframe.addEventListener("load", handleLoad, { once: true });
+    iframe.addEventListener("error", handleError, { once: true });
+    document.body.appendChild(iframe);
+  });
+  return megSavedQueryBridgeLoadPromise;
+}
+
+async function requestMegSavedQueryBridge(action = "", payload = {}) {
+  const iframe = await ensureMegSavedQueryBridgeFrame();
+  const targetWindow = iframe?.contentWindow;
+  if (!targetWindow) {
+    throw new Error("Saved query bridge window is unavailable.");
+  }
+  const requestId = `meg-saved-query-${Date.now()}-${(megSavedQueryBridgeRequestCounter += 1)}`;
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      megSavedQueryBridgePending.delete(requestId);
+      reject(new Error("Saved query bridge timed out."));
+    }, MEG_SAVED_QUERY_BRIDGE_TIMEOUT_MS);
+    megSavedQueryBridgePending.set(requestId, {
+      resolve,
+      reject,
+      timeoutId,
+    });
+    targetWindow.postMessage(
+      {
+        type: MEG_SAVED_QUERY_BRIDGE_MESSAGE_TYPE,
+        requestId,
+        action: String(action || "").trim(),
+        payload,
+      },
+      megSavedQueryBridgeTargetOrigin || "*"
+    );
+  });
+}
+
+function buildMegAbsoluteUrl(urlValue = "") {
+  const rawUrl = String(urlValue || "").trim();
+  if (!rawUrl) {
+    return "";
+  }
+  try {
+    const mgmtBase =
+      String(state.adobePassEnvironment?.mgmtBase || DEFAULT_ADOBEPASS_ENVIRONMENT.mgmtBase || window.location.origin).trim() ||
+      window.location.origin;
+    return new URL(rawUrl, `${mgmtBase.replace(/\/+$/, "")}/`).toString();
+  } catch (_error) {
+    return rawUrl;
+  }
+}
+
+function logMegConsoleUrl(label = "URL", urlValue = "") {
+  const resolvedUrl = buildMegAbsoluteUrl(urlValue);
+  if (!resolvedUrl) {
+    return;
+  }
+  ack(`[URL] ${String(label || "URL").trim()}: ${resolvedUrl}`);
+}
+
+function reportMegDataCondition(message = "", urlValue = "") {
+  const normalizedMessage = String(message || "").trim();
+  if (!normalizedMessage) {
+    return;
+  }
+  const resolvedUrl = buildMegAbsoluteUrl(urlValue);
+  ack(`[0x34] ${normalizedMessage}${resolvedUrl ? ` | URL: ${resolvedUrl}` : ""}`);
+}
+
+function megWorkspaceDownloadFile(payloadText, fileName, mimeType) {
+  const blob = new Blob([String(payloadText || "")], {
+    type: String(mimeType || "application/octet-stream"),
+  });
+  const blobUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = blobUrl;
+  anchor.download = String(fileName || "esm-export.txt");
+  anchor.rel = "noopener";
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => {
+    URL.revokeObjectURL(blobUrl);
+  }, 0);
 }
 
 function setRerunBusy(isBusy) {
@@ -204,6 +421,151 @@ function buildFallbackEnvironmentFromInputs() {
     spBase,
     consoleProgrammersUrl: `https://experience.adobe.com/#/@adobepass/pass/authentication/${route}/programmers`,
     esmBase: `${mgmtBase.replace(/\/+$/, "")}/esm/v3/media-company/`,
+  };
+}
+
+function getMegTokenStorageScope() {
+  const environment = state.adobePassEnvironment && typeof state.adobePassEnvironment === "object"
+    ? state.adobePassEnvironment
+    : buildFallbackEnvironmentFromInputs();
+  const key = String(environment?.key || "").trim().toLowerCase();
+  if (key) {
+    return key;
+  }
+  const origin = String(environment?.spBase || environment?.mgmtBase || DEFAULT_ADOBEPASS_ENVIRONMENT.mgmtBase).trim();
+  try {
+    return String(new URL(origin, window.location.href).host || "mgmt.auth.adobe.com").trim().toLowerCase();
+  } catch {
+    return String(origin || "mgmt.auth.adobe.com").trim().toLowerCase();
+  }
+}
+
+function getMegTokenStorageKey() {
+  const cid = getEmbeddedInputValue("cid");
+  const envScope = getMegTokenStorageScope().replace(/[^a-zA-Z0-9._-]+/g, "_") || "release-production";
+  if (!cid) {
+    return `meg_access_token_${envScope}_default`;
+  }
+  const safeCid = cid.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  return `meg_access_token_${envScope}_${safeCid}`;
+}
+
+function getMegToken() {
+  const embeddedToken = getEmbeddedInputValue("access_token");
+  if (embeddedToken) {
+    return embeddedToken;
+  }
+  try {
+    return String(localStorage.getItem(getMegTokenStorageKey()) || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
+function setMegToken(token = "") {
+  const normalizedToken = String(token || "").trim();
+  setEmbeddedInputValue("access_token", normalizedToken);
+  try {
+    if (normalizedToken) {
+      localStorage.setItem(getMegTokenStorageKey(), normalizedToken);
+    } else {
+      localStorage.removeItem(getMegTokenStorageKey());
+    }
+  } catch (_error) {
+    // Ignore localStorage failures in degraded standalone contexts.
+  }
+}
+
+async function refreshMegToken() {
+  const cid = getEmbeddedInputValue("cid");
+  const csc = getEmbeddedInputValue("csc");
+  const spBase = String(
+    state.adobePassEnvironment?.spBase || getEmbeddedInputValue("sp_base") || DEFAULT_ADOBEPASS_ENVIRONMENT.spBase
+  ).trim();
+  if (!cid || !csc) {
+    throw new Error("Missing MEGTOOL credentials for token refresh.");
+  }
+
+  const response = await fetch(
+    `${spBase.replace(/\/+$/, "")}/o/client/token?grant_type=client_credentials&client_id=${encodeURIComponent(
+      cid
+    )}&client_secret=${encodeURIComponent(csc)}`,
+    {
+      method: "POST",
+    }
+  );
+  if (!response.ok) {
+    const bodyText = await response.text().catch(() => "");
+    throw new Error(`Unable to refresh MEGTOOL token (HTTP ${response.status}${bodyText ? ` ${bodyText.trim()}` : ""}).`);
+  }
+  const payload = await response.json().catch(() => null);
+  const accessToken = String(payload?.access_token || "").trim();
+  if (!accessToken) {
+    throw new Error("Token refresh did not return an access token.");
+  }
+  setMegToken(accessToken);
+  return accessToken;
+}
+
+function megWorkspaceApplyFormatToPath(pathname = "", format = "") {
+  const normalizedFormat = normalizeMegExportFormat(format, "");
+  const trimmedPath = String(pathname || "").trim();
+  const withoutFormatSuffix = (trimmedPath || "/").replace(/\.(json|xml|csv|html)$/i, "");
+  if (!normalizedFormat) {
+    return withoutFormatSuffix || "/";
+  }
+  return `${withoutFormatSuffix || "/"}.${normalizedFormat}`;
+}
+
+function buildMegRequestUrl(rawUrl = "", format = "json") {
+  const normalizedFormat = normalizeMegExportFormat(format, "json");
+  const absoluteUrl = buildMegAbsoluteUrl(rawUrl);
+  if (!absoluteUrl) {
+    return "";
+  }
+  const parsed = new URL(absoluteUrl);
+  parsed.hash = "";
+  parsed.pathname = megWorkspaceApplyFormatToPath(parsed.pathname, normalizedFormat);
+  parsed.searchParams.delete("format");
+  return checkForCountCall(parsed.toString());
+}
+
+async function megStandaloneFetchResponse(rawUrl = "", format = "json") {
+  const requestUrl = buildMegRequestUrl(rawUrl, format);
+  if (!requestUrl) {
+    throw new Error("ESM endpoint URL is required.");
+  }
+
+  let token = getMegToken();
+  if (!token) {
+    token = await refreshMegToken();
+  }
+
+  let response = await fetch(requestUrl, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (response.status === 401) {
+    token = await refreshMegToken();
+    response = await fetch(requestUrl, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  }
+
+  const bodyText = await response.text().catch(() => "");
+  return {
+    requestUrl,
+    responseOk: response.ok,
+    status: Number(response.status || 0),
+    statusText: String(response.statusText || ""),
+    bodyText,
+    contentType: String(response.headers.get("content-type") || ""),
   };
 }
 
@@ -596,7 +958,156 @@ function applySelection(payload = {}) {
   ack(`MEGSPACE selection -> ${selection.endpointLabel || selection.endpointPath}`);
 }
 
+function buildMegStandaloneControllerState() {
+  const payload = getMegWorkspacePayload();
+  const environment =
+    payload?.adobePassEnvironment && typeof payload.adobePassEnvironment === "object"
+      ? {
+          ...DEFAULT_ADOBEPASS_ENVIRONMENT,
+          ...payload.adobePassEnvironment,
+        }
+      : buildFallbackEnvironmentFromInputs();
+  return {
+    controllerOnline: false,
+    esmAvailable: true,
+    esmAvailabilityResolved: true,
+    esmContainerVisible: true,
+    programmerId: String(payload?.programmerId || payload?.programmer?.programmerId || "").trim(),
+    programmerName: String(payload?.programmerName || payload?.programmer?.programmerName || "").trim(),
+    adobePassEnvironment: environment,
+    requestorIds: Array.isArray(payload?.requestorIds)
+      ? payload.requestorIds.map((value) => String(value || "").trim()).filter(Boolean)
+      : [],
+    mvpdIds: Array.isArray(payload?.mvpdIds)
+      ? payload.mvpdIds.map((value) => String(value || "").trim()).filter(Boolean)
+      : [],
+    controllerStateVersion: Number(payload?.controllerStateVersion || 1),
+    updatedAt: Number(payload?.updatedAt || Date.now()),
+  };
+}
+
+function getMegStandaloneSelectionPayload() {
+  const payload = getMegWorkspacePayload();
+  if (payload?.selection && typeof payload.selection === "object") {
+    return payload.selection;
+  }
+  const initialUrl = String(payload?.initialUrl || "").trim();
+  if (!initialUrl) {
+    return null;
+  }
+  return {
+    endpointPath: initialUrl,
+    endpointLabel: String(payload?.selectionLabel || payload?.displayNodeLabel || "").trim(),
+    endpointUrl: buildMegAbsoluteUrl(initialUrl),
+  };
+}
+
+function seedStandaloneSavedQueries() {
+  if (!isMegStandaloneMode() || state.standaloneSavedQueriesSeeded === true) {
+    return;
+  }
+  const records = getMegStandaloneSavedQueryRecords();
+  if (records.length === 0) {
+    state.standaloneSavedQueriesSeeded = true;
+    return;
+  }
+  records.forEach((record) => {
+    try {
+      localStorage.setItem(buildSavedQueryStorageKey(record.name), buildSavedQueryPayload(record.name, record.url));
+    } catch (error) {
+      ack(`Saved query standalone seed failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  });
+  state.standaloneSavedQueriesSeeded = true;
+}
+
+function applyStandaloneBootstrapState() {
+  if (!isMegStandaloneMode()) {
+    return;
+  }
+  const payload = getMegWorkspacePayload();
+  const selection = getMegStandaloneSelectionPayload();
+  if (selection) {
+    applySelection(selection);
+  }
+  const initialUrl = String(payload?.initialUrl || "").trim();
+  if (initialUrl) {
+    fldEsmUrl.value = initialUrl;
+  }
+  if (fldStart) {
+    fldStart.value = String(payload?.initialStart || "").trim();
+  }
+  if (fldEnd) {
+    fldEnd.value = String(payload?.initialEnd || "").trim();
+  }
+}
+
 async function sendWorkspaceAction(action, payload = {}) {
+  if (isMegStandaloneMode()) {
+    const normalizedAction = String(action || "").trim().toLowerCase();
+    if (normalizedAction === "workspace-ready") {
+      return {
+        ok: true,
+        controllerOnline: false,
+      };
+    }
+    if (normalizedAction === "resolve-run-context") {
+      const controllerState = buildMegStandaloneControllerState();
+      const selection = getMegStandaloneSelectionPayload();
+      return {
+        ok: true,
+        controllerState,
+        selection,
+        programmerLabel: getProgrammerLabel(),
+        clientId: getEmbeddedInputValue("cid"),
+        clientSecret: getEmbeddedInputValue("csc"),
+        accessToken: getMegToken(),
+        requestorIds: Array.isArray(controllerState?.requestorIds) ? controllerState.requestorIds.slice(0, 24) : [],
+        mvpdIds: Array.isArray(controllerState?.mvpdIds) ? controllerState.mvpdIds.slice(0, 24) : [],
+      };
+    }
+    if (normalizedAction === "fetch-esm") {
+      const response = await megStandaloneFetchResponse(String(payload?.url || ""), String(payload?.format || "json"));
+      return {
+        ok: true,
+        ...response,
+      };
+    }
+    if (normalizedAction === "download-csv" || normalizedAction === "download-export") {
+      const format =
+        normalizedAction === "download-csv"
+          ? "csv"
+          : normalizeMegExportFormat(String(payload?.format || ""), "csv");
+      const response = await megStandaloneFetchResponse(String(payload?.url || ""), format);
+      if (!response.responseOk) {
+        return {
+          ok: false,
+          error: String(response.bodyText || `${format.toUpperCase()} request failed (${response.status || 0})`),
+        };
+      }
+      const fileName = `esm_${sanitizeMegDownloadSegment(getProgrammerLabel())}_${Date.now()}.${format}`;
+      const mimeType =
+        response.contentType ||
+        {
+          csv: "text/csv;charset=utf-8",
+          json: "application/json;charset=utf-8",
+          xml: "application/xml;charset=utf-8",
+          html: "text/html;charset=utf-8",
+        }[format] ||
+        "application/octet-stream";
+      megWorkspaceDownloadFile(response.bodyText, fileName, mimeType);
+      return {
+        ok: true,
+        fileName,
+        format,
+      };
+    }
+    return {
+      ok: false,
+      error: `Unsupported standalone MEGTOOL action: ${normalizedAction || "unknown"}`,
+    };
+  }
+
   try {
     return await chrome.runtime.sendMessage({
       type: MEG_WORKSPACE_MESSAGE_TYPE,
@@ -610,6 +1121,11 @@ async function sendWorkspaceAction(action, payload = {}) {
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+function sanitizeMegDownloadSegment(value = "") {
+  const normalized = String(value || "").trim().replace(/[^a-z0-9._-]+/gi, "_").replace(/^_+|_+$/g, "");
+  return normalized || "MediaCompany";
 }
 
 async function resolveRunContext(source = "workspace") {
@@ -762,7 +1278,7 @@ function renderMegTableBody(tableState) {
   });
 }
 
-function generateTable(data) {
+function generateTable(data, requestUrl = "") {
   const table = document.getElementById("RAW_TBL");
   const thead = table.querySelector("thead tr");
   const tbody = table.querySelector("tbody");
@@ -790,7 +1306,13 @@ function generateTable(data) {
   state.rawTable.rows = rows.slice();
   state.rawTable.sortStack = activeSortStack.map((rule) => ({ ...rule }));
 
+  if (rows.length === 0) {
+    reportMegDataCondition("No data returned from ESM.", requestUrl);
+    return;
+  }
+
   if (rows.length > 0 && headers.length === 0) {
+    reportMegDataCondition("No visible report columns were returned from ESM.", requestUrl);
     const row = document.createElement("tr");
     const cell = document.createElement("td");
     cell.textContent = "No visible report columns.";
@@ -1022,21 +1544,25 @@ function urlSink(esmUrl) {
   void runMeg("drill-down");
 }
 
-function renderData(data) {
+function renderData(data, requestUrl = "") {
   if (Object.hasOwn(data, "_links")) {
     generateDD_TBL(data._links);
   }
 
   if (Object.hasOwn(data, "report")) {
-    generateTable(data.report);
+    generateTable(data.report, requestUrl);
   } else {
+    reportMegDataCondition("Unexpected ESM payload shape. No report field was returned.", requestUrl);
     ack("No report found. Generating table with raw data...");
-    generateTable(data);
+    generateTable(data, requestUrl);
   }
 }
 
 async function dasink(requestVersion = 0) {
   const bodyElement = document.body;
+  let activeRequestUrl = "";
+  let originalRequestUrl = "";
+  let retryRequestUrl = "";
 
   try {
     bodyElement.style.cursor = "wait";
@@ -1048,6 +1574,8 @@ async function dasink(requestVersion = 0) {
     setStatus("");
 
     let esmUrl = checkForCountCall(fldEsmUrl.value);
+    originalRequestUrl = esmUrl;
+    activeRequestUrl = esmUrl;
     let response3 = await sendWorkspaceAction("fetch-esm", {
       url: esmUrl,
       format: "json",
@@ -1065,6 +1593,8 @@ async function dasink(requestVersion = 0) {
       const errorText = String(response3.bodyText || "");
       if (errorText.startsWith("The requested metrics are not available for the selected dimensions")) {
         const sanitizedEsmUrl = esmUrl.replace(/&?metrics=[^&]*/, "");
+        retryRequestUrl = sanitizedEsmUrl;
+        activeRequestUrl = sanitizedEsmUrl;
         const response4 = await sendWorkspaceAction("fetch-esm", {
           url: sanitizedEsmUrl,
           format: "json",
@@ -1080,7 +1610,10 @@ async function dasink(requestVersion = 0) {
 
         if (!response4.responseOk) {
           const errorText2 = String(response4.bodyText || "");
-          throw new Error(`Failed to fetch ESM data: ${errorText2}`);
+          const retryError = new Error(`Failed to fetch ESM data: ${errorText2}`);
+          retryError.megUrl = sanitizedEsmUrl;
+          retryError.megOriginalUrl = esmUrl;
+          throw retryError;
         }
 
         const data4 = JSON.parse(String(response4.bodyText || "{}"));
@@ -1091,20 +1624,28 @@ async function dasink(requestVersion = 0) {
 
         alert(alertMessage);
         ack(alertMessage);
-        renderData(data4);
+        logMegConsoleUrl("Original request URL", esmUrl);
+        logMegConsoleUrl("Sanitized retry URL", sanitizedEsmUrl);
+        renderData(data4, sanitizedEsmUrl);
         return;
       }
-      throw new Error(`Failed to fetch ESM data: ${errorText}`);
+      const fetchError = new Error(`Failed to fetch ESM data: ${errorText}`);
+      fetchError.megUrl = esmUrl;
+      throw fetchError;
     }
 
     const data3 = JSON.parse(String(response3.bodyText || "{}"));
     if (!isMegRequestCurrent(requestVersion)) {
       return;
     }
-    renderData(data3);
+    renderData(data3, esmUrl);
   } catch (error) {
     if (isMegRequestCurrent(requestVersion)) {
-      bonk(`[0x33] Error: ${error.message}`);
+      bonk(`[0x33] Error: ${error.message}`, {
+        url: error?.megUrl || activeRequestUrl || originalRequestUrl,
+        originalUrl: error?.megOriginalUrl || (retryRequestUrl ? originalRequestUrl : ""),
+        retryUrl: error?.megRetryUrl || retryRequestUrl,
+      });
     }
   } finally {
     setTimeout(() => {
@@ -1148,13 +1689,50 @@ async function exportMeg(format = "csv") {
     setStatus(`${normalizedFormat.toUpperCase()} download started.`);
     ack(`${normalizedFormat.toUpperCase()} download started: ${String(result.fileName || `esm-export.${normalizedFormat}`)}`);
   } catch (error) {
-    bonk(`[0x35] ${error.message}`);
+    bonk(`[0x35] ${error.message}`, {
+      url: fldEsmUrl.value,
+    });
   }
 }
 
-function bonk(msg) {
+async function exportMegTearsheet() {
+  if (!ensureMegWorkspaceAccess("generate a MEGTOOL tearsheet")) {
+    return;
+  }
+  try {
+    const result = await sendWorkspaceAction("make-tearsheet", {
+      currentUrl: String(fldEsmUrl?.value || "").trim(),
+      currentStart: String(fldStart?.value || "").trim(),
+      currentEnd: String(fldEnd?.value || "").trim(),
+      selection: state.currentSelection && typeof state.currentSelection === "object" ? { ...state.currentSelection } : null,
+    });
+    if (!result?.ok) {
+      throw new Error(result?.error || "Unable to export MEGTOOL tearsheet.");
+    }
+    setStatus("MEGTOOL tearsheet download started.");
+    ack(`MEGTOOL tearsheet download started: ${String(result.fileName || "MEGTOOL.html")}`);
+  } catch (error) {
+    bonk(`[0x36] ${error instanceof Error ? error.message : String(error)}`, {
+      url: fldEsmUrl?.value || "",
+    });
+  }
+}
+
+function bonk(msg, options = {}) {
   setStatus(msg, "error");
   ack(`<OOPS>${msg}</OOPS>`);
+  const primaryUrl = String(options?.url || "").trim();
+  const originalUrl = String(options?.originalUrl || "").trim();
+  const retryUrl = String(options?.retryUrl || "").trim();
+  if (primaryUrl) {
+    logMegConsoleUrl("Request URL", primaryUrl);
+  }
+  if (originalUrl && originalUrl !== primaryUrl) {
+    logMegConsoleUrl("Original request URL", originalUrl);
+  }
+  if (retryUrl && retryUrl !== primaryUrl && retryUrl !== originalUrl) {
+    logMegConsoleUrl("Retry request URL", retryUrl);
+  }
 }
 
 function ack(msg) {
@@ -1180,8 +1758,35 @@ function parseSavedQueryRecord(storageKey = "", payload = "") {
     return null;
   }
   const normalizedPayload = String(payload || "").trim();
+  try {
+    const parsed = JSON.parse(normalizedPayload);
+    if (parsed && typeof parsed === "object") {
+      const parsedName = normalizeSavedQueryName(parsed.name || "");
+      const parsedUrl = String(parsed.url || parsed.esmUrl || "").trim();
+      if (parsedName && parsedUrl) {
+        return {
+          storageKey: normalizedStorageKey,
+          name: parsedName,
+          url: parsedUrl,
+        };
+      }
+    }
+  } catch (_error) {
+    // Fall through to legacy string parsing.
+  }
   const separatorIndex = normalizedPayload.indexOf("|");
   if (separatorIndex <= 0) {
+    const rawName = normalizeSavedQueryName(
+      decodeURIComponent(normalizedStorageKey.slice(SAVED_QUERY_STORAGE_PREFIX.length) || "")
+    );
+    const rawUrl = normalizedPayload;
+    if (rawName && rawUrl) {
+      return {
+        storageKey: normalizedStorageKey,
+        name: rawName,
+        url: rawUrl,
+      };
+    }
     return null;
   }
   const name = normalizeSavedQueryName(normalizedPayload.slice(0, separatorIndex));
@@ -1235,15 +1840,18 @@ function syncSavedQueryPickerTitle() {
     return;
   }
   const selectedOption = getSelectedSavedQueryOption();
-  const widthLabel = String(selectedOption?.textContent || "").trim() || "Saved Queries";
-  const nextWidthCh = Math.min(Math.max(widthLabel.length + 4, 18), 44);
+  const widthLabel = [...savedQueryPicker.options]
+    .map((option) => String(option?.textContent || "").trim())
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length)[0] || "Saved Queries";
+  const nextWidthCh = Math.min(Math.max(widthLabel.length + 4, 18), 52);
   const title = selectedOption ? String(selectedOption.value || "").trim() : "Saved Queries";
   savedQueryPicker.style.width = `${nextWidthCh}ch`;
   savedQueryPicker.title = title;
   savedQueryPicker.setAttribute("aria-label", selectedOption ? `Saved ESM Query: ${selectedOption.textContent || ""}` : "Saved Queries");
 }
 
-function populateSavedQuerySelect(preferredStorageKey = "") {
+function populateSavedQuerySelect(preferredStorageKey = "", records = state.savedQueryRecords) {
   if (!savedQueryPicker) {
     return;
   }
@@ -1251,7 +1859,6 @@ function populateSavedQuerySelect(preferredStorageKey = "") {
   const fallbackStorageKey =
     String(preferredStorageKey || "").trim() ||
     String(savedQueryPicker.selectedOptions?.[0]?.dataset.storageKey || "").trim();
-  const records = getSavedQueryRecords();
 
   savedQueryPicker.innerHTML = "";
 
@@ -1276,6 +1883,84 @@ function populateSavedQuerySelect(preferredStorageKey = "") {
   syncSavedQueryButtonsDisabled();
 }
 
+async function loadSavedQueryRecords() {
+  if (canUseMegSavedQueryBridge()) {
+    try {
+      const result = await requestMegSavedQueryBridge("get-records");
+      const rawRecords = Array.isArray(result?.records) ? result.records : [];
+      return rawRecords
+        .map((record) => {
+          const name = normalizeSavedQueryName(record?.name || "");
+          const url = String(record?.url || "").trim();
+          const storageKey = String(record?.storageKey || buildSavedQueryStorageKey(name)).trim();
+          if (!name || !url || !storageKey) {
+            return null;
+          }
+          return {
+            storageKey,
+            name,
+            url,
+          };
+        })
+        .filter(Boolean)
+        .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: "base" }));
+    } catch (error) {
+      ack(`Saved query bridge read failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  return getSavedQueryRecords();
+}
+
+async function refreshSavedQuerySelect(preferredStorageKey = "") {
+  state.savedQueryRecords = await loadSavedQueryRecords();
+  populateSavedQuerySelect(preferredStorageKey, state.savedQueryRecords);
+}
+
+async function persistSavedQueryRecord(queryName = "", esmUrl = "") {
+  const storageKey = buildSavedQueryStorageKey(queryName);
+  const nextPayload = buildSavedQueryPayload(queryName, esmUrl);
+  if (canUseMegSavedQueryBridge()) {
+    try {
+      const result = await requestMegSavedQueryBridge("put-record", {
+        name: queryName,
+        url: esmUrl,
+        storageKey,
+        payload: nextPayload,
+      });
+      return {
+        storageKey: String(result?.storageKey || storageKey).trim(),
+        existed: result?.existed === true,
+      };
+    } catch (error) {
+      ack(`Saved query bridge save failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  const existingPayload = localStorage.getItem(storageKey);
+  localStorage.setItem(storageKey, nextPayload);
+  return {
+    storageKey,
+    existed: Boolean(existingPayload),
+  };
+}
+
+async function removeSavedQueryRecord(storageKey = "") {
+  const normalizedStorageKey = String(storageKey || "").trim();
+  if (!normalizedStorageKey) {
+    return;
+  }
+  if (canUseMegSavedQueryBridge()) {
+    try {
+      await requestMegSavedQueryBridge("delete-record", {
+        storageKey: normalizedStorageKey,
+      });
+      return;
+    } catch (error) {
+      ack(`Saved query bridge delete failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  localStorage.removeItem(normalizedStorageKey);
+}
+
 function reportSavedQueryStatus(message = "", type = "info") {
   const normalizedMessage = String(message || "").trim();
   if (!normalizedMessage) {
@@ -1285,7 +1970,7 @@ function reportSavedQueryStatus(message = "", type = "info") {
   ack(normalizedMessage);
 }
 
-function saveCurrentQuery() {
+async function saveCurrentQuery() {
   const queryName = normalizeSavedQueryName(fldSavedQueryName?.value || "");
   const esmUrl = String(fldEsmUrl?.value || "").trim();
   if (!queryName) {
@@ -1299,27 +1984,23 @@ function saveCurrentQuery() {
     return;
   }
 
-  const storageKey = buildSavedQueryStorageKey(queryName);
-  const existingPayload = localStorage.getItem(storageKey);
-  const nextPayload = buildSavedQueryPayload(queryName, esmUrl);
-
   try {
-    localStorage.setItem(storageKey, nextPayload);
+    const result = await persistSavedQueryRecord(queryName, esmUrl);
+    await refreshSavedQuerySelect(result?.storageKey || buildSavedQueryStorageKey(queryName));
+    setSavedQueryCue(false);
+    if (fldSavedQueryName) {
+      fldSavedQueryName.value = "";
+      fldSavedQueryName.blur();
+    }
+    reportSavedQueryStatus(
+      result?.existed ? `Updated Saved ESM Query "${queryName}".` : `Saved ESM Query "${queryName}".`
+    );
   } catch (error) {
     reportSavedQueryStatus(
       `Unable to save Saved ESM Query: ${error instanceof Error ? error.message : String(error)}`,
       "error"
     );
-    return;
   }
-
-  populateSavedQuerySelect(storageKey);
-  setSavedQueryCue(false);
-  if (fldSavedQueryName) {
-    fldSavedQueryName.value = "";
-    fldSavedQueryName.blur();
-  }
-  reportSavedQueryStatus(existingPayload ? `Updated Saved ESM Query "${queryName}".` : `Saved ESM Query "${queryName}".`);
 }
 
 async function loadSelectedSavedQuery() {
@@ -1352,7 +2033,7 @@ async function loadSelectedSavedQuery() {
   fldEsmUrl.focus();
 }
 
-function deleteSelectedSavedQuery() {
+async function deleteSelectedSavedQuery() {
   const selectedOption = getSelectedSavedQueryOption();
   if (!selectedOption) {
     reportSavedQueryStatus("Select a Saved ESM Query to delete.", "error");
@@ -1367,17 +2048,15 @@ function deleteSelectedSavedQuery() {
   }
 
   try {
-    localStorage.removeItem(storageKey);
+    await removeSavedQueryRecord(storageKey);
+    await refreshSavedQuerySelect();
+    reportSavedQueryStatus(`Deleted Saved ESM Query "${savedQueryName}".`);
   } catch (error) {
     reportSavedQueryStatus(
       `Unable to delete Saved ESM Query: ${error instanceof Error ? error.message : String(error)}`,
       "error"
     );
-    return;
   }
-
-  populateSavedQuerySelect();
-  reportSavedQueryStatus(`Deleted Saved ESM Query "${savedQueryName}".`);
 }
 
 function setupUrl() {
@@ -1485,20 +2164,12 @@ function registerEventHandlers() {
     void runMeg("rerun-all");
   });
 
-  resetHeading?.addEventListener("click", () => {
-    setupUrl();
+  btnMakeMegtool?.addEventListener("click", () => {
+    void exportMegTearsheet();
   });
 
-  document.getElementById("fldEsmUrl").addEventListener("paste", (event) => {
-    event.preventDefault();
-    const pastedText = (event.clipboardData || window.clipboardData).getData("text");
-
-    if (pastedText.includes("/esm/v3/")) {
-      const newValue = pastedText.substring(pastedText.indexOf("/esm/v3/"));
-      ack(`GOT ESM V3 URL!!! ${pastedText}`);
-      ack(`MEG IT >>  ${newValue}`);
-      fldEsmUrl.value = newValue;
-    }
+  resetHeading?.addEventListener("click", () => {
+    setupUrl();
   });
 
   fldEsmUrl?.addEventListener("keydown", (event) => {
@@ -1524,7 +2195,7 @@ function registerEventHandlers() {
       return;
     }
     event.preventDefault();
-    saveCurrentQuery();
+    void saveCurrentQuery();
   });
 
   savedQueryPicker?.addEventListener("change", () => {
@@ -1537,45 +2208,57 @@ function registerEventHandlers() {
   });
 
   btnSaveQuery?.addEventListener("click", () => {
-    saveCurrentQuery();
+    void saveCurrentQuery();
   });
 
   btnDeleteQuery?.addEventListener("click", () => {
-    deleteSelectedSavedQuery();
+    void deleteSelectedSavedQuery();
   });
 
   infoToggle?.addEventListener("click", () => {
     setInfoPanelCollapsed(!infoPanel?.classList.contains("is-collapsed"));
   });
 
-  chrome.runtime.onMessage.addListener((message) => {
-    if (message?.type !== MEG_WORKSPACE_MESSAGE_TYPE || message?.channel !== "workspace-event") {
+  if (MEG_HAS_RUNTIME_MESSAGING && globalThis.chrome?.runtime?.onMessage) {
+    chrome.runtime.onMessage.addListener((message) => {
+      if (message?.type !== MEG_WORKSPACE_MESSAGE_TYPE || message?.channel !== "workspace-event") {
+        return false;
+      }
+      const targetWindowId = Number(message?.targetWindowId || 0);
+      if (targetWindowId > 0 && Number(state.windowId || 0) > 0 && targetWindowId !== Number(state.windowId || 0)) {
+        return false;
+      }
+      handleWorkspaceEvent(message?.event, message?.payload || {});
       return false;
-    }
-    const targetWindowId = Number(message?.targetWindowId || 0);
-    if (targetWindowId > 0 && Number(state.windowId || 0) > 0 && targetWindowId !== Number(state.windowId || 0)) {
-      return false;
-    }
-    handleWorkspaceEvent(message?.event, message?.payload || {});
-    return false;
-  });
+    });
+  }
+
+  window.addEventListener("message", handleMegSavedQueryBridgeMessage);
 }
 
 async function init() {
-  try {
-    const currentWindow = await chrome.windows.getCurrent();
-    state.windowId = Number(currentWindow?.id || 0);
-  } catch {
+  if (MEG_HAS_RUNTIME_MESSAGING && globalThis.chrome?.windows?.getCurrent) {
+    try {
+      const currentWindow = await chrome.windows.getCurrent();
+      state.windowId = Number(currentWindow?.id || 0);
+    } catch {
+      state.windowId = 0;
+    }
+  } else {
     state.windowId = 0;
   }
 
-  const environment = await resolveAdobePassEnvironment();
-  applyControllerState({
-    controllerOnline: false,
-    programmerId: "",
-    programmerName: "",
-    adobePassEnvironment: environment,
-  });
+  if (isMegStandaloneMode()) {
+    applyControllerState(buildMegStandaloneControllerState());
+  } else {
+    const environment = await resolveAdobePassEnvironment();
+    applyControllerState({
+      controllerOnline: false,
+      programmerId: "",
+      programmerName: "",
+      adobePassEnvironment: environment,
+    });
+  }
 
   fldEsmUrl.value = "";
 
@@ -1586,14 +2269,24 @@ async function init() {
     ack("?DONDE ES LOS DATE FIELDOS?");
   }
 
+  seedStandaloneSavedQueries();
   registerEventHandlers();
-  populateSavedQuerySelect();
+  applyStandaloneBootstrapState();
+  await refreshSavedQuerySelect();
   setInfoPanelCollapsed(true);
   setRerunBusy(false);
+  syncFloatingContext();
 
   const result = await sendWorkspaceAction("workspace-ready");
   if (!result?.ok) {
     bonk(result?.error || "Unable to contact UnderPar MEG controller.");
+    return;
+  }
+  if (isMegStandaloneMode()) {
+    const payload = getMegWorkspacePayload();
+    if (payload?.autoRun === true && hasMegRunnableContext() && !state.workspaceLocked && !state.nonEsmMode) {
+      void runMeg("standalone-init");
+    }
   }
 }
 

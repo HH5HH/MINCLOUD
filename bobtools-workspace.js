@@ -224,6 +224,117 @@ function getSelectedProfile() {
   return state.profiles.find((profile) => String(profile?.key || "") === key) || null;
 }
 
+function normalizeResourceIdChips(values = [], maxItems = 320) {
+  const normalizedMax = Number(maxItems || 0);
+  const limit = Number.isFinite(normalizedMax) && normalizedMax > 0 ? normalizedMax : 320;
+  const unique = [];
+  const seen = new Set();
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const label = String(value?.label || value?.value || value || "").trim();
+    const rawValue = String(value?.rawValue || value?.raw || "").trim();
+    if (!label) {
+      return;
+    }
+    const key = `${label.toLowerCase()}|${rawValue.toLowerCase()}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    unique.push({
+      label,
+      rawValue,
+    });
+  });
+  return unique.slice(0, limit);
+}
+
+function getQuickResourceChipOptionsForProfile(profile = null) {
+  if (!profile || typeof profile !== "object") {
+    return [];
+  }
+  const preferredOptions = normalizeResourceIdChips(profile?.quickResourceIdChips || []);
+  if (preferredOptions.length > 0) {
+    return preferredOptions;
+  }
+  const lastCheckOptions = normalizeResourceIdChips(profile?.lastCheck?.resourceIdChips || []);
+  if (lastCheckOptions.length > 0) {
+    return lastCheckOptions;
+  }
+  const fallbackLabels = getQuickResourceOptionsForProfile(profile);
+  return normalizeResourceIdChips(fallbackLabels);
+}
+
+function buildResourceIdChipLookup(profile = null, options = {}) {
+  const lookup = new Map();
+  normalizeResourceIdChips(options?.resourceIdChips || []).forEach((chip) => {
+    const labelKey = String(chip?.label || "").trim().toLowerCase();
+    const rawKey = String(chip?.rawValue || "").trim().toLowerCase();
+    if (labelKey && !lookup.has(labelKey)) {
+      lookup.set(labelKey, chip);
+    }
+    if (rawKey && !lookup.has(rawKey)) {
+      lookup.set(rawKey, chip);
+    }
+  });
+  if (lookup.size > 0) {
+    return lookup;
+  }
+  getQuickResourceChipOptionsForProfile(profile).forEach((chip) => {
+    const labelKey = String(chip?.label || "").trim().toLowerCase();
+    const rawKey = String(chip?.rawValue || "").trim().toLowerCase();
+    if (labelKey && !lookup.has(labelKey)) {
+      lookup.set(labelKey, chip);
+    }
+    if (rawKey && !lookup.has(rawKey)) {
+      lookup.set(rawKey, chip);
+    }
+  });
+  return lookup;
+}
+
+function resolveResourceIdChip(value = "", profile = null, options = {}) {
+  const normalized = String(value || "").trim();
+  if (!normalized) {
+    return {
+      label: "",
+      rawValue: "",
+      title: "",
+    };
+  }
+  const lookup = options?.resourceIdLookup instanceof Map ? options.resourceIdLookup : buildResourceIdChipLookup(profile, options);
+  const matched = lookup.get(normalized.toLowerCase()) || null;
+  const label = String(matched?.label || normalized).trim() || normalized;
+  const rawValue = String(matched?.rawValue || "").trim();
+  return {
+    label,
+    rawValue,
+    title: rawValue && rawValue !== label ? `Adobe TMSID: ${rawValue}` : "",
+  };
+}
+
+function renderResourceIdListMarkup(resourceIds = [], profile = null, options = {}) {
+  const resourceIdLookup = buildResourceIdChipLookup(profile, options);
+  const chips = (Array.isArray(resourceIds) ? resourceIds : [])
+    .map((value) =>
+      resolveResourceIdChip(value, profile, {
+        ...options,
+        resourceIdLookup,
+      })
+    )
+    .filter((chip) => chip.label);
+  if (chips.length === 0) {
+    return "N/A";
+  }
+  const displayText = chips.map((chip) => chip.label).join(", ");
+  const hoverLines = chips
+    .filter((chip) => chip.title)
+    .map((chip) => `${chip.label} -> ${chip.rawValue}`);
+  if (hoverLines.length === 0) {
+    return escapeHtml(displayText);
+  }
+  return `<span title="${escapeHtml(hoverLines.join("\n"))}">${escapeHtml(displayText)}</span>`;
+}
+
 function getQuickResourceOptionsForProfile(profile = null) {
   if (!profile || typeof profile !== "object") {
     return [];
@@ -248,6 +359,9 @@ function upsertProfileQuickResourceOptions(harvestKey = "", payload = {}) {
   const quickResourceIds = normalizeResourceIdList(
     payload?.resourceIds || payload?.quickResourceIds || profile?.quickResourceIds || []
   );
+  const quickResourceIdChips = normalizeResourceIdChips(
+    payload?.resourceIdChips || payload?.quickResourceIdChips || profile?.quickResourceIdChips || []
+  );
   const quickResourceTranslationMapId = firstNonEmptyString([
     payload?.translationMapId,
     payload?.quickResourceTranslationMapId,
@@ -261,6 +375,7 @@ function upsertProfileQuickResourceOptions(harvestKey = "", payload = {}) {
   state.profiles[index] = {
     ...profile,
     quickResourceIds,
+    quickResourceIdChips,
     quickResourceTranslationMapId,
     quickResourceSource,
   };
@@ -301,6 +416,7 @@ function ensureProfileQuickResources(profile = null, options = {}) {
       if (response?.ok) {
         upsertProfileQuickResourceOptions(key, {
           resourceIds: Array.isArray(response?.resourceIds) ? response.resourceIds : [],
+          resourceIdChips: Array.isArray(response?.resourceIdChips) ? response.resourceIdChips : [],
           translationMapId: String(response?.translationMapId || "").trim(),
           source: String(response?.source || "").trim(),
         });
@@ -361,7 +477,8 @@ function renderQuickResourcePicker(profile = null) {
   }
   const key = String(profile?.key || "").trim();
   const loadState = String(state.quickResourceLoadStateByHarvestKey.get(key) || "").trim().toLowerCase();
-  const options = getQuickResourceOptionsForProfile(profile);
+  const chipOptions = getQuickResourceChipOptionsForProfile(profile);
+  const options = chipOptions.map((chip) => chip.label);
   const panelOpen = isQuickResourcePanelOpen(profile);
   const selectionLabel = firstNonEmptyString([
     profile?.requestorMvpdLabel,
@@ -393,7 +510,9 @@ function renderQuickResourcePicker(profile = null) {
     return;
   }
 
-  const signature = `${loadState}::${chipsDisabled ? "1" : "0"}::${options.join("\n")}::${selectedValues.join("\n")}`;
+  const signature = `${loadState}::${chipsDisabled ? "1" : "0"}::${chipOptions
+    .map((chip) => `${chip.label}|${chip.rawValue}`)
+    .join("\n")}::${selectedValues.join("\n")}`;
   if (String(els.quickResourceCardBody.dataset.renderSignature || "") === signature) {
     return;
   }
@@ -410,15 +529,18 @@ function renderQuickResourcePicker(profile = null) {
     return;
   }
 
-  els.quickResourceCardBody.innerHTML = `<div class="bobtools-resource-chip-cloud">${options
-    .map((resourceId) => {
-      const normalized = String(resourceId || "").trim();
+  els.quickResourceCardBody.innerHTML = `<div class="bobtools-resource-chip-cloud">${chipOptions
+    .map((chip) => {
+      const normalized = String(chip?.label || "").trim();
       const active = selectedKeys.has(normalized.toLowerCase());
-      const title = active ? `Remove ${normalized}` : `Add ${normalized}`;
+      const hoverLines = [active ? `Remove ${normalized}` : `Add ${normalized}`];
+      if (chip?.rawValue && chip.rawValue !== normalized) {
+        hoverLines.push(`Adobe TMSID: ${chip.rawValue}`);
+      }
       return `<button type="button" class="bobtools-resource-chip${active ? " is-active" : ""}" data-resource-id="${escapeHtml(
         normalized
       )}" aria-pressed="${active ? "true" : "false"}"${chipsDisabled ? " disabled" : ""} title="${escapeHtml(
-        title
+        hoverLines.join("\n")
       )}">${escapeHtml(normalized)}</button>`;
     })
     .join("")}</div>`;
@@ -637,7 +759,10 @@ function renderDecisionsResult(result = null) {
   }
   const actionLabel = firstNonEmptyString([result?.apiActionLabel, getApiActionLabel(state.apiAction)]);
   const checkedAtLabel = formatDateTime(result?.checkedAt);
-  const resources = Array.isArray(result?.resourceIds) ? result.resourceIds.join(", ") : "";
+  const profile = getSelectedProfile();
+  const requestMarkup = renderResourceIdListMarkup(result?.resourceIds || [], profile, {
+    resourceIdChips: result?.resourceIdChips,
+  });
   const permit = Number(result?.permitCount || 0);
   const deny = Number(result?.denyCount || 0);
   const unknown = Number(result?.unknownCount || 0);
@@ -655,13 +780,21 @@ function renderDecisionsResult(result = null) {
       : `${actionLabel}: NO (${String(result?.error || "request_failed")})`;
 
   const decisions = Array.isArray(result?.decisionRows) ? result.decisionRows : [];
+  const resourceIdLookup = buildResourceIdChipLookup(profile, {
+    resourceIdChips: result?.resourceIdChips,
+  });
   const decisionMarkup = decisions
     .map((row) => {
       const decisionRaw = String(row?.decision || "").trim().toLowerCase();
       const verdictClass = decisionRaw === "permit" ? "permit" : decisionRaw === "deny" ? "deny" : "unknown";
+      const resourceChip = resolveResourceIdChip(row?.resourceId, profile, {
+        resourceIdLookup,
+      });
       return `
         <li class="bobtools-decision-item">
-          <span class="bobtools-decision-resource">${escapeHtml(String(row?.resourceId || ""))}</span>
+          <span class="bobtools-decision-resource"${resourceChip.title ? ` title="${escapeHtml(resourceChip.title)}"` : ""}>${escapeHtml(
+            resourceChip.label
+          )}</span>
           <span class="bobtools-decision-verdict ${escapeHtml(verdictClass)}">${escapeHtml(String(row?.decision || "Unknown"))}</span>
           <span class="bobtools-decision-reason">${escapeHtml(buildDecisionReason(row))}</span>
         </li>
@@ -673,11 +806,10 @@ function renderDecisionsResult(result = null) {
   const statusText = String(result?.statusText || "").trim();
   const endpoint = String(result?.endpointUrl || "").trim();
   const method = String(result?.method || "POST").trim().toUpperCase();
-  const requestLabel = resources || "N/A";
 
   els.resultSummary.hidden = false;
   els.resultSummary.innerHTML = `
-    <p class="bobtools-result-head"><strong>Action:</strong> ${escapeHtml(actionLabel)} | <strong>Request:</strong> ${escapeHtml(requestLabel)} | <strong>Checked:</strong> ${escapeHtml(checkedAtLabel)}</p>
+    <p class="bobtools-result-head"><strong>Action:</strong> ${escapeHtml(actionLabel)} | <strong>Request:</strong> ${requestMarkup} | <strong>Checked:</strong> ${escapeHtml(checkedAtLabel)}</p>
     ${decisions.length > 0 ? `<ul class="bobtools-decision-list">${decisionMarkup}</ul>` : ""}
     <p class="bobtools-result-meta">${escapeHtml(method)} ${escapeHtml(endpoint)} | HTTP ${escapeHtml(String(status))} ${escapeHtml(statusText)}</p>
   `;
@@ -1730,9 +1862,13 @@ function applyProfiles(payload = {}) {
     const key = String(profile?.key || "").trim();
     const previousProfile = key ? previousProfilesByKey.get(key) || null : null;
     const quickResourceIds = normalizeResourceIdList(profile?.quickResourceIds || previousProfile?.quickResourceIds || []);
+    const quickResourceIdChips = normalizeResourceIdChips(
+      profile?.quickResourceIdChips || previousProfile?.quickResourceIdChips || []
+    );
     return {
       ...(profile && typeof profile === "object" ? profile : {}),
       quickResourceIds,
+      quickResourceIdChips,
       quickResourceTranslationMapId: firstNonEmptyString([
         profile?.quickResourceTranslationMapId,
         previousProfile?.quickResourceTranslationMapId,

@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>UP MEGSPACE</title>
-    <link rel="stylesheet" href="meg-workspace.css" />
+    <link id="workspace-style-link" rel="stylesheet" href="meg-workspace.css" />
   </head>
   <body>
     <input type="hidden" name="cid" value="" />
@@ -30,6 +30,23 @@
           </div>
         </div>
         <div class="meg-floating-actions">
+          <button
+            id="workspace-make-megtool"
+            class="workspace-icon-btn workspace-icon-btn--tearsheet"
+            type="button"
+            title="Generate MEGTOOL for selected Media Company"
+            aria-label="Generate MEGTOOL for selected Media Company"
+          >
+            <span class="workspace-icon workspace-icon--tearsheet" aria-hidden="true">
+              <svg viewBox="0 0 24 24" focusable="false">
+                <path d="M6.75 3.75h10.5A1.5 1.5 0 0 1 18.75 5.25V18a2.25 2.25 0 0 1-2.25 2.25H6.75A1.5 1.5 0 0 1 5.25 18.75V5.25a1.5 1.5 0 0 1 1.5-1.5Z" />
+                <path d="M7.75 8.25h8.5" />
+                <path d="M7.75 11.75h8.5" />
+                <path d="M7.75 15.25h4.5" />
+                <path d="M14.5 14.5 15.75 15.75 18.25 13.25" />
+              </svg>
+            </span>
+          </button>
           <span id="page-env-badge" class="page-env-badge" aria-label="Data Environment" title="Data Environment">
             <span class="page-env-badge-prefix">ENV</span>
             <span class="page-env-badge-sep">|</span>

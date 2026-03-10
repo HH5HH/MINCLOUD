@@ -1023,6 +1023,14 @@ const CLICK_DGR_TEMPLATE_REQUIRED_MARKERS = [
 const ESM_WORKSPACE_INLINE_RESULT_LIMIT = 100;
 const ESM_WORKSPACE_CSV_RESULT_LIMIT = 10000;
 const ESM_LOCAL_FILTER_EXCLUDED_COLUMNS = new Set(["year", "month", "day", "hour", "minute"]);
+const ESM_QUERY_DISPLAY_EXCLUDED_COLUMNS = new Set([
+  ...ESM_LOCAL_FILTER_EXCLUDED_COLUMNS,
+  "start",
+  "end",
+  "metrics",
+  "format",
+  "limit",
+]);
 const ESM_DEPRECATED_COLUMN_KEYS = new Set(["clientless-failures", "clientless-tokens"]);
 const ESM_WORKSPACE_LOCAL_FILTER_DIMENSION_KEYS = new Set([
   "dc",
@@ -1057,6 +1065,8 @@ const ESM_WORKSPACE_WORKSPACE_PATH = "esm-workspace.html";
 const ESM_WORKSPACE_MESSAGE_TYPE = "underpar:esm-workspace";
 const LEGACY_ESM_WORKSPACE_MESSAGE_TYPE = "mincloud:esm-workspace";
 const MEG_WORKSPACE_PATH = "meg-workspace.html";
+const MEG_WORKSPACE_STYLESHEET_PATH = "meg-workspace.css";
+const MEG_WORKSPACE_RUNTIME_PATH = "meg-workspace.js";
 const MEG_WORKSPACE_MESSAGE_TYPE = "underpar:meg-workspace";
 const SAVED_ESM_QUERY_STORAGE_PREFIX = "underpar:saved-esm-query:";
 const ESM_JELLYBEANS_FILTER_TOOLTIP = "Use 'Click and Find' above to filter JellyBeans contents";
@@ -1935,6 +1945,7 @@ const els = {
   mediaCompanySelect: document.getElementById("media-company-select"),
   requestorSelect: document.getElementById("requestor-select"),
   mvpdSelect: document.getElementById("mvpd-select"),
+  mvpdWorkspaceLaunchBtn: document.getElementById("mvpd-workspace-launch-btn"),
   premiumServicesContainer: document.getElementById("premium-services-container"),
 };
 
@@ -1946,6 +1957,10 @@ let cmUsageReportExamples = [];
 let cmUsageReportExamplesPromise = null;
 let clickEsmTemplateHtml = "";
 let clickEsmTemplatePromise = null;
+let megWorkspaceTemplateTextCache = "";
+let megWorkspaceTemplateTextPromise = null;
+let megWorkspaceStylesheetTextCache = "";
+let megWorkspaceRuntimeTextCache = "";
 let clickDgrTemplateHtml = "";
 let clickDgrTemplatePromise = null;
 
@@ -4390,6 +4405,12 @@ async function fetchRestV2DecisionCheck(harvest, resourceIds, mode = BOBTOOLS_RE
   const decisionSummary = summarizeRestV2PreauthorizeRows(decisionRows, resourceIds);
   const checkedAt = Date.now();
   const checkedAtLabel = formatTimestampLabel(checkedAt);
+  const resourceIdChips = bobtoolsWorkspaceResolveMappedResourceIdChips(
+    programmerId,
+    String(harvest?.requestorId || serviceProviderId || "").trim(),
+    selectedMvpd,
+    resourceIds
+  );
 
   const result = {
     checkedAt,
@@ -4421,6 +4442,7 @@ async function fetchRestV2DecisionCheck(harvest, resourceIds, mode = BOBTOOLS_RE
     sessionId: String(harvest?.sessionId || "").trim(),
     profileKey: String(harvest?.profileKey || "").trim(),
     resourceIds: resourceIds.slice(),
+    resourceIdChips,
     decisionRows,
     permitCount: decisionSummary.permitCount,
     denyCount: decisionSummary.denyCount,
@@ -4816,16 +4838,84 @@ function buildRestV2EntitlementDecisionReasonText(row = null) {
   return "No additional details";
 }
 
-function renderRestV2EntitlementDecisionItems(decisionRows = []) {
+function resolveRestV2ResourceIdChipLookup(options = {}) {
+  const explicitChips = bobtoolsWorkspaceNormalizeQuickResourceChips(options?.resourceIdChips || []);
+  const lookup = new Map();
+  explicitChips.forEach((chip) => {
+    const labelKey = String(chip?.label || "").trim().toLowerCase();
+    const rawKey = String(chip?.rawValue || "").trim().toLowerCase();
+    if (labelKey && !lookup.has(labelKey)) {
+      lookup.set(labelKey, chip);
+    }
+    if (rawKey && !lookup.has(rawKey)) {
+      lookup.set(rawKey, chip);
+    }
+  });
+  if (lookup.size > 0) {
+    return lookup;
+  }
+  return bobtoolsWorkspaceBuildResourceIdChipLookup(options?.programmerId, options?.requestorId, options?.mvpd);
+}
+
+function resolveRestV2ResourceIdChip(resourceId = "", options = {}) {
+  const normalized = String(resourceId || "").trim();
+  if (!normalized) {
+    return {
+      label: "",
+      rawValue: "",
+      title: "",
+    };
+  }
+  const lookup =
+    options?.resourceIdLookup instanceof Map ? options.resourceIdLookup : resolveRestV2ResourceIdChipLookup(options);
+  const matched = lookup.get(normalized.toLowerCase()) || null;
+  const label = String(matched?.label || normalized).trim() || normalized;
+  const rawValue = String(matched?.rawValue || "").trim();
+  return {
+    label,
+    rawValue,
+    title: rawValue && rawValue !== label ? `Adobe TMSID: ${rawValue}` : "",
+  };
+}
+
+function renderRestV2ResourceIdListMarkup(resourceIds = [], options = {}) {
+  const chips = (Array.isArray(resourceIds) ? resourceIds : [])
+    .map((resourceId) =>
+      resolveRestV2ResourceIdChip(resourceId, {
+        ...options,
+      })
+    )
+    .filter((chip) => chip.label);
+  if (chips.length === 0) {
+    return "N/A";
+  }
+  const displayText = chips.map((chip) => chip.label).join(", ");
+  const hoverLines = chips
+    .filter((chip) => chip.title)
+    .map((chip) => `${chip.label} -> ${chip.rawValue}`);
+  if (hoverLines.length === 0) {
+    return escapeHtml(displayText);
+  }
+  return `<span title="${escapeHtml(hoverLines.join("\n"))}">${escapeHtml(displayText)}</span>`;
+}
+
+function renderRestV2EntitlementDecisionItems(decisionRows = [], options = {}) {
+  const resourceIdLookup = resolveRestV2ResourceIdChipLookup(options);
   return (Array.isArray(decisionRows) ? decisionRows : [])
     .map((row) => {
       const decisionRaw = String(row?.decision || "").trim().toLowerCase();
       const cssClass =
         decisionRaw === "permit" ? "permit" : decisionRaw === "deny" ? "deny" : decisionRaw ? "unknown" : "unknown";
       const reasonText = buildRestV2EntitlementDecisionReasonText(row);
+      const resourceChip = resolveRestV2ResourceIdChip(row?.resourceId, {
+        ...options,
+        resourceIdLookup,
+      });
       return `
           <li class="rest-v2-entitlement-decision ${cssClass}">
-            <span class="rest-v2-entitlement-decision-resource">${escapeHtml(String(row?.resourceId || ""))}</span>
+            <span class="rest-v2-entitlement-decision-resource"${resourceChip.title ? ` title="${escapeHtml(resourceChip.title)}"` : ""}>${escapeHtml(
+              resourceChip.label
+            )}</span>
             <span class="rest-v2-entitlement-decision-badge ${cssClass}">${escapeHtml(String(row?.decision || "Unknown"))}</span>
             <span class="rest-v2-entitlement-decision-reason">${escapeHtml(reasonText)}</span>
           </li>
@@ -5106,21 +5196,31 @@ function renderRestV2ProfileHistoryTool(section, harvestList = []) {
                   .map((check, checkIndex) => {
                     const verdict = check?.allRequestedPermitted ? "YES" : "NO";
                     const verdictClass = check?.allRequestedPermitted ? "success" : "error";
-                    const resourceLabel = (Array.isArray(check?.resourceIds) ? check.resourceIds : []).join(", ") || "N/A";
                     const resultSummary =
                       check?.error && check?.ok !== true
                         ? String(check.error || "").trim()
                         : `${Number(check?.permitCount || 0)} permit, ${Number(check?.denyCount || 0)} deny, ${Number(
                             check?.unknownCount || 0
                           )} unknown`;
-                    const decisionItems = renderRestV2EntitlementDecisionItems(check?.decisionRows || []);
+                    const resourceLabel = renderRestV2ResourceIdListMarkup(check?.resourceIds || [], {
+                      resourceIdChips: check?.resourceIdChips,
+                      programmerId,
+                      requestorId: String(selectedHarvest?.requestorId || "").trim(),
+                      mvpd: String(selectedHarvest?.mvpd || "").trim(),
+                    });
+                    const decisionItems = renderRestV2EntitlementDecisionItems(check?.decisionRows || [], {
+                      resourceIdChips: check?.resourceIdChips,
+                      programmerId,
+                      requestorId: String(selectedHarvest?.requestorId || "").trim(),
+                      mvpd: String(selectedHarvest?.mvpd || "").trim(),
+                    });
                     return `
                   <li class="rest-v2-profile-preauthz-item">
                     <p class="rest-v2-profile-preauthz-head">
                       <span>Check #${checkIndex + 1} | ${escapeHtml(formatTimestampLabel(check?.checkedAt))}</span>
                       <span class="rest-v2-profile-preauthz-verdict ${verdictClass}">Can I watch? ${escapeHtml(verdict)}</span>
                     </p>
-                    <p class="rest-v2-profile-preauthz-meta"><strong>Request:</strong> ${escapeHtml(resourceLabel)}</p>
+                    <p class="rest-v2-profile-preauthz-meta"><strong>Request:</strong> ${resourceLabel}</p>
                     <p class="rest-v2-profile-preauthz-result">${escapeHtml(resultSummary)}</p>
                     <ul class="rest-v2-entitlement-decision-list">${decisionItems}</ul>
                   </li>
@@ -5361,13 +5461,24 @@ function renderRestV2EntitlementTool(section, programmerId, selectedHarvest = nu
     summaryElement.hidden = false;
     const decisionRows = Array.isArray(currentResult.decisionRows) ? currentResult.decisionRows : [];
     const hasAuthenticatedProfileMissing = hasRestV2AuthenticatedProfileMissingSignal(currentResult);
-    const summaryItems = renderRestV2EntitlementDecisionItems(decisionRows);
+    const requestMarkup = renderRestV2ResourceIdListMarkup(currentResult.resourceIds || [], {
+      resourceIdChips: currentResult.resourceIdChips,
+      programmerId: currentResult.programmerId || programmerId,
+      requestorId: currentResult.requestorId || selectedRequestorId,
+      mvpd: currentResult.mvpd || selectedMvpdId,
+    });
+    const summaryItems = renderRestV2EntitlementDecisionItems(decisionRows, {
+      resourceIdChips: currentResult.resourceIdChips,
+      programmerId: currentResult.programmerId || programmerId,
+      requestorId: currentResult.requestorId || selectedRequestorId,
+      mvpd: currentResult.mvpd || selectedMvpdId,
+    });
     const guidanceMarkup = hasAuthenticatedProfileMissing
       ? `<p class="rest-v2-entitlement-guidance">Profile is no longer active for this MVPD session. Run LOGIN again for this MVPD profile, then retry Can I watch?.</p>`
       : "";
     summaryElement.innerHTML = `
       <p class="rest-v2-entitlement-summary-head">
-        <strong>Request:</strong> ${escapeHtml((currentResult.resourceIds || []).join(", "))}
+        <strong>Request:</strong> ${requestMarkup}
         <span> | ${escapeHtml(formatTimestampLabel(currentResult.checkedAt))}</span>
       </p>
       ${guidanceMarkup}
@@ -5760,13 +5871,28 @@ function getSelectedRestV2HarvestForProgrammer(section, programmerId) {
   };
 }
 
+function getSplunkSearchIndexForEnvironment(environment = null) {
+  const resolved = environment && typeof environment === "object" ? environment : getActiveAdobePassEnvironment();
+  const environmentKey = String(resolved?.key || resolved?.route || "").trim().toLowerCase();
+  return environmentKey === "release-staging" ? "pass-staging" : "pass-prod";
+}
+
+function normalizeSplunkSearchQueryForEnvironment(search = "", upstreamUserId = "") {
+  const normalizedSearch = String(search || "").trim();
+  if (!normalizedSearch) {
+    return buildSplunkSearchQueryForUpstreamUserId(upstreamUserId);
+  }
+  const targetIndex = getSplunkSearchIndexForEnvironment();
+  return normalizedSearch.replace(/\bindex=pass-(?:prod|staging)\b/gi, `index=${targetIndex}`);
+}
+
 function buildSplunkSearchQueryForUpstreamUserId(upstreamUserId = "") {
   const normalized = String(upstreamUserId || "").trim();
   if (!normalized) {
     return "";
   }
   const escaped = normalized.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  return `search index=pass-prod "${escaped}"`;
+  return `search index=${getSplunkSearchIndexForEnvironment()} "${escaped}"`;
 }
 
 function getSplunkSearchLandingUrl(queryContext = null) {
@@ -6847,7 +6973,7 @@ function buildSplunkSearchRequestContext(rawContext = null) {
   const upstreamUserId = String(context.upstreamUserId || "").trim();
   const earliest = String(context.earliest || SPLUNK_SEARCH_EARLIEST).trim() || SPLUNK_SEARCH_EARLIEST;
   const latest = String(context.latest || SPLUNK_SEARCH_LATEST).trim() || SPLUNK_SEARCH_LATEST;
-  const search = String(context.search || buildSplunkSearchQueryForUpstreamUserId(upstreamUserId)).trim();
+  const search = normalizeSplunkSearchQueryForEnvironment(context.search, upstreamUserId);
   const selectionKey = firstNonEmptyString([
     context.selectionKey,
     buildRestWorkspaceSelectionKey({
@@ -13351,6 +13477,30 @@ function clickEsmNormalizeSearchTerm(rawValue) {
     .join("");
 }
 
+function clickEsmNormalizeSearchColumns(columns = []) {
+  const output = [];
+  const seen = new Set();
+  (Array.isArray(columns) ? columns : []).forEach((value) => {
+    const normalized = String(value || "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!normalized) {
+      return;
+    }
+    const lower = normalized.toLowerCase();
+    // Match clickESM's visible dd.col-list corpus more closely:
+    // keep legacy/deprecated dimensions searchable, but suppress the injected
+    // media-company token that is not part of the original FINDIT surface.
+    if (lower === "media-company" || seen.has(lower)) {
+      return;
+    }
+    seen.add(lower);
+    output.push(normalized);
+  });
+  return output;
+}
+
 function clickEsmGetZoomKey(endpoint) {
   const explicit = String(endpoint?.zoomKey || "").trim().toUpperCase();
   if (CLICK_ESM_ZOOM_OPTIONS.includes(explicit)) {
@@ -13419,14 +13569,25 @@ function popupParseEsmRawQueryPairs(urlValue = "") {
           key: popupSafeDecodeUrlSegment(entry.replace(/\+/g, " ")),
           value: "",
           hasValue: false,
+          hasAssignment: false,
         };
       }
+      const value = entry.slice(equalsIndex + 1);
       return {
         key: popupSafeDecodeUrlSegment(entry.slice(0, equalsIndex).replace(/\+/g, " ")),
-        value: entry.slice(equalsIndex + 1),
-        hasValue: true,
+        value,
+        hasValue: String(value || "").trim().length > 0,
+        hasAssignment: true,
       };
     });
+}
+
+function normalizeEsmDisplayDimensionKey(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) {
+    return "";
+  }
+  return normalized.endsWith("!") ? normalized.slice(0, -1) : normalized;
 }
 
 function popupSerializeEsmRawQueryPairs(queryPairs = []) {
@@ -13436,8 +13597,11 @@ function popupSerializeEsmRawQueryPairs(queryPairs = []) {
       if (!key) {
         return "";
       }
-      if (pair?.hasValue) {
+      if (pair?.hasValue && String(pair?.value || "").trim().length > 0) {
         return `${key}=${String(pair?.value || "")}`;
+      }
+      if (pair?.hasAssignment === true) {
+        return `${key}=`;
       }
       return key;
     })
@@ -13465,6 +13629,35 @@ function esmWorkspaceMergeLocalColumnFilters(...filterSources) {
     });
   });
   return merged;
+}
+
+function esmWorkspaceBuildGlobalSeedLocalColumnFilters(existingFilters = {}, requestSource = "") {
+  const normalizedRequestSource = String(requestSource || "").trim().toLowerCase();
+  if (normalizedRequestSource.startsWith("workspace")) {
+    return {};
+  }
+
+  const normalizedExistingFilters = esmWorkspaceNormalizeLocalColumnFilters(existingFilters);
+  const selections = getGlobalRequestorMvpdSelections();
+  const nextFilters = {};
+
+  if (
+    Array.isArray(selections.requestorIds) &&
+    selections.requestorIds.length > 0 &&
+    !Object.prototype.hasOwnProperty.call(normalizedExistingFilters, "requestor-id")
+  ) {
+    nextFilters["requestor-id"] = selections.requestorIds.slice();
+  }
+
+  if (
+    Array.isArray(selections.mvpdIds) &&
+    selections.mvpdIds.length > 0 &&
+    !Object.prototype.hasOwnProperty.call(normalizedExistingFilters, "mvpd")
+  ) {
+    nextFilters.mvpd = selections.mvpdIds.slice();
+  }
+
+  return nextFilters;
 }
 
 function esmWorkspaceExtractPresetLocalFilterContext(urlValue = "") {
@@ -13516,6 +13709,7 @@ function esmWorkspaceExtractPresetLocalFilterContext(urlValue = "") {
           extractedColumnSet.add(exclusionColumn);
           extractedColumns.push(exclusionColumn);
         }
+        preservedPairs.push(pair);
         return;
       }
       preservedPairs.push(pair);
@@ -13623,12 +13817,11 @@ function extractEsmDisplayDimensionsFromHref(href = "") {
   });
 
   popupParseEsmRawQueryPairs(rawHref).forEach((pair) => {
-    const normalized = String(pair?.key || "").trim().toLowerCase();
+    const normalized = normalizeEsmDisplayDimensionKey(pair?.key);
     if (
-      pair?.hasValue ||
       !normalized ||
       normalized === "media-company" ||
-      ESM_LOCAL_FILTER_EXCLUDED_COLUMNS.has(normalized) ||
+      ESM_QUERY_DISPLAY_EXCLUDED_COLUMNS.has(normalized) ||
       ESM_DEPRECATED_COLUMN_KEYS.has(normalized) ||
       seen.has(normalized)
     ) {
@@ -13779,12 +13972,14 @@ async function loadClickEsmEndpoints() {
         }
         const zoomKey = clickEsmGetZoomKey(endpoint);
         const normalizedColumns = normalizeEsmColumns(endpoint.columns, { href: url });
+        const searchColumns = clickEsmNormalizeSearchColumns(endpoint.columns);
 
         return {
           url,
           zoomClass: String(endpoint.zoomClass || "").trim(),
           zoomKey,
           columns: normalizedColumns,
+          searchColumns,
         };
       })
       .filter(Boolean);
@@ -14382,6 +14577,189 @@ function buildClickEsmDownloadFileName(programmer) {
   ]);
   const base = sanitizeDownloadFileSegment(label, "MediaCompany");
   return `${base}_clickESM_${getAdobePassEnvironmentFileTag()}_${Date.now()}.html`;
+}
+
+async function fetchMegWorkspaceResourceText(resourcePath) {
+  const resourceUrl = chrome.runtime.getURL(String(resourcePath || "").trim());
+  const response = await fetch(resourceUrl, {
+    method: "GET",
+    credentials: "omit",
+    cache: "no-cache",
+  });
+  if (!response.ok) {
+    throw new Error(`Unable to load ${resourcePath} (${response.status}).`);
+  }
+  const text = await response.text();
+  if (typeof text !== "string" || text.trim().length === 0) {
+    throw new Error(`${resourcePath} is empty.`);
+  }
+  return text;
+}
+
+async function loadMegWorkspaceTemplateText() {
+  if (typeof megWorkspaceTemplateTextCache === "string" && megWorkspaceTemplateTextCache.trim().length > 0) {
+    return megWorkspaceTemplateTextCache;
+  }
+  if (megWorkspaceTemplateTextPromise) {
+    return megWorkspaceTemplateTextPromise;
+  }
+  megWorkspaceTemplateTextPromise = (async () => {
+    megWorkspaceTemplateTextCache = await fetchMegWorkspaceResourceText(MEG_WORKSPACE_PATH);
+    return megWorkspaceTemplateTextCache;
+  })();
+  try {
+    return await megWorkspaceTemplateTextPromise;
+  } finally {
+    megWorkspaceTemplateTextPromise = null;
+  }
+}
+
+async function loadMegWorkspaceStylesheetText() {
+  if (typeof megWorkspaceStylesheetTextCache === "string" && megWorkspaceStylesheetTextCache.trim().length > 0) {
+    return megWorkspaceStylesheetTextCache;
+  }
+  megWorkspaceStylesheetTextCache = await fetchMegWorkspaceResourceText(MEG_WORKSPACE_STYLESHEET_PATH);
+  return megWorkspaceStylesheetTextCache;
+}
+
+async function loadMegWorkspaceRuntimeText() {
+  if (typeof megWorkspaceRuntimeTextCache === "string" && megWorkspaceRuntimeTextCache.trim().length > 0) {
+    return megWorkspaceRuntimeTextCache;
+  }
+  megWorkspaceRuntimeTextCache = await fetchMegWorkspaceResourceText(MEG_WORKSPACE_RUNTIME_PATH);
+  return megWorkspaceRuntimeTextCache;
+}
+
+function upsertBodyHiddenInput(doc, name, value) {
+  if (!doc || !doc.body) {
+    return;
+  }
+  const normalizedName = String(name || "").trim();
+  if (!normalizedName) {
+    return;
+  }
+  const selector = `input[name="${normalizedName}"]`;
+  let input = doc.body.querySelector(selector);
+  if (!input) {
+    input = doc.createElement("input");
+    input.type = "hidden";
+    input.name = normalizedName;
+    doc.body.insertBefore(input, doc.body.firstChild);
+  }
+  input.value = String(value || "");
+}
+
+function buildMegWorkspaceTearsheetSnapshot(context = {}, options = {}) {
+  const programmer = context?.programmer || resolveSelectedProgrammer() || null;
+  const programmerName = String(programmer?.programmerName || programmer?.mediaCompanyName || "").trim();
+  const programmerId = String(programmer?.programmerId || "").trim();
+  const currentUrl = String(options?.currentUrl || "").trim();
+  const selection =
+    options?.selection && typeof options.selection === "object"
+      ? {
+          endpointPath: String(options.selection.endpointPath || currentUrl || "").trim(),
+          endpointUrl: String(options.selection.endpointUrl || "").trim(),
+          endpointLabel: String(options.selection.endpointLabel || "").trim(),
+        }
+      : currentUrl
+        ? {
+            endpointPath: currentUrl,
+            endpointUrl: "",
+            endpointLabel: "",
+          }
+        : null;
+  return {
+    standalone: true,
+    title: `${firstNonEmptyString([programmerName, programmerId, "Media Company"])} MEGTOOL`,
+    savedQueryBridgeUrl: chrome.runtime.getURL("saved-query-bridge.html"),
+    adobePassEnvironment: {
+      ...getActiveAdobePassEnvironment(),
+    },
+    programmerId,
+    programmerName,
+    requestorIds: Array.isArray(context?.requestorIds) ? context.requestorIds.slice(0, 24) : [],
+    mvpdIds: Array.isArray(context?.mvpdIds) ? context.mvpdIds.slice(0, 24) : [],
+    selection,
+    selectionLabel: String(selection?.endpointLabel || "").trim(),
+    initialUrl: currentUrl,
+    initialStart: String(options?.currentStart || "").trim(),
+    initialEnd: String(options?.currentEnd || "").trim(),
+    autoRun: Boolean(currentUrl),
+    generatedAt: new Date().toISOString(),
+    savedQueries: popupGetSavedEsmQueryRecords().map((record) => ({
+      name: String(record?.name || "").trim(),
+      url: String(record?.url || "").trim(),
+    })),
+  };
+}
+
+function buildMegWorkspaceTearsheetFileName(snapshot = {}) {
+  const mediaCompany = sanitizeDownloadFileSegment(
+    firstNonEmptyString([snapshot?.programmerName, snapshot?.programmerId, "MediaCompany"]),
+    "MediaCompany"
+  );
+  return `${mediaCompany}_MEG_${Date.now()}.html`;
+}
+
+function buildMegWorkspaceTearsheetHtml(snapshot, templateHtml, stylesheetText, runtimeScriptText, authContext = {}) {
+  const templateText = String(templateHtml || "");
+  if (!templateText.trim()) {
+    throw new Error("MEG workspace template is empty.");
+  }
+  const safeStyles = String(stylesheetText || "").replace(/<\/style/gi, "<\\/style");
+  const runtimeScript = String(runtimeScriptText || "").replace(/<\/script/gi, "<\\/script");
+  const payloadJson = JSON.stringify(snapshot || {}).replace(/</g, "\\u003c");
+  if (!safeStyles.trim()) {
+    throw new Error("MEG workspace stylesheet is empty.");
+  }
+  if (!runtimeScript.trim()) {
+    throw new Error("MEG workspace runtime is empty.");
+  }
+
+  const doc = new DOMParser().parseFromString(templateText, "text/html");
+  if (!doc?.documentElement || !doc?.head || !doc?.body) {
+    throw new Error("MEG workspace template is invalid.");
+  }
+
+  doc.title = String(snapshot?.title || "MEGTOOL").trim() || "MEGTOOL";
+
+  const styleNode = doc.createElement("style");
+  styleNode.id = "workspace-style-inline";
+  styleNode.textContent = safeStyles;
+  const existingStyleLink =
+    doc.getElementById("workspace-style-link") || doc.querySelector('link[rel="stylesheet"][href$="meg-workspace.css"]');
+  if (existingStyleLink?.parentNode) {
+    existingStyleLink.parentNode.replaceChild(styleNode, existingStyleLink);
+  } else {
+    doc.head.append(styleNode);
+  }
+
+  doc.querySelectorAll("script[src]").forEach((node) => {
+    node.remove();
+  });
+
+  const tearsheetButton = doc.getElementById("workspace-make-megtool");
+  if (tearsheetButton) {
+    tearsheetButton.remove();
+  }
+
+  upsertBodyHiddenInput(doc, "cid", authContext?.clientId);
+  upsertBodyHiddenInput(doc, "csc", authContext?.clientSecret);
+  upsertBodyHiddenInput(doc, "access_token", authContext?.accessToken);
+  upsertBodyHiddenInput(doc, "mgmt_base", authContext?.mgmtBase);
+  upsertBodyHiddenInput(doc, "sp_base", authContext?.spBase);
+
+  const payloadNode = doc.createElement("script");
+  payloadNode.id = "meg-workspace-payload";
+  payloadNode.type = "application/json";
+  payloadNode.textContent = payloadJson;
+  doc.body.append(payloadNode);
+
+  const runtimeNode = doc.createElement("script");
+  runtimeNode.textContent = runtimeScript;
+  doc.body.append(runtimeNode);
+
+  return `<!doctype html>\n${doc.documentElement.outerHTML}`;
 }
 
 function getGlobalRequestorMvpdSelections() {
@@ -17225,13 +17603,15 @@ function esmWorkspaceBuildCatalog(endpoints) {
         return null;
       }
       const columns = normalizeEsmColumns(endpoint.columns, { href: url });
+      const searchColumns = clickEsmNormalizeSearchColumns(endpoint.searchColumns || endpoint.columns);
       const zoomKey = clickEsmGetZoomKey(endpoint);
       return {
         url,
         zoomKey,
         columns,
+        searchColumns,
         segs,
-        hay: `${segs.join(" ")} ${columns.join(" ")}`
+        hay: `${segs.join(" ")} ${searchColumns.join(" ")}`
           .toLowerCase()
           .replace(/\s+/g, ""),
       };
@@ -17710,6 +18090,36 @@ async function megWorkspaceDownloadExport(rawUrl, requestToken, format = "csv") 
   };
 }
 
+async function megWorkspaceDownloadTearsheet(requestToken, options = {}) {
+  const context = await megWorkspaceResolveContext(requestToken);
+  const programmer = context?.programmer || null;
+  if (!programmer?.programmerId) {
+    throw new Error("Select a media company with ESM access to generate MEGTOOL.");
+  }
+  const authContext = await resolveClickEsmAuthContext(context, requestToken, {
+    source: "meg-workspace-tearsheet",
+  });
+  const snapshot = buildMegWorkspaceTearsheetSnapshot(context, options);
+  const [templateText, stylesheetText, runtimeText] = await Promise.all([
+    loadMegWorkspaceTemplateText(),
+    loadMegWorkspaceStylesheetText(),
+    loadMegWorkspaceRuntimeText(),
+  ]);
+  const outputHtml = buildMegWorkspaceTearsheetHtml(snapshot, templateText, stylesheetText, runtimeText, {
+    clientId: authContext.clientId,
+    clientSecret: authContext.clientSecret,
+    accessToken: authContext.accessToken,
+    mgmtBase: String(snapshot?.adobePassEnvironment?.mgmtBase || DEFAULT_ADOBEPASS_ENVIRONMENT.mgmtBase).trim(),
+    spBase: String(snapshot?.adobePassEnvironment?.spBase || DEFAULT_ADOBEPASS_ENVIRONMENT.spBase).trim(),
+  });
+  const fileName = buildMegWorkspaceTearsheetFileName(snapshot);
+  downloadClickEsmHtmlFile(outputHtml, fileName);
+  return {
+    fileName,
+    programmerLabel: authContext.programmerLabel,
+  };
+}
+
 function nextEsmWorkspaceControllerStateVersion() {
   state.esmWorkspaceControllerStateVersion = Number(state.esmWorkspaceControllerStateVersion || 0) + 1;
   return state.esmWorkspaceControllerStateVersion;
@@ -17862,6 +18272,68 @@ async function esmWorkspaceSendWorkspaceMessage(event, payload = {}, options = {
   } catch {
     // Ignore when no workspace listener is active.
   }
+}
+
+async function esmWorkspaceSendControllerQuery(action, payload = {}, options = {}) {
+  const targetWindowId = Number(options.targetWindowId || 0);
+  try {
+    const message = {
+      type: ESM_WORKSPACE_MESSAGE_TYPE,
+      channel: "controller-query",
+      action: String(action || ""),
+      ...payload,
+    };
+    if (targetWindowId > 0) {
+      message.targetWindowId = targetWindowId;
+    }
+    return await chrome.runtime.sendMessage(message);
+  } catch {
+    return null;
+  }
+}
+
+function esmWorkspaceBuildOriginCardKey(endpoint, options = {}) {
+  const explicitKey = String(options?.originCardKey || "").trim();
+  if (explicitKey) {
+    return explicitKey;
+  }
+  const environment = getActiveAdobePassEnvironment();
+  const baseUrl =
+    String(environment?.esmBase || environment?.mgmtBase || ADOBE_MGMT_BASE).trim() || ADOBE_MGMT_BASE;
+  const candidateUrls = [
+    options?.seedEndpointUrl,
+    options?.requestUrlOverride,
+    endpoint?.url,
+    options?.seedRequestUrl,
+  ];
+  const rawOriginUrl = candidateUrls.map((value) => String(value || "").trim()).find(Boolean) || "";
+  if (!rawOriginUrl) {
+    return "";
+  }
+  try {
+    const parsed = new URL(rawOriginUrl, baseUrl);
+    parsed.hash = "";
+    const normalizedPath = String(parsed.pathname || "").replace(/\/+$/g, "") || "/";
+    return `${normalizedPath}${String(parsed.search || "")}`;
+  } catch {
+    return String(rawOriginUrl || "").split("#", 1)[0].trim();
+  }
+}
+
+async function esmWorkspaceFindExistingOriginCard(originCardKey = "", targetWindowId = 0) {
+  const normalizedOriginCardKey = String(originCardKey || "").trim();
+  if (!normalizedOriginCardKey) {
+    return null;
+  }
+  const result = await esmWorkspaceSendControllerQuery(
+    "find-origin-card",
+    { originCardKey: normalizedOriginCardKey },
+    { targetWindowId }
+  );
+  if (result?.ok !== true || !result?.card || typeof result.card !== "object") {
+    return null;
+  }
+  return result.card;
 }
 
 function esmWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId = 0) {
@@ -18771,38 +19243,27 @@ function esmWorkspaceEndNetwork(esmWorkspaceState) {
 function esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint) {
   const environment = getActiveAdobePassEnvironment();
   const activeEsmBase = String(environment?.esmBase || `${ADOBE_MGMT_BASE}/esm/v3/media-company/`).trim();
-  const selections = getGlobalRequestorMvpdSelections();
-  const requestorIds = selections.requestorIds;
-  const mvpdIds = selections.mvpdIds;
   const preserveQueryContext = endpoint?.preserveQueryContext === true;
 
   const endpointSegments = Array.isArray(endpoint?.segs)
     ? endpoint.segs.map((segment) => String(segment || "").trim()).filter(Boolean)
     : [];
   const rawEndpointUrl = String(endpoint?.url || "").trim();
-  const parsed = new URL(activeEsmBase || stripServerManagedTimeParams(rawEndpointUrl));
+  const parsed = new URL(activeEsmBase || rawEndpointUrl || ADOBE_MGMT_BASE);
   if (endpointSegments.length > 0) {
     parsed.pathname = `/esm/v3/media-company/${endpointSegments.join("/")}`;
   } else if (rawEndpointUrl) {
-    const source = new URL(stripServerManagedTimeParams(rawEndpointUrl), activeEsmBase || ADOBE_MGMT_BASE);
+    const source = new URL(rawEndpointUrl, activeEsmBase || ADOBE_MGMT_BASE);
     parsed.pathname = String(source.pathname || parsed.pathname || "");
     parsed.search = String(source.search || "");
   }
   parsed.hash = "";
   if (preserveQueryContext) {
-    return stripServerManagedTimeParams(parsed.toString());
+    return parsed.toString();
   }
   parsed.searchParams.delete("start");
   parsed.searchParams.delete("end");
   parsed.searchParams.set("format", "json");
-  parsed.searchParams.delete("requestor-id");
-  parsed.searchParams.delete("mvpd");
-  requestorIds.forEach((requestorId) => {
-    parsed.searchParams.append("requestor-id", requestorId);
-  });
-  mvpdIds.forEach((mvpdId) => {
-    parsed.searchParams.append("mvpd", mvpdId);
-  });
   return parsed.toString();
 }
 
@@ -18878,15 +19339,7 @@ function esmWorkspaceNormalizeLocalColumnFilters(rawFilters) {
 }
 
 function esmWorkspaceBuildLocalFilterResetKeys(normalizedFilters = {}) {
-  const keys = new Set([
-    "year",
-    "month",
-    "day",
-    "hour",
-    "minute",
-    ...ESM_WORKSPACE_LOCAL_FILTER_DIMENSION_KEYS,
-  ]);
-
+  const keys = new Set();
   Object.keys(normalizedFilters || {}).forEach((columnName) => {
     const normalized = String(columnName || "").trim().toLowerCase();
     if (!normalized || normalized === "media-company") {
@@ -18894,18 +19347,6 @@ function esmWorkspaceBuildLocalFilterResetKeys(normalizedFilters = {}) {
     }
     keys.add(normalized);
   });
-
-  const hasLocalRequestorFilter =
-    Array.isArray(normalizedFilters["requestor-id"]) && normalizedFilters["requestor-id"].length > 0;
-  const hasLocalMvpdFilter = Array.isArray(normalizedFilters.mvpd) && normalizedFilters.mvpd.length > 0;
-
-  if (!hasLocalRequestorFilter) {
-    keys.delete("requestor-id");
-  }
-  if (!hasLocalMvpdFilter) {
-    keys.delete("mvpd");
-  }
-
   return keys;
 }
 
@@ -19101,13 +19542,28 @@ function esmWorkspaceFindEndpointByUrl(esmWorkspaceState, endpointUrl, fallback 
   }
   const mappedEndpoint = esmWorkspaceState?.endpointByUrl?.get(normalizedUrl) || null;
   if (mappedEndpoint) {
-    return mappedEndpoint;
+    return {
+      ...mappedEndpoint,
+      url: normalizedUrl,
+      zoomKey: String(fallback?.zoomKey || mappedEndpoint?.zoomKey || clickEsmGetZoomKey({ url: normalizedUrl }) || ""),
+      columns: normalizeEsmColumns(
+        [
+          ...normalizeEsmColumns(mappedEndpoint?.columns, { href: normalizedUrl }),
+          ...normalizeEsmColumns(fallback?.columns, { href: normalizedUrl }),
+        ],
+        { href: normalizedUrl }
+      ),
+      preserveQueryContext:
+        fallback?.preserveQueryContext === true || mappedEndpoint?.preserveQueryContext === true,
+      displayNodeLabel: String(fallback?.displayNodeLabel || mappedEndpoint?.displayNodeLabel || "").trim(),
+    };
   }
   return {
     url: normalizedUrl,
     zoomKey: String(fallback.zoomKey || clickEsmGetZoomKey({ url: normalizedUrl }) || ""),
     columns: normalizeEsmColumns(fallback.columns, { href: normalizedUrl }),
     preserveQueryContext: fallback?.preserveQueryContext === true,
+    displayNodeLabel: String(fallback?.displayNodeLabel || "").trim(),
   };
 }
 
@@ -19205,12 +19661,57 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
   }
   const normalizedCardId = String(cardId || generateRequestId());
   const runId = generateRequestId();
+  const requestSource = String(options.requestSource || "").trim().toLowerCase();
   const requestUrlOverride = esmWorkspaceNormalizeRunRequestUrlOverride(endpoint.url, options.requestUrlOverride);
+  const targetWindowId =
+    Number(options.targetWindowId || 0) ||
+    Number(esmWorkspaceState?.controllerWindowId || 0) ||
+    Number(state.esmWorkspaceWorkspaceWindowId || 0);
+  const originCardKey = esmWorkspaceBuildOriginCardKey(endpoint, {
+    originCardKey: options.originCardKey,
+    requestUrlOverride,
+    seedEndpointUrl: options.seedEndpointUrl,
+    seedRequestUrl: options.seedRequestUrl,
+  });
+  if (options.skipOriginLookup !== true && originCardKey && targetWindowId > 0) {
+    const existingCard = await esmWorkspaceFindExistingOriginCard(originCardKey, targetWindowId);
+    const existingCardId = String(existingCard?.cardId || "").trim();
+    if (existingCard && existingCardId && existingCardId !== normalizedCardId) {
+      const existingEndpoint = esmWorkspaceFindEndpointByUrl(esmWorkspaceState, existingCard.endpointUrl, existingCard);
+      if (existingEndpoint) {
+        await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, existingEndpoint, existingCardId, requestToken, {
+          emitStart: options.emitStart !== false,
+          requestSource: "workspace",
+          targetWindowId,
+          originCardKey,
+          skipOriginLookup: true,
+          displayNodeLabel: String(existingCard?.displayNodeLabel || ""),
+          presetLocalFilterBootstrapPending: existingCard?.presetLocalFilterBootstrapPending === true,
+          seedEndpointUrl: existingCard?.seedEndpointUrl,
+          seedRequestUrl: existingCard?.seedRequestUrl,
+          seedLocalColumnFilters: existingCard?.seedLocalColumnFilters,
+          seedLocalColumnExclusions: existingCard?.seedLocalColumnExclusions,
+          seedPresetLocalFilterBootstrapPending: existingCard?.seedPresetLocalFilterBootstrapPending === true,
+          localColumnFilters: existingCard?.localColumnFilters,
+          localColumnExclusions: existingCard?.localColumnExclusions,
+        });
+        return;
+      }
+    }
+  }
   const baseRequestUrl = requestUrlOverride || esmWorkspaceBuildEndpointUrl(esmWorkspaceState, endpoint);
   const presetLocalFilterContext = esmWorkspaceExtractPresetLocalFilterContext(baseRequestUrl);
-  const normalizedLocalColumnFilters = esmWorkspaceMergeLocalColumnFilters(
+  const requestedLocalColumnFilters = esmWorkspaceMergeLocalColumnFilters(
     presetLocalFilterContext.localColumnFilters,
     options.localColumnFilters
+  );
+  const globalSeedLocalColumnFilters = esmWorkspaceBuildGlobalSeedLocalColumnFilters(
+    requestedLocalColumnFilters,
+    requestSource
+  );
+  const normalizedLocalColumnFilters = esmWorkspaceMergeLocalColumnFilters(
+    requestedLocalColumnFilters,
+    globalSeedLocalColumnFilters
   );
   const normalizedLocalColumnExclusions = esmWorkspaceMergeLocalColumnFilters(
     presetLocalFilterContext.localColumnExclusions,
@@ -19221,23 +19722,54 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
     esmWorkspaceAppendLocalColumnFilters(effectiveBaseRequestUrl, normalizedLocalColumnFilters),
     ESM_WORKSPACE_INLINE_RESULT_LIMIT
   );
+  const computedPresetLocalFilterBootstrapPending =
+    Object.keys(globalSeedLocalColumnFilters || {}).length > 0 ||
+    Object.keys(presetLocalFilterContext.localColumnFilters || {}).length > 0 ||
+    Object.keys(presetLocalFilterContext.localColumnExclusions || {}).length > 0;
+  const seedLocalColumnFilters = esmWorkspaceMergeLocalColumnFilters(
+    options.seedLocalColumnFilters,
+    options.seedEndpointUrl || options.seedRequestUrl ? {} : normalizedLocalColumnFilters
+  );
+  const seedLocalColumnExclusions = esmWorkspaceMergeLocalColumnFilters(
+    options.seedLocalColumnExclusions,
+    options.seedEndpointUrl || options.seedRequestUrl ? {} : normalizedLocalColumnExclusions
+  );
+  const seedEndpointUrl =
+    String(options.seedEndpointUrl || "").trim() || effectiveBaseRequestUrl;
+  const seedRequestUrl =
+    String(options.seedRequestUrl || "").trim() || requestUrl;
+  const seedPresetLocalFilterBootstrapPending =
+    options.seedPresetLocalFilterBootstrapPending === true || computedPresetLocalFilterBootstrapPending;
   const activeFlowId = getActiveEsmWorkspaceDebugFlowId();
   const reportColumns = normalizeEsmColumns(
-    [...normalizeEsmColumns(endpoint.columns, { href: endpoint.url }), ...presetLocalFilterContext.columns],
+    [
+      ...normalizeEsmColumns(endpoint.columns, { href: endpoint.url }),
+      ...presetLocalFilterContext.columns,
+      ...Object.keys(normalizedLocalColumnFilters || {}),
+      ...Object.keys(normalizedLocalColumnExclusions || {}),
+    ],
     { href: endpoint.url }
   );
   const reportMeta = {
     cardId: normalizedCardId,
+    originCardKey,
     endpointUrl: effectiveBaseRequestUrl,
     requestUrl,
     zoomKey: clickEsmGetZoomKey(endpoint),
     columns: reportColumns,
     preserveQueryContext: endpoint?.preserveQueryContext === true,
+    displayNodeLabel: String(options.displayNodeLabel || endpoint?.displayNodeLabel || "").trim(),
+    presetLocalFilterBootstrapPending:
+      options.presetLocalFilterBootstrapPending === true || computedPresetLocalFilterBootstrapPending,
+    seedEndpointUrl,
+    seedRequestUrl,
+    seedLocalColumnFilters,
+    seedLocalColumnExclusions,
+    seedPresetLocalFilterBootstrapPending,
     localColumnFilters: normalizedLocalColumnFilters,
     localColumnExclusions: normalizedLocalColumnExclusions,
     runId,
   };
-  const targetWindowId = Number(esmWorkspaceState?.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0);
 
   if (!isEsmServiceRequestActive(esmWorkspaceState.section, requestToken, esmWorkspaceState.programmer?.programmerId)) {
     return;
@@ -19249,11 +19781,11 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
       cardId: normalizedCardId,
       endpointUrl: endpoint.url,
       requestUrl,
-      requestSource: String(options.requestSource || "tree"),
+      requestSource: String(requestSource || "tree"),
     });
-    void esmWorkspaceSendWorkspaceMessage("report-start", {
+    await esmWorkspaceSendWorkspaceMessage("report-start", {
       ...reportMeta,
-      requestSource: String(options.requestSource || "tree"),
+      requestSource: String(requestSource || "tree"),
       startedAt: Date.now(),
     }, {
       targetWindowId,
@@ -19615,11 +20147,13 @@ async function esmWorkspaceRunEndpointFromUi(esmWorkspaceState, endpoint, reques
     return;
   }
   try {
-    await esmWorkspaceEnsureWorkspaceTab({ activate: true, windowId: esmWorkspaceState.controllerWindowId });
-    esmWorkspaceBroadcastControllerState(esmWorkspaceState);
+    const workspaceTab = await esmWorkspaceEnsureWorkspaceTab({ activate: true, windowId: esmWorkspaceState.controllerWindowId });
+    const targetWindowId = Number(workspaceTab?.windowId || esmWorkspaceState.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0);
+    esmWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId);
     await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, generateRequestId(), requestToken, {
       emitStart: true,
       requestSource,
+      targetWindowId,
     });
   } catch (error) {
     setStatus(`Unable to open ESM Workspace: ${error instanceof Error ? error.message : String(error)}`, "error");
@@ -19636,8 +20170,35 @@ function popupParseSavedEsmQueryRecord(storageKey = "", payload = "") {
     return null;
   }
   const normalizedPayload = String(payload || "").trim();
+  try {
+    const parsed = JSON.parse(normalizedPayload);
+    if (parsed && typeof parsed === "object") {
+      const parsedName = popupNormalizeSavedEsmQueryName(parsed.name || "");
+      const parsedUrl = String(parsed.url || parsed.esmUrl || "").trim();
+      if (parsedName && parsedUrl) {
+        return {
+          storageKey: normalizedStorageKey,
+          name: parsedName,
+          url: parsedUrl,
+        };
+      }
+    }
+  } catch (_error) {
+    // Fall through to legacy string parsing.
+  }
   const separatorIndex = normalizedPayload.indexOf("|");
   if (separatorIndex <= 0) {
+    const rawName = popupNormalizeSavedEsmQueryName(
+      decodeURIComponent(normalizedStorageKey.slice(SAVED_ESM_QUERY_STORAGE_PREFIX.length) || "")
+    );
+    const rawUrl = normalizedPayload;
+    if (rawName && rawUrl) {
+      return {
+        storageKey: normalizedStorageKey,
+        name: rawName,
+        url: rawUrl,
+      };
+    }
     return null;
   }
   const name = popupNormalizeSavedEsmQueryName(normalizedPayload.slice(0, separatorIndex));
@@ -19699,14 +20260,16 @@ async function esmWorkspaceOpenSavedQueryFromUi(esmWorkspaceState, savedQueryUrl
       String(environment?.esmBase || environment?.mgmtBase || ADOBE_MGMT_BASE).trim(),
       normalizedSavedQueryUrl
     );
-    await esmWorkspaceEnsureWorkspaceTab({ activate: true, windowId: targetWindowId });
-    esmWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId);
+    const workspaceTab = await esmWorkspaceEnsureWorkspaceTab({ activate: true, windowId: targetWindowId });
+    const resolvedTargetWindowId = Number(workspaceTab?.windowId || targetWindowId || state.esmWorkspaceWorkspaceWindowId || 0);
+    esmWorkspaceBroadcastControllerState(esmWorkspaceState, resolvedTargetWindowId);
     const endpoint =
       esmWorkspaceFindEndpointByUrl(esmWorkspaceState, absoluteSavedQueryUrl, {
         url: absoluteSavedQueryUrl,
         zoomKey: String(clickEsmGetZoomKey({ url: absoluteSavedQueryUrl }) || ""),
         columns: normalizeEsmColumns([], { href: absoluteSavedQueryUrl }),
         preserveQueryContext: true,
+        displayNodeLabel: savedQueryName,
       }) || null;
     if (!endpoint) {
       throw new Error("Saved Query URL is required.");
@@ -19714,6 +20277,8 @@ async function esmWorkspaceOpenSavedQueryFromUi(esmWorkspaceState, savedQueryUrl
     await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, generateRequestId(), requestToken, {
       emitStart: true,
       requestSource: "saved-query",
+      displayNodeLabel: savedQueryName,
+      targetWindowId: resolvedTargetWindowId,
     });
   } catch (error) {
     const suffix = savedQueryName ? ` "${savedQueryName}"` : "";
@@ -20145,7 +20710,7 @@ function esmWorkspaceBuildTree(esmWorkspaceState, requestToken) {
         endpoint,
         endpointIndex,
         pathParts,
-        searchHay: `${pathParts.join(" ")} ${Array.isArray(endpoint?.columns) ? endpoint.columns.join(" ") : ""}`
+        searchHay: `${pathParts.join(" ")} ${Array.isArray(endpoint?.searchColumns) ? endpoint.searchColumns.join(" ") : ""}`
           .toLowerCase()
           .replace(/\s+/g, ""),
       };
@@ -20533,7 +21098,15 @@ async function handleEsmWorkspaceWorkspaceAction(message, sender = null) {
     await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, String(card.cardId || generateRequestId()), requestToken, {
       emitStart: true,
       requestSource,
+      targetWindowId: senderWindowId || Number(esmWorkspaceState.controllerWindowId || 0),
       requestUrlOverride,
+      originCardKey: card?.originCardKey,
+      presetLocalFilterBootstrapPending: card?.presetLocalFilterBootstrapPending === true,
+      seedEndpointUrl: card?.seedEndpointUrl,
+      seedRequestUrl: card?.seedRequestUrl,
+      seedLocalColumnFilters: card?.seedLocalColumnFilters,
+      seedLocalColumnExclusions: card?.seedLocalColumnExclusions,
+      seedPresetLocalFilterBootstrapPending: card?.seedPresetLocalFilterBootstrapPending === true,
       localColumnFilters: card?.localColumnFilters,
       localColumnExclusions: card?.localColumnExclusions,
     });
@@ -20565,6 +21138,14 @@ async function handleEsmWorkspaceWorkspaceAction(message, sender = null) {
       await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, String(card?.cardId || generateRequestId()), requestToken, {
         emitStart: true,
         requestSource: requestSourceForRerun,
+        targetWindowId: senderWindowId || Number(esmWorkspaceState.controllerWindowId || 0),
+        originCardKey: card?.originCardKey,
+        presetLocalFilterBootstrapPending: card?.presetLocalFilterBootstrapPending === true,
+        seedEndpointUrl: card?.seedEndpointUrl,
+        seedRequestUrl: card?.seedRequestUrl,
+        seedLocalColumnFilters: card?.seedLocalColumnFilters,
+        seedLocalColumnExclusions: card?.seedLocalColumnExclusions,
+        seedPresetLocalFilterBootstrapPending: card?.seedPresetLocalFilterBootstrapPending === true,
         localColumnFilters: card?.localColumnFilters,
         localColumnExclusions: card?.localColumnExclusions,
       });
@@ -20726,6 +21307,21 @@ async function handleMegWorkspaceWorkspaceAction(message, sender = null) {
     return {
       ok: true,
       ...response,
+    };
+  }
+
+  if (action === "make-tearsheet") {
+    const requestToken = Number(state.premiumPanelRequestToken || 0);
+    const result = await megWorkspaceDownloadTearsheet(requestToken, {
+      currentUrl: String(message?.payload?.currentUrl || "").trim(),
+      currentStart: String(message?.payload?.currentStart || "").trim(),
+      currentEnd: String(message?.payload?.currentEnd || "").trim(),
+      selection: message?.payload?.selection && typeof message.payload.selection === "object" ? message.payload.selection : null,
+    });
+    return {
+      ok: true,
+      fileName: result.fileName || "",
+      programmerLabel: result.programmerLabel || "",
     };
   }
 
@@ -24697,6 +25293,37 @@ function mvpdWorkspaceFilterChipValues(values = [], maxValues = 120) {
   return output.slice(0, maxValues);
 }
 
+function mvpdWorkspaceBuildMappedChipValues(entries = [], maxValues = 120) {
+  const output = [];
+  const seen = new Set();
+  const blocked = new Set(["", "null", "true", "false", "undefined", "n/a", "na", "none", "[]", "{}"]);
+  (Array.isArray(entries) ? entries : []).forEach((entry) => {
+    if (output.length >= maxValues) {
+      return;
+    }
+    const label = String(entry?.label || entry?.value || "").trim();
+    const rawValue = String(entry?.rawValue || entry?.value || "").trim();
+    const lowered = label.toLowerCase();
+    if (!label || blocked.has(lowered) || label.length > 220) {
+      return;
+    }
+    if (!/[a-z0-9]/i.test(label)) {
+      return;
+    }
+    const rawKey = rawValue.toLowerCase();
+    const dedupeKey = `${lowered}|${rawKey}`;
+    if (seen.has(dedupeKey)) {
+      return;
+    }
+    seen.add(dedupeKey);
+    output.push({
+      label,
+      rawValue,
+    });
+  });
+  return output.slice(0, maxValues);
+}
+
 function mvpdWorkspaceIsLikelyResourceId(value = "") {
   const normalized = String(value || "").trim();
   if (!normalized) {
@@ -25479,43 +26106,47 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
     return "";
   })();
   const activeTmsMapEntries = activeTmsMapKey ? tmsLabelByValueByMapId.get(activeTmsMapKey) : null;
-  const translatedResourceIdsFromActiveMap =
+  const translatedResourceIdChipsFromActiveMap =
     activeTmsMapEntries instanceof Map
-      ? mvpdWorkspaceFilterChipValues(
+      ? mvpdWorkspaceBuildMappedChipValues(
           [...activeTmsMapEntries.values()].map((entry) => {
             const label = String(entry?.label || "").trim();
-            if (!label) {
-              return "";
-            }
-            return label;
+            const rawValue = String(entry?.value || "").trim();
+            return {
+              label: label || rawValue,
+              rawValue,
+            };
           }),
           1200
         )
       : [];
-  const rawResourceIdsFromActiveMap =
-    activeTmsMapEntries instanceof Map
-      ? mvpdWorkspaceFilterChipValues(
-          [...activeTmsMapEntries.values()].map((entry) => String(entry?.value || "").trim()),
-          1200
-        )
-      : [];
-  const translatedFallbackResourceIds = mvpdWorkspaceFilterChipValues(
+  const translatedResourceIdsFromActiveMap = translatedResourceIdChipsFromActiveMap.map((entry) => String(entry?.label || "").trim());
+  const rawResourceIdsFromActiveMap = translatedResourceIdChipsFromActiveMap
+    .map((entry) => String(entry?.rawValue || "").trim())
+    .filter(Boolean);
+  const translatedFallbackResourceIdChips = mvpdWorkspaceBuildMappedChipValues(
     fallbackResourceIds.map((resourceId) => {
       const rawValue = String(resourceId || "").trim();
       if (!rawValue) {
-        return "";
+        return null;
       }
       const translatedEntry = tmsLabelByValue.get(rawValue.toLowerCase()) || null;
-      if (!translatedEntry) {
-        return rawValue;
-      }
-      const translatedLabel = String(translatedEntry.label || "").trim();
-      return translatedLabel || rawValue;
+      const translatedLabel = String(translatedEntry?.label || "").trim();
+      return {
+        label: translatedLabel || rawValue,
+        rawValue,
+      };
     }),
     1200
   );
-  const finalResourceIds = translatedResourceIdsFromActiveMap.length > 0 ? translatedResourceIdsFromActiveMap : translatedFallbackResourceIds;
-  const finalResourceIdsRaw = rawResourceIdsFromActiveMap.length > 0 ? rawResourceIdsFromActiveMap : fallbackResourceIds;
+  const translatedFallbackResourceIds = translatedFallbackResourceIdChips.map((entry) => String(entry?.label || "").trim());
+  const finalResourceIdChips =
+    translatedResourceIdChipsFromActiveMap.length > 0 ? translatedResourceIdChipsFromActiveMap : translatedFallbackResourceIdChips;
+  const finalResourceIds = finalResourceIdChips.map((entry) => String(entry?.label || "").trim());
+  const finalResourceIdsRaw =
+    finalResourceIdChips.length > 0
+      ? finalResourceIdChips.map((entry) => String(entry?.rawValue || entry?.label || "").trim()).filter(Boolean)
+      : fallbackResourceIds;
 
   const completedCalls = displayedCalls.filter((call) => call?.ok).length;
   const failedCalls = displayedCalls.length - completedCalls;
@@ -25586,6 +26217,7 @@ async function mvpdWorkspaceResolveSnapshot(selectionContext) {
       errorPayload: !call.ok ? cloneJsonLikeValue(call.parsed, null) : null,
       errorBody: !call.ok ? truncateDebugText(String(call.text || ""), 3000) : "",
     })),
+    resourceIdChips: finalResourceIdChips,
     resourceIds: finalResourceIds,
     resourceIdsRaw: finalResourceIdsRaw,
     resourceIdTranslationMapId: activeTmsMapKey,
@@ -26196,19 +26828,12 @@ function syncMvpdWorkspaceToolForSection(section, programmer = null, services = 
   if (!section) {
     return;
   }
-  const button = section.querySelector(".mvpd-open-workspace-btn");
   const activeLabelElement = section.querySelector(".mvpd-workspace-active-label");
-  if (!button && !activeLabelElement) {
+  if (!activeLabelElement) {
     return;
   }
   const hasSelectedMvpd = Boolean(String(state.selectedMvpdId || "").trim());
   if (!hasSelectedMvpd) {
-    if (button) {
-      button.hidden = true;
-      button.disabled = true;
-      button.title = "";
-      button.setAttribute("aria-label", "MVPD Workspace");
-    }
     if (activeLabelElement) {
       activeLabelElement.hidden = true;
       activeLabelElement.textContent = "";
@@ -26217,9 +26842,6 @@ function syncMvpdWorkspaceToolForSection(section, programmer = null, services = 
       activeLabelElement.removeAttribute("aria-label");
     }
     return;
-  }
-  if (button) {
-    button.hidden = false;
   }
   if (activeLabelElement) {
     activeLabelElement.hidden = false;
@@ -26230,17 +26852,6 @@ function syncMvpdWorkspaceToolForSection(section, programmer = null, services = 
   const mvpdLogoUrl = String(mvpdMeta?.logoUrl || "").trim();
   const isMvpdActive = Boolean(context.isReady && mvpdLabel);
   const activeTitleText = isMvpdActive ? `MVPD ${mvpdLabel} Active` : "MVPD Not Active";
-  if (button) {
-    button.disabled = !context.isReady;
-    if (!context.programmerId) {
-      button.title = "Select a Media Company first.";
-    } else if (!context.requestorId || !context.mvpdId) {
-      button.title = "Select Requestor + MVPD first.";
-    } else {
-      button.title = `Open MVPD Workspace for ${context.requestorId} x ${mvpdLabel}.`;
-    }
-    button.setAttribute("aria-label", "MVPD Workspace");
-  }
   if (activeLabelElement) {
     activeLabelElement.title = activeTitleText;
     activeLabelElement.setAttribute("aria-label", activeTitleText);
@@ -26263,6 +26874,35 @@ function syncMvpdWorkspaceToolForSection(section, programmer = null, services = 
   }
 }
 
+function syncGlobalMvpdWorkspaceLauncher(programmer = null, services = null) {
+  const button = els.mvpdWorkspaceLaunchBtn;
+  const row = els.mvpdSelect?.closest(".mvpd-select-row") || null;
+  const selectedMvpdId = String(els.mvpdSelect?.value || "").trim();
+  const selectedOptionLabel = String(els.mvpdSelect?.selectedOptions?.[0]?.textContent || "").trim();
+  if (!button) {
+    return;
+  }
+  if (row && button.parentElement !== row) {
+    row.appendChild(button);
+  }
+  const hasSelectedMvpd = Boolean(selectedMvpdId);
+  state.selectedMvpdId = hasSelectedMvpd ? selectedMvpdId : "";
+  button.classList.toggle("is-hidden", !hasSelectedMvpd);
+  button.style.display = hasSelectedMvpd ? "inline-flex" : "none";
+  button.disabled = !hasSelectedMvpd;
+  button.setAttribute("aria-hidden", hasSelectedMvpd ? "false" : "true");
+  button.tabIndex = hasSelectedMvpd ? 0 : -1;
+  if (!hasSelectedMvpd) {
+    button.title = "";
+    button.setAttribute("aria-label", "MVPD Workspace");
+    return;
+  }
+  const mvpdLabel = selectedOptionLabel || selectedMvpdId;
+  const hoverText = `Load ${mvpdLabel || "selected MVPD"} in MVPD Workspace`;
+  button.title = hoverText;
+  button.setAttribute("aria-label", hoverText);
+}
+
 function refreshMvpdWorkspaceTools(options = {}) {
   const selectedProgrammer = resolveSelectedProgrammer();
   const selectedServices = selectedProgrammer?.programmerId
@@ -26274,6 +26914,7 @@ function refreshMvpdWorkspaceTools(options = {}) {
     syncMvpdWorkspaceToolForSection(section, selectedProgrammer, selectedServices);
     syncRestV2BobtoolsLauncher(section, selectedProgrammer, selectedServices?.restV2 || null);
   });
+  syncGlobalMvpdWorkspaceLauncher(selectedProgrammer, selectedServices);
   if (restWorkspaceHasOpenTab()) {
     const selectionContext = restWorkspaceGetSelectionContextFromCurrentSelection(selectedProgrammer);
     restWorkspaceBroadcastControllerState(selectedProgrammer, selectionContext);
@@ -27958,6 +28599,72 @@ function bobtoolsWorkspaceNormalizeQuickResourceIds(values = [], maxItems = 320)
   return unique.slice(0, limit);
 }
 
+function bobtoolsWorkspaceNormalizeQuickResourceChips(values = [], maxItems = 320) {
+  const normalizedMax = Number(maxItems || 0);
+  const limit = Number.isFinite(normalizedMax) && normalizedMax > 0 ? normalizedMax : 320;
+  const unique = [];
+  const seen = new Set();
+  (Array.isArray(values) ? values : []).forEach((value) => {
+    const label = String(value?.label || value?.value || value || "").trim();
+    const rawValue = String(value?.rawValue || value?.raw || "").trim();
+    if (!label) {
+      return;
+    }
+    const key = `${label.toLowerCase()}|${rawValue.toLowerCase()}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    unique.push({
+      label,
+      rawValue,
+    });
+  });
+  return unique.slice(0, limit);
+}
+
+function bobtoolsWorkspaceBuildResourceIdChipLookup(programmerId = "", requestorId = "", mvpd = "") {
+  const context = {
+    programmerId: String(programmerId || "").trim(),
+    requestorId: String(requestorId || "").trim(),
+    mvpdId: String(mvpd || "").trim(),
+  };
+  const cacheKey = mvpdWorkspaceGetSnapshotCacheKey(context);
+  const lookup = new Map();
+  if (!cacheKey) {
+    return lookup;
+  }
+  const snapshot = state.mvpdWorkspaceSnapshotCacheBySelectionKey.get(cacheKey) || null;
+  const chips = bobtoolsWorkspaceNormalizeQuickResourceChips(snapshot?.resourceIdChips || []);
+  chips.forEach((chip) => {
+    const labelKey = String(chip?.label || "").trim().toLowerCase();
+    const rawKey = String(chip?.rawValue || "").trim().toLowerCase();
+    if (labelKey && !lookup.has(labelKey)) {
+      lookup.set(labelKey, chip);
+    }
+    if (rawKey && !lookup.has(rawKey)) {
+      lookup.set(rawKey, chip);
+    }
+  });
+  return lookup;
+}
+
+function bobtoolsWorkspaceResolveMappedResourceIdChips(programmerId = "", requestorId = "", mvpd = "", resourceIds = []) {
+  const lookup = bobtoolsWorkspaceBuildResourceIdChipLookup(programmerId, requestorId, mvpd);
+  return bobtoolsWorkspaceNormalizeQuickResourceChips(
+    (Array.isArray(resourceIds) ? resourceIds : []).map((resourceId) => {
+      const normalized = String(resourceId || "").trim();
+      if (!normalized) {
+        return null;
+      }
+      return lookup.get(normalized.toLowerCase()) || {
+        label: normalized,
+        rawValue: "",
+      };
+    })
+  );
+}
+
 function bobtoolsWorkspaceBuildQuickResourceSelectionContext(programmerId = "", requestorId = "", mvpd = "") {
   const normalizedProgrammerId = String(programmerId || "").trim();
   const normalizedRequestorId = String(requestorId || "").trim();
@@ -27986,16 +28693,19 @@ function bobtoolsWorkspaceResolveQuickResourceOptions(programmerId = "", request
   if (!cacheKey) {
     return {
       resourceIds: [],
+      resourceIdChips: [],
       translationMapId: "",
       source: "",
     };
   }
   const snapshot = state.mvpdWorkspaceSnapshotCacheBySelectionKey.get(cacheKey) || null;
+  const resourceIdChips = bobtoolsWorkspaceNormalizeQuickResourceChips(snapshot?.resourceIdChips || []);
   const translatedResourceIds = bobtoolsWorkspaceNormalizeQuickResourceIds(snapshot?.resourceIds || []);
   const rawResourceIds = bobtoolsWorkspaceNormalizeQuickResourceIds(snapshot?.resourceIdsRaw || []);
   const resourceIds = translatedResourceIds.length > 0 ? translatedResourceIds : rawResourceIds;
   return {
     resourceIds,
+    resourceIdChips,
     translationMapId: String(snapshot?.resourceIdTranslationMapId || "").trim(),
     source: translatedResourceIds.length > 0 ? "translated" : rawResourceIds.length > 0 ? "raw" : "",
   };
@@ -28036,6 +28746,7 @@ function buildBobtoolsWorkspaceProfilesPayload(programmer = null, options = {}) 
       lastCheck: latestCheck ? cloneJsonLikeValue(latestCheck, null) : null,
       lastCheckSummary: latestSummary,
       quickResourceIds: quickResourceOptions.resourceIds,
+      quickResourceIdChips: quickResourceOptions.resourceIdChips,
       quickResourceTranslationMapId: quickResourceOptions.translationMapId,
       quickResourceSource: quickResourceOptions.source,
     };
@@ -28176,6 +28887,15 @@ function buildRestV2CanIWatchErrorResult(harvest = null, resourceIds = [], messa
   const endpointMethod = String(options?.method || "POST").trim().toUpperCase();
   const errorCode = String(options?.errorCode || "request_failed").trim() || "request_failed";
   const errorDetails = String(options?.errorDetails || message || "").trim();
+  const resourceIdChips = bobtoolsWorkspaceNormalizeQuickResourceChips(
+    options?.resourceIdChips ||
+      bobtoolsWorkspaceResolveMappedResourceIdChips(
+        String(harvest?.programmerId || "").trim(),
+        String(harvest?.requestorId || harvest?.serviceProviderId || "").trim(),
+        String(harvest?.mvpd || "").trim(),
+        resourceIds
+      )
+  );
   const decisionRows = (Array.isArray(resourceIds) ? resourceIds : []).map((resourceId) => ({
     resourceId: String(resourceId || "").trim(),
     decision: "Unknown",
@@ -28222,6 +28942,7 @@ function buildRestV2CanIWatchErrorResult(harvest = null, resourceIds = [], messa
     sessionId: String(harvest?.sessionId || "").trim(),
     profileKey: String(harvest?.profileKey || "").trim(),
     resourceIds: (Array.isArray(resourceIds) ? resourceIds : []).slice(),
+    resourceIdChips,
     decisionRows,
     permitCount: 0,
     denyCount: 0,
@@ -28686,6 +29407,7 @@ async function handleBobtoolsWorkspaceAction(message, sender = null) {
       requestorId,
       mvpd,
       resourceIds: Array.isArray(options?.resourceIds) ? options.resourceIds : [],
+      resourceIdChips: Array.isArray(options?.resourceIdChips) ? options.resourceIdChips : [],
       translationMapId: String(options?.translationMapId || "").trim(),
       source: String(options?.source || "").trim(),
     };
@@ -31962,7 +32684,6 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
               <button type="button" class="rest-v2-test-login-btn" disabled hidden>LOGIN</button>
               <button type="button" class="rest-v2-close-login-btn" disabled hidden>STOP</button>
             </div>
-            <button type="button" class="mvpd-open-workspace-btn">MVPD Workspace</button>
           </div>
           <p class="rest-v2-login-status" hidden></p>
         </section>
@@ -32046,7 +32767,6 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
   if (serviceKey === "restV2") {
     const testLoginButton = section.querySelector(".rest-v2-test-login-btn");
     const closeLoginButton = section.querySelector(".rest-v2-close-login-btn");
-    const openMvpdWorkspaceButton = section.querySelector(".mvpd-open-workspace-btn");
     const openBobtoolsButton = section.querySelector(".rest-v2-bobtools-open-btn");
     if (testLoginButton) {
       testLoginButton.addEventListener("click", async (event) => {
@@ -32058,22 +32778,6 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
       closeLoginButton.addEventListener("click", async (event) => {
         event.stopPropagation();
         await stopRestV2MvpdRecording(section, programmer, appInfo);
-      });
-    }
-    if (openMvpdWorkspaceButton) {
-      openMvpdWorkspaceButton.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        const servicesForProgrammer = programmer?.programmerId
-          ? getCurrentPremiumAppsSnapshot(programmer.programmerId)
-          : null;
-        try {
-          await mvpdWorkspaceOpenFromRestV2(programmer, servicesForProgrammer, {
-            activate: true,
-            forceRefresh: true,
-          });
-        } catch (error) {
-          setStatus(error instanceof Error ? error.message : String(error), "error");
-        }
       });
     }
     if (openBobtoolsButton) {
@@ -38228,6 +38932,7 @@ function populateMediaCompanySelect() {
 
   els.mvpdSelect.disabled = true;
   els.mvpdSelect.innerHTML = '<option value="">-- Select Requestor first --</option>';
+  syncGlobalMvpdWorkspaceLauncher();
   renderPremiumServices(null);
   refreshRestV2LoginPanels();
   refreshMvpdWorkspaceTools();
@@ -38263,6 +38968,7 @@ function populateRequestorSelect() {
 
   els.mvpdSelect.disabled = true;
   els.mvpdSelect.innerHTML = '<option value="">-- Select Requestor first --</option>';
+  syncGlobalMvpdWorkspaceLauncher();
   refreshRestV2LoginPanels();
   refreshMvpdWorkspaceTools();
 }
@@ -46031,6 +46737,7 @@ async function populateMvpdSelectForRequestor(requestorId) {
     els.mvpdSelect.disabled = true;
     els.mvpdSelect.innerHTML = '<option value="">-- Select Requestor first --</option>';
     state.selectedMvpdId = "";
+    syncGlobalMvpdWorkspaceLauncher();
     refreshRestV2LoginPanels();
     refreshMvpdWorkspaceTools({ controllerReason });
     const selectedProgrammer = resolveSelectedProgrammer();
@@ -46063,6 +46770,7 @@ async function populateMvpdSelectForRequestor(requestorId) {
       els.mvpdSelect.disabled = true;
       els.mvpdSelect.innerHTML = '<option value="">-- No MVPDs available --</option>';
       state.selectedMvpdId = "";
+      syncGlobalMvpdWorkspaceLauncher();
       refreshRestV2LoginPanels();
       return;
     }
@@ -46089,6 +46797,7 @@ async function populateMvpdSelectForRequestor(requestorId) {
     els.mvpdSelect.disabled = false;
     state.selectedMvpdId = "";
     els.mvpdSelect.value = "";
+    syncGlobalMvpdWorkspaceLauncher();
     refreshRestV2LoginPanels();
     refreshMvpdWorkspaceTools();
     const selectedProgrammer = resolveSelectedProgrammer();
@@ -46111,6 +46820,7 @@ async function populateMvpdSelectForRequestor(requestorId) {
     els.mvpdSelect.disabled = true;
     els.mvpdSelect.innerHTML = '<option value="">-- MVPD config unavailable --</option>';
     state.selectedMvpdId = "";
+    syncGlobalMvpdWorkspaceLauncher();
     refreshRestV2LoginPanels();
     refreshMvpdWorkspaceTools();
     const selectedProgrammer = resolveSelectedProgrammer();
@@ -46707,6 +47417,7 @@ function render() {
   if (!state.busy) {
     els.authBtn.title = "Account menu";
   }
+  syncGlobalMvpdWorkspaceLauncher();
   renderAvatarMenu();
   void ensureResolvedAvatarUrl();
 }
@@ -47013,6 +47724,24 @@ function registerEventHandlers() {
     });
   }
 
+  if (els.mvpdWorkspaceLaunchBtn) {
+    els.mvpdWorkspaceLaunchBtn.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const selectedProgrammer = resolveSelectedProgrammer();
+      const selectedServices = selectedProgrammer?.programmerId
+        ? getCurrentPremiumAppsSnapshot(selectedProgrammer.programmerId)
+        : null;
+      try {
+        await mvpdWorkspaceOpenFromRestV2(selectedProgrammer, selectedServices, {
+          activate: true,
+          forceRefresh: true,
+        });
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : String(error), "error");
+      }
+    });
+  }
+
   els.mediaCompanySelect.addEventListener("change", (event) => {
     state.selectedProgrammerKey = String(event.target.value || "");
     state.selectedRequestorId = "";
@@ -47122,6 +47851,7 @@ function registerEventHandlers() {
     const mvpdSelectionLabel = state.selectedMvpdId
       ? String(getRestV2MvpdPickerLabel(String(state.selectedRequestorId || "").trim(), state.selectedMvpdId) || "")
       : "";
+    syncGlobalMvpdWorkspaceLauncher();
     emitGlobalSelectorChangeLog("MVPD", state.selectedMvpdId, mvpdSelectionLabel);
     const selectedProgrammer = resolveSelectedProgrammer();
     const selectedServices = selectedProgrammer?.programmerId
@@ -47155,19 +47885,6 @@ function registerEventHandlers() {
     }
     mvpdWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices);
     refreshMvpdWorkspaceTools();
-    if (state.selectedMvpdId) {
-      void mvpdWorkspaceOpenFromRestV2(selectedProgrammer, selectedServices, {
-        activate: true,
-        forceRefresh: true,
-        clearBeforeRefresh: true,
-      }).catch((error) => {
-        setStatus(
-          `Unable to open MVPD Workspace: ${error instanceof Error ? error.message : String(error)}`,
-          "error"
-        );
-      });
-      return;
-    }
     void mvpdWorkspaceRefreshSelectedSnapshot({
       programmer: selectedProgrammer,
       services: selectedServices,

@@ -8,14 +8,6 @@
   </head>
   <body>
     <main class="app">
-      <header class="header">
-        <div class="brand">
-          <h1>UnderPAR</h1>
-          <p id="build-info" class="build-info">Version --</p>
-        </div>
-        <button id="auth-btn" type="button" class="auth-btn">Sign In</button>
-      </header>
-
       <section id="avatar-menu" class="avatar-menu" hidden>
         <div class="avatar-menu-header">
           <div id="avatar-menu-image" class="avatar-menu-image" aria-hidden="true"></div>
@@ -31,37 +23,64 @@
         <button id="sign-out-btn" type="button" class="sign-out-btn">Sign Out</button>
       </section>
 
-      <p id="status" class="status" aria-live="polite" hidden></p>
+      <section class="app-shell-card">
+        <header class="header">
+          <div class="brand">
+            <h1>UnderPAR</h1>
+            <p id="build-info" class="build-info">Version --</p>
+          </div>
+          <button id="auth-btn" type="button" class="auth-btn">Sign In</button>
+        </header>
 
-      <section id="restricted-view" class="restricted-view" hidden>
-        <p>For @AdobePass only</p>
-      </section>
+        <p id="status" class="status" aria-live="polite" hidden></p>
 
-      <section id="workflow" class="workflow" hidden>
-        <div class="field">
-          <label for="media-company-select">Select a Media Company</label>
-          <select id="media-company-select" disabled>
-            <option value="">-- Please login first --</option>
-          </select>
-        </div>
+        <section id="restricted-view" class="restricted-view" hidden>
+          <p>For @AdobePass only</p>
+        </section>
 
-        <div class="field">
-          <label for="requestor-select">Content Provider (RequestorId)</label>
-          <select id="requestor-select" disabled>
-            <option value="">-- Select a Media Company first --</option>
-          </select>
-        </div>
+        <section id="workflow" class="workflow" hidden>
+          <div class="field">
+            <label for="media-company-select">Select a Media Company</label>
+            <select id="media-company-select" disabled>
+              <option value="">-- Please login first --</option>
+            </select>
+          </div>
 
-        <div class="field">
-          <label for="mvpd-select">MVPD</label>
-          <select id="mvpd-select" disabled>
-            <option value="">-- Select Requestor first --</option>
-          </select>
-        </div>
+          <div class="field">
+            <label for="requestor-select">Content Provider (RequestorId)</label>
+            <select id="requestor-select" disabled>
+              <option value="">-- Select a Media Company first --</option>
+            </select>
+          </div>
 
-        <div id="premium-services-container" class="premium-services-container">
-          <p class="metadata-empty">No premium scoped applications loaded yet.</p>
-        </div>
+          <div class="field field--mvpd">
+            <label for="mvpd-select">MVPD</label>
+            <div class="mvpd-select-row">
+              <select id="mvpd-select" disabled>
+                <option value="">-- Select Requestor first --</option>
+              </select>
+              <button
+                id="mvpd-workspace-launch-btn"
+                type="button"
+                class="mvpd-global-workspace-btn is-hidden"
+                aria-label="MVPD Workspace"
+                title="MVPD Workspace"
+                aria-hidden="true"
+                disabled
+              >
+                <svg class="mvpd-global-workspace-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path
+                    d="M12 3.25a1 1 0 0 1 .98.79l.32 1.5a6.92 6.92 0 0 1 1.45.61l1.29-.83a1 1 0 0 1 1.25.14l1.79 1.79a1 1 0 0 1 .14 1.25l-.83 1.29c.25.47.45.96.61 1.45l1.5.32a1 1 0 0 1 .79.98v2.52a1 1 0 0 1-.79.98l-1.5.32a6.92 6.92 0 0 1-.61 1.45l.83 1.29a1 1 0 0 1-.14 1.25l-1.79 1.79a1 1 0 0 1-1.25.14l-1.29-.83a6.92 6.92 0 0 1-1.45.61l-.32 1.5a1 1 0 0 1-.98.79H9.48a1 1 0 0 1-.98-.79l-.32-1.5a6.92 6.92 0 0 1-1.45-.61l-1.29.83a1 1 0 0 1-1.25-.14L2.4 18.67a1 1 0 0 1-.14-1.25l.83-1.29a6.92 6.92 0 0 1-.61-1.45l-1.5-.32a1 1 0 0 1-.79-.98V10.86a1 1 0 0 1 .79-.98l1.5-.32c.16-.5.36-.98.61-1.45l-.83-1.29A1 1 0 0 1 2.4 5.57l1.79-1.79a1 1 0 0 1 1.25-.14l1.29.83c.47-.25.96-.45 1.45-.61l.32-1.5a1 1 0 0 1 .98-.79Zm0 5.25a4.25 4.25 0 1 0 0 8.5 4.25 4.25 0 0 0 0-8.5Z"
+                  />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div id="premium-services-container" class="premium-services-container">
+            <p class="metadata-empty">No premium scoped applications loaded yet.</p>
+          </div>
+        </section>
       </section>
     </main>
 

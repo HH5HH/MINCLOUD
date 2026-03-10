@@ -55,6 +55,8 @@ const BUILD_FINGERPRINT_FILES = [
   "meg-workspace.html",
   "meg-workspace.css",
   "meg-workspace.js",
+  "saved-query-bridge.html",
+  "saved-query-bridge.js",
   "clickesmws-runtime.js",
   "clickESM-template.html",
   "clickCMU-template.html",

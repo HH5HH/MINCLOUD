@@ -832,7 +832,27 @@ function renderChipCard(title, subtitle, chips = []) {
   const { article, body } = createCard(title, subtitle);
   const values = Array.isArray(chips)
     ? chips
-        .map((value) => String(value || "").trim())
+        .map((chip) => {
+          if (chip && typeof chip === "object" && !Array.isArray(chip)) {
+            const label = String(chip?.label || chip?.value || "").trim();
+            const rawValue = String(chip?.rawValue || chip?.raw || "").trim();
+            if (!label) {
+              return null;
+            }
+            return {
+              label,
+              title: rawValue ? `Adobe TMSID: ${rawValue}` : "",
+            };
+          }
+          const label = String(chip || "").trim();
+          if (!label) {
+            return null;
+          }
+          return {
+            label,
+            title: "",
+          };
+        })
         .filter(Boolean)
     : [];
   if (values.length === 0) {
@@ -840,7 +860,12 @@ function renderChipCard(title, subtitle, chips = []) {
     return article;
   }
   body.innerHTML = `<div class="mvpd-chip-cloud">${values
-    .map((value) => `<span class="mvpd-chip">${escapeHtml(value)}</span>`)
+    .map(
+      (value) =>
+        `<span class="mvpd-chip"${
+          value.title ? ` title="${escapeHtml(value.title)}" aria-label="${escapeHtml(`${value.label}. ${value.title}`)}"` : ""
+        }>${escapeHtml(value.label)}</span>`
+    )
     .join("")}</div>`;
   return article;
 }
@@ -3497,7 +3522,7 @@ function renderSnapshot(snapshot) {
 
   els.cardsHost.appendChild(renderOverviewCard(snapshot));
   els.cardsHost.appendChild(renderCallSummaryCard(snapshot, callLinkByKey));
-  els.cardsHost.appendChild(renderChipCard("Resource IDs", chipSubtitle, snapshot?.resourceIds || []));
+  els.cardsHost.appendChild(renderChipCard("Resource IDs", chipSubtitle, snapshot?.resourceIdChips || snapshot?.resourceIds || []));
   const tmsAnchorCard = renderChipCard("TMSIDs", chipSubtitle, snapshot?.tmsIds || []);
   els.cardsHost.appendChild(tmsAnchorCard);
 

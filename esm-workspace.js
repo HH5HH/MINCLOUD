@@ -75,6 +75,8 @@ const ESM_MVPD_DIMENSION_DESCRIPTIONS = new Map([
 let ESM_NODE_BASE_URL = "https://mgmt.auth.adobe.com/esm/v3/media-company/";
 const ESM_NODE_BASE_PATH = "esm/v3/media-company/";
 const WORKSPACE_EXPORT_FILE_SYSTEM_QUERY_KEYS = new Set(["format", "limit"]);
+const ESM_CARD_EDITABLE_QUERY_KEYS = new Set(["start", "end"]);
+const ESM_QUERY_CONTEXT_HIDDEN_KEYS = new Set(["metrics", ...WORKSPACE_EXPORT_FILE_SYSTEM_QUERY_KEYS]);
 const WORKSPACE_TABLE_VISIBLE_ROW_CAP = 10;
 const WORKSPACE_TEARSHEET_RUNTIME_PATH = "clickesmws-runtime.js";
 const WORKSPACE_TEARSHEET_TEMPLATE_PATH = "esm-workspace.html";
@@ -299,11 +301,36 @@ function isSupportedDimension(columnName, hrefValue = "") {
   return Boolean(getDimensionDescription(columnName, hrefValue));
 }
 
+function isRenderableDimension(columnName) {
+  const normalized = normalizeDimensionName(columnName);
+  return Boolean(normalized) && !isSuppressedEsmColumn(normalized) && !isDateTimeDimension(normalized) && !ESM_DEPRECATED_COLUMN_KEYS.has(normalized);
+}
+
 function isDisplayableDimension(columnName, hrefValue = "") {
-  if (isDateTimeDimension(columnName)) {
-    return false;
-  }
-  return isSupportedDimension(columnName, hrefValue);
+  return isRenderableDimension(columnName);
+}
+
+function collectEsmRowColumns(rows = [], options = {}) {
+  const includeMetrics = options?.includeMetrics === true;
+  const output = [];
+  const seen = new Set();
+  (Array.isArray(rows) ? rows : []).forEach((row) => {
+    if (!row || typeof row !== "object" || Array.isArray(row)) {
+      return;
+    }
+    Object.keys(row).forEach((columnName) => {
+      const normalized = normalizeDimensionName(columnName);
+      if (!normalized || seen.has(normalized) || !isRenderableDimension(normalized)) {
+        return;
+      }
+      if (!includeMetrics && ESM_METRIC_COLUMNS.has(normalized)) {
+        return;
+      }
+      seen.add(normalized);
+      output.push(normalized);
+    });
+  });
+  return output;
 }
 
 function getSupportedDimensionsFromHref(hrefValue = "") {
@@ -351,10 +378,11 @@ function getSupportedDimensionsFromHref(hrefValue = "") {
     output.push(normalized);
   });
   parseRawQueryPairs(rawHref).forEach((pair) => {
-    const normalized = normalizeDimensionName(pair?.key);
+    const normalized = normalizeDisplayDimensionFromQueryKey(pair?.key);
     if (
-      pair?.hasValue ||
       !normalized ||
+      ESM_QUERY_CONTEXT_HIDDEN_KEYS.has(normalized) ||
+      isEditableCardQueryKey(normalized) ||
       isSuppressedEsmColumn(normalized) ||
       !isDisplayableDimension(normalized, rawHref) ||
       seen.has(normalized)
@@ -367,7 +395,34 @@ function getSupportedDimensionsFromHref(hrefValue = "") {
   return output;
 }
 
-function buildDisplayDimensions(columns, hrefValue = "") {
+function getRequestedMetricColumnsFromHref(hrefValue = "") {
+  const rawHref = String(hrefValue || "").trim();
+  if (!rawHref) {
+    return [];
+  }
+  const output = [];
+  const seen = new Set();
+  parseRawQueryPairs(rawHref).forEach((pair) => {
+    const normalizedKey = normalizeDisplayDimensionFromQueryKey(pair?.key);
+    if (normalizedKey !== "metrics" || pair?.hasValue !== true) {
+      return;
+    }
+    decodeQueryPairValue(pair?.value)
+      .split(",")
+      .map((value) => normalizeDimensionName(value))
+      .filter(Boolean)
+      .forEach((metricName) => {
+        if (metricName === "metrics" || seen.has(metricName)) {
+          return;
+        }
+        seen.add(metricName);
+        output.push(metricName);
+      });
+  });
+  return output;
+}
+
+function buildDisplayDimensions(columns, hrefValue = "", options = {}) {
   const output = [];
   const seen = new Set();
   const appendColumn = (columnName) => {
@@ -384,9 +439,11 @@ function buildDisplayDimensions(columns, hrefValue = "") {
     output.push(normalized);
   };
 
-  getSupportedDimensionsFromHref(hrefValue).forEach((columnName) => {
-    appendColumn(columnName);
-  });
+  if (options?.includeHrefColumns !== false) {
+    getSupportedDimensionsFromHref(hrefValue).forEach((columnName) => {
+      appendColumn(columnName);
+    });
+  }
   normalizeEsmColumns(columns).forEach((columnName) => {
     appendColumn(columnName);
   });
@@ -796,12 +853,67 @@ function cloneWorkspaceRows(rows) {
   });
 }
 
+const ESM_CARD_ZOOM_TOKEN_BY_KEY = {
+  YR: "/year",
+  MO: "/month",
+  DAY: "/day",
+  HR: "/hour",
+  MIN: "/minute",
+};
+
+const ESM_CARD_ZOOM_LABEL_BY_KEY = {
+  YR: "Year",
+  MO: "Month",
+  DAY: "Day",
+  HR: "Hour",
+  MIN: "Minute",
+};
+
+function normalizeWorkspaceZoomKey(value = "") {
+  const normalized = String(value || "").trim().toUpperCase();
+  return Object.prototype.hasOwnProperty.call(ESM_CARD_ZOOM_LABEL_BY_KEY, normalized) ? normalized : "";
+}
+
+function detectWorkspaceZoomKeyFromUrl(urlValue = "") {
+  const href = String(urlValue || "").trim();
+  if (!href) {
+    return "";
+  }
+  let detected = "";
+  let bestIndex = -1;
+  Object.entries(ESM_CARD_ZOOM_TOKEN_BY_KEY).forEach(([key, token]) => {
+    const index = href.lastIndexOf(token);
+    if (index > bestIndex) {
+      detected = key;
+      bestIndex = index;
+    }
+  });
+  return detected;
+}
+
+function resolveWorkspaceCardZoomKey(cardLike = null) {
+  const explicit = normalizeWorkspaceZoomKey(cardLike?.zoomKey);
+  if (explicit) {
+    return explicit;
+  }
+  return (
+    detectWorkspaceZoomKeyFromUrl(String(cardLike?.requestUrl || "").trim()) ||
+    detectWorkspaceZoomKeyFromUrl(String(cardLike?.endpointUrl || "").trim()) ||
+    ""
+  );
+}
+
+function getWorkspaceCardZoomLabel(cardLike = null) {
+  const zoomKey = resolveWorkspaceCardZoomKey(cardLike);
+  return zoomKey ? ESM_CARD_ZOOM_LABEL_BY_KEY[zoomKey] || zoomKey : "";
+}
+
 function buildWorkspaceExportSnapshot() {
   const cards = getOrderedCardStates().map((cardState) => ({
     cardId: String(cardState?.cardId || ""),
     endpointUrl: String(cardState?.endpointUrl || ""),
     requestUrl: String(cardState?.requestUrl || cardState?.endpointUrl || ""),
-    zoomKey: String(cardState?.zoomKey || ""),
+    zoomKey: resolveWorkspaceCardZoomKey(cardState),
     columns: normalizeEsmColumns(cardState?.columns),
     localColumnFilters: serializeLocalColumnFilters(cardState?.localColumnFilters),
     rows: cloneWorkspaceRows(cardState?.rows),
@@ -1154,6 +1266,7 @@ function shouldShowNonEsmMode() {
 
 function clearWorkspaceCards() {
   state.cardsById.forEach((cardState) => {
+    teardownCardHeaderQueryEditors(cardState);
     cardState.element?.remove();
   });
   state.cardsById.clear();
@@ -1522,17 +1635,20 @@ function renderTableBody(tableState) {
     const tr = document.createElement("tr");
     tr.appendChild(createCell(buildEsmDateLabel(row)));
 
-    if (tableState.hasAuthN) {
+    if (tableState.showLegacyMetricColumns && tableState.hasAuthN) {
       tr.appendChild(createCell(formatPercent(safeRate(row["authn-successful"], row["authn-attempts"]))));
     }
-    if (tableState.hasAuthZ) {
+    if (tableState.showLegacyMetricColumns && tableState.hasAuthZ) {
       tr.appendChild(createCell(formatPercent(safeRate(row["authz-successful"], row["authz-attempts"]))));
     }
-    if (!tableState.hasAuthN && !tableState.hasAuthZ && tableState.hasCount) {
+    if (tableState.showLegacyMetricColumns && !tableState.hasAuthN && !tableState.hasAuthZ && tableState.hasCount) {
       tr.appendChild(createCell(row.count));
     }
 
     tableState.displayColumns.forEach((column) => {
+      tr.appendChild(createCell(row[column] ?? ""));
+    });
+    (Array.isArray(tableState.metricColumns) ? tableState.metricColumns : []).forEach((column) => {
       tr.appendChild(createCell(row[column] ?? ""));
     });
     tableState.tbody.appendChild(tr);
@@ -1563,14 +1679,103 @@ function updateTableWrapperViewport(tableState) {
 function getCardPayload(cardState) {
   return {
     cardId: cardState.cardId,
+    originCardKey: String(cardState?.originCardKey || "").trim(),
     endpointUrl: cardState.endpointUrl,
     requestUrl: cardState.requestUrl,
-    zoomKey: cardState.zoomKey,
+    zoomKey: resolveWorkspaceCardZoomKey(cardState),
     columns: cardState.columns,
+    displayNodeLabel: String(cardState?.displayNodeLabel || "").trim(),
     preserveQueryContext: cardState?.preserveQueryContext === true,
+    presetLocalFilterBootstrapPending: cardState?.presetLocalFilterBootstrapPending === true,
+    seedEndpointUrl: String(cardState?.seedEndpointUrl || "").trim(),
+    seedRequestUrl: String(cardState?.seedRequestUrl || "").trim(),
+    seedLocalColumnFilters: serializeLocalColumnFilters(cardState?.seedLocalColumnFilters),
+    seedLocalColumnExclusions: serializeLocalColumnFilters(cardState?.seedLocalColumnExclusions),
+    seedPresetLocalFilterBootstrapPending: cardState?.seedPresetLocalFilterBootstrapPending === true,
     localColumnFilters: serializeLocalColumnFilters(cardState?.localColumnFilters),
     localColumnExclusions: serializeLocalColumnFilters(cardState?.localColumnExclusions),
   };
+}
+
+function cloneLocalFilterState(filterState) {
+  return normalizeLocalColumnFilters(filterState);
+}
+
+function hasStoredSeedQueryState(cardState) {
+  if (!cardState) {
+    return false;
+  }
+  return (
+    String(cardState.seedEndpointUrl || cardState.seedRequestUrl || "").trim().length > 0 ||
+    hasLocalColumnFilters(cardState.seedLocalColumnFilters) ||
+    hasLocalColumnFilters(cardState.seedLocalColumnExclusions)
+  );
+}
+
+function areLocalFilterMapsEqual(leftFilters, rightFilters) {
+  const left = normalizeLocalColumnFilters(leftFilters);
+  const right = normalizeLocalColumnFilters(rightFilters);
+  if (left.size !== right.size) {
+    return false;
+  }
+  for (const [columnName, leftValues] of left.entries()) {
+    const rightValues = right.get(columnName);
+    if (!(rightValues instanceof Set) || !areStringSetsEqual(leftValues, rightValues)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function snapshotCardStartingFilterState(cardState) {
+  if (!cardState) {
+    return;
+  }
+  cardState.startingUiLocalColumnFilters = cloneLocalFilterState(cardState.localColumnFilters);
+  cardState.startingUiLocalColumnExclusions = cloneLocalFilterState(cardState.localColumnExclusions);
+  cardState.startingUiPersistentQuerySignature = buildCardPersistentQuerySignature(
+    cardState,
+    buildCardDisplayRequestUrl(cardState) || cardState.requestUrl || cardState.endpointUrl || ""
+  );
+  cardState.startingUiStateCaptured = true;
+}
+
+function isCardAtStartingFilterState(cardState) {
+  if (!cardState?.startingUiStateCaptured) {
+    return (
+      !hasLocalColumnFilters(cardState?.localColumnFilters) &&
+      !hasLocalColumnFilters(cardState?.localColumnExclusions) &&
+      !hasLocalColumnFilters(cardState?.pendingLocalColumnExclusions)
+    );
+  }
+  return (
+    areLocalFilterMapsEqual(cardState?.localColumnFilters, cardState?.startingUiLocalColumnFilters) &&
+    areLocalFilterMapsEqual(cardState?.localColumnExclusions, cardState?.startingUiLocalColumnExclusions) &&
+    buildCardPersistentQuerySignature(
+      cardState,
+      buildCardDisplayRequestUrl(cardState) || cardState?.requestUrl || cardState?.endpointUrl || ""
+    ) === String(cardState?.startingUiPersistentQuerySignature || "[]") &&
+    !hasLocalColumnFilters(cardState?.pendingLocalColumnExclusions)
+  );
+}
+
+function restoreCardSeedQueryState(cardState) {
+  if (!cardState || !hasStoredSeedQueryState(cardState)) {
+    return false;
+  }
+  teardownCardHeaderQueryEditors(cardState);
+  cardState.endpointUrl = String(cardState.seedEndpointUrl || cardState.endpointUrl || "").trim();
+  cardState.requestUrl = String(cardState.seedRequestUrl || cardState.seedEndpointUrl || cardState.requestUrl || "").trim();
+  cardState.localColumnFilters = cloneLocalFilterState(cardState.seedLocalColumnFilters);
+  cardState.localColumnExclusions = cloneLocalFilterState(cardState.seedLocalColumnExclusions);
+  cardState.pendingLocalColumnExclusions =
+    hasLocalColumnFilters(cardState.seedLocalColumnExclusions) && !hasLocalColumnFilters(cardState.seedLocalColumnFilters)
+      ? cloneLocalFilterState(cardState.seedLocalColumnExclusions)
+      : new Map();
+  cardState.presetLocalFilterBootstrapPending = cardState.seedPresetLocalFilterBootstrapPending === true;
+  cardState.exclusionBootstrapPhase = hasLocalColumnFilters(cardState.pendingLocalColumnExclusions) ? "pending" : "idle";
+  cardState.pickerOpenColumn = "";
+  return true;
 }
 
 function safeDecodeUrlSegment(segment) {
@@ -1624,6 +1829,7 @@ function parseRawQueryPairs(urlValue) {
           key: safeDecodeUrlSegment(entry.replace(/\+/g, " ")),
           value: "",
           hasValue: false,
+          hasAssignment: false,
         };
       }
       const key = safeDecodeUrlSegment(entry.slice(0, equalsIndex).replace(/\+/g, " "));
@@ -1631,9 +1837,111 @@ function parseRawQueryPairs(urlValue) {
       return {
         key,
         value,
-        hasValue: true,
+        hasValue: String(value || "").trim().length > 0,
+        hasAssignment: true,
       };
     });
+}
+
+function normalizeDisplayDimensionFromQueryKey(columnName = "") {
+  const normalized = normalizeDimensionName(columnName);
+  if (!normalized) {
+    return "";
+  }
+  return normalized.endsWith("!") ? normalized.slice(0, -1) : normalized;
+}
+
+function decodeQueryPairValue(value = "") {
+  return safeDecodeUrlSegment(String(value || "").replace(/\+/g, " ")).trim();
+}
+
+function isEditableCardQueryKey(columnName = "") {
+  return ESM_CARD_EDITABLE_QUERY_KEYS.has(normalizeDimensionName(columnName));
+}
+
+function normalizeEditableQueryDateTimeValue(value = "") {
+  const decoded = decodeQueryPairValue(value);
+  if (!decoded) {
+    return "";
+  }
+  const normalized = decoded.replace(/\s+/, "T");
+  const match = normalized.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/i);
+  if (match) {
+    return `${match[1]}T${match[2]}`;
+  }
+  return "";
+}
+
+function buildCardPersistentQuerySignature(cardState, urlValue = "") {
+  const sourceRaw = String(urlValue || "").trim();
+  if (!sourceRaw) {
+    return "[]";
+  }
+
+  const controlColumns = new Set([
+    ...normalizeLocalColumnFilters(cardState?.localColumnFilters).keys(),
+    ...normalizeLocalColumnFilters(cardState?.localColumnExclusions).keys(),
+    ...normalizeLocalColumnFilters(cardState?.pendingLocalColumnExclusions).keys(),
+  ]);
+
+  const signature = parseRawQueryPairs(sourceRaw)
+    .map((pair) => {
+      const normalizedKey = normalizeDisplayDimensionFromQueryKey(pair?.key);
+      if (!normalizedKey || WORKSPACE_EXPORT_FILE_SYSTEM_QUERY_KEYS.has(normalizedKey) || controlColumns.has(normalizedKey)) {
+        return null;
+      }
+      return {
+        key: normalizedKey,
+        operator: normalizeDimensionName(pair?.key).endsWith("!")
+          ? "!="
+          : pair?.hasAssignment === true || pair?.hasValue
+            ? "="
+            : "",
+        value: pair?.hasAssignment === true || pair?.hasValue ? decodeQueryPairValue(pair?.value) : "",
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const leftKey = `${left.key}\u0000${left.operator}\u0000${left.value}`;
+      const rightKey = `${right.key}\u0000${right.operator}\u0000${right.value}`;
+      return leftKey.localeCompare(rightKey, undefined, { numeric: true, sensitivity: "base" });
+    });
+
+  return JSON.stringify(signature);
+}
+
+function updateUrlQueryParamValue(urlValue = "", key = "", value = "") {
+  const rawUrl = String(urlValue || "").trim();
+  const normalizedKey = normalizeDimensionName(key);
+  if (!rawUrl || !normalizedKey) {
+    return rawUrl;
+  }
+  try {
+    const parsed = new URL(rawUrl, window.location.href);
+    parsed.hash = "";
+    parsed.searchParams.delete(normalizedKey);
+    const normalizedValue = String(value || "").trim();
+    if (normalizedValue) {
+      parsed.searchParams.append(normalizedKey, normalizedValue);
+    }
+    return parsed.toString();
+  } catch (_error) {
+    return rawUrl;
+  }
+}
+
+function updateCardEditableQueryValue(cardState, key, value) {
+  if (!cardState) {
+    return;
+  }
+  const normalizedKey = normalizeDimensionName(key);
+  if (!isEditableCardQueryKey(normalizedKey)) {
+    return;
+  }
+  const nextValue = String(value || "").trim();
+  const liveRequestUrl = buildCardDisplayRequestUrl(cardState) || String(cardState.requestUrl || cardState.endpointUrl || "").trim();
+  cardState.endpointUrl = updateUrlQueryParamValue(String(cardState.endpointUrl || liveRequestUrl || ""), normalizedKey, nextValue);
+  cardState.requestUrl = updateUrlQueryParamValue(liveRequestUrl, normalizedKey, nextValue);
 }
 
 function extractRawQueryText(urlValue) {
@@ -1795,8 +2103,11 @@ function buildCardDisplayRequestUrl(cardState) {
       if (!key) {
         return "";
       }
-      if (pair?.hasValue) {
+      if (pair?.hasValue && String(pair?.value || "").trim().length > 0) {
         return `${key}=${String(pair?.value || "")}`;
+      }
+      if (pair?.hasAssignment === true) {
+        return `${key}=`;
       }
       return key;
     })
@@ -1822,6 +2133,19 @@ function buildWorkspaceCardId(prefix = "workspace") {
   const stamp = Date.now().toString(36);
   const random = Math.random().toString(36).slice(2, 10);
   return `${normalizedPrefix}-${stamp}-${random}`;
+}
+
+function findCardByOriginKey(originCardKey = "") {
+  const normalizedOriginCardKey = String(originCardKey || "").trim();
+  if (!normalizedOriginCardKey) {
+    return null;
+  }
+  for (const cardState of state.cardsById.values()) {
+    if (String(cardState?.originCardKey || "").trim() === normalizedOriginCardKey) {
+      return cardState;
+    }
+  }
+  return null;
 }
 
 function buildCardHeaderContextMarkup(urlValue, endpointUrl = "") {
@@ -1857,12 +2181,36 @@ function buildCardHeaderContextMarkup(urlValue, endpointUrl = "") {
     context.queryPairs.length > 0
       ? context.queryPairs
           .map((pair) => {
-            const keyHtml = `<span class="card-url-query-key">${escapeHtml(pair.key)}</span>`;
-            if (!pair.hasValue) {
+            const rawKey = String(pair?.key || "").trim();
+            const normalizedKey = normalizeDisplayDimensionFromQueryKey(rawKey);
+            if (ESM_QUERY_CONTEXT_HIDDEN_KEYS.has(normalizedKey)) {
+              return "";
+            }
+            const hasRenderableValue = pair?.hasValue === true && String(pair?.value || "").trim().length > 0;
+            const isNotEquals = hasRenderableValue && rawKey.endsWith("!");
+            const keyLabel = isNotEquals ? rawKey.slice(0, -1) : rawKey;
+            const keyHtml = `<span class="card-url-query-key">${escapeHtml(keyLabel)}</span>`;
+            if (!hasRenderableValue) {
               return `<span class="card-url-query-chip">${keyHtml}</span>`;
             }
-            return `<span class="card-url-query-chip">${keyHtml}<span class="card-url-query-eq">=</span><span class="card-url-query-value">${escapeHtml(
-              pair.value
+            const decodedValue = decodeQueryPairValue(pair.value);
+            const isEditable = !isNotEquals && isEditableCardQueryKey(keyLabel);
+            if (isEditable) {
+              const inputValue = normalizeEditableQueryDateTimeValue(decodedValue);
+              return `<span class="card-url-query-chip card-url-query-chip--editable" data-query-key="${escapeHtml(
+                keyLabel
+              )}">${keyHtml}<span class="card-url-query-eq">=</span><button type="button" class="card-url-query-value-btn" data-query-editor-key="${escapeHtml(
+                keyLabel
+              )}" data-query-editor-value="${escapeHtml(inputValue)}" title="Edit ${escapeHtml(
+                keyLabel
+              )}">${escapeHtml(decodedValue || pair.value)}</button><span class="card-url-query-editor" hidden><input type="datetime-local" class="card-url-query-datetime-input" data-query-input-key="${escapeHtml(
+                keyLabel
+              )}" value="${escapeHtml(inputValue)}" /></span></span>`;
+            }
+            return `<span class="card-url-query-chip">${keyHtml}<span class="card-url-query-eq">${
+              isNotEquals ? "!=" : "="
+            }</span><span class="card-url-query-value">${escapeHtml(
+              decodedValue || pair.value
             )}</span></span>`;
           })
           .join("")
@@ -1916,7 +2264,11 @@ async function runCardFromPathNode(cardState, endpointUrl, sourceRequestUrl) {
     cardId: buildWorkspaceCardId("path"),
     endpointUrl: targetEndpointUrl,
     requestUrl: inheritedRequestUrl || targetEndpointUrl,
-    zoomKey: String(cardState?.zoomKey || ""),
+    zoomKey: resolveWorkspaceCardZoomKey({
+      zoomKey: String(cardState?.zoomKey || ""),
+      endpointUrl: targetEndpointUrl,
+      requestUrl: inheritedRequestUrl || targetEndpointUrl,
+    }),
     columns: normalizeEsmColumns(cardState?.columns),
   };
 
@@ -1947,6 +2299,108 @@ function wireCardHeaderPathLinks(cardState) {
   });
 }
 
+function teardownCardHeaderQueryEditors(cardState) {
+  if (!cardState) {
+    return;
+  }
+  if (typeof cardState.queryEditorOutsidePointerHandler === "function") {
+    document.removeEventListener("pointerdown", cardState.queryEditorOutsidePointerHandler, true);
+  }
+  if (typeof cardState.queryEditorOutsideKeyHandler === "function") {
+    document.removeEventListener("keydown", cardState.queryEditorOutsideKeyHandler, true);
+  }
+  cardState.queryEditorOutsidePointerHandler = null;
+  cardState.queryEditorOutsideKeyHandler = null;
+  cardState.openQueryEditorKey = "";
+}
+
+function wireCardHeaderQueryEditors(cardState) {
+  const titleElement = cardState?.titleElement;
+  if (!titleElement) {
+    return;
+  }
+  teardownCardHeaderQueryEditors(cardState);
+
+  const closeEditor = () => {
+    titleElement.querySelectorAll(".card-url-query-editor").forEach((editor) => {
+      editor.hidden = true;
+    });
+    teardownCardHeaderQueryEditors(cardState);
+  };
+
+  const openEditor = (button, editor, input, key) => {
+    if (!button || !editor || !input || !key) {
+      return;
+    }
+    closeEditor();
+    editor.hidden = false;
+    cardState.openQueryEditorKey = key;
+    input.value = normalizeEditableQueryDateTimeValue(input.value || button.getAttribute("data-query-editor-value") || "");
+    cardState.queryEditorOutsidePointerHandler = (event) => {
+      const target = event?.target;
+      if (target instanceof Node && (editor.contains(target) || button.contains(target))) {
+        return;
+      }
+      closeEditor();
+    };
+    cardState.queryEditorOutsideKeyHandler = (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeEditor();
+      }
+    };
+    document.addEventListener("pointerdown", cardState.queryEditorOutsidePointerHandler, true);
+    document.addEventListener("keydown", cardState.queryEditorOutsideKeyHandler, true);
+    try {
+      input.focus({ preventScroll: true });
+    } catch (_error) {
+      input.focus();
+    }
+    try {
+      if (typeof input.showPicker === "function") {
+        input.showPicker();
+      }
+    } catch (_error) {
+      // Ignore browsers that block programmatic picker display.
+    }
+  };
+
+  titleElement.querySelectorAll(".card-url-query-value-btn[data-query-editor-key]").forEach((button) => {
+    const key = normalizeDimensionName(button.getAttribute("data-query-editor-key"));
+    const editor = button.parentElement?.querySelector(".card-url-query-editor");
+    const input = editor?.querySelector(".card-url-query-datetime-input");
+    if (!key || !editor || !input) {
+      return;
+    }
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openEditor(button, editor, input, key);
+    });
+    input.addEventListener("click", (event) => {
+      event.stopPropagation();
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeEditor();
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        updateCardEditableQueryValue(cardState, key, input.value);
+        updateCardHeader(cardState);
+      }
+    });
+    input.addEventListener("change", () => {
+      updateCardEditableQueryValue(cardState, key, input.value);
+      updateCardHeader(cardState);
+    });
+  });
+}
+
 function getEsmNodeLabel(urlValue) {
   const context = parseEsmRequestContext(urlValue);
   if (!context.fullUrl) {
@@ -1968,6 +2422,157 @@ function resetCardLocalFilterBaseline(cardState) {
   cardState.localDescriptionByColumn.clear();
   cardState.localHasBaselineData = false;
   cardState.pickerOpenColumn = "";
+}
+
+function resetCardDistinctValueUniverse(cardState) {
+  if (!cardState) {
+    return;
+  }
+  resetCardLocalFilterBaseline(cardState);
+  cardState.bootstrapDistinctByColumn = new Map();
+  cardState.bootstrapDescriptionByColumn = new Map();
+}
+
+function resetAllCardDistinctValueUniverses() {
+  state.cardsById.forEach((cardState) => {
+    resetCardDistinctValueUniverse(cardState);
+  });
+}
+
+function cloneSortedDistinctValueMap(sourceMap) {
+  const output = new Map();
+  if (!(sourceMap instanceof Map)) {
+    return output;
+  }
+  sourceMap.forEach((values, columnName) => {
+    const normalizedColumn = normalizeDimensionName(columnName);
+    if (!normalizedColumn) {
+      return;
+    }
+    const list = Array.isArray(values) ? values : values instanceof Set ? [...values] : [];
+    const normalizedValues = list.map((value) => String(value || "").trim()).filter(Boolean);
+    if (normalizedValues.length === 0) {
+      return;
+    }
+    output.set(
+      normalizedColumn,
+      [...new Set(normalizedValues)].sort((left, right) => compareColumnValues(left, right))
+    );
+  });
+  return output;
+}
+
+function cloneCardDescriptionMap(sourceMap) {
+  const output = new Map();
+  if (!(sourceMap instanceof Map)) {
+    return output;
+  }
+  sourceMap.forEach((description, columnName) => {
+    const normalizedColumn = normalizeDimensionName(columnName);
+    const normalizedDescription = String(description || "").trim();
+    if (normalizedColumn && normalizedDescription) {
+      output.set(normalizedColumn, normalizedDescription);
+    }
+  });
+  return output;
+}
+
+function mergeCardBootstrapDistinctBaseline(cardState) {
+  if (!cardState) {
+    return;
+  }
+  const bootstrapDistinct = cardState.bootstrapDistinctByColumn instanceof Map ? cardState.bootstrapDistinctByColumn : null;
+  if (bootstrapDistinct && bootstrapDistinct.size > 0) {
+    bootstrapDistinct.forEach((values, columnName) => {
+      const existing = new Set(cardState.localDistinctByColumn.get(columnName) || []);
+      const list = Array.isArray(values) ? values : values instanceof Set ? [...values] : [];
+      list.forEach((value) => {
+        const normalizedValue = String(value || "").trim();
+        if (normalizedValue) {
+          existing.add(normalizedValue);
+        }
+      });
+      if (existing.size > 0) {
+        cardState.localDistinctByColumn.set(
+          columnName,
+          [...existing].sort((left, right) => compareColumnValues(left, right))
+        );
+      }
+    });
+  }
+  const bootstrapDescriptions =
+    cardState.bootstrapDescriptionByColumn instanceof Map ? cardState.bootstrapDescriptionByColumn : null;
+  if (bootstrapDescriptions && bootstrapDescriptions.size > 0) {
+    bootstrapDescriptions.forEach((description, columnName) => {
+      if (!cardState.localDescriptionByColumn.has(columnName) && String(description || "").trim()) {
+        cardState.localDescriptionByColumn.set(columnName, String(description || "").trim());
+      }
+    });
+  }
+  cardState.localHasBaselineData = cardState.localDistinctByColumn.size > 0;
+}
+
+function snapshotCardBootstrapDistinctBaseline(cardState) {
+  if (!cardState) {
+    return;
+  }
+  cardState.bootstrapDistinctByColumn = cloneSortedDistinctValueMap(cardState.localDistinctByColumn);
+  cardState.bootstrapDescriptionByColumn = cloneCardDescriptionMap(cardState.localDescriptionByColumn);
+}
+
+function buildCardLiveBaseRequestUrl(cardState) {
+  const sourceRaw = String(cardState?.requestUrl || cardState?.endpointUrl || "").trim();
+  if (!sourceRaw) {
+    return "";
+  }
+
+  const controlColumns = new Set([
+    ...normalizeLocalColumnFilters(cardState?.localColumnFilters).keys(),
+    ...normalizeLocalColumnFilters(cardState?.localColumnExclusions).keys(),
+    ...normalizeLocalColumnFilters(cardState?.pendingLocalColumnExclusions).keys(),
+  ]);
+  if (controlColumns.size === 0) {
+    return sourceRaw;
+  }
+
+  const nextPairs = parseRawQueryPairs(sourceRaw).filter((pair) => {
+    if (!pair?.hasValue) {
+      return true;
+    }
+    const normalizedKey = normalizeDimensionName(pair?.key);
+    const candidateColumn = normalizedKey.endsWith("!") ? normalizedKey.slice(0, -1) : normalizedKey;
+    if (!candidateColumn || !controlColumns.has(candidateColumn)) {
+      return true;
+    }
+    return false;
+  });
+
+  const queryText = nextPairs
+    .map((pair) => {
+      const key = encodeURIComponent(String(pair?.key || "").trim()).replace(/%20/g, "+");
+      if (!key) {
+        return "";
+      }
+      if (pair?.hasValue && String(pair?.value || "").trim().length > 0) {
+        return `${key}=${String(pair?.value || "")}`;
+      }
+      if (pair?.hasAssignment === true) {
+        return `${key}=`;
+      }
+      return key;
+    })
+    .filter(Boolean)
+    .join("&");
+
+  try {
+    const parsed = new URL(sourceRaw);
+    parsed.hash = "";
+    parsed.search = queryText ? `?${queryText}` : "";
+    return parsed.toString();
+  } catch (_error) {
+    const pathOnly = sourceRaw.split(/[?#]/, 1)[0] || sourceRaw;
+    return queryText ? `${pathOnly}?${queryText}` : pathOnly;
+  }
 }
 
 function seedCardLocalFilterBaselineSelections(cardState, requestUrl = "") {
@@ -2000,37 +2605,44 @@ function resolvePendingLocalColumnExclusions(cardState, requestUrl = "") {
   if (!cardState) {
     return;
   }
-  const normalizedExclusions = normalizeLocalColumnFilters(cardState.localColumnExclusions);
+  const normalizedExclusions = normalizeLocalColumnFilters(cardState.pendingLocalColumnExclusions);
   if (normalizedExclusions.size === 0) {
     return;
   }
 
   const nextFilters = normalizeLocalColumnFilters(cardState.localColumnFilters);
-  const remainingExclusions = new Map();
 
   normalizedExclusions.forEach((excludedValues, columnName) => {
     const availableValues = Array.isArray(cardState.localDistinctByColumn.get(columnName))
-      ? cardState.localDistinctByColumn.get(columnName)
+      ? [...cardState.localDistinctByColumn.get(columnName)]
       : [];
-    if (!availableValues.length) {
-      remainingExclusions.set(columnName, new Set(excludedValues));
-      return;
+    const distinctValues = new Set(availableValues);
+    excludedValues.forEach((value) => {
+      const normalizedValue = String(value || "").trim();
+      if (normalizedValue) {
+        distinctValues.add(normalizedValue);
+      }
+    });
+    if (distinctValues.size > 0) {
+      cardState.localDistinctByColumn.set(
+        columnName,
+        [...distinctValues].sort((left, right) => compareColumnValues(left, right))
+      );
     }
 
     const includedValues = availableValues.filter((value) => !matchesLocalFilterValue(value, excludedValues));
-    if (includedValues.length > 0) {
+    if (includedValues.length > 0 && !nextFilters.has(columnName)) {
       nextFilters.set(columnName, new Set(includedValues));
       const description = getDimensionDescription(columnName, requestUrl);
       if (description) {
         cardState.localDescriptionByColumn.set(columnName, description);
       }
     }
-
-    remainingExclusions.set(columnName, new Set(excludedValues));
   });
 
   cardState.localColumnFilters = nextFilters;
-  cardState.localColumnExclusions = remainingExclusions;
+  cardState.pendingLocalColumnExclusions = new Map();
+  cardState.localHasBaselineData = cardState.localDistinctByColumn.size > 0;
 }
 
 function initializeCardLocalFilterBaseline(cardState, rows, requestUrl) {
@@ -2039,25 +2651,24 @@ function initializeCardLocalFilterBaseline(cardState, rows, requestUrl) {
   }
   resetCardLocalFilterBaseline(cardState);
   if (!Array.isArray(rows) || rows.length === 0) {
+    mergeCardBootstrapDistinctBaseline(cardState);
     seedCardLocalFilterBaselineSelections(cardState, requestUrl);
     resolvePendingLocalColumnExclusions(cardState, requestUrl);
+    snapshotCardBootstrapDistinctBaseline(cardState);
     return;
   }
 
-  const rowSample = rows[0] && typeof rows[0] === "object" ? rows[0] : {};
-  const fallbackColumns = Object.keys(rowSample)
-    .map((columnName) => normalizeDimensionName(columnName))
-    .filter(Boolean)
-    .filter((columnName) => !isSuppressedEsmColumn(columnName));
+  const fallbackColumns = collectEsmRowColumns(rows, { includeMetrics: true });
   const candidateColumns = [
     ...normalizeEsmColumns(cardState.columns, { href: requestUrl }),
     ...normalizeLocalColumnFilters(cardState.localColumnFilters).keys(),
+    ...normalizeLocalColumnFilters(cardState.pendingLocalColumnExclusions).keys(),
     ...normalizeLocalColumnFilters(cardState.localColumnExclusions).keys(),
   ]
     .map((columnName) => normalizeDimensionName(columnName))
     .filter(Boolean)
     .filter((columnName) => !isSuppressedEsmColumn(columnName));
-  const baselineColumns = (candidateColumns.length > 0 ? candidateColumns : fallbackColumns).filter((columnName) =>
+  const baselineColumns = [...new Set([...candidateColumns, ...fallbackColumns])].filter((columnName) =>
     isFilterableDimension(columnName, requestUrl)
   );
   const distinct = buildDistinctValuesForColumns(rows, baselineColumns);
@@ -2073,6 +2684,7 @@ function initializeCardLocalFilterBaseline(cardState, rows, requestUrl) {
     }
   });
   cardState.localHasBaselineData = cardState.localDistinctByColumn.size > 0;
+  mergeCardBootstrapDistinctBaseline(cardState);
   seedCardLocalFilterBaselineSelections(cardState, requestUrl);
   resolvePendingLocalColumnExclusions(cardState, requestUrl);
 
@@ -2093,10 +2705,11 @@ function initializeCardLocalFilterBaseline(cardState, rows, requestUrl) {
     }
   });
   cardState.localColumnFilters = prunedFilters;
+  snapshotCardBootstrapDistinctBaseline(cardState);
 }
 
 function buildCardLocalFilterResetMarkup(cardState, { compact = false } = {}) {
-  if (!hasLocalColumnFilters(cardState?.localColumnFilters) && !hasLocalColumnFilters(cardState?.localColumnExclusions)) {
+  if (isCardAtStartingFilterState(cardState)) {
     return "";
   }
   const className = compact
@@ -2111,16 +2724,25 @@ function buildCardLocalFilterResetMarkup(cardState, { compact = false } = {}) {
 function buildCardColumnsMarkup(cardState) {
   const requestUrl = String(cardState?.requestUrl || cardState?.endpointUrl || "").trim();
   const displayRequestUrl = buildCardDisplayRequestUrl(cardState) || requestUrl;
+  const requestedMetricColumns = getRequestedMetricColumnsFromHref(requestUrl);
   const filterColumns = [
     ...normalizeLocalColumnFilters(cardState?.localColumnFilters).keys(),
     ...normalizeLocalColumnFilters(cardState?.localColumnExclusions).keys(),
   ];
-  const sourceColumns =
-    cardState?.localDistinctByColumn && cardState.localDistinctByColumn.size > 0
-      ? [...cardState.localDistinctByColumn.keys(), ...filterColumns]
-      : [...normalizeEsmColumns(cardState?.columns, { href: requestUrl }), ...filterColumns];
-  const displayColumns = buildDisplayDimensions(sourceColumns, requestUrl);
-  const nodeLabel = getEsmNodeLabel(requestUrl);
+  const sourceColumns = [
+    ...normalizeEsmColumns(cardState?.columns),
+    ...collectEsmRowColumns(cardState?.rows),
+    ...(requestedMetricColumns.length > 0
+      ? collectEsmRowColumns(cardState?.rows, { includeMetrics: true }).filter((columnName) =>
+          requestedMetricColumns.includes(columnName)
+        )
+      : []),
+    ...requestedMetricColumns,
+    ...(cardState?.localDistinctByColumn ? [...cardState.localDistinctByColumn.keys()] : []),
+    ...filterColumns,
+  ];
+  const displayColumns = buildDisplayDimensions(sourceColumns, requestUrl, { includeHrefColumns: false });
+  const nodeLabel = String(cardState?.displayNodeLabel || "").trim() || getEsmNodeLabel(requestUrl);
   const endpointMarkup = displayRequestUrl
     ? `<a class="card-col-parent-url card-rerun-url" href="${escapeHtml(requestUrl)}" title="${escapeHtml(
         displayRequestUrl
@@ -2230,14 +2852,21 @@ function createCardElements(cardState) {
 }
 
 function updateCardHeader(cardState) {
+  teardownCardHeaderQueryEditors(cardState);
   const requestUrl = String(cardState.requestUrl || cardState.endpointUrl || "").trim();
   const displayRequestUrl = buildCardDisplayRequestUrl(cardState) || requestUrl;
   cardState.titleElement.innerHTML = buildCardHeaderContextMarkup(displayRequestUrl, String(cardState.endpointUrl || ""));
   cardState.titleElement.title = displayRequestUrl || "No ESM URL";
-  const zoom = cardState.zoomKey ? `Zoom: ${cardState.zoomKey}` : "Zoom: --";
+  const resolvedZoomKey = resolveWorkspaceCardZoomKey(cardState);
+  if (resolvedZoomKey && cardState.zoomKey !== resolvedZoomKey) {
+    cardState.zoomKey = resolvedZoomKey;
+  }
+  const zoomLabel = getWorkspaceCardZoomLabel(cardState);
+  const zoom = zoomLabel ? `Zoom: ${zoomLabel}` : "Zoom: --";
   const rows = Array.isArray(cardState.rows) ? cardState.rows.length : 0;
   cardState.subtitleElement.textContent = `${zoom} | Rows: ${rows}`;
   wireCardHeaderPathLinks(cardState);
+  wireCardHeaderQueryEditors(cardState);
 }
 
 function ensureWorkspaceUnlocked() {
@@ -2257,7 +2886,6 @@ async function rerunCard(cardState) {
   });
   if (!result?.ok) {
     renderCardMessage(cardState, result?.error || "Unable to run report from UnderPAR side panel controller.", { error: true });
-    setStatus(result?.error || "Unable to run report from UnderPAR side panel controller.", "error");
   }
 }
 
@@ -2273,8 +2901,13 @@ function wireCardRerunAndFilterActions(cardState) {
   clearFilterButtons.forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
-      cardState.localColumnFilters = new Map();
-      cardState.localColumnExclusions = new Map();
+      const restoredSeed = restoreCardSeedQueryState(cardState);
+      if (!restoredSeed) {
+        cardState.localColumnFilters = new Map();
+        cardState.localColumnExclusions = new Map();
+        cardState.pendingLocalColumnExclusions = new Map();
+        cardState.exclusionBootstrapPhase = "idle";
+      }
       cardState.pickerOpenColumn = "";
       void rerunCard(cardState);
     });
@@ -2447,6 +3080,7 @@ function wireCardColumnFilterCloud(cardState) {
       cardState.localColumnFilters.delete(columnName);
     }
     cardState.localColumnExclusions.delete(columnName);
+    cardState.pendingLocalColumnExclusions.delete(columnName);
     updateVisualState();
     updateCardHeader(cardState);
   });
@@ -2482,29 +3116,80 @@ function ensureCard(cardMeta) {
     if (cardMeta?.requestUrl) {
       existing.requestUrl = String(cardMeta.requestUrl);
     }
-    if (cardMeta?.zoomKey) {
-      existing.zoomKey = String(cardMeta.zoomKey);
+    if ("zoomKey" in (cardMeta || {})) {
+      existing.zoomKey = resolveWorkspaceCardZoomKey({
+        zoomKey: String(cardMeta?.zoomKey || ""),
+        endpointUrl: cardMeta?.endpointUrl || existing.endpointUrl,
+        requestUrl: cardMeta?.requestUrl || existing.requestUrl,
+      });
     }
     if (Array.isArray(cardMeta?.columns)) {
       existing.columns = normalizeEsmColumns(cardMeta.columns);
     }
+    if ("originCardKey" in (cardMeta || {})) {
+      existing.originCardKey = String(cardMeta?.originCardKey || existing.originCardKey || "").trim();
+    }
+    if ("displayNodeLabel" in (cardMeta || {})) {
+      existing.displayNodeLabel = String(cardMeta?.displayNodeLabel || "").trim();
+    }
     if ("preserveQueryContext" in (cardMeta || {})) {
       existing.preserveQueryContext = cardMeta?.preserveQueryContext === true;
+    }
+    if ("presetLocalFilterBootstrapPending" in (cardMeta || {})) {
+      existing.presetLocalFilterBootstrapPending = cardMeta?.presetLocalFilterBootstrapPending === true;
+    }
+    if ("seedEndpointUrl" in (cardMeta || {})) {
+      existing.seedEndpointUrl = String(cardMeta?.seedEndpointUrl || "").trim();
+    }
+    if ("seedRequestUrl" in (cardMeta || {})) {
+      existing.seedRequestUrl = String(cardMeta?.seedRequestUrl || "").trim();
+    }
+    if ("seedPresetLocalFilterBootstrapPending" in (cardMeta || {})) {
+      existing.seedPresetLocalFilterBootstrapPending = cardMeta?.seedPresetLocalFilterBootstrapPending === true;
     }
     if (cardMeta?.localColumnFilters && typeof cardMeta.localColumnFilters === "object") {
       existing.localColumnFilters = normalizeLocalColumnFilters(cardMeta.localColumnFilters);
     }
+    if (cardMeta?.seedLocalColumnFilters && typeof cardMeta.seedLocalColumnFilters === "object") {
+      existing.seedLocalColumnFilters = normalizeLocalColumnFilters(cardMeta.seedLocalColumnFilters);
+    }
     if (cardMeta?.localColumnExclusions && typeof cardMeta.localColumnExclusions === "object") {
       existing.localColumnExclusions = normalizeLocalColumnFilters(cardMeta.localColumnExclusions);
+      if (
+        existing.exclusionBootstrapPhase !== "complete" &&
+        !hasLocalColumnFilters(cardMeta?.localColumnFilters) &&
+        hasLocalColumnFilters(cardMeta?.localColumnExclusions)
+      ) {
+        existing.pendingLocalColumnExclusions = normalizeLocalColumnFilters(cardMeta.localColumnExclusions);
+      } else if (!hasLocalColumnFilters(cardMeta?.localColumnExclusions)) {
+        existing.pendingLocalColumnExclusions = new Map();
+      }
+    }
+    if (cardMeta?.seedLocalColumnExclusions && typeof cardMeta.seedLocalColumnExclusions === "object") {
+      existing.seedLocalColumnExclusions = normalizeLocalColumnFilters(cardMeta.seedLocalColumnExclusions);
     }
     const nextEndpointKey = getWorkspaceEndpointKey(String(existing.endpointUrl || existing.requestUrl || ""));
     if (previousEndpointKey && nextEndpointKey && previousEndpointKey !== nextEndpointKey) {
       existing.localColumnFilters = new Map();
       existing.localColumnExclusions = new Map();
+      existing.pendingLocalColumnExclusions = new Map();
+      existing.exclusionBootstrapPhase = "idle";
+      existing.bootstrapDistinctByColumn = new Map();
+      existing.bootstrapDescriptionByColumn = new Map();
+      existing.seedEndpointUrl = "";
+      existing.seedRequestUrl = "";
+      existing.seedLocalColumnFilters = new Map();
+      existing.seedLocalColumnExclusions = new Map();
+      existing.seedPresetLocalFilterBootstrapPending = false;
+      existing.startingUiLocalColumnFilters = new Map();
+      existing.startingUiLocalColumnExclusions = new Map();
+      existing.startingUiPersistentQuerySignature = "[]";
+      existing.startingUiStateCaptured = false;
       existing.localDistinctByColumn.clear();
       existing.localDescriptionByColumn.clear();
       existing.localHasBaselineData = false;
       existing.pickerOpenColumn = "";
+      teardownCardHeaderQueryEditors(existing);
     }
     updateCardHeader(existing);
     return existing;
@@ -2512,22 +3197,51 @@ function ensureCard(cardMeta) {
 
   const cardState = {
     cardId,
+    originCardKey: String(cardMeta?.originCardKey || "").trim(),
     endpointUrl: String(cardMeta?.endpointUrl || ""),
     requestUrl: String(cardMeta?.requestUrl || cardMeta?.endpointUrl || ""),
-    zoomKey: String(cardMeta?.zoomKey || ""),
+    zoomKey: resolveWorkspaceCardZoomKey({
+      zoomKey: String(cardMeta?.zoomKey || ""),
+      endpointUrl: String(cardMeta?.endpointUrl || ""),
+      requestUrl: String(cardMeta?.requestUrl || cardMeta?.endpointUrl || ""),
+    }),
     columns: normalizeEsmColumns(cardMeta?.columns),
+    displayNodeLabel: String(cardMeta?.displayNodeLabel || "").trim(),
     preserveQueryContext: cardMeta?.preserveQueryContext === true,
     rows: [],
     sortStack: getDefaultSortStack(),
     lastModified: "",
+    presetLocalFilterBootstrapPending: cardMeta?.presetLocalFilterBootstrapPending === true,
+    seedEndpointUrl: String(cardMeta?.seedEndpointUrl || "").trim(),
+    seedRequestUrl: String(cardMeta?.seedRequestUrl || "").trim(),
+    seedLocalColumnFilters: normalizeLocalColumnFilters(cardMeta?.seedLocalColumnFilters),
+    seedLocalColumnExclusions: normalizeLocalColumnFilters(cardMeta?.seedLocalColumnExclusions),
+    seedPresetLocalFilterBootstrapPending: cardMeta?.seedPresetLocalFilterBootstrapPending === true,
+    startingUiLocalColumnFilters: new Map(),
+    startingUiLocalColumnExclusions: new Map(),
+    startingUiPersistentQuerySignature: "[]",
+    startingUiStateCaptured: false,
     localColumnFilters: normalizeLocalColumnFilters(cardMeta?.localColumnFilters),
     localColumnExclusions: normalizeLocalColumnFilters(cardMeta?.localColumnExclusions),
+    pendingLocalColumnExclusions:
+      hasLocalColumnFilters(cardMeta?.localColumnExclusions) && !hasLocalColumnFilters(cardMeta?.localColumnFilters)
+        ? normalizeLocalColumnFilters(cardMeta?.localColumnExclusions)
+        : new Map(),
+    exclusionBootstrapPhase:
+      hasLocalColumnFilters(cardMeta?.localColumnExclusions) && !hasLocalColumnFilters(cardMeta?.localColumnFilters)
+        ? "pending"
+        : "idle",
+    bootstrapDistinctByColumn: new Map(),
+    bootstrapDescriptionByColumn: new Map(),
     localDistinctByColumn: new Map(),
     localDescriptionByColumn: new Map(),
     localHasBaselineData: false,
     pickerOpenColumn: "",
     pickerOutsidePointerHandler: null,
     pickerOutsideKeyHandler: null,
+    queryEditorOutsidePointerHandler: null,
+    queryEditorOutsideKeyHandler: null,
+    openQueryEditorKey: "",
     activeRunId: "",
     running: false,
     element: null,
@@ -2548,6 +3262,7 @@ function ensureCard(cardMeta) {
     if (typeof cardState.pickerOutsideKeyHandler === "function") {
       document.removeEventListener("keydown", cardState.pickerOutsideKeyHandler, true);
     }
+    teardownCardHeaderQueryEditors(cardState);
     cardState.element.remove();
     state.cardsById.delete(cardState.cardId);
     syncActionButtonsDisabled();
@@ -2564,21 +3279,36 @@ function renderCardTable(cardState, rows, lastModified) {
   const hasAuthN = firstRow["authn-attempts"] != null && firstRow["authn-successful"] != null;
   const hasAuthZ = firstRow["authz-attempts"] != null && firstRow["authz-successful"] != null;
   const hasCount = firstRow.count != null;
-  const displayColumns = Object.keys(firstRow).filter(
-    (column) => !ESM_METRIC_COLUMNS.has(column) && !ESM_DATE_PARTS.includes(column) && !isSuppressedEsmColumn(column)
-  );
+  const requestUrl = String(cardState?.requestUrl || cardState?.endpointUrl || "").trim();
+  const requestedMetricColumns = getRequestedMetricColumnsFromHref(requestUrl);
+  const requestedMetricSet = new Set(requestedMetricColumns);
+  const displayColumns = buildDisplayDimensions(
+    [...normalizeEsmColumns(cardState?.columns), ...collectEsmRowColumns(rows)],
+    requestUrl,
+    { includeHrefColumns: false }
+  ).filter((column) => !ESM_METRIC_COLUMNS.has(column) && !requestedMetricSet.has(column));
+  const metricColumns =
+    requestedMetricColumns.length > 0
+      ? [
+          ...new Set([
+            ...requestedMetricColumns,
+            ...collectEsmRowColumns(rows, { includeMetrics: true }).filter((columnName) => requestedMetricSet.has(columnName)),
+          ]),
+        ]
+      : [];
+  const showLegacyMetricColumns = metricColumns.length === 0;
 
   const headers = ["DATE"];
-  if (hasAuthN) {
+  if (showLegacyMetricColumns && hasAuthN) {
     headers.push("AuthN Success");
   }
-  if (hasAuthZ) {
+  if (showLegacyMetricColumns && hasAuthZ) {
     headers.push("AuthZ Success");
   }
-  if (!hasAuthN && !hasAuthZ && hasCount) {
+  if (showLegacyMetricColumns && !hasAuthN && !hasAuthZ && hasCount) {
     headers.push("COUNT");
   }
-  headers.push(...displayColumns);
+  headers.push(...displayColumns, ...metricColumns);
 
   cardState.bodyElement.innerHTML = `
     <div class="esm-table-wrapper">
@@ -2624,6 +3354,8 @@ function renderCardTable(cardState, rows, lastModified) {
     hasAuthZ,
     hasCount,
     displayColumns,
+    metricColumns,
+    showLegacyMetricColumns,
     context: {
       hasAuthN,
       hasAuthZ,
@@ -2755,24 +3487,59 @@ function applyReportResult(payload) {
   if (!payload?.ok) {
     const error = payload?.error || "Request failed.";
     renderCardMessage(cardState, error, { error: true });
-    setStatus(error, "error");
     syncWorkspaceNetworkIndicator();
     return;
   }
 
   const sourceRows = Array.isArray(payload?.rows) ? payload.rows : [];
+  const requestUrl = String(payload?.requestUrl || cardState.requestUrl || cardState.endpointUrl || "");
+  const requestedMetricColumns = getRequestedMetricColumnsFromHref(requestUrl);
+  const activeFilterColumns = [
+    ...normalizeLocalColumnFilters(cardState.localColumnFilters).keys(),
+    ...normalizeLocalColumnFilters(cardState.localColumnExclusions).keys(),
+    ...normalizeLocalColumnFilters(cardState.pendingLocalColumnExclusions).keys(),
+  ];
+  const liveRowMetricColumns =
+    requestedMetricColumns.length > 0
+      ? collectEsmRowColumns(sourceRows, { includeMetrics: true }).filter((columnName) =>
+          requestedMetricColumns.includes(columnName)
+        )
+      : [];
   cardState.lastModified = String(payload?.lastModified || "");
   cardState.sortStack = getDefaultSortStack();
+  cardState.columns = normalizeEsmColumns(
+    [
+      ...collectEsmRowColumns(sourceRows),
+      ...activeFilterColumns,
+      ...requestedMetricColumns,
+      ...liveRowMetricColumns,
+      ...(sourceRows.length === 0 ? normalizeEsmColumns(cardState.columns) : []),
+    ],
+    {}
+  );
   initializeCardLocalFilterBaseline(
     cardState,
     sourceRows,
-    String(payload?.requestUrl || cardState.requestUrl || cardState.endpointUrl || "")
+    requestUrl
   );
-  const rows = applyLocalColumnFiltersToRows(
-    sourceRows,
-    cardState.localColumnFilters,
-    cardState.localColumnExclusions
-  );
+  if (cardState.exclusionBootstrapPhase === "pending") {
+    cardState.exclusionBootstrapPhase = "complete";
+  }
+  if (cardState.presetLocalFilterBootstrapPending) {
+    const liveBaseRequestUrl = buildCardLiveBaseRequestUrl(cardState);
+    if (liveBaseRequestUrl) {
+      cardState.endpointUrl = liveBaseRequestUrl;
+      cardState.requestUrl = liveBaseRequestUrl;
+    }
+    cardState.localColumnExclusions = new Map();
+    cardState.pendingLocalColumnExclusions = new Map();
+    cardState.exclusionBootstrapPhase = "idle";
+    cardState.presetLocalFilterBootstrapPending = false;
+  }
+  if (!cardState.startingUiStateCaptured) {
+    snapshotCardStartingFilterState(cardState);
+  }
+  const rows = applyLocalColumnFiltersToRows(sourceRows, cardState.localColumnFilters);
   cardState.rows = rows;
   updateCardHeader(cardState);
 
@@ -2890,6 +3657,9 @@ function applyControllerState(payload) {
   if (programmerChanged || environmentChanged) {
     state.batchRunning = false;
     state.autoRerunInFlightProgrammerKey = "";
+    if (hasWorkspaceCards) {
+      resetAllCardDistinctValueUniverses();
+    }
     state.cardsById.forEach((cardState) => {
       if (cardState) {
         cardState.running = false;
@@ -3144,6 +3914,27 @@ function registerEventHandlers() {
     }
     handleWorkspaceEvent(message?.event, message?.payload || {});
     return false;
+  });
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== ESM_WORKSPACE_MESSAGE_TYPE || message?.channel !== "controller-query") {
+      return false;
+    }
+    const targetWindowId = Number(message?.targetWindowId || 0);
+    if (targetWindowId > 0 && Number(state.windowId || 0) > 0 && targetWindowId !== Number(state.windowId)) {
+      return false;
+    }
+    const action = String(message?.action || "").trim().toLowerCase();
+    if (action === "find-origin-card") {
+      const cardState = findCardByOriginKey(String(message?.originCardKey || "").trim());
+      sendResponse({
+        ok: true,
+        card: cardState ? getCardPayload(cardState) : null,
+      });
+      return true;
+    }
+    sendResponse({ ok: false, error: `Unsupported controller query: ${action}` });
+    return true;
   });
 }
 

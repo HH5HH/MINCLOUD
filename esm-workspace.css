@@ -601,6 +601,10 @@ body.workspace-locked .workspace-cards {
   white-space: nowrap;
 }
 
+.card-url-query-chip--editable {
+  position: relative;
+}
+
 .card-url-query-key {
   font-weight: 700;
   color: rgba(18, 53, 98, 0.92);
@@ -622,6 +626,73 @@ body.workspace-locked .workspace-cards {
   overflow: hidden;
   text-overflow: ellipsis;
   vertical-align: bottom;
+}
+
+.card-url-query-value-btn {
+  appearance: none;
+  display: inline-block;
+  max-width: 190px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: rgba(26, 63, 112, 0.9);
+  font: inherit;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  cursor: pointer;
+}
+
+.card-url-query-value-btn:hover {
+  color: rgba(9, 46, 93, 0.96);
+  text-decoration: underline;
+}
+
+.card-url-query-value-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 100, 224, 0.22);
+  border-radius: 4px;
+}
+
+.card-url-query-editor {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid rgba(23, 65, 127, 0.22);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 14px 28px rgba(17, 45, 89, 0.18);
+  z-index: 14;
+}
+
+.card-url-query-editor[hidden] {
+  display: none !important;
+}
+
+.card-url-query-datetime-input {
+  height: 32px;
+  min-width: 198px;
+  padding: 0 10px;
+  border: 1px solid rgba(23, 65, 127, 0.22);
+  border-radius: 8px;
+  background: #fff;
+  color: rgba(16, 47, 91, 0.96);
+  font: inherit;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.card-url-query-datetime-input:focus-visible {
+  outline: none;
+  border-color: rgba(0, 100, 224, 0.38);
+  box-shadow: 0 0 0 2px rgba(0, 100, 224, 0.16);
 }
 
 .card-url-query-empty,
@@ -1158,6 +1229,17 @@ body.workspace-locked .workspace-cards {
 
   .card-url-query-value {
     max-width: 220px;
+  }
+
+  .card-url-query-editor {
+    left: 0;
+    right: auto;
+    top: calc(100% + 4px);
+    transform: none;
+  }
+
+  .card-url-query-datetime-input {
+    min-width: min(78vw, 220px);
   }
 
   .card-actions {
