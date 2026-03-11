@@ -16,6 +16,7 @@ const HELPER_RESULT_PREFIX = "underpar_helper_result_v1:";
 const LEGACY_HELPER_RESULT_PREFIX = "mincloudlogin_helper_result_v1:";
 const HELPER_RESULT_MESSAGE_TYPE = "underpar:loginHelperResult";
 const LEGACY_HELPER_RESULT_MESSAGE_TYPE = "mincloudlogin:loginHelperResult";
+const UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE = "underpar:networkActivity";
 const CLOSE_WINDOW_DELAY_MS = 350;
 const JWT_VALUE_REDACTION_PATTERN = /\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g;
 const BEARER_TOKEN_REDACTION_PATTERN = /\bBearer\s+[A-Za-z0-9._~-]{20,}\b/gi;
@@ -29,6 +30,19 @@ function setStatus(text) {
     return;
   }
   statusElement.textContent = String(text || "");
+}
+
+function signalUnderparNetworkActivity(delta, context) {
+  if (!chrome?.runtime?.sendMessage) {
+    return;
+  }
+  void chrome.runtime
+    .sendMessage({
+      type: UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE,
+      delta: Math.trunc(Number(delta || 0)),
+      context: String(context || "").trim(),
+    })
+    .catch(() => {});
 }
 
 function randomToken() {
@@ -607,41 +621,46 @@ async function fetchProfile(accessToken = "") {
     },
   ];
 
-  let bestPayload = null;
-  let bestPayloadScore = Number.NEGATIVE_INFINITY;
-  for (const endpoint of endpoints) {
-    const attempts = [{ credentials: "omit" }, { credentials: "include" }];
+  signalUnderparNetworkActivity(1, "ims-login-profile");
+  try {
+    let bestPayload = null;
+    let bestPayloadScore = Number.NEGATIVE_INFINITY;
+    for (const endpoint of endpoints) {
+      const attempts = [{ credentials: "omit" }, { credentials: "include" }];
 
-    for (const attempt of attempts) {
-      try {
-        const response = await fetch(endpoint.url, {
-          method: "GET",
-          mode: "cors",
-          credentials: attempt.credentials,
-          headers: buildImsProfileHeaders(accessToken, endpoint.clientId),
-        });
-        if (!response.ok) {
-          continue;
-        }
-        const text = await response.text().catch(() => "");
-        const parsed = parseJsonText(text, null);
-        if (parsed && typeof parsed === "object") {
-          const payloadScore = scoreProfileAvatarPayload(parsed);
-          if (payloadScore > bestPayloadScore) {
-            bestPayload = parsed;
-            bestPayloadScore = payloadScore;
+      for (const attempt of attempts) {
+        try {
+          const response = await fetch(endpoint.url, {
+            method: "GET",
+            mode: "cors",
+            credentials: attempt.credentials,
+            headers: buildImsProfileHeaders(accessToken, endpoint.clientId),
+          });
+          if (!response.ok) {
+            continue;
           }
-          if (payloadScore >= 320) {
-            return parsed;
+          const text = await response.text().catch(() => "");
+          const parsed = parseJsonText(text, null);
+          if (parsed && typeof parsed === "object") {
+            const payloadScore = scoreProfileAvatarPayload(parsed);
+            if (payloadScore > bestPayloadScore) {
+              bestPayload = parsed;
+              bestPayloadScore = payloadScore;
+            }
+            if (payloadScore >= 320) {
+              return parsed;
+            }
           }
+        } catch {
+          // Continue to next variant.
         }
-      } catch {
-        // Continue to next variant.
       }
     }
-  }
 
-  return bestPayload;
+    return bestPayload;
+  } finally {
+    signalUnderparNetworkActivity(-1, "ims-login-profile");
+  }
 }
 
 async function fetchOrganizations(accessToken = "") {
@@ -649,6 +668,7 @@ async function fetchOrganizations(accessToken = "") {
     return null;
   }
 
+  signalUnderparNetworkActivity(1, "ims-login-orgs");
   try {
     const response = await fetch(IMS_ORGS_URL, {
       method: "GET",
@@ -665,6 +685,8 @@ async function fetchOrganizations(accessToken = "") {
     return await response.json();
   } catch {
     return null;
+  } finally {
+    signalUnderparNetworkActivity(-1, "ims-login-orgs");
   }
 }
 

@@ -908,7 +908,7 @@ function getWorkspaceCardZoomLabel(cardLike = null) {
   return zoomKey ? ESM_CARD_ZOOM_LABEL_BY_KEY[zoomKey] || zoomKey : "";
 }
 
-function buildWorkspaceExportSnapshot() {
+function buildWorkspaceExportSnapshot(options = {}) {
   const cards = getOrderedCardStates().map((cardState) => ({
     cardId: String(cardState?.cardId || ""),
     endpointUrl: String(cardState?.endpointUrl || ""),
@@ -942,6 +942,10 @@ function buildWorkspaceExportSnapshot() {
     programmerName: String(state.programmerName || ""),
     requestorIds: Array.isArray(state.requestorIds) ? state.requestorIds.slice(0, 24) : [],
     mvpdIds: Array.isArray(state.mvpdIds) ? state.mvpdIds.slice(0, 24) : [],
+    vaultExportPayload:
+      options?.vaultExportPayload && typeof options.vaultExportPayload === "object"
+        ? cloneJsonCompatible(options.vaultExportPayload, null)
+        : null,
     generatedAt: generatedAt.toISOString(),
     clientTimeZone: CLIENT_TIMEZONE,
     cards,
@@ -1218,12 +1222,32 @@ function getWorkspaceLockMessage() {
   return `${getProgrammerLabel()} ${WORKSPACE_LOCK_MESSAGE_SUFFIX}`;
 }
 
-function getProgrammerConsoleApplicationsUrl() {
-  const programmerId = String(state.programmerId || "").trim();
-  if (!programmerId) {
+function buildWorkspaceProgrammerConsoleApplicationsUrl(programmerId = "", environment = null) {
+  const normalizedProgrammerId = String(programmerId || "").trim();
+  if (!normalizedProgrammerId) {
     return "";
   }
-  return `${PASS_CONSOLE_PROGRAMMER_APPLICATIONS_URL}/${encodeURIComponent(programmerId)}/applications`;
+  const resolvedEnvironment =
+    environment && typeof environment === "object"
+      ? resolveWorkspaceAdobePassEnvironment(environment)
+      : state.adobePassEnvironment && typeof state.adobePassEnvironment === "object"
+        ? resolveWorkspaceAdobePassEnvironment(state.adobePassEnvironment)
+        : resolveWorkspaceAdobePassEnvironment(DEFAULT_ADOBEPASS_ENVIRONMENT.key);
+  const programmersUrl = String(
+    resolvedEnvironment?.consoleProgrammersUrl ||
+      `${String(resolvedEnvironment?.consoleShellUrl || "").replace(/\/+$/, "")}/programmers`
+  ).replace(/\/+$/, "");
+  if (!programmersUrl) {
+    return "";
+  }
+  return `${programmersUrl}/${encodeURIComponent(normalizedProgrammerId)}/applications`;
+}
+
+function getProgrammerConsoleApplicationsUrl() {
+  return buildWorkspaceProgrammerConsoleApplicationsUrl(
+    String(state.programmerId || "").trim(),
+    state.adobePassEnvironment
+  );
 }
 
 function buildNotPremiumConsoleLinkHtml(serviceLabel = "ESM") {
@@ -3602,32 +3626,64 @@ function applyControllerState(payload) {
   const previousProgrammerId = String(state.programmerId || "");
   const previousProgrammerName = String(state.programmerName || "");
   const previousProgrammerKey = getProgrammerIdentityKey(previousProgrammerId, previousProgrammerName);
+  const incomingProgrammerId = String(payload?.programmerId || "");
+  const incomingProgrammerName = String(payload?.programmerName || "");
+  const sameProgrammerIdentity = !hasProgrammerIdentityChanged(
+    previousProgrammerId,
+    previousProgrammerName,
+    incomingProgrammerId,
+    incomingProgrammerName
+  );
   const controllerReason = String(payload?.controllerReason || "").trim().toLowerCase();
+  const hasWorkspaceCards = hasWorkspaceCardContext();
+  const hasActiveWorkspaceContext =
+    hasWorkspaceCards ||
+    state.batchRunning ||
+    Boolean(String(state.pendingAutoRerunProgrammerKey || "").trim()) ||
+    Boolean(String(state.autoRerunInFlightProgrammerKey || "").trim());
+
+  let nextEsmAvailable = null;
+  if (payload?.esmAvailable === true) {
+    nextEsmAvailable = true;
+  } else if (payload?.esmAvailable === false) {
+    nextEsmAvailable = false;
+  }
+
+  let nextEsmAvailabilityResolved = false;
+  if (payload?.esmAvailabilityResolved === true) {
+    nextEsmAvailabilityResolved = true;
+  } else if (payload?.esmAvailabilityResolved === false) {
+    nextEsmAvailabilityResolved = false;
+  } else {
+    nextEsmAvailabilityResolved = nextEsmAvailable === true || nextEsmAvailable === false;
+  }
+
+  let nextEsmContainerVisible = null;
+  if (payload?.esmContainerVisible === true) {
+    nextEsmContainerVisible = true;
+  } else if (payload?.esmContainerVisible === false) {
+    nextEsmContainerVisible = false;
+  }
+
+  const shouldIgnoreTransientEsmDowngrade =
+    nextEsmAvailable === false &&
+    state.esmAvailable === true &&
+    sameProgrammerIdentity &&
+    !environmentChanged &&
+    hasActiveWorkspaceContext;
+
+  if (shouldIgnoreTransientEsmDowngrade) {
+    nextEsmAvailable = true;
+    nextEsmAvailabilityResolved = true;
+    nextEsmContainerVisible = true;
+  }
 
   state.controllerOnline = payload?.controllerOnline === true;
-  if (payload?.esmAvailable === true) {
-    state.esmAvailable = true;
-  } else if (payload?.esmAvailable === false) {
-    state.esmAvailable = false;
-  } else {
-    state.esmAvailable = null;
-  }
-  if (payload?.esmAvailabilityResolved === true) {
-    state.esmAvailabilityResolved = true;
-  } else if (payload?.esmAvailabilityResolved === false) {
-    state.esmAvailabilityResolved = false;
-  } else {
-    state.esmAvailabilityResolved = state.esmAvailable === true || state.esmAvailable === false;
-  }
-  if (payload?.esmContainerVisible === true) {
-    state.esmContainerVisible = true;
-  } else if (payload?.esmContainerVisible === false) {
-    state.esmContainerVisible = false;
-  } else {
-    state.esmContainerVisible = null;
-  }
-  state.programmerId = String(payload?.programmerId || "");
-  state.programmerName = String(payload?.programmerName || "");
+  state.esmAvailable = nextEsmAvailable;
+  state.esmAvailabilityResolved = nextEsmAvailabilityResolved;
+  state.esmContainerVisible = nextEsmContainerVisible;
+  state.programmerId = incomingProgrammerId;
+  state.programmerName = incomingProgrammerName;
   state.requestorIds = Array.isArray(payload?.requestorIds)
     ? payload.requestorIds.map((value) => String(value || "").trim()).filter(Boolean)
     : [];
@@ -3653,7 +3709,6 @@ function applyControllerState(payload) {
     state.programmerId,
     state.programmerName
   );
-  const hasWorkspaceCards = hasWorkspaceCardContext();
   if (programmerChanged || environmentChanged) {
     state.batchRunning = false;
     state.autoRerunInFlightProgrammerKey = "";
@@ -3844,11 +3899,13 @@ async function makeClickEsmWorkspaceDownload() {
   }
   setStatus("", "info");
   try {
-    const snapshot = buildWorkspaceExportSnapshot();
     const authResult = await sendWorkspaceAction("resolve-clickesmws-auth");
     if (!authResult?.ok) {
       throw new Error(authResult?.error || "Unable to resolve clickESM workspace credentials.");
     }
+    const snapshot = buildWorkspaceExportSnapshot({
+      vaultExportPayload: authResult?.vaultExportPayload || null,
+    });
     const [templateHtml, runtimeScriptText, stylesheetText] = await Promise.all([
       loadWorkspaceTearsheetTemplateText(),
       loadWorkspaceTearsheetRuntimeText(),

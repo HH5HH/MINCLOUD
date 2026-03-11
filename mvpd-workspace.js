@@ -3884,7 +3884,7 @@ function serializeCardForWorkspaceExport(cardState) {
   };
 }
 
-function buildWorkspaceExportSnapshot() {
+function buildWorkspaceExportSnapshot(options = {}) {
   const cards = getOrderedCmCardStates()
     .map((cardState) => serializeCardForWorkspaceExport(cardState))
     .filter(Boolean);
@@ -3917,6 +3917,10 @@ function buildWorkspaceExportSnapshot() {
     profileHarvest,
     profileHarvestList,
     cards,
+    vaultExportPayload:
+      options?.vaultExportPayload && typeof options.vaultExportPayload === "object"
+        ? cloneJsonCompatible(options.vaultExportPayload, null)
+        : null,
     generatedAt: generatedAt.toISOString(),
     clientTimeZone: CLIENT_TIMEZONE,
   };
@@ -4144,11 +4148,13 @@ async function makeClickMvpdWorkspaceDownload() {
   }
   try {
     setStatus("");
-    const snapshot = buildWorkspaceExportSnapshot();
     const authResult = await sendWorkspaceAction("resolve-clickcmuws-auth");
     if (!authResult?.ok) {
       throw new Error(authResult?.error || "Unable to resolve clickCMU workspace credentials.");
     }
+    const snapshot = buildWorkspaceExportSnapshot({
+      vaultExportPayload: authResult?.vaultExportPayload || null,
+    });
     const [templateHtml, runtimeScriptText, stylesheetText] = await Promise.all([
       loadWorkspaceTearsheetTemplateText(),
       loadWorkspaceTearsheetRuntimeText(),

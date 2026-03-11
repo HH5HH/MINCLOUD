@@ -641,13 +641,35 @@ input[type="datetime-local"] {
 }
 
 .workspace-net-indicator {
+  position: relative;
   width: 18px;
   height: 18px;
-  border-radius: 999px;
-  border: 2.5px solid var(--meg-spinner-track);
-  border-top-color: var(--meg-spinner-head);
   flex: 0 0 auto;
-  animation: workspace-net-spin 0.8s linear infinite;
+  border-radius: 999px;
+  background: transparent;
+  isolation: isolate;
+}
+
+.workspace-net-indicator::before,
+.workspace-net-indicator::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.workspace-net-indicator::before {
+  inset: -4px;
+  background: radial-gradient(circle, var(--meg-spinner-track) 0 46%, transparent 74%);
+  opacity: 0.38;
+  transform: scale(0.74);
+  animation: workspace-net-throb 980ms ease-in-out infinite;
+}
+
+.workspace-net-indicator::after {
+  inset: 4px;
+  background: radial-gradient(circle, var(--meg-spinner-head) 0 58%, rgba(255, 255, 255, 0.86) 72%, rgba(255, 255, 255, 0) 100%);
+  box-shadow: 0 0 14px var(--meg-spinner-head);
 }
 
 .workspace-icon-btn--rerun.net-busy {
@@ -658,13 +680,16 @@ input[type="datetime-local"] {
   display: none;
 }
 
-@keyframes workspace-net-spin {
-  from {
-    transform: rotate(0deg);
+@keyframes workspace-net-throb {
+  0%,
+  100% {
+    opacity: 0.34;
+    transform: scale(0.76);
   }
 
-  to {
-    transform: rotate(360deg);
+  50% {
+    opacity: 0.96;
+    transform: scale(1);
   }
 }
 
@@ -1265,6 +1290,37 @@ body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"],
 body.meg-standalone-mode[data-theme="retro"] .meg-saved-query-name,
 body.meg-standalone-mode[data-theme="retro"] .meg-saved-query-select {
   background: #ffffff;
+}
+
+body.meg-standalone-mode[data-theme="retro"] #fldEsmUrl,
+body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"] {
+  color: #111111;
+  caret-color: #111111;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+body.meg-standalone-mode[data-theme="retro"] #fldEsmUrl::placeholder {
+  color: #666666;
+}
+
+body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"]::-webkit-datetime-edit,
+body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"]::-webkit-datetime-edit-fields-wrapper,
+body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"]::-webkit-datetime-edit-text,
+body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"]::-webkit-datetime-edit-month-field,
+body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"]::-webkit-datetime-edit-day-field,
+body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"]::-webkit-datetime-edit-year-field,
+body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"]::-webkit-datetime-edit-hour-field,
+body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"]::-webkit-datetime-edit-minute-field {
+  color: inherit;
+  font: inherit;
+  opacity: 1;
+}
+
+body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+  opacity: 0.92;
 }
 
 body.meg-standalone-mode[data-theme="retro"] .workspace-icon-btn:hover:not(:disabled),

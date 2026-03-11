@@ -52,6 +52,12 @@
   --service-degradation-go-active-top: rgba(201, 240, 111, 1);
   --service-degradation-go-active-bottom: rgba(145, 194, 45, 1);
   --service-degradation-go-active-ink: #182806;
+  --underpar-avatar-halo-lime: rgba(166, 223, 76, 0.72);
+  --underpar-avatar-halo-amber: rgba(255, 206, 98, 0.76);
+  --underpar-avatar-halo-coral: rgba(255, 138, 83, 0.72);
+  --underpar-avatar-halo-rose: rgba(255, 103, 156, 0.62);
+  --underpar-avatar-halo-gold: rgba(255, 238, 186, 0.68);
+  --underpar-avatar-halo-sheen: rgba(255, 255, 255, 0.34);
   --underpar-esm-search-width: 172px;
   --underpar-esm-search-min-width: 56px;
   --underpar-esm-toolbar-min-width: 392px;
@@ -84,16 +90,12 @@ body {
 }
 
 body.net-busy,
-body[aria-busy="true"],
-body:has(.net-busy),
-body:has([aria-busy="true"]) {
+body[aria-busy="true"] {
   cursor: progress;
 }
 
 body.net-busy *,
-body[aria-busy="true"] *,
-body:has(.net-busy) *,
-body:has([aria-busy="true"]) * {
+body[aria-busy="true"] * {
   cursor: progress !important;
 }
 
@@ -245,22 +247,47 @@ body:has([aria-busy="true"]) * {
   transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease, opacity 120ms ease;
   justify-self: end;
   overflow: visible;
+  isolation: isolate;
 }
 
 .auth-btn::before {
   content: "";
   position: absolute;
-  inset: -5px;
-  padding: 2px;
-  border-radius: 18px;
-  background: conic-gradient(from 0deg, #79ff8d, #ffe468, #ff8a47, #ff63bf, #66d6ff, #79ff8d);
+  inset: -7px;
+  padding: 3px;
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 18% 18%, var(--underpar-avatar-halo-sheen) 0 7%, transparent 19%),
+    radial-gradient(circle at 82% 84%, rgba(255, 187, 138, 0.26) 0 10%, transparent 24%),
+    conic-gradient(
+      from 212deg,
+      rgba(166, 223, 76, 0.12) 0deg,
+      var(--underpar-avatar-halo-lime) 52deg,
+      var(--underpar-avatar-halo-gold) 86deg,
+      var(--underpar-avatar-halo-amber) 132deg,
+      var(--underpar-avatar-halo-coral) 206deg,
+      var(--underpar-avatar-halo-rose) 282deg,
+      rgba(255, 240, 188, 0.56) 334deg,
+      rgba(166, 223, 76, 0.12) 360deg
+    );
+  opacity: 0;
+  transform: scale(0.94) rotate(0deg);
+  filter: blur(2.4px) saturate(1.04);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 0 14px rgba(255, 206, 98, 0.12),
+    0 0 18px rgba(255, 103, 156, 0.08);
   -webkit-mask:
     linear-gradient(#000 0 0) content-box,
     linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
   mask-composite: exclude;
-  opacity: 0;
   pointer-events: none;
+  z-index: -1;
+  will-change: transform, opacity, box-shadow, filter;
 }
 
 .auth-btn::after {
@@ -289,13 +316,11 @@ body:has([aria-busy="true"]) * {
     0 16px 28px rgba(112, 55, 0, 0.3);
 }
 
+.auth-btn.net-busy::before,
 body.net-busy .auth-btn::before,
-body[aria-busy="true"] .auth-btn::before,
-body:has(.net-busy) .auth-btn::before,
-body:has([aria-busy="true"]) .auth-btn::before {
+body[aria-busy="true"] .auth-btn::before {
   opacity: 1;
-  animation: underpar-network-ring-spin 880ms linear infinite;
-  filter: drop-shadow(0 0 10px rgba(255, 183, 56, 0.48));
+  animation: underpar-network-glass-ring 1460ms cubic-bezier(0.37, 0, 0.22, 1) infinite;
 }
 
 .auth-btn:disabled {
@@ -317,9 +342,28 @@ body:has([aria-busy="true"]) .auth-btn::before {
   opacity: 1;
 }
 
-@keyframes underpar-network-ring-spin {
-  to {
-    transform: rotate(360deg);
+@keyframes underpar-network-glass-ring {
+  0%,
+  100% {
+    transform: scale(0.95) rotate(0deg);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.12),
+      0 0 12px rgba(255, 206, 98, 0.12),
+      0 0 16px rgba(166, 223, 76, 0.12),
+      0 0 18px rgba(255, 103, 156, 0.08);
+    opacity: 0.5;
+    filter: blur(2.6px) saturate(1.04);
+  }
+
+  50% {
+    transform: scale(1.03) rotate(180deg);
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.18),
+      0 0 16px rgba(255, 206, 98, 0.18),
+      0 0 22px rgba(166, 223, 76, 0.18),
+      0 0 26px rgba(255, 103, 156, 0.14);
+    opacity: 0.88;
+    filter: blur(1.5px) saturate(1.18);
   }
 }
 
@@ -1039,6 +1083,18 @@ select:disabled {
   background: linear-gradient(180deg, var(--service-accent-soft), var(--legacy-table-head));
 }
 
+.premium-service-section .service-box-details {
+  display: block;
+}
+
+.premium-service-section .service-box-details > summary {
+  list-style: none;
+}
+
+.premium-service-section .service-box-details > summary::-webkit-details-marker {
+  display: none;
+}
+
 .premium-service-section .metadata-header.service-box-header::before {
   content: "";
   position: absolute;
@@ -1055,6 +1111,14 @@ select:disabled {
 
 .premium-service-section .metadata-header .collapse-icon {
   color: var(--service-accent-ink);
+}
+
+.premium-service-section .service-box-details[open] > .metadata-header .collapse-icon {
+  transform: rotate(0deg);
+}
+
+.premium-service-section .service-box-details:not([open]) > .metadata-header .collapse-icon {
+  transform: rotate(-90deg);
 }
 
 .premium-service-section .service-box-container {
@@ -2292,6 +2356,7 @@ select:disabled {
 .rest-v2-login-actions {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
   min-width: 0;
 }
@@ -2299,11 +2364,12 @@ select:disabled {
 .rest-v2-login-actions-left {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: center;
   gap: 8px;
   min-width: 0;
   flex: 1 1 auto;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .rest-v2-test-login-btn {

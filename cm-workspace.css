@@ -308,13 +308,35 @@ body::after {
 }
 
 .workspace-net-indicator {
+  position: relative;
   width: 14px;
   height: 14px;
-  border-radius: 999px;
-  border: 2px solid var(--workspace-net-indicator-track);
-  border-top-color: var(--workspace-net-indicator-head);
-  animation: workspace-net-spin 0.8s linear infinite;
   flex: 0 0 auto;
+  border-radius: 999px;
+  background: transparent;
+  isolation: isolate;
+}
+
+.workspace-net-indicator::before,
+.workspace-net-indicator::after {
+  content: "";
+  position: absolute;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.workspace-net-indicator::before {
+  inset: -4px;
+  background: radial-gradient(circle, var(--workspace-net-indicator-track) 0 46%, transparent 74%);
+  opacity: 0.36;
+  transform: scale(0.74);
+  animation: workspace-net-throb 980ms ease-in-out infinite;
+}
+
+.workspace-net-indicator::after {
+  inset: 3px;
+  background: radial-gradient(circle, var(--workspace-net-indicator-head) 0 58%, rgba(255, 255, 255, 0.88) 72%, rgba(255, 255, 255, 0) 100%);
+  box-shadow: 0 0 12px var(--workspace-net-indicator-head);
 }
 
 .workspace-icon-btn--rerun.net-busy {
@@ -472,9 +494,16 @@ body.workspace-locked .workspace-cards {
   z-index: 3;
 }
 
-@keyframes workspace-net-spin {
-  to {
-    transform: rotate(360deg);
+@keyframes workspace-net-throb {
+  0%,
+  100% {
+    opacity: 0.34;
+    transform: scale(0.76);
+  }
+
+  50% {
+    opacity: 0.94;
+    transform: scale(1);
   }
 }
 

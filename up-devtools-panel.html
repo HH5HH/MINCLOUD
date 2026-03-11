@@ -8,6 +8,16 @@
   </head>
   <body>
     <main class="settings-shell">
+      <section id="controller-status-card" class="controller-card" hidden>
+        <div class="controller-card-head">
+          <span id="controller-status-badge" class="controller-status-badge">Checking</span>
+          <p id="controller-status-title" class="controller-status-title">UP panel disabled</p>
+        </div>
+        <p id="controller-status-detail" class="controller-status-detail">
+          Waiting for UnderPAR side panel status...
+        </p>
+      </section>
+
       <section class="settings-card">
         <label class="field-label" for="environment-select">Environment</label>
         <div class="control-row">
@@ -16,52 +26,98 @@
           </select>
           <button id="switch-btn" class="switch-btn" type="button">SWITCH</button>
         </div>
+        <section class="context-card up-collapsible-card settings-subcard">
+          <button
+            id="environment-urls-toggle"
+            class="up-collapsible-toggle"
+            type="button"
+            aria-expanded="true"
+            aria-controls="environment-urls-panel"
+          >
+            <span class="up-collapsible-heading">
+              <span class="up-collapsible-title">Current Environment URLs</span>
+              <span class="up-collapsible-subtitle">Console, API, and service endpoints for the active UnderPAR environment.</span>
+            </span>
+            <span class="up-collapsible-badge">10 URLs</span>
+            <span class="up-collapsible-icon" aria-hidden="true">▼</span>
+          </button>
+          <div id="environment-urls-panel" class="up-collapsible-body">
+            <dl class="context-list">
+              <div class="context-row">
+                <dt>AdobePASS Console</dt>
+                <dd id="shell-url"></dd>
+              </div>
+              <div class="context-row">
+                <dt>AdobePASS Console Base</dt>
+                <dd id="console-base"></dd>
+              </div>
+              <div class="context-row">
+                <dt>Concurrency Monitoring</dt>
+                <dd id="cm-console-url"></dd>
+              </div>
+              <div class="context-row">
+                <dt>Management</dt>
+                <dd id="mgmt-base"></dd>
+              </div>
+              <div class="context-row">
+                <dt>Service Provider</dt>
+                <dd id="sp-base"></dd>
+              </div>
+              <div class="context-row">
+                <dt>DCR Register</dt>
+                <dd id="dcr-register-url"></dd>
+              </div>
+              <div class="context-row">
+                <dt>DCR Token</dt>
+                <dd id="dcr-token-url"></dd>
+              </div>
+              <div class="context-row">
+                <dt>REST V2</dt>
+                <dd id="rest-v2-base"></dd>
+              </div>
+              <div class="context-row">
+                <dt>ESM</dt>
+                <dd id="esm-base"></dd>
+              </div>
+              <div class="context-row">
+                <dt>DEGRADATION</dt>
+                <dd id="degradation-base"></dd>
+              </div>
+            </dl>
+          </div>
+        </section>
       </section>
 
-      <section class="context-card">
-        <h2>Current Environment URLs</h2>
-        <dl class="context-list">
-          <div class="context-row">
-            <dt>AdobePASS Console</dt>
-            <dd id="shell-url"></dd>
+      <section class="context-card up-collapsible-card vault-card">
+        <button
+          id="vault-toggle"
+          class="up-collapsible-toggle"
+          type="button"
+          aria-expanded="false"
+          aria-controls="vault-panel"
+        >
+          <span class="up-collapsible-heading">
+            <span class="up-collapsible-title">VAULT</span>
+            <span class="up-collapsible-subtitle">On-demand snapshot of all locally stored UnderPAR memory for this extension context.</span>
+          </span>
+          <span id="vault-badge" class="up-collapsible-badge">Pending</span>
+          <span class="up-collapsible-icon" aria-hidden="true">▼</span>
+        </button>
+        <div id="vault-panel" class="up-collapsible-body" hidden>
+          <div class="vault-toolbar">
+            <p id="vault-status" class="vault-status">Open VAULT to populate and inspect current UnderPAR storage surfaces.</p>
+            <div class="vault-toolbar-actions">
+              <button id="vault-export-btn" class="vault-refresh-btn" type="button">EXPORT VAULT</button>
+              <button id="vault-import-btn" class="vault-refresh-btn" type="button">IMPORT VAULT</button>
+              <button id="vault-purge-btn" class="vault-refresh-btn vault-refresh-btn--danger" type="button">PURGE VAULT</button>
+            </div>
           </div>
-          <div class="context-row">
-            <dt>AdobePASS Console Base</dt>
-            <dd id="console-base"></dd>
-          </div>
-          <div class="context-row">
-            <dt>Concurrency Monitoring</dt>
-            <dd id="cm-console-url"></dd>
-          </div>
-          <div class="context-row">
-            <dt>Management</dt>
-            <dd id="mgmt-base"></dd>
-          </div>
-          <div class="context-row">
-            <dt>Service Provider</dt>
-            <dd id="sp-base"></dd>
-          </div>
-          <div class="context-row">
-            <dt>DCR Register</dt>
-            <dd id="dcr-register-url"></dd>
-          </div>
-          <div class="context-row">
-            <dt>DCR Token</dt>
-            <dd id="dcr-token-url"></dd>
-          </div>
-          <div class="context-row">
-            <dt>REST V2</dt>
-            <dd id="rest-v2-base"></dd>
-          </div>
-          <div class="context-row">
-            <dt>ESM</dt>
-            <dd id="esm-base"></dd>
-          </div>
-          <div class="context-row">
-            <dt>DEGRADATION</dt>
-            <dd id="degradation-base"></dd>
-          </div>
-        </dl>
+          <div id="vault-summary" class="vault-summary"></div>
+          <div id="vault-pass-summary" class="vault-pass-summary"></div>
+          <div id="vault-pass-records" class="vault-pass-records"></div>
+          <div id="vault-sections" class="vault-sections"></div>
+          <input id="vault-import-input" type="file" accept=".csv,text/csv" hidden />
+        </div>
       </section>
     </main>
 

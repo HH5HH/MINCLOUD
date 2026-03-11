@@ -26,6 +26,7 @@ const MEG_WORKSPACE_PAYLOAD_NODE_ID = "meg-workspace-payload";
 const MEG_SAVED_QUERY_BRIDGE_MESSAGE_TYPE = "underpar:meg-saved-query-bridge";
 const MEG_SAVED_QUERY_BRIDGE_RESPONSE_TYPE = `${MEG_SAVED_QUERY_BRIDGE_MESSAGE_TYPE}:response`;
 const MEG_SAVED_QUERY_BRIDGE_TIMEOUT_MS = 4000;
+const UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE = "underpar:networkActivity";
 const MEG_RETRO_NUMBER_FORMATTER = new Intl.NumberFormat("en-US");
 const DEFAULT_MEG_URLS = Object.freeze([
   "/esm/v3/media-company/year?requestor-id&api&metrics=authz-successful,media-tokens",
@@ -166,14 +167,13 @@ function getMegStandaloneSavedQueryRecords() {
   return rawRecords
     .map((entry) => {
       const name = normalizeSavedQueryName(entry?.name || "");
-      const explicitRequestorId = entry?.explicitRequestorId === true;
       const url = stripMegScopedQueryParams(String(entry?.url || "").trim(), {
-        stripRequestorId: explicitRequestorId !== true,
+        stripRequestorId: true,
       });
       if (!name || !url) {
         return null;
       }
-      return { name, url, explicitRequestorId };
+      return { name, url };
     })
     .filter(Boolean);
 }
@@ -493,24 +493,6 @@ function stripMegMediaCompanyQueryParam(rawUrl = "") {
   return stripMegScopedQueryParams(rawUrl);
 }
 
-function megUrlHasQueryParam(rawUrl = "", queryKey = "") {
-  const normalizedUrl = String(rawUrl || "").trim();
-  const normalizedQueryKey = String(queryKey || "").trim().toLowerCase();
-  if (!normalizedUrl || !normalizedQueryKey) {
-    return false;
-  }
-  const hasAbsoluteScheme = /^[a-z][a-z\d+.-]*:/i.test(normalizedUrl);
-  try {
-    const parsed = hasAbsoluteScheme ? new URL(normalizedUrl) : new URL(normalizedUrl, "https://example.invalid");
-    return parsed.searchParams.has(normalizedQueryKey);
-  } catch (_error) {
-    const withoutHash = normalizedUrl.split("#")[0] || "";
-    const [, query = ""] = withoutHash.split("?");
-    const params = new URLSearchParams(query);
-    return params.has(normalizedQueryKey);
-  }
-}
-
 function logMegConsoleUrl(label = "URL", urlValue = "") {
   const resolvedUrl = buildMegAbsoluteUrl(urlValue);
   if (!resolvedUrl) {
@@ -691,6 +673,16 @@ function setMegToken(token = "") {
 }
 
 async function refreshMegToken() {
+  const reportActivity = Boolean(chrome?.runtime?.sendMessage);
+  if (reportActivity) {
+    void chrome.runtime
+      .sendMessage({
+        type: UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE,
+        delta: 1,
+        context: "meg-token-refresh",
+      })
+      .catch(() => {});
+  }
   const cid = getEmbeddedInputValue("cid");
   const csc = getEmbeddedInputValue("csc");
   const spBase = String(
@@ -700,25 +692,37 @@ async function refreshMegToken() {
     throw new Error("Missing MEGTOOL credentials for token refresh.");
   }
 
-  const response = await fetch(
-    `${spBase.replace(/\/+$/, "")}/o/client/token?grant_type=client_credentials&client_id=${encodeURIComponent(
-      cid
-    )}&client_secret=${encodeURIComponent(csc)}`,
-    {
-      method: "POST",
+  try {
+    const response = await fetch(
+      `${spBase.replace(/\/+$/, "")}/o/client/token?grant_type=client_credentials&client_id=${encodeURIComponent(
+        cid
+      )}&client_secret=${encodeURIComponent(csc)}`,
+      {
+        method: "POST",
+      }
+    );
+    if (!response.ok) {
+      const bodyText = await response.text().catch(() => "");
+      throw new Error(`Unable to refresh MEGTOOL token (HTTP ${response.status}${bodyText ? ` ${bodyText.trim()}` : ""}).`);
     }
-  );
-  if (!response.ok) {
-    const bodyText = await response.text().catch(() => "");
-    throw new Error(`Unable to refresh MEGTOOL token (HTTP ${response.status}${bodyText ? ` ${bodyText.trim()}` : ""}).`);
+    const payload = await response.json().catch(() => null);
+    const accessToken = String(payload?.access_token || "").trim();
+    if (!accessToken) {
+      throw new Error("Token refresh did not return an access token.");
+    }
+    setMegToken(accessToken);
+    return accessToken;
+  } finally {
+    if (reportActivity) {
+      void chrome.runtime
+        .sendMessage({
+          type: UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE,
+          delta: -1,
+          context: "meg-token-refresh",
+        })
+        .catch(() => {});
+    }
   }
-  const payload = await response.json().catch(() => null);
-  const accessToken = String(payload?.access_token || "").trim();
-  if (!accessToken) {
-    throw new Error("Token refresh did not return an access token.");
-  }
-  setMegToken(accessToken);
-  return accessToken;
 }
 
 function megWorkspaceApplyFormatToPath(pathname = "", format = "") {
@@ -746,6 +750,16 @@ function buildMegRequestUrl(rawUrl = "", format = "json") {
 }
 
 async function megStandaloneFetchResponse(rawUrl = "", format = "json") {
+  const reportActivity = Boolean(chrome?.runtime?.sendMessage);
+  if (reportActivity) {
+    void chrome.runtime
+      .sendMessage({
+        type: UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE,
+        delta: 1,
+        context: "meg-standalone-fetch",
+      })
+      .catch(() => {});
+  }
   const requestUrl = buildMegRequestUrl(rawUrl, format);
   if (!requestUrl) {
     throw new Error("ESM endpoint URL is required.");
@@ -756,32 +770,44 @@ async function megStandaloneFetchResponse(rawUrl = "", format = "json") {
     token = await refreshMegToken();
   }
 
-  let response = await fetch(requestUrl, {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-
-  if (response.status === 401) {
-    token = await refreshMegToken();
-    response = await fetch(requestUrl, {
+  try {
+    let response = await fetch(requestUrl, {
       method: "GET",
       headers: {
         Authorization: `Bearer ${token}`,
       },
     });
-  }
 
-  const bodyText = await response.text().catch(() => "");
-  return {
-    requestUrl,
-    responseOk: response.ok,
-    status: Number(response.status || 0),
-    statusText: String(response.statusText || ""),
-    bodyText,
-    contentType: String(response.headers.get("content-type") || ""),
-  };
+    if (response.status === 401) {
+      token = await refreshMegToken();
+      response = await fetch(requestUrl, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+    }
+
+    const bodyText = await response.text().catch(() => "");
+    return {
+      requestUrl,
+      responseOk: response.ok,
+      status: Number(response.status || 0),
+      statusText: String(response.statusText || ""),
+      bodyText,
+      contentType: String(response.headers.get("content-type") || ""),
+    };
+  } finally {
+    if (reportActivity) {
+      void chrome.runtime
+        .sendMessage({
+          type: UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE,
+          delta: -1,
+          context: "meg-standalone-fetch",
+        })
+        .catch(() => {});
+    }
+  }
 }
 
 function getProgrammerLabel() {
@@ -1227,12 +1253,7 @@ function seedStandaloneSavedQueries() {
   }
   records.forEach((record) => {
     try {
-      localStorage.setItem(
-        buildSavedQueryStorageKey(record.name),
-        buildSavedQueryPayload(record.name, record.url, {
-          explicitRequestorId: record?.explicitRequestorId === true,
-        })
-      );
+      localStorage.setItem(buildSavedQueryStorageKey(record.name), buildSavedQueryPayload(record.name, record.url));
     } catch (error) {
       ack(`Saved query standalone seed failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -2169,11 +2190,10 @@ function buildSavedQueryStorageKey(name = "") {
   return `${SAVED_QUERY_STORAGE_PREFIX}${encodeURIComponent(String(name || "").trim())}`;
 }
 
-function buildSavedQueryRecord(name = "", rawUrl = "", options = {}) {
+function buildSavedQueryRecord(name = "", rawUrl = "") {
   const normalizedName = normalizeSavedQueryName(name);
-  const explicitRequestorId = options?.explicitRequestorId === true;
   const normalizedUrl = stripMegScopedQueryParams(String(rawUrl || "").trim(), {
-    stripRequestorId: explicitRequestorId !== true,
+    stripRequestorId: true,
   });
   if (!normalizedName || !normalizedUrl) {
     return null;
@@ -2181,20 +2201,15 @@ function buildSavedQueryRecord(name = "", rawUrl = "", options = {}) {
   return {
     name: normalizedName,
     url: normalizedUrl,
-    explicitRequestorId,
   };
 }
 
-function buildSavedQueryPayload(name = "", esmUrl = "", options = {}) {
-  const record = buildSavedQueryRecord(name, esmUrl, options);
+function buildSavedQueryPayload(name = "", esmUrl = "") {
+  const record = buildSavedQueryRecord(name, esmUrl);
   if (!record) {
     return "";
   }
-  return JSON.stringify({
-    name: record.name,
-    url: record.url,
-    explicitRequestorId: record.explicitRequestorId,
-  });
+  return record.url;
 }
 
 function parseSavedQueryRecord(storageKey = "", payload = "") {
@@ -2202,13 +2217,12 @@ function parseSavedQueryRecord(storageKey = "", payload = "") {
   if (!normalizedStorageKey.startsWith(SAVED_QUERY_STORAGE_PREFIX)) {
     return null;
   }
+  const storedName = decodeURIComponent(normalizedStorageKey.slice(SAVED_QUERY_STORAGE_PREFIX.length) || "");
   const normalizedPayload = String(payload || "").trim();
   try {
     const parsed = JSON.parse(normalizedPayload);
     if (parsed && typeof parsed === "object") {
-      const record = buildSavedQueryRecord(parsed.name || "", parsed.url || parsed.esmUrl || "", {
-        explicitRequestorId: parsed.explicitRequestorId === true,
-      });
+      const record = buildSavedQueryRecord(parsed.name || storedName, parsed.url || parsed.esmUrl || "");
       if (record) {
         return {
           storageKey: normalizedStorageKey,
@@ -2221,11 +2235,7 @@ function parseSavedQueryRecord(storageKey = "", payload = "") {
   }
   const separatorIndex = normalizedPayload.indexOf("|");
   if (separatorIndex <= 0) {
-    const record = buildSavedQueryRecord(
-      decodeURIComponent(normalizedStorageKey.slice(SAVED_QUERY_STORAGE_PREFIX.length) || ""),
-      normalizedPayload,
-      { explicitRequestorId: false }
-    );
+    const record = buildSavedQueryRecord(storedName, normalizedPayload);
     if (record) {
       return {
         storageKey: normalizedStorageKey,
@@ -2236,8 +2246,7 @@ function parseSavedQueryRecord(storageKey = "", payload = "") {
   }
   const record = buildSavedQueryRecord(
     normalizedPayload.slice(0, separatorIndex),
-    String(normalizedPayload.slice(separatorIndex + 1) || "").trim(),
-    { explicitRequestorId: false }
+    String(normalizedPayload.slice(separatorIndex + 1) || "").trim()
   );
   if (!record) {
     return null;
@@ -2259,9 +2268,7 @@ function getSavedQueryRecords() {
       const payload = localStorage.getItem(storageKey);
       const record = parseSavedQueryRecord(storageKey, payload);
       if (record) {
-        const normalizedPayload = buildSavedQueryPayload(record.name, record.url, {
-          explicitRequestorId: record.explicitRequestorId === true,
-        });
+        const normalizedPayload = buildSavedQueryPayload(record.name, record.url);
         if (payload !== normalizedPayload) {
           localStorage.setItem(storageKey, normalizedPayload);
         }
@@ -2345,9 +2352,8 @@ async function loadSavedQueryRecords() {
       return rawRecords
         .map((record) => {
           const name = normalizeSavedQueryName(record?.name || "");
-          const explicitRequestorId = record?.explicitRequestorId === true;
           const url = stripMegScopedQueryParams(String(record?.url || "").trim(), {
-            stripRequestorId: explicitRequestorId !== true,
+            stripRequestorId: true,
           });
           const storageKey = String(record?.storageKey || buildSavedQueryStorageKey(name)).trim();
           if (!name || !url || !storageKey) {
@@ -2357,7 +2363,6 @@ async function loadSavedQueryRecords() {
             storageKey,
             name,
             url,
-            explicitRequestorId,
           };
         })
         .filter(Boolean)
@@ -2376,21 +2381,15 @@ async function refreshSavedQuerySelect(preferredStorageKey = "") {
 
 async function persistSavedQueryRecord(queryName = "", esmUrl = "") {
   const storageKey = buildSavedQueryStorageKey(queryName);
-  const explicitRequestorId = megUrlHasQueryParam(esmUrl, "requestor-id");
   const sanitizedUrl = stripMegScopedQueryParams(esmUrl, {
-    stripRequestorId: explicitRequestorId !== true,
+    stripRequestorId: true,
   });
-  const nextPayload = buildSavedQueryPayload(queryName, sanitizedUrl, {
-    explicitRequestorId,
-  });
+  const nextPayload = buildSavedQueryPayload(queryName, sanitizedUrl);
   if (canUseMegSavedQueryBridge()) {
     try {
       const result = await requestMegSavedQueryBridge("put-record", {
         name: queryName,
         url: sanitizedUrl,
-        explicitRequestorId,
-        storageKey,
-        payload: nextPayload,
       });
       return {
         storageKey: String(result?.storageKey || storageKey).trim(),
@@ -2438,9 +2437,8 @@ function reportSavedQueryStatus(message = "", type = "info") {
 async function saveCurrentQuery() {
   const queryName = normalizeSavedQueryName(fldSavedQueryName?.value || "");
   const rawEsmUrl = String(fldEsmUrl?.value || "").trim();
-  const explicitRequestorId = megUrlHasQueryParam(rawEsmUrl, "requestor-id");
   const esmUrl = stripMegScopedQueryParams(rawEsmUrl, {
-    stripRequestorId: explicitRequestorId !== true,
+    stripRequestorId: true,
   });
   if (!queryName) {
     reportSavedQueryStatus("Query Name is required to save a Saved ESM Query.", "error");

@@ -12,6 +12,7 @@ const CM_WORKSPACE_RUNTIME_SCOPE_INPUT_NAME = "cm_scope";
 const CM_WORKSPACE_PRIMARY_CLIENT_ID = "cm-console-ui";
 const CM_WORKSPACE_IMS_VALIDATE_TOKEN_URL = "https://ims-na1.adobelogin.com/ims/validate_token/v1?jslVersion=underpar-clickcmuws";
 const CM_WORKSPACE_IMS_CHECK_TOKEN_URL = "https://adobeid-na1.services.adobe.com/ims/check/v6/token";
+const UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE = "underpar:networkActivity";
 let CM_WORKSPACE_CONSOLE_ORIGIN = "https://experience.adobe.com";
 let CM_WORKSPACE_CONSOLE_REFERER = `${CM_WORKSPACE_CONSOLE_ORIGIN}/`;
 const CM_WORKSPACE_REPORTS_ORIGIN = "https://cdn.experience.adobe.net";
@@ -726,6 +727,19 @@ function ensureCmuQueryDefaults(urlValue, limitValue = 1000, tenantScope = "") {
 }
 
 async function fetchWithTimeout(url, init = {}, timeoutMs = CM_WORKSPACE_FETCH_TIMEOUT_MS) {
+  const reportActivity =
+    chrome?.runtime?.sendMessage && /^https?:\/\//i.test(String(url || "").trim())
+      ? Math.trunc
+      : null;
+  if (reportActivity) {
+    void chrome.runtime
+      .sendMessage({
+        type: UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE,
+        delta: 1,
+        context: "cm-workspace-fetch",
+      })
+      .catch(() => {});
+  }
   const controller = new AbortController();
   const timerId = window.setTimeout(() => controller.abort(), Math.max(2000, Number(timeoutMs) || CM_WORKSPACE_FETCH_TIMEOUT_MS));
   try {
@@ -735,6 +749,15 @@ async function fetchWithTimeout(url, init = {}, timeoutMs = CM_WORKSPACE_FETCH_T
     });
   } finally {
     window.clearTimeout(timerId);
+    if (reportActivity) {
+      void chrome.runtime
+        .sendMessage({
+          type: UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE,
+          delta: -1,
+          context: "cm-workspace-fetch",
+        })
+        .catch(() => {});
+    }
   }
 }
 
@@ -4287,7 +4310,7 @@ function serializeCardForWorkspaceExport(cardState) {
   };
 }
 
-function buildWorkspaceExportSnapshot() {
+function buildWorkspaceExportSnapshot(options = {}) {
   const cards = getOrderedCardStates()
     .map((cardState) => serializeCardForWorkspaceExport(cardState))
     .filter(Boolean);
@@ -4310,6 +4333,10 @@ function buildWorkspaceExportSnapshot() {
       Array.isArray(state.profileHarvestList) && state.profileHarvestList.length > 0
         ? state.profileHarvestList.filter((entry) => entry && typeof entry === "object").map((entry) => ({ ...entry }))
         : [],
+    vaultExportPayload:
+      options?.vaultExportPayload && typeof options.vaultExportPayload === "object"
+        ? cloneJsonCompatible(options.vaultExportPayload, null)
+        : null,
     generatedAt: generatedAt.toISOString(),
     clientTimeZone: CLIENT_TIMEZONE,
     cards,
@@ -5047,11 +5074,13 @@ async function makeClickCmuWorkspaceDownload() {
   }
   setStatus("", "info");
   try {
-    const snapshot = buildWorkspaceExportSnapshot();
     const authResult = await sendWorkspaceAction("resolve-clickcmuws-auth");
     if (!authResult?.ok) {
       throw new Error(authResult?.error || "Unable to resolve clickCMU workspace credentials.");
     }
+    const snapshot = buildWorkspaceExportSnapshot({
+      vaultExportPayload: authResult?.vaultExportPayload || null,
+    });
     const [templateHtml, runtimeScriptText, stylesheetText] = await Promise.all([
       loadWorkspaceTearsheetTemplateText(),
       loadWorkspaceTearsheetRuntimeText(),

@@ -85,6 +85,7 @@
   };
   const CLICK_ESM_RESULT_LIMIT = 100;
   let CLICK_ESM_TOKEN_URL = "https://sp.auth.adobe.com/o/client/token";
+  const UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE = "underpar:networkActivity";
 
   const payloadNode = document.getElementById("clickesmws-payload");
   let payload = {};
@@ -120,6 +121,19 @@
     return {
       ...DEFAULT_ADOBEPASS_ENVIRONMENT,
     };
+  }
+
+  function signalUnderparNetworkActivity(delta, context) {
+    if (!chrome?.runtime?.sendMessage) {
+      return;
+    }
+    void chrome.runtime
+      .sendMessage({
+        type: UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE,
+        delta: Math.trunc(Number(delta || 0)),
+        context: String(context || "").trim(),
+      })
+      .catch(() => {});
   }
 
   function applyWorkspaceAdobePassEnvironment(environment = null) {
@@ -531,23 +545,28 @@
       throw new Error("Missing clickESM credentials for token refresh.");
     }
 
-    const response = await fetch(
-      `${CLICK_ESM_TOKEN_URL}?grant_type=client_credentials&client_id=${encodeURIComponent(cid)}&client_secret=${encodeURIComponent(csc)}`,
-      {
-        method: "POST",
+    signalUnderparNetworkActivity(1, "esm-workspace-token-refresh");
+    try {
+      const response = await fetch(
+        `${CLICK_ESM_TOKEN_URL}?grant_type=client_credentials&client_id=${encodeURIComponent(cid)}&client_secret=${encodeURIComponent(csc)}`,
+        {
+          method: "POST",
+        }
+      );
+      if (!response.ok) {
+        const bodyText = await response.text().catch(() => "");
+        throw new Error(`Unable to refresh ESM token (HTTP ${response.status}${bodyText ? ` ${bodyText.trim()}` : ""}).`);
       }
-    );
-    if (!response.ok) {
-      const bodyText = await response.text().catch(() => "");
-      throw new Error(`Unable to refresh ESM token (HTTP ${response.status}${bodyText ? ` ${bodyText.trim()}` : ""}).`);
+      const payload = await response.json().catch(() => null);
+      const accessToken = String(payload?.access_token || "").trim();
+      if (!accessToken) {
+        throw new Error("Token refresh did not return an access token.");
+      }
+      setToken(accessToken);
+      return accessToken;
+    } finally {
+      signalUnderparNetworkActivity(-1, "esm-workspace-token-refresh");
     }
-    const payload = await response.json().catch(() => null);
-    const accessToken = String(payload?.access_token || "").trim();
-    if (!accessToken) {
-      throw new Error("Token refresh did not return an access token.");
-    }
-    setToken(accessToken);
-    return accessToken;
   }
 
   async function fetchWithAuth(url) {
@@ -561,24 +580,29 @@
       token = await refreshToken();
     }
 
-    let response = await fetch(targetUrl, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (response.status === 401) {
-      token = await refreshToken();
-      response = await fetch(targetUrl, {
+    signalUnderparNetworkActivity(1, "esm-workspace-fetch");
+    try {
+      let response = await fetch(targetUrl, {
         method: "GET",
         headers: {
           Authorization: `Bearer ${token}`,
         },
       });
-    }
 
-    return response;
+      if (response.status === 401) {
+        token = await refreshToken();
+        response = await fetch(targetUrl, {
+          method: "GET",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+      }
+
+      return response;
+    } finally {
+      signalUnderparNetworkActivity(-1, "esm-workspace-fetch");
+    }
   }
 
   function clickEsmIso(date) {

@@ -22,6 +22,8 @@ const BUILD_INFO_REQUEST_TYPE = "underpar:getBuildInfo";
 const LEGACY_BUILD_INFO_REQUEST_TYPE = "mincloudlogin:getBuildInfo";
 const FETCH_AVATAR_REQUEST_TYPE = "underpar:fetchAvatarDataUrl";
 const LEGACY_FETCH_AVATAR_REQUEST_TYPE = "mincloudlogin:fetchAvatarDataUrl";
+const UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE = "underpar:networkActivity";
+const LEGACY_UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE = "mincloudlogin:networkActivity";
 const IMS_FETCH_REQUEST_TYPE = "underpar:imsFetch";
 const LEGACY_IMS_FETCH_REQUEST_TYPE = "mincloudlogin:imsFetch";
 const CM_FETCH_REQUEST_TYPE = "underpar:cmFetch";
@@ -33,6 +35,8 @@ const DEBUG_MESSAGE_TYPE_PREFIX = "underpardebug:";
 const LEGACY_DEBUG_MESSAGE_TYPE_PREFIX = "minclouddebug:";
 const DEBUG_DEVTOOLS_PORT_NAME = "underpardebug-devtools";
 const LEGACY_DEBUG_DEVTOOLS_PORT_NAME = "minclouddebug-devtools";
+const SIDEPANEL_SESSION_PORT_NAME = "underpar-sidepanel-session";
+const UP_DEVTOOLS_STATUS_PORT_NAME = "underpar-up-devtools-status";
 const DEBUG_FLOW_PERSIST_MAX = 8;
 const DEBUG_FLOW_PERSIST_DEBOUNCE_MS = 250;
 // Redirect-host filtering mode for flow capture trimming.
@@ -41,6 +45,15 @@ const DEBUG_FLOW_PERSIST_DEBOUNCE_MS = 250;
 // - "origin_except_pass": ignore entire redirect origin except PASS-critical paths
 const REDIRECT_IGNORE_MATCHER_MODE = "origin_except_pass";
 const WEB_REQUEST_FILTER = { urls: ["<all_urls>"] };
+const UNDERPAR_WORKSPACE_PATHS = Object.freeze([
+  "esm-workspace.html",
+  "meg-workspace.html",
+  "cm-workspace.html",
+  "mvpd-workspace.html",
+  "rest-workspace.html",
+  "degradation-workspace.html",
+  "bobtools-workspace.html",
+]);
 const BUILD_FINGERPRINT_FILES = [
   "manifest.json",
   "background.js",
@@ -90,12 +103,238 @@ const debugState = {
   persistIndexTimerId: 0,
 };
 
+const controllerBridgeState = {
+  sidepanelStateByPort: new Map(),
+  devtoolsStatusPorts: new Set(),
+  networkActivityCount: 0,
+  networkActivityContext: "",
+};
+
 async function configureSidePanelBehavior() {
   try {
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   } catch {
     // Ignore when side panel APIs are unavailable.
   }
+}
+
+function normalizeWindowId(value) {
+  const normalized = Number(value || 0);
+  return Number.isInteger(normalized) && normalized > 0 ? normalized : 0;
+}
+
+function buildUnderparControllerStatusSnapshot() {
+  const sidepanelStates = Array.from(controllerBridgeState.sidepanelStateByPort.values()).filter(
+    (entry) => entry && typeof entry === "object"
+  );
+  const activeWindowIds = new Set();
+  let hasReadySidepanel = false;
+  let hasRestrictedSidepanel = false;
+  let hasBootstrappingSidepanel = false;
+  let hasReportedState = false;
+
+  for (const entry of sidepanelStates) {
+    const windowId = normalizeWindowId(entry.windowId);
+    if (windowId) {
+      activeWindowIds.add(windowId);
+    }
+    if (Number(entry.reportedAt || 0) > 0) {
+      hasReportedState = true;
+    }
+    if (entry.sessionReady === true) {
+      hasReadySidepanel = true;
+    }
+    if (entry.restricted === true) {
+      hasRestrictedSidepanel = true;
+    }
+    if (entry.bootstrapping === true) {
+      hasBootstrappingSidepanel = true;
+    }
+  }
+
+  const sidepanelOpen = sidepanelStates.length > 0;
+  let status = "sidepanel-closed";
+  let message = "Open the UnderPAR side panel to re-enable this UP panel.";
+
+  if (sidepanelOpen) {
+    if (hasReadySidepanel) {
+      status = "ready";
+      message = "Connected to the UnderPAR side panel.";
+    } else if (!hasReportedState || hasBootstrappingSidepanel) {
+      status = "bootstrapping";
+      message = "UnderPAR is checking session state in the side panel.";
+    } else if (hasRestrictedSidepanel) {
+      status = "restricted";
+      message = "Resolve the restricted AdobePass state in the UnderPAR side panel.";
+    } else {
+      status = "signed-out";
+      message = "UnderPAR is signed out. Sign in from the side panel to re-enable this UP panel.";
+    }
+  }
+
+  return {
+    ready: sidepanelOpen && hasReadySidepanel,
+    sidepanelOpen,
+    activeSidepanelCount: sidepanelStates.length,
+    activeWindowIds: Array.from(activeWindowIds),
+    status,
+    message,
+    updatedAt: Date.now(),
+  };
+}
+
+function broadcastUnderparControllerStatus() {
+  const snapshot = buildUnderparControllerStatusSnapshot();
+  for (const port of controllerBridgeState.devtoolsStatusPorts) {
+    postToPortSafe(port, {
+      type: "controller-status",
+      status: snapshot,
+    });
+  }
+}
+
+function buildUnderparNetworkActivitySnapshot() {
+  const count = Math.max(0, Number(controllerBridgeState.networkActivityCount || 0));
+  return {
+    active: count > 0,
+    count,
+    context: String(controllerBridgeState.networkActivityContext || "").trim(),
+    updatedAt: Date.now(),
+  };
+}
+
+function broadcastUnderparNetworkActivity() {
+  const snapshot = buildUnderparNetworkActivitySnapshot();
+  for (const port of controllerBridgeState.sidepanelStateByPort.keys()) {
+    postToPortSafe(port, {
+      type: "network-activity",
+      activity: snapshot,
+    });
+  }
+}
+
+function beginUnderparNetworkActivity(context = "") {
+  controllerBridgeState.networkActivityCount = Math.max(0, Number(controllerBridgeState.networkActivityCount || 0)) + 1;
+  const normalizedContext = String(context || "").trim();
+  if (normalizedContext) {
+    controllerBridgeState.networkActivityContext = normalizedContext;
+  }
+  broadcastUnderparNetworkActivity();
+
+  let released = false;
+  return () => {
+    if (released) {
+      return;
+    }
+    released = true;
+    controllerBridgeState.networkActivityCount = Math.max(
+      0,
+      Number(controllerBridgeState.networkActivityCount || 0) - 1
+    );
+    if (controllerBridgeState.networkActivityCount === 0) {
+      controllerBridgeState.networkActivityContext = "";
+    }
+    broadcastUnderparNetworkActivity();
+  };
+}
+
+function applyUnderparNetworkActivityDelta(delta = 0, context = "") {
+  const normalizedDelta = Math.trunc(Number(delta || 0));
+  if (!normalizedDelta) {
+    return buildUnderparNetworkActivitySnapshot();
+  }
+
+  controllerBridgeState.networkActivityCount = Math.max(
+    0,
+    Number(controllerBridgeState.networkActivityCount || 0) + normalizedDelta
+  );
+  const normalizedContext = String(context || "").trim();
+  if (normalizedDelta > 0 && normalizedContext) {
+    controllerBridgeState.networkActivityContext = normalizedContext;
+  }
+  if (controllerBridgeState.networkActivityCount === 0) {
+    controllerBridgeState.networkActivityContext = "";
+  }
+  broadcastUnderparNetworkActivity();
+  return buildUnderparNetworkActivitySnapshot();
+}
+
+function countTrackedSidepanelsForWindow(windowId) {
+  const normalizedWindowId = normalizeWindowId(windowId);
+  if (!normalizedWindowId) {
+    return 0;
+  }
+  let count = 0;
+  for (const entry of controllerBridgeState.sidepanelStateByPort.values()) {
+    if (normalizeWindowId(entry?.windowId) === normalizedWindowId) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function isUnderparWorkspaceUrl(urlValue = "") {
+  const normalizedUrl = String(urlValue || "").trim();
+  if (!normalizedUrl) {
+    return false;
+  }
+  return UNDERPAR_WORKSPACE_PATHS.some((path) => normalizedUrl.startsWith(chrome.runtime.getURL(path)));
+}
+
+async function closeUnderparWorkspaceTabs(options = {}) {
+  const targetWindowId = normalizeWindowId(options.windowId);
+  const reason = String(options.reason || "sidepanel-disconnect").trim() || "sidepanel-disconnect";
+  let candidateTabs = [];
+
+  try {
+    const allTabs = await chrome.tabs.query({});
+    candidateTabs = (Array.isArray(allTabs) ? allTabs : []).filter((tab) => {
+      const tabWindowId = normalizeWindowId(tab?.windowId);
+      if (targetWindowId && tabWindowId !== targetWindowId) {
+        return false;
+      }
+      return isUnderparWorkspaceUrl(tab?.url);
+    });
+  } catch {
+    return {
+      closedCount: 0,
+      requestedCloseCount: 0,
+    };
+  }
+
+  const tabIds = candidateTabs
+    .map((tab) => Number(tab?.id || 0))
+    .filter((tabId) => Number.isInteger(tabId) && tabId > 0);
+  if (tabIds.length === 0) {
+    return {
+      closedCount: 0,
+      requestedCloseCount: 0,
+    };
+  }
+
+  const closedTabIds = [];
+  for (const tabId of tabIds) {
+    try {
+      await chrome.tabs.remove(tabId);
+      closedTabIds.push(tabId);
+    } catch {
+      // Ignore tabs that were already closed or became unavailable.
+    }
+  }
+
+  if (closedTabIds.length > 0) {
+    console.log("[UnderPAR][Controller] Closed workspace tabs after sidepanel disconnect.", {
+      reason,
+      targetWindowId,
+      requestedCloseCount: tabIds.length,
+      closedCount: closedTabIds.length,
+    });
+  }
+
+  return {
+    closedCount: closedTabIds.length,
+    requestedCloseCount: tabIds.length,
+  };
 }
 
 async function ensureImsLoginRedirectRule() {
@@ -547,64 +786,69 @@ async function fetchAvatarAsDataUrl(url, accessToken = "") {
     throw new Error("Missing avatar URL.");
   }
 
-  const urlCandidates = buildAvatarFetchUrlCandidates(url);
-  const maxAttempts = 14;
-  let attemptCount = 0;
+  const release = beginUnderparNetworkActivity("avatar-relay");
+  try {
+    const urlCandidates = buildAvatarFetchUrlCandidates(url);
+    const maxAttempts = 14;
+    let attemptCount = 0;
 
-  let lastError = null;
-  for (const targetUrl of urlCandidates) {
-    const attempts = buildAvatarFetchAttempts(accessToken, targetUrl);
-    for (const attempt of attempts) {
-      attemptCount += 1;
+    let lastError = null;
+    for (const targetUrl of urlCandidates) {
+      const attempts = buildAvatarFetchAttempts(accessToken, targetUrl);
+      for (const attempt of attempts) {
+        attemptCount += 1;
+        if (attemptCount > maxAttempts) {
+          break;
+        }
+
+        try {
+          const response = await fetch(targetUrl, {
+            method: "GET",
+            cache: "no-store",
+            credentials: attempt.credentials,
+            redirect: "follow",
+            headers: attempt.headers,
+          });
+
+          if (!response.ok) {
+            lastError = new Error(`Avatar request failed (${response.status})`);
+            continue;
+          }
+
+          const blob = await response.blob();
+          if (!blob || blob.size === 0) {
+            lastError = new Error("Avatar response was empty.");
+            continue;
+          }
+
+          if (blob.size > AVATAR_MAX_DATAURL_BYTES) {
+            lastError = new Error("Avatar payload too large for data URL response.");
+            continue;
+          }
+
+          const buffer = await blob.arrayBuffer();
+          const responseMimeType = String(blob.type || "").toLowerCase();
+          const inferredMimeType = inferImageMimeTypeFromBuffer(buffer);
+          const resolvedMimeType = responseMimeType.startsWith("image/") ? responseMimeType : inferredMimeType;
+          if (!resolvedMimeType) {
+            lastError = new Error(`Avatar response type was not image (${blob.type || "unknown"}).`);
+            continue;
+          }
+          const base64 = bufferToBase64(buffer);
+          return `data:${resolvedMimeType};base64,${base64}`;
+        } catch (error) {
+          lastError = error instanceof Error ? error : new Error(String(error));
+        }
+      }
       if (attemptCount > maxAttempts) {
         break;
       }
-
-      try {
-        const response = await fetch(targetUrl, {
-          method: "GET",
-          cache: "no-store",
-          credentials: attempt.credentials,
-          redirect: "follow",
-          headers: attempt.headers,
-        });
-
-        if (!response.ok) {
-          lastError = new Error(`Avatar request failed (${response.status})`);
-          continue;
-        }
-
-        const blob = await response.blob();
-        if (!blob || blob.size === 0) {
-          lastError = new Error("Avatar response was empty.");
-          continue;
-        }
-
-        if (blob.size > AVATAR_MAX_DATAURL_BYTES) {
-          lastError = new Error("Avatar payload too large for data URL response.");
-          continue;
-        }
-
-        const buffer = await blob.arrayBuffer();
-        const responseMimeType = String(blob.type || "").toLowerCase();
-        const inferredMimeType = inferImageMimeTypeFromBuffer(buffer);
-        const resolvedMimeType = responseMimeType.startsWith("image/") ? responseMimeType : inferredMimeType;
-        if (!resolvedMimeType) {
-          lastError = new Error(`Avatar response type was not image (${blob.type || "unknown"}).`);
-          continue;
-        }
-        const base64 = bufferToBase64(buffer);
-        return `data:${resolvedMimeType};base64,${base64}`;
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-      }
     }
-    if (attemptCount > maxAttempts) {
-      break;
-    }
+
+    throw lastError || new Error("Unable to fetch avatar.");
+  } finally {
+    release();
   }
-
-  throw lastError || new Error("Unable to fetch avatar.");
 }
 
 function isAllowedImsRelayUrl(value) {
@@ -663,6 +907,8 @@ function normalizeImsRelayCredentials(value) {
 }
 
 async function fetchImsRelayResponse(payload = {}) {
+  const release = beginUnderparNetworkActivity("ims-relay");
+  try {
   const requestUrl = String(payload?.url || "").trim();
   if (!isAllowedImsRelayUrl(requestUrl)) {
     throw new Error("IMS relay blocked: unsupported URL.");
@@ -700,6 +946,9 @@ async function fetchImsRelayResponse(payload = {}) {
     headers: headersObject,
     bodyText: await response.text().catch(() => ""),
   };
+  } finally {
+    release();
+  }
 }
 
 function isAllowedCmRelayUrl(value) {
@@ -724,6 +973,8 @@ function isAllowedCmRelayUrl(value) {
 }
 
 async function fetchCmRelayResponse(payload = {}) {
+  const release = beginUnderparNetworkActivity("cm-relay");
+  try {
   const requestUrl = String(payload?.url || "").trim();
   if (!isAllowedCmRelayUrl(requestUrl)) {
     throw new Error("CM relay blocked: unsupported URL.");
@@ -761,6 +1012,9 @@ async function fetchCmRelayResponse(payload = {}) {
     headers: headersObject,
     bodyText: await response.text().catch(() => ""),
   };
+  } finally {
+    release();
+  }
 }
 
 function isAllowedSplunkRelayUrl(value) {
@@ -902,6 +1156,8 @@ async function enrichSplunkRelayHeaders(requestUrl = "", method = "GET", headers
 }
 
 async function fetchSplunkRelayResponse(payload = {}) {
+  const release = beginUnderparNetworkActivity("splunk-relay");
+  try {
   const requestUrl = String(payload?.url || "").trim();
   if (!isAllowedSplunkRelayUrl(requestUrl)) {
     throw new Error("Splunk relay blocked: unsupported URL.");
@@ -940,6 +1196,9 @@ async function fetchSplunkRelayResponse(payload = {}) {
     headers: headersObject,
     bodyText: await response.text().catch(() => ""),
   };
+  } finally {
+    release();
+  }
 }
 
 async function syncBuildInfo(trigger) {
@@ -2513,6 +2772,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (
+    message?.type === UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE ||
+    message?.type === LEGACY_UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE
+  ) {
+    sendResponse({
+      ok: true,
+      activity: applyUnderparNetworkActivityDelta(message?.delta || 0, message?.context || ""),
+    });
+    return false;
+  }
+
   if (message?.type === CONSOLE_LOG_RELAY_REQUEST_TYPE) {
     const text = String(message?.message || "").trim();
     const details = message?.details && typeof message.details === "object" ? message.details : null;
@@ -2601,6 +2871,84 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   return false;
+});
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (!port || (port.name !== SIDEPANEL_SESSION_PORT_NAME && port.name !== UP_DEVTOOLS_STATUS_PORT_NAME)) {
+    return;
+  }
+
+  if (port.name === UP_DEVTOOLS_STATUS_PORT_NAME) {
+    controllerBridgeState.devtoolsStatusPorts.add(port);
+    postToPortSafe(port, {
+      type: "controller-status",
+      status: buildUnderparControllerStatusSnapshot(),
+    });
+
+    const onDisconnect = () => {
+      consumeRuntimeLastError();
+      controllerBridgeState.devtoolsStatusPorts.delete(port);
+      port.onDisconnect.removeListener(onDisconnect);
+    };
+
+    port.onDisconnect.addListener(onDisconnect);
+    return;
+  }
+
+  controllerBridgeState.sidepanelStateByPort.set(port, {
+    windowId: 0,
+    sessionReady: false,
+    restricted: false,
+    bootstrapping: true,
+    reportedAt: 0,
+  });
+  broadcastUnderparControllerStatus();
+  postToPortSafe(port, {
+    type: "network-activity",
+    activity: buildUnderparNetworkActivitySnapshot(),
+  });
+
+  const onMessage = (message) => {
+    if (!message || typeof message !== "object" || message.type !== "session-state") {
+      return;
+    }
+
+    controllerBridgeState.sidepanelStateByPort.set(port, {
+      windowId: normalizeWindowId(message.windowId),
+      sessionReady: message.sessionReady === true,
+      restricted: message.restricted === true,
+      bootstrapping: message.bootstrapping === true,
+      reportedAt: Date.now(),
+    });
+    broadcastUnderparControllerStatus();
+  };
+
+  const onDisconnect = () => {
+    consumeRuntimeLastError();
+    const previousState = controllerBridgeState.sidepanelStateByPort.get(port) || null;
+    const previousWindowId = normalizeWindowId(previousState?.windowId);
+    controllerBridgeState.sidepanelStateByPort.delete(port);
+    broadcastUnderparControllerStatus();
+
+    if (previousWindowId) {
+      if (countTrackedSidepanelsForWindow(previousWindowId) === 0) {
+        void closeUnderparWorkspaceTabs({
+          reason: "sidepanel-disconnect",
+          windowId: previousWindowId,
+        });
+      }
+    } else if (controllerBridgeState.sidepanelStateByPort.size === 0) {
+      void closeUnderparWorkspaceTabs({
+        reason: "sidepanel-disconnect",
+      });
+    }
+
+    port.onMessage.removeListener(onMessage);
+    port.onDisconnect.removeListener(onDisconnect);
+  };
+
+  port.onMessage.addListener(onMessage);
+  port.onDisconnect.addListener(onDisconnect);
 });
 
 chrome.runtime.onConnect.addListener((port) => {
