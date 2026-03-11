@@ -2654,6 +2654,7 @@ function resolveLatestPremiumServiceAppInfo(programmerId = "", fallbackAppInfo =
     const requestorId = String(debugMeta?.requestorId || "").trim();
     const candidates = resolveDegradationAppCandidates(normalizedProgrammerId, services?.degradation || fallbackAppInfo, {
       requestorId,
+      preferredGuid: String(fallbackAppInfo?.guid || "").trim(),
     });
     return candidates[0] || fallbackAppInfo;
   }
@@ -34707,11 +34708,37 @@ function compareDegradationAppPriority(leftApp, rightApp) {
 
 function resolveDegradationAppCandidates(programmerId = "", seedAppInfo = null, options = {}) {
   const normalizedProgrammerId = String(programmerId || "").trim();
-  const candidates = getDegradationAppCandidatesForProgrammer(normalizedProgrammerId, seedAppInfo);
-  return candidates.filter((appInfo) => degradationAppHasRequiredScope(appInfo)).sort(compareDegradationAppPriority);
+  const normalizedRequestorId = String(options?.requestorId || "").trim();
+  const normalizedPreferredGuid = String(options?.preferredGuid || seedAppInfo?.guid || "").trim();
+  const normalizedSeedGuid = String(seedAppInfo?.guid || "").trim();
+  const candidates = getDegradationAppCandidatesForProgrammer(normalizedProgrammerId, seedAppInfo)
+    .filter((appInfo) => degradationAppHasRequiredScope(appInfo));
+
+  const getCandidateAffinity = (appInfo) => {
+    const normalizedGuid = String(appInfo?.guid || "").trim();
+    let score = 0;
+    if (normalizedPreferredGuid && normalizedGuid === normalizedPreferredGuid) {
+      score += 400;
+    }
+    if (normalizedRequestorId && appSupportsServiceProvider(appInfo, normalizedRequestorId, normalizedProgrammerId)) {
+      score += 200;
+    }
+    if (normalizedSeedGuid && normalizedGuid === normalizedSeedGuid) {
+      score += 100;
+    }
+    return score;
+  };
+
+  return candidates.sort((leftApp, rightApp) => {
+    const affinityDelta = getCandidateAffinity(rightApp) - getCandidateAffinity(leftApp);
+    if (affinityDelta !== 0) {
+      return affinityDelta;
+    }
+    return compareDegradationAppPriority(leftApp, rightApp);
+  });
 }
 
-function promoteDegradationAppForProgrammer(programmerId = "", appInfo = null) {
+function promoteDegradationAppForProgrammer(programmerId = "", appInfo = null, options = {}) {
   const normalizedProgrammerId = String(programmerId || "").trim();
   if (!normalizedProgrammerId || !appInfo?.guid) {
     return;
@@ -34722,7 +34749,10 @@ function promoteDegradationAppForProgrammer(programmerId = "", appInfo = null) {
     return;
   }
 
-  const nextCandidates = resolveDegradationAppCandidates(normalizedProgrammerId, appInfo);
+  const nextCandidates = resolveDegradationAppCandidates(normalizedProgrammerId, appInfo, {
+    requestorId: String(options?.requestorId || "").trim(),
+    preferredGuid: String(options?.preferredGuid || appInfo?.guid || "").trim(),
+  });
   services.degradation = nextCandidates[0] || null;
   services.degradationApps = nextCandidates;
   setCurrentPremiumAppsSnapshot(normalizedProgrammerId, services);
@@ -34734,9 +34764,14 @@ function setDegradationPanelActiveApp(panelState, appInfo, options = {}) {
   }
 
   const previousGuid = String(panelState?.appInfo?.guid || "").trim();
+  const requestorId = String(options?.requestorId || state.selectedRequestorId || "").trim();
   const nextCandidates = resolveDegradationAppCandidates(
     String(panelState?.programmer?.programmerId || "").trim(),
-    appInfo
+    appInfo,
+    {
+      requestorId,
+      preferredGuid: String(appInfo?.guid || "").trim(),
+    }
   );
   const canonicalApp = nextCandidates[0] || null;
   const nextGuid = String(canonicalApp?.guid || "").trim();
@@ -34760,8 +34795,15 @@ function setDegradationPanelActiveApp(panelState, appInfo, options = {}) {
 
   const programmerId = String(panelState?.programmer?.programmerId || "").trim();
   if (programmerId) {
-    promoteDegradationAppForProgrammer(programmerId, canonicalApp);
-    const services = getCurrentPremiumAppsSnapshot(programmerId) || { degradation: canonicalApp };
+    promoteDegradationAppForProgrammer(programmerId, canonicalApp, {
+      requestorId,
+      preferredGuid: nextGuid,
+    });
+    const services = {
+      ...(getCurrentPremiumAppsSnapshot(programmerId) || {}),
+      degradation: canonicalApp,
+      degradationApps: nextCandidates,
+    };
     const targetWindowId = Number(options?.targetWindowId || panelState?.controllerWindowId || 0);
     degradationWorkspaceBroadcastControllerState(panelState.programmer, services, targetWindowId);
   }
@@ -34775,7 +34817,7 @@ function setDegradationPanelActiveApp(panelState, appInfo, options = {}) {
       appName: String(canonicalApp?.appName || canonicalApp?.guid || ""),
       previousAppGuid: previousGuid,
       programmerId,
-      requestorId: String(options?.requestorId || state.selectedRequestorId || "").trim(),
+      requestorId,
       workspaceKey: "degradation-workspace",
       workspaceOrigin: "DEGRADATION Workspace",
     });
