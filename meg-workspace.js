@@ -501,6 +501,19 @@ function logMegConsoleUrl(label = "URL", urlValue = "") {
   ack(`[URL] ${String(label || "URL").trim()}: ${resolvedUrl}`);
 }
 
+function reportMegEnvironmentUrlHint(urlValue = "") {
+  const resolvedUrl = buildMegAbsoluteUrl(urlValue);
+  if (!resolvedUrl) {
+    return;
+  }
+  const environmentLabel =
+    String(state.adobePassEnvironment?.label || DEFAULT_ADOBEPASS_ENVIRONMENT.label || "Production").trim() ||
+    "Production";
+  ack(
+    `[HINT] Double-check this ESM URL exists in ${environmentLabel}: ${resolvedUrl}. A new crawl of the ESM tree in ${environmentLabel} might be needed.`
+  );
+}
+
 function reportMegDataCondition(message = "", urlValue = "") {
   const normalizedMessage = String(message || "").trim();
   if (!normalizedMessage) {
@@ -508,6 +521,9 @@ function reportMegDataCondition(message = "", urlValue = "") {
   }
   const resolvedUrl = buildMegAbsoluteUrl(urlValue);
   ack(`[0x34] ${normalizedMessage}${resolvedUrl ? ` | URL: ${resolvedUrl}` : ""}`);
+  if (resolvedUrl) {
+    reportMegEnvironmentUrlHint(resolvedUrl);
+  }
 }
 
 function megWorkspaceDownloadFile(payloadText, fileName, mimeType) {
@@ -693,10 +709,13 @@ async function refreshMegToken() {
   }
 
   try {
+    const tokenUrl = new URL(`${spBase.replace(/\/+$/, "")}/o/client/token`);
+    tokenUrl.searchParams.set("grant_type", "client_credentials");
+    tokenUrl.searchParams.set("client_id", cid);
+    tokenUrl.searchParams.set("client_secret", csc);
+    tokenUrl.searchParams.set("scope", "analytics:client");
     const response = await fetch(
-      `${spBase.replace(/\/+$/, "")}/o/client/token?grant_type=client_credentials&client_id=${encodeURIComponent(
-        cid
-      )}&client_secret=${encodeURIComponent(csc)}`,
+      tokenUrl.toString(),
       {
         method: "POST",
       }
@@ -2175,6 +2194,7 @@ function bonk(msg, options = {}) {
   if (retryUrl && retryUrl !== primaryUrl && retryUrl !== originalUrl) {
     logMegConsoleUrl("Retry request URL", retryUrl);
   }
+  reportMegEnvironmentUrlHint(primaryUrl || retryUrl || originalUrl);
 }
 
 function ack(msg) {

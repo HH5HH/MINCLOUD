@@ -31,8 +31,8 @@ const vaultImportInput = document.getElementById("vault-import-input");
 const UP_DEVTOOLS_STATUS_PORT_NAME = "underpar-up-devtools-status";
 const FALLBACK_STORAGE_KEY = "underpar_adobepass_environment_v1";
 const UNDERPAR_VAULT_STORAGE_KEY = "underpar_vault_v1";
-const UNDERPAR_VAULT_CSV_SCHEMA = "underpar-pass-vault-csv-v3";
-const UNDERPAR_PASS_VAULT_PREMIUM_DETECTION_VERSION = 2;
+const UNDERPAR_VAULT_CSV_SCHEMA = "underpar-pass-vault-csv-v4";
+const UNDERPAR_PASS_VAULT_PREMIUM_DETECTION_VERSION = 3;
 const UP_DEVTOOLS_VAULT_ACTION_REQUEST_TYPE = "underpar:upDevtoolsVaultAction";
 const UNDERPAR_DCR_CACHE_PREFIX = "underpar_dcr_cache_v1";
 const VAULT_REQUIRED_SCOPE_BY_SERVICE_KEY = Object.freeze({
@@ -76,6 +76,7 @@ const panelState = {
   vaultStorageListenersBound: false,
   vaultImportBusy: false,
   vaultActionBusy: false,
+  vaultActionContext: null,
 };
 
 function normalizeEnvironmentKey(value) {
@@ -568,6 +569,11 @@ function normalizeVaultPayload(payload = null) {
           ...rawRecord,
           programmerId: normalizedProgrammerId,
           hydrationStatus: normalizeVaultHydrationStatus(rawRecord?.hydrationStatus),
+          registeredApplicationCount: Math.max(
+            0,
+            Number(rawRecord?.registeredApplicationCount || rawRecord?.scannedRegisteredApplicationCount || 0),
+            Object.keys(getVaultRegisteredApplications(rawRecord)).length
+          ),
         },
         {}
       );
@@ -601,6 +607,14 @@ function getVaultRegisteredApplications(record = null) {
     !Array.isArray(record.registeredApplicationsByGuid)
     ? record.registeredApplicationsByGuid
     : {};
+}
+
+function getVaultRegisteredApplicationCount(record = null) {
+  const explicitCount = Math.max(
+    0,
+    Number(record?.registeredApplicationCount || record?.scannedRegisteredApplicationCount || 0)
+  );
+  return Math.max(explicitCount, Object.keys(getVaultRegisteredApplications(record)).length);
 }
 
 function collectVaultServiceTags(record = null) {
@@ -649,11 +663,8 @@ function buildPassVaultSummary(vaultPayload = null) {
           pendingCount += 1;
         }
 
-        const registeredApplications = getVaultRegisteredApplications(record);
-        const registeredApplicationEntries = Object.values(registeredApplications).filter(
-          (applicationRecord) => applicationRecord && typeof applicationRecord === "object"
-        );
-        registeredApplicationCount += registeredApplicationEntries.length;
+        const registeredApplicationCountForRecord = getVaultRegisteredApplicationCount(record);
+        registeredApplicationCount += registeredApplicationCountForRecord;
         mediaCompanyCount += 1;
 
         return {
@@ -664,7 +675,7 @@ function buildPassVaultSummary(vaultPayload = null) {
           updatedAt: Number(record?.updatedAt || 0),
           hydratedAt: Number(record?.hydratedAt || 0),
           serviceTags: collectVaultServiceTags(record),
-          registeredApplicationCount: registeredApplicationEntries.length,
+          registeredApplicationCount: registeredApplicationCountForRecord,
           matchedTenantCount: Number(getVaultServiceSummary(record, "cm")?.matchedTenantCount || 0),
         };
       })
@@ -755,6 +766,7 @@ function buildOptimisticVaultSnapshotForAction(snapshot = null, action = "", env
     record.hydrationStatus = "pending";
     record.updatedAt = now;
     record.hydratedAt = 0;
+    record.registeredApplicationCount = 0;
     record.registeredApplicationsByGuid = {};
     record.services = buildEmptyVaultPassServicesSummary();
   };
@@ -793,11 +805,14 @@ function applyVaultActionResponseToSnapshot(snapshot = null, action = "", respon
           savedQueryCount: 0,
           passVaultSummary: buildPassVaultSummary(null),
         };
-  let nextVaultPayload = normalizeVaultPayload(nextSnapshot.vaultPayload || null);
+  const hasDirectVaultPayload = response?.vaultPayload && typeof response.vaultPayload === "object";
+  let nextVaultPayload = hasDirectVaultPayload
+    ? normalizeVaultPayload(response.vaultPayload)
+    : normalizeVaultPayload(nextSnapshot.vaultPayload || null);
 
-  if (response.purged === true) {
+  if (response.purged === true && !hasDirectVaultPayload) {
     nextVaultPayload = normalizeVaultPayload(response?.vaultPayload || null);
-  } else if (normalizedAction === "rehydrate-media-company" && normalizedEnvironmentKey && normalizedProgrammerId) {
+  } else if (!hasDirectVaultPayload && normalizedAction === "rehydrate-media-company" && normalizedEnvironmentKey && normalizedProgrammerId) {
     if (!response.record || typeof response.record !== "object") {
       return null;
     }
@@ -814,7 +829,7 @@ function applyVaultActionResponseToSnapshot(snapshot = null, action = "", respon
       {}
     );
     nextVaultPayload.pass.environments[normalizedEnvironmentKey].updatedAt = Date.now();
-  } else if (normalizedAction === "rehydrate-environment" && normalizedEnvironmentKey) {
+  } else if (!hasDirectVaultPayload && normalizedAction === "rehydrate-environment" && normalizedEnvironmentKey) {
     if (!response.environmentRecord || typeof response.environmentRecord !== "object") {
       return null;
     }
@@ -830,7 +845,7 @@ function applyVaultActionResponseToSnapshot(snapshot = null, action = "", respon
       },
       {}
     );
-  } else {
+  } else if (!hasDirectVaultPayload) {
     return null;
   }
 
@@ -862,6 +877,36 @@ function getVaultProgrammerRecordFromSnapshot(snapshot = null, environmentKey = 
   return mediaCompanies?.[normalizedProgrammerId] || null;
 }
 
+function hasVaultProgrammerHydrationResults(record = null) {
+  if (!record || typeof record !== "object") {
+    return false;
+  }
+
+  const registeredApplications =
+    record?.registeredApplicationsByGuid &&
+    typeof record.registeredApplicationsByGuid === "object" &&
+    !Array.isArray(record.registeredApplicationsByGuid)
+      ? Object.keys(record.registeredApplicationsByGuid)
+      : [];
+  if (registeredApplications.length > 0) {
+    return true;
+  }
+
+  const serviceSummaries = record?.services && typeof record.services === "object" ? record.services : {};
+  return ["restV2", "esm", "degradation", "cm"].some((serviceKey) => {
+    const summary = serviceSummaries?.[serviceKey];
+    if (!summary || typeof summary !== "object") {
+      return false;
+    }
+    return (
+      summary.available === true ||
+      Number(summary.matchedTenantCount || 0) > 0 ||
+      (Array.isArray(summary.appGuids) && summary.appGuids.length > 0) ||
+      Boolean(String(summary.primaryGuid || "").trim())
+    );
+  });
+}
+
 function isVaultActionSnapshotSettled(snapshot = null, action = "", environmentKey = "", programmerId = "") {
   const normalizedAction = String(action || "").trim();
   const normalizedEnvironmentKey = String(environmentKey || "").trim();
@@ -874,13 +919,15 @@ function isVaultActionSnapshotSettled(snapshot = null, action = "", environmentK
     if (!record || typeof record !== "object") {
       return false;
     }
-    return normalizeVaultHydrationStatus(record?.hydrationStatus) !== "pending";
+    const hydrationStatus = normalizeVaultHydrationStatus(record?.hydrationStatus);
+    return hydrationStatus !== "pending" && hasVaultProgrammerHydrationResults(record);
   }
 
   if (normalizedAction === "rehydrate-environment") {
     const mediaCompanies = getVaultProgrammerRecordFromSnapshot(snapshot, normalizedEnvironmentKey, "");
     return Object.values(mediaCompanies || {}).every(
-      (record) => normalizeVaultHydrationStatus(record?.hydrationStatus) !== "pending"
+      (record) =>
+        normalizeVaultHydrationStatus(record?.hydrationStatus) !== "pending" && hasVaultProgrammerHydrationResults(record)
     );
   }
 
@@ -922,11 +969,28 @@ function truncateVaultPreview(text, maxLength = 220) {
   return `${normalizedText.slice(0, Math.max(0, maxLength - 1))}…`;
 }
 
+function toVaultAnchorToken(value = "", fallback = "section") {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || fallback;
+}
+
+function getVaultAreaAnchorId(areaId = "") {
+  return `vault-area-${toVaultAnchorToken(areaId, "area")}`;
+}
+
+function getVaultEntryAnchorId(areaId = "", entryIndex = 0) {
+  return `vault-entry-${toVaultAnchorToken(areaId, "area")}-${Math.max(0, Number(entryIndex || 0))}`;
+}
+
 function buildVaultAreaSnapshot(areaId, label, payload, errorMessage = "") {
   const normalizedPayload = payload && typeof payload === "object" ? payload : {};
   const entries = Object.keys(normalizedPayload)
     .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }))
-    .map((key) => {
+    .map((key, entryIndex) => {
       const value = normalizedPayload[key];
       const serialized = safeJsonStringify(value, 2);
       return {
@@ -934,6 +998,8 @@ function buildVaultAreaSnapshot(areaId, label, payload, errorMessage = "") {
         value,
         bytes: estimateSerializedBytes(value),
         preview: truncateVaultPreview(serialized, 240),
+        entryIndex,
+        namespaceRoot: extractNamespaceRoot(key),
       };
     });
 
@@ -947,6 +1013,25 @@ function buildVaultAreaSnapshot(areaId, label, payload, errorMessage = "") {
     entries,
     rawJson: safeJsonStringify(normalizedPayload, 2),
   };
+}
+
+function buildVaultNamespaceAnchorMap(areaSnapshots = []) {
+  const anchorMap = new Map();
+  for (const area of Array.isArray(areaSnapshots) ? areaSnapshots : []) {
+    const areaId = String(area?.areaId || area?.label || "").trim();
+    const areaLabel = String(area?.label || areaId || "Storage Area").trim();
+    for (const entry of Array.isArray(area?.entries) ? area.entries : []) {
+      const namespace = String(entry?.namespaceRoot || extractNamespaceRoot(entry?.key)).trim();
+      if (!namespace || anchorMap.has(namespace)) {
+        continue;
+      }
+      anchorMap.set(namespace, {
+        targetId: getVaultEntryAnchorId(areaId, entry?.entryIndex),
+        areaLabel,
+      });
+    }
+  }
+  return anchorMap;
 }
 
 async function readChromeStorageAreaSnapshot(areaName, storageArea) {
@@ -1098,6 +1183,33 @@ function syncVaultIdleState(message = "") {
   }
 }
 
+function buildVaultActionContext(action = "", environmentKey = "", programmerId = "", message = "") {
+  return {
+    action: String(action || "").trim(),
+    environmentKey: String(environmentKey || "").trim(),
+    programmerId: String(programmerId || "").trim(),
+    message: String(message || "").trim(),
+    startedAt: Date.now(),
+  };
+}
+
+function isVaultActionContextMatch(actionContext = null, action = "", environmentKey = "", programmerId = "") {
+  if (!actionContext || typeof actionContext !== "object") {
+    return false;
+  }
+  if (String(actionContext.action || "").trim() !== String(action || "").trim()) {
+    return false;
+  }
+  if (String(actionContext.environmentKey || "").trim() !== String(environmentKey || "").trim()) {
+    return false;
+  }
+  const requiredProgrammerId = String(programmerId || "").trim();
+  if (!requiredProgrammerId) {
+    return true;
+  }
+  return String(actionContext.programmerId || "").trim() === requiredProgrammerId;
+}
+
 function renderVaultBusyState(message = "Reading UnderPAR storage surfaces...") {
   if (vaultBadge) {
     vaultBadge.textContent = "Loading";
@@ -1114,36 +1226,62 @@ function renderVaultBusyState(message = "Reading UnderPAR storage surfaces...") 
   setVaultStatus(message);
 }
 
-function buildVaultSummaryMarkup(snapshot) {
+function buildVaultSummaryMarkup(snapshot, namespaceAnchorMap = new Map()) {
   const areaCards = (Array.isArray(snapshot?.areaSnapshots) ? snapshot.areaSnapshots : [])
     .map(
       (area) => `
-        <article class="vault-metric-card">
+        <a
+          class="vault-metric-card vault-metric-card--nav"
+          href="#${escapeHtml(getVaultAreaAnchorId(area?.areaId || area?.label || "area"))}"
+          data-vault-nav-target="${escapeHtml(getVaultAreaAnchorId(area?.areaId || area?.label || "area"))}"
+          title="${escapeHtml(`Jump to ${String(area?.label || area?.areaId || "storage area").trim()}`)}"
+        >
           <p class="vault-metric-label">${escapeHtml(area.label)}</p>
           <p class="vault-metric-value">${escapeHtml(formatVaultKeyCount(area.keyCount))}</p>
           <p class="vault-metric-meta">${escapeHtml(formatBytes(area.byteCount))}</p>
-        </article>
+        </a>
       `
     )
     .join("");
   const namespaceChips = (Array.isArray(snapshot?.namespaceSummary) ? snapshot.namespaceSummary : [])
-    .map(
-      (entry) => `
+    .map((entry) => {
+      const namespaceTarget = namespaceAnchorMap.get(String(entry?.namespace || "").trim()) || null;
+      if (!namespaceTarget?.targetId) {
+        return `
         <span class="vault-namespace-chip">
           <span class="vault-namespace-name">${escapeHtml(entry.namespace)}</span>
           <span class="vault-namespace-count">${escapeHtml(String(entry.count))}</span>
         </span>
-      `
-    )
+      `;
+      }
+      return `
+        <a
+          class="vault-namespace-chip vault-namespace-chip--nav"
+          href="#${escapeHtml(namespaceTarget.targetId)}"
+          data-vault-nav-target="${escapeHtml(namespaceTarget.targetId)}"
+          title="${escapeHtml(
+            `Jump to the first ${String(entry.namespace || "").trim()} entry in ${String(namespaceTarget.areaLabel || "").trim()}.`
+          )}"
+        >
+          <span class="vault-namespace-name">${escapeHtml(entry.namespace)}</span>
+          <span class="vault-namespace-count">${escapeHtml(String(entry.count))}</span>
+        </a>
+      `;
+    })
     .join("");
 
   return `
     <div class="vault-summary-grid">
-      <article class="vault-metric-card vault-metric-card--primary">
+      <a
+        class="vault-metric-card vault-metric-card--primary vault-metric-card--nav"
+        href="#vault-sections"
+        data-vault-nav-target="vault-sections"
+        title="Jump to all storage area sections."
+      >
         <p class="vault-metric-label">Total Footprint</p>
         <p class="vault-metric-value">${escapeHtml(formatVaultKeyCount(snapshot?.totalKeyCount || 0))}</p>
         <p class="vault-metric-meta">${escapeHtml(formatBytes(snapshot?.totalByteCount || 0))}</p>
-      </article>
+      </a>
       ${areaCards}
     </div>
     <div class="vault-namespace-strip">
@@ -1221,15 +1359,31 @@ function buildVaultPassRecordsMarkup(summary = null) {
       const environmentKey = String(environmentSummary?.environmentKey || "").trim();
       const isActiveEnvironment =
         normalizeEnvironmentKey(environmentKey) === normalizeEnvironmentKey(environmentSelect?.value || FALLBACK_DEFAULT_KEY);
+      const environmentActionWorking = isVaultActionContextMatch(
+        panelState.vaultActionContext,
+        "rehydrate-environment",
+        environmentKey
+      );
       const mediaCompanies = Array.isArray(environmentSummary?.mediaCompanies) ? environmentSummary.mediaCompanies : [];
       const mediaCompanyMarkup =
         mediaCompanies.length > 0
           ? mediaCompanies
               .map(
                 (record) => {
+                  const programmerId = String(record?.programmerId || "").trim();
+                  const mediaCompanyActionWorking = isVaultActionContextMatch(
+                    panelState.vaultActionContext,
+                    "rehydrate-media-company",
+                    environmentKey,
+                    programmerId
+                  );
+                  const recordWorking = environmentActionWorking || mediaCompanyActionWorking;
+                  const hydrationStatus = normalizeVaultHydrationStatus(record?.hydrationStatus);
+                  const renderedStatus = recordWorking ? "working" : hydrationStatus;
+                  const renderedHydrationLabel = recordWorking ? "Working" : getVaultHydrationLabel(hydrationStatus);
                   const consoleApplicationsUrl = buildVaultProgrammerConsoleApplicationsUrl(
                     environmentKey,
-                    String(record?.programmerId || "").trim()
+                    programmerId
                   );
                   const registeredAppsMarkup = consoleApplicationsUrl
                     ? `<a
@@ -1245,7 +1399,7 @@ function buildVaultPassRecordsMarkup(summary = null) {
                         `${Number(record?.registeredApplicationCount || 0)} Apps`
                       )}</span>`;
                   return `
-                  <article class="vault-pass-record">
+                  <article class="vault-pass-record${recordWorking ? " vault-pass-record--working" : ""}">
                     <div class="vault-pass-record-head">
                       <div>
                         <h4 class="vault-pass-record-title">${escapeHtml(
@@ -1256,22 +1410,24 @@ function buildVaultPassRecordsMarkup(summary = null) {
                         )}</p>
                       </div>
                       <div class="vault-pass-record-actions">
-                        <span class="vault-pass-status" data-status="${escapeHtml(
-                          normalizeVaultHydrationStatus(record?.hydrationStatus)
-                        )}">${escapeHtml(getVaultHydrationLabel(normalizeVaultHydrationStatus(record?.hydrationStatus)))}</span>
+                        <span class="vault-pass-status" data-status="${escapeHtml(renderedStatus)}">${escapeHtml(
+                          renderedHydrationLabel
+                        )}</span>
                         <button
                           type="button"
-                          class="vault-pass-action-btn"
+                          class="vault-pass-action-btn${mediaCompanyActionWorking ? " vault-pass-action-btn--working" : ""}"
                           data-vault-action="rehydrate-media-company"
                           data-environment-key="${escapeHtml(environmentKey)}"
-                          data-programmer-id="${escapeHtml(String(record?.programmerId || ""))}"
+                          data-programmer-id="${escapeHtml(programmerId)}"
                           ${actionButtonsDisabled ? "disabled" : ""}
                           title="${escapeHtml(
-                            isActiveEnvironment
+                            mediaCompanyActionWorking
+                              ? "UnderPAR is rebuilding this ENV x Media Company vault record."
+                              : isActiveEnvironment
                               ? "Invalidate and rebuild this active environment media-company vault record."
                               : `Switch UnderPAR to ${environmentSummary?.label || environmentKey} and re-hydrate this media company.`
                           )}"
-                        >⟳ RE-HYDRATE</button>
+                        >${escapeHtml(mediaCompanyActionWorking ? "⟳ RE-HYDRATING..." : "⟳ RE-HYDRATE")}</button>
                       </div>
                     </div>
                     <div class="vault-pass-tag-strip">
@@ -1309,14 +1465,16 @@ function buildVaultPassRecordsMarkup(summary = null) {
                 isActiveEnvironment
                   ? `<button
                       type="button"
-                      class="vault-pass-action-btn"
+                      class="vault-pass-action-btn${environmentActionWorking ? " vault-pass-action-btn--working" : ""}"
                       data-vault-action="rehydrate-environment"
                       data-environment-key="${escapeHtml(environmentKey)}"
                       ${actionButtonsDisabled ? "disabled" : ""}
                       title="${escapeHtml(
-                        `Invalidate and rebuild every ${environmentSummary?.label || environmentKey} media-company vault record currently stored in VAULT.`
+                        environmentActionWorking
+                          ? `UnderPAR is rebuilding every stored media-company vault record in ${environmentSummary?.label || environmentKey}.`
+                          : `Invalidate and rebuild every ${environmentSummary?.label || environmentKey} media-company vault record currently stored in VAULT.`
                       )}"
-                    >⟳ RE-HYDRATE</button>`
+                    >${escapeHtml(environmentActionWorking ? "⟳ RE-HYDRATING..." : "⟳ RE-HYDRATE")}</button>`
                   : ""
               }
             </div>
@@ -1414,25 +1572,6 @@ function getVaultServiceKeyFromLabel(value = "") {
   return "";
 }
 
-function getVaultApplicationSoftwareStatement(applicationRecord = null) {
-  const applicationData =
-    applicationRecord?.applicationData && typeof applicationRecord.applicationData === "object"
-      ? applicationRecord.applicationData
-      : {};
-  const candidates = [
-    applicationRecord?.softwareStatement,
-    applicationData?.softwareStatement,
-    applicationData?.software_statement,
-    applicationData?.softwarestatement,
-    applicationData?.software?.statement,
-    applicationData?.dcr?.softwareStatement,
-    applicationData?.credentials?.softwareStatement,
-    applicationData?.client?.softwareStatement,
-    applicationData?.clientApplication?.softwareStatement,
-  ];
-  return firstNonEmptyString(candidates.map((value) => String(value || "").trim()));
-}
-
 function formatVaultMatchedTenants(value = []) {
   const entries = Array.isArray(value) ? value : [];
   return entries
@@ -1476,7 +1615,6 @@ function createVaultExportRowSkeleton() {
     "Media Company ID": "",
     Service: "",
     "Registered Application GUID": "",
-    "Software Statement": "",
     "Client ID": "",
     "Client Secret": "",
     "Access Token": "",
@@ -1522,6 +1660,9 @@ function buildVaultExportRows(vaultPayload = null) {
         appGuids.forEach((guid) => {
           const applicationRecord = registeredApplications?.[guid] || {};
           const credential = getVaultAppCredential(applicationRecord, serviceKey) || {};
+          if (!credential?.clientId || !credential?.clientSecret) {
+            return;
+          }
           rows.push({
             ...createVaultExportRowSkeleton(),
             "Row Type": "pass-service",
@@ -1529,7 +1670,6 @@ function buildVaultExportRows(vaultPayload = null) {
             "Media Company ID": String(record?.programmerId || "").trim(),
             Service: getVaultServiceLabel(serviceKey),
             "Registered Application GUID": guid,
-            "Software Statement": getVaultApplicationSoftwareStatement(applicationRecord),
             "Client ID": String(credential?.clientId || "").trim(),
             "Client Secret": String(credential?.clientSecret || "").trim(),
             "Access Token": String(credential?.accessToken || "").trim(),
@@ -1702,6 +1842,7 @@ function createImportedPassVaultRecord(meta = {}) {
     updatedAt: now,
     hydratedAt: hydrationStatus === "complete" ? now : 0,
     lastSelectedAt: 0,
+    registeredApplicationCount: 0,
     registeredApplicationsByGuid: {},
     services: {
       restV2: createImportedPassServiceSummary("restV2"),
@@ -1748,27 +1889,17 @@ function ensureImportedPassVaultRecord(recordsByEnvironment = {}, environmentKey
   return record;
 }
 
-function createImportedApplicationData(guid = "", appName = "", scopes = [], softwareStatement = "") {
+function createImportedApplicationData(guid = "", appName = "", scopes = []) {
   const normalizedGuid = String(guid || "").trim();
   const normalizedAppName = String(appName || "").trim();
   const normalizedScopes = uniqueSorted(Array.isArray(scopes) ? scopes : []);
-  const normalizedSoftwareStatement = String(softwareStatement || "").trim();
   return {
-    id: normalizedGuid,
     guid: normalizedGuid,
     name: normalizedAppName,
-    displayName: normalizedAppName,
     ...(normalizedScopes.length > 0
       ? {
-          scopes: normalizedScopes.slice(),
-          scope: normalizedScopes.join(" "),
-        }
-      : {}),
-    ...(normalizedSoftwareStatement
-      ? {
-          softwareStatement: normalizedSoftwareStatement,
-          software_statement: normalizedSoftwareStatement,
-        }
+        scopes: normalizedScopes.slice(),
+      }
       : {}),
   };
 }
@@ -1790,7 +1921,6 @@ function getImportedPassApplicationRecord(record = null, guid = "", appName = ""
     guid: normalizedGuid,
     appName: firstNonEmptyString([appName, normalizedGuid]),
     scopes: [],
-    softwareStatement: "",
     serviceKeys: [],
     dcrCache: null,
     serviceCredentialsByServiceKey: {},
@@ -1798,6 +1928,11 @@ function getImportedPassApplicationRecord(record = null, guid = "", appName = ""
     updatedAt: Date.now(),
   };
   record.registeredApplicationsByGuid[normalizedGuid] = nextApplicationRecord;
+  record.registeredApplicationCount = Math.max(
+    0,
+    Number(record?.registeredApplicationCount || 0),
+    Object.keys(getVaultRegisteredApplications(record)).length
+  );
   return nextApplicationRecord;
 }
 
@@ -1904,9 +2039,17 @@ async function persistImportedVaultPayload(vaultPayload = null) {
     throw new Error("Chrome local storage is unavailable in the UP panel.");
   }
   const normalizedVault = normalizeVaultPayload(vaultPayload);
-  await chrome.storage.local.set({
-    [UNDERPAR_VAULT_STORAGE_KEY]: normalizedVault,
-  });
+  try {
+    await chrome.storage.local.set({
+      [UNDERPAR_VAULT_STORAGE_KEY]: normalizedVault,
+    });
+  } catch (error) {
+    const message = String(error?.message || error || "").trim();
+    if (message.toLowerCase().includes("quota")) {
+      throw new Error("Chrome local storage quota exceeded. UnderPAR VAULT now stores only service-linked PASS records; purge or re-hydrate before importing again.");
+    }
+    throw error;
+  }
   hydrateLegacyDcrCachesFromVault(normalizedVault);
   markVaultDirty("Vault import stored. Reopen VAULT to inspect the imported snapshot.");
   return normalizedVault;
@@ -1988,8 +2131,8 @@ async function handleVaultImportFile(file) {
 
       const rowType = String(row?.["Row Type"] || "").trim().toLowerCase();
       if (rowType === "underpar-saved-query") {
-        const queryName = firstNonEmptyString([row?.["Saved Query Name"], row?.name]);
-        const queryUrl = firstNonEmptyString([row?.["Saved Query URL"], row?.url]);
+        const queryName = String(row?.["Saved Query Name"] || "").trim();
+        const queryUrl = String(row?.["Saved Query URL"] || "").trim();
         if (queryName && queryUrl) {
           importedSavedQueries[queryName] = queryUrl;
           importableRowCount += 1;
@@ -1997,8 +2140,8 @@ async function handleVaultImportFile(file) {
         return;
       }
 
-      const environmentKey = firstNonEmptyString([row?.["Environment Key"], row?.environment_key]);
-      const programmerId = firstNonEmptyString([row?.["Media Company ID"], row?.programmer_id]);
+      const environmentKey = String(row?.["Environment Key"] || "").trim();
+      const programmerId = String(row?.["Media Company ID"] || "").trim();
       if (!environmentKey || !programmerId) {
         return;
       }
@@ -2042,7 +2185,6 @@ async function handleVaultImportFile(file) {
       const requiredScope = VAULT_REQUIRED_SCOPE_BY_SERVICE_KEY[serviceKey];
       const appName = guid;
       const scopes = requiredScope ? [requiredScope] : [];
-      const softwareStatement = firstNonEmptyString([row?.["Software Statement"]]);
       const credential = normalizeVaultCredential({
         clientId: row?.["Client ID"],
         clientSecret: row?.["Client Secret"],
@@ -2051,6 +2193,9 @@ async function handleVaultImportFile(file) {
         serviceScope: requiredScope,
         tokenRequestedScope: requiredScope,
       });
+      if (!credential?.clientId || !credential?.clientSecret) {
+        return;
+      }
       const applicationRecord = getImportedPassApplicationRecord(record, guid, appName);
       if (!applicationRecord) {
         return;
@@ -2060,10 +2205,6 @@ async function handleVaultImportFile(file) {
       applicationRecord.scopes = uniqueSorted(
         (Array.isArray(applicationRecord.scopes) ? applicationRecord.scopes : []).concat(scopes)
       );
-      applicationRecord.softwareStatement = firstNonEmptyString([
-        softwareStatement,
-        applicationRecord.softwareStatement,
-      ]);
       applicationRecord.serviceKeys = uniqueSorted(
         (Array.isArray(applicationRecord.serviceKeys) ? applicationRecord.serviceKeys : []).concat(serviceKey)
       );
@@ -2076,8 +2217,7 @@ async function handleVaultImportFile(file) {
       applicationRecord.applicationData = createImportedApplicationData(
         guid,
         applicationRecord.appName,
-        applicationRecord.scopes,
-        applicationRecord.softwareStatement
+        applicationRecord.scopes
       );
       applicationRecord.updatedAt = Date.now();
       record.registeredApplicationsByGuid[guid] = applicationRecord;
@@ -2187,6 +2327,7 @@ async function handleVaultPassActionButtonClick(button) {
       ? `Re-hydrating every VAULT media-company record in ${resolveEnvironmentRecord(environmentKey)?.label || environmentKey}...`
       : `Re-hydrating ${programmerId} in ${resolveEnvironmentRecord(environmentKey)?.label || environmentKey}...`;
   panelState.vaultActionBusy = true;
+  panelState.vaultActionContext = buildVaultActionContext(action, environmentKey, programmerId, actionStatusMessage);
   let actionCompleted = false;
   const optimisticSnapshot = buildOptimisticVaultSnapshotForAction(
     panelState.vaultSnapshot,
@@ -2210,6 +2351,7 @@ async function handleVaultPassActionButtonClick(button) {
       environmentKey,
       programmerId,
     });
+    let bestSnapshot = null;
     const responseSnapshot = applyVaultActionResponseToSnapshot(
       panelState.vaultSnapshot,
       action,
@@ -2217,22 +2359,41 @@ async function handleVaultPassActionButtonClick(button) {
       environmentKey,
       programmerId
     );
-    if (responseSnapshot && isVaultExpanded()) {
+    if (responseSnapshot) {
+      panelState.vaultSnapshot = responseSnapshot;
       panelState.vaultDirty = false;
-      renderVaultSnapshot(responseSnapshot, {
-        keepDirty: false,
-      });
+      if (isVaultActionSnapshotSettled(responseSnapshot, action, environmentKey, programmerId)) {
+        bestSnapshot = responseSnapshot;
+      }
+      if (isVaultExpanded()) {
+        renderVaultSnapshot(responseSnapshot, {
+          keepDirty: false,
+        });
+      }
     }
-    await waitForVaultActionSnapshot(action, environmentKey, programmerId);
+    if (!bestSnapshot) {
+      const waitedSnapshot = await waitForVaultActionSnapshot(action, environmentKey, programmerId);
+      if (waitedSnapshot && isVaultActionSnapshotSettled(waitedSnapshot, action, environmentKey, programmerId)) {
+        bestSnapshot = waitedSnapshot;
+      }
+    }
     const refreshedSnapshot = await ensureVaultSnapshot({
       force: true,
       allowWhileCollapsed: true,
     });
-    if (refreshedSnapshot && isVaultExpanded()) {
+    if (refreshedSnapshot && isVaultActionSnapshotSettled(refreshedSnapshot, action, environmentKey, programmerId)) {
+      bestSnapshot = refreshedSnapshot;
+    } else if (!bestSnapshot && refreshedSnapshot) {
+      bestSnapshot = refreshedSnapshot;
+    }
+    if (bestSnapshot) {
+      panelState.vaultSnapshot = bestSnapshot;
       panelState.vaultDirty = false;
-      renderVaultSnapshot(refreshedSnapshot, {
-        keepDirty: false,
-      });
+      if (isVaultExpanded()) {
+        renderVaultSnapshot(bestSnapshot, {
+          keepDirty: false,
+        });
+      }
     }
     actionCompleted = true;
     if (!isVaultExpanded()) {
@@ -2242,6 +2403,7 @@ async function handleVaultPassActionButtonClick(button) {
     setVaultStatus(error instanceof Error ? error.message : String(error || "Unable to re-hydrate the requested VAULT record."));
   } finally {
     panelState.vaultActionBusy = false;
+    panelState.vaultActionContext = null;
     if (isVaultExpanded() && panelState.vaultSnapshot) {
       renderVaultSnapshot(panelState.vaultSnapshot, {
         keepDirty: actionCompleted ? false : panelState.vaultDirty === true,
@@ -2323,7 +2485,10 @@ function buildVaultAreaMarkup(areaSnapshot) {
           ${area.entries
             .map(
               (entry) => `
-                <article class="vault-entry-card">
+                <article
+                  class="vault-entry-card"
+                  id="${escapeHtml(getVaultEntryAnchorId(area?.areaId || area?.label || "area", entry?.entryIndex))}"
+                >
                   <div class="vault-entry-head">
                     <code class="vault-entry-key">${escapeHtml(entry.key)}</code>
                     <span class="vault-entry-size">${escapeHtml(formatBytes(entry.bytes))}</span>
@@ -2347,7 +2512,7 @@ function buildVaultAreaMarkup(areaSnapshot) {
     `;
 
   return `
-    <article class="vault-area-card">
+    <article class="vault-area-card" id="${escapeHtml(getVaultAreaAnchorId(area?.areaId || area?.label || "area"))}">
       <header class="vault-area-head">
         <div>
           <h3 class="vault-area-title">${escapeHtml(area.label || area.areaId || "Storage Area")}</h3>
@@ -2414,8 +2579,9 @@ function renderVaultSnapshot(snapshot, options = {}) {
       )} across ${Number(normalizedSnapshot.areaSnapshots?.length || 0)} storage areas.`
     );
   }
+  const namespaceAnchorMap = buildVaultNamespaceAnchorMap(normalizedSnapshot.areaSnapshots || []);
   if (vaultSummary) {
-    vaultSummary.innerHTML = buildVaultSummaryMarkup(normalizedSnapshot);
+    vaultSummary.innerHTML = buildVaultSummaryMarkup(normalizedSnapshot, namespaceAnchorMap);
   }
   if (vaultPassSummary) {
     vaultPassSummary.innerHTML = buildVaultPassSummaryMarkup(normalizedSnapshot.passVaultSummary || null);
@@ -2438,6 +2604,12 @@ function renderVaultSnapshot(snapshot, options = {}) {
   }
   if (vaultPurgeButton) {
     vaultPurgeButton.disabled = panelState.vaultImportBusy === true || panelState.vaultActionBusy === true;
+  }
+  if (panelState.vaultActionBusy === true && panelState.vaultActionContext?.message) {
+    if (vaultBadge) {
+      vaultBadge.textContent = "Working";
+    }
+    setVaultStatus(panelState.vaultActionContext.message);
   }
 }
 
@@ -2467,6 +2639,58 @@ function renderVaultErrorState(error) {
   }
   if (vaultPurgeButton) {
     vaultPurgeButton.disabled = panelState.vaultImportBusy === true || panelState.vaultActionBusy === true;
+  }
+}
+
+function flashVaultNavigationTarget(target = null) {
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  if (target.__underparVaultNavFlashTimerId) {
+    window.clearTimeout(target.__underparVaultNavFlashTimerId);
+    target.__underparVaultNavFlashTimerId = 0;
+  }
+  target.classList.remove("vault-nav-flash");
+  void target.offsetWidth;
+  target.classList.add("vault-nav-flash");
+  target.__underparVaultNavFlashTimerId = window.setTimeout(() => {
+    target.classList.remove("vault-nav-flash");
+    target.__underparVaultNavFlashTimerId = 0;
+  }, 1600);
+}
+
+function navigateToVaultTarget(targetId = "") {
+  const normalizedTargetId = String(targetId || "").trim();
+  if (!normalizedTargetId) {
+    return false;
+  }
+  const target = document.getElementById(normalizedTargetId);
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  target.scrollIntoView({
+    behavior: "smooth",
+    block: "start",
+    inline: "nearest",
+  });
+  flashVaultNavigationTarget(target);
+  return true;
+}
+
+function handleVaultSummaryNavigation(event) {
+  const link = event.target instanceof Element ? event.target.closest("[data-vault-nav-target]") : null;
+  if (!(link instanceof HTMLElement)) {
+    return;
+  }
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+    return;
+  }
+  const targetId = String(link.dataset.vaultNavTarget || "").trim();
+  if (!targetId) {
+    return;
+  }
+  if (navigateToVaultTarget(targetId)) {
+    event.preventDefault();
   }
 }
 
@@ -2650,7 +2874,7 @@ function init() {
   });
   syncInteractiveControlState();
   connectControllerStatusPort();
-  wireCollapsibleSection(environmentUrlsToggle, environmentUrlsPanel, true);
+  wireCollapsibleSection(environmentUrlsToggle, environmentUrlsPanel, false);
   wireCollapsibleSection(vaultToggle, vaultPanel, false);
   bindVaultRealtimeListeners();
   syncVaultIdleState();
@@ -2662,6 +2886,9 @@ function init() {
         syncVaultIdleState();
       }
     });
+  }
+  if (vaultSummary) {
+    vaultSummary.addEventListener("click", handleVaultSummaryNavigation);
   }
   if (vaultExportButton) {
     vaultExportButton.addEventListener("click", () => {

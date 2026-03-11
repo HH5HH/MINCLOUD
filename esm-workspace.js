@@ -2853,9 +2853,9 @@ function createCardElements(cardState) {
       </div>
       <div class="card-actions">
         <button type="button" class="card-close" aria-label="Close report card" title="Close report card">
-          <svg class="card-close-icon" viewBox="0 0 12 12" focusable="false" aria-hidden="true">
-            <path d="M2 2 10 10" />
-            <path d="M10 2 2 10" />
+          <svg class="card-close-icon" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+            <path d="M7 7 17 17" />
+            <path d="M17 7 7 17" />
           </svg>
         </button>
       </div>
@@ -3347,7 +3347,12 @@ function renderCardTable(cardState, rows, lastModified) {
                 <div class="esm-footer-controls">
                   ${buildCardLocalFilterResetMarkup(cardState)}
                   <span class="esm-last-modified"></span>
-                  <span class="esm-close" title="Close table"> x </span>
+                  <button type="button" class="esm-action-btn esm-table-close" aria-label="Close table" title="Close table">
+                    <svg class="esm-action-icon" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M7 7 17 17"></path>
+                      <path d="M17 7 7 17"></path>
+                    </svg>
+                  </button>
                 </div>
               </div>
             </td>
@@ -3365,7 +3370,7 @@ function renderCardTable(cardState, rows, lastModified) {
   const footerCell = cardState.bodyElement.querySelector(".esm-footer-cell");
   const lastModifiedLabel = cardState.bodyElement.querySelector(".esm-last-modified");
   const csvLink = cardState.bodyElement.querySelector(".esm-csv-link");
-  const closeButton = cardState.bodyElement.querySelector(".esm-close");
+  const closeButton = cardState.bodyElement.querySelector(".esm-table-close");
 
   const tableState = {
     wrapper: tableWrapper,

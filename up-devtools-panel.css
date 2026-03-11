@@ -1,19 +1,23 @@
 :root {
-  color-scheme: light;
+  color-scheme: dark;
   font-family: "Avenir Next", "Segoe UI Variable", "Gill Sans MT", "Trebuchet MS", sans-serif;
-  --up-bg: #edf4ff;
-  --up-bg-deep: #e7f0ff;
-  --up-panel: rgba(255, 255, 255, 0.86);
-  --up-panel-strong: rgba(255, 255, 255, 0.94);
-  --up-border: rgba(23, 67, 132, 0.16);
-  --up-text: #163257;
-  --up-muted: #55729b;
-  --up-shadow: 0 16px 32px rgba(18, 49, 92, 0.12), 0 6px 18px rgba(18, 49, 92, 0.08);
-  --up-accent: #0064e0;
-  --up-accent-strong: #004daf;
-  --up-accent-soft: rgba(0, 100, 224, 0.1);
-  --up-success: #1f7a48;
-  --up-error: #a43b31;
+  --up-bg: #1b1307;
+  --up-bg-deep: #0d0904;
+  --up-panel: rgba(26, 18, 9, 0.82);
+  --up-panel-strong: rgba(33, 23, 12, 0.92);
+  --up-panel-soft: rgba(43, 29, 13, 0.76);
+  --up-panel-elevated: rgba(55, 35, 13, 0.8);
+  --up-border: rgba(255, 199, 54, 0.2);
+  --up-border-strong: rgba(255, 211, 102, 0.34);
+  --up-text: #f8ead0;
+  --up-muted: #c9aa68;
+  --up-shadow: 0 24px 48px rgba(0, 0, 0, 0.34), 0 10px 24px rgba(0, 0, 0, 0.24);
+  --up-accent: #ffc736;
+  --up-accent-strong: #ffd978;
+  --up-accent-soft: rgba(255, 199, 54, 0.14);
+  --up-success: #71d88a;
+  --up-error: #ff9786;
+  --up-link: #ffe7a5;
 }
 
 * {
@@ -29,9 +33,10 @@ body {
 body {
   margin: 0;
   background:
-    radial-gradient(circle at 12% -12%, rgba(0, 100, 224, 0.18), rgba(0, 100, 224, 0) 46%),
-    radial-gradient(circle at 88% -10%, rgba(70, 170, 255, 0.16), rgba(70, 170, 255, 0) 40%),
-    linear-gradient(180deg, #f7fbff 0%, var(--up-bg) 54%, var(--up-bg-deep) 100%);
+    radial-gradient(circle at 10% -8%, rgba(255, 214, 106, 0.32), rgba(255, 214, 106, 0) 36%),
+    radial-gradient(circle at 95% 0%, rgba(191, 110, 0, 0.26), rgba(191, 110, 0, 0) 34%),
+    radial-gradient(circle at 50% 120%, rgba(255, 168, 63, 0.12), rgba(255, 168, 63, 0) 42%),
+    linear-gradient(180deg, #3d2502 0%, var(--up-bg) 44%, var(--up-bg-deep) 100%);
   color: var(--up-text);
 }
 
@@ -63,17 +68,17 @@ body {
   margin-top: 18px;
   border-radius: 16px;
   box-shadow: none;
-  background: rgba(255, 255, 255, 0.74);
+  background: var(--up-panel-soft);
 }
 
 .controller-card {
-  border: 1px solid rgba(164, 59, 49, 0.18);
+  border: 1px solid rgba(255, 190, 76, 0.24);
   border-radius: 18px;
   padding: 16px 18px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 245, 243, 0.92)),
-    radial-gradient(circle at 100% 0%, rgba(164, 59, 49, 0.12), rgba(164, 59, 49, 0) 38%);
-  box-shadow: 0 14px 28px rgba(93, 43, 38, 0.08), 0 6px 16px rgba(93, 43, 38, 0.06);
+    linear-gradient(180deg, rgba(66, 41, 12, 0.95), rgba(26, 17, 9, 0.96)),
+    radial-gradient(circle at 100% 0%, rgba(255, 178, 74, 0.2), rgba(255, 178, 74, 0) 40%);
+  box-shadow: 0 18px 34px rgba(0, 0, 0, 0.3), 0 8px 20px rgba(0, 0, 0, 0.2);
 }
 
 .controller-card-head {
@@ -90,8 +95,8 @@ body {
   min-width: 88px;
   padding: 5px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(164, 59, 49, 0.18);
-  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(255, 190, 76, 0.24);
+  background: rgba(80, 51, 18, 0.76);
   color: var(--up-error);
   font-size: 10px;
   font-weight: 800;
@@ -100,13 +105,13 @@ body {
 }
 
 .controller-status-badge[data-status="restricted"] {
-  color: #8a5b00;
-  border-color: rgba(138, 91, 0, 0.2);
+  color: #ffd36e;
+  border-color: rgba(255, 196, 71, 0.28);
 }
 
 .controller-status-badge[data-status="bootstrapping"] {
   color: var(--up-accent-strong);
-  border-color: rgba(0, 100, 224, 0.18);
+  border-color: rgba(255, 215, 120, 0.24);
 }
 
 .controller-status-title {
@@ -149,8 +154,8 @@ body {
   border: 0;
   border-bottom: 1px solid transparent;
   background:
-    linear-gradient(180deg, rgba(0, 100, 224, 0.12), rgba(255, 255, 255, 0.76)),
-    linear-gradient(90deg, rgba(0, 100, 224, 0.1), rgba(0, 100, 224, 0));
+    linear-gradient(180deg, rgba(255, 219, 130, 0.14), rgba(52, 34, 13, 0.92)),
+    linear-gradient(90deg, rgba(255, 198, 62, 0.16), rgba(255, 198, 62, 0));
   color: var(--up-text);
   text-align: left;
   display: grid;
@@ -161,7 +166,7 @@ body {
 }
 
 .up-collapsible-toggle[aria-expanded="true"] {
-  border-bottom-color: rgba(23, 67, 132, 0.08);
+  border-bottom-color: rgba(255, 199, 54, 0.12);
 }
 
 .up-collapsible-toggle[aria-expanded="false"] {
@@ -170,7 +175,7 @@ body {
 
 .up-collapsible-toggle:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px rgba(0, 100, 224, 0.2);
+  box-shadow: inset 0 0 0 2px rgba(255, 210, 95, 0.24);
 }
 
 .up-collapsible-heading {
@@ -194,9 +199,9 @@ body {
 .up-collapsible-badge {
   min-width: 58px;
   padding: 5px 10px;
-  border: 1px solid rgba(0, 100, 224, 0.14);
+  border: 1px solid rgba(255, 204, 77, 0.18);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(63, 41, 14, 0.82);
   color: var(--up-accent-strong);
   font-size: 10px;
   font-weight: 800;
@@ -257,10 +262,10 @@ body {
 .vault-refresh-btn {
   height: 34px;
   min-width: 104px;
-  border: 1px solid rgba(0, 100, 224, 0.18);
+  border: 1px solid rgba(255, 204, 77, 0.2);
   border-radius: 999px;
   padding: 0 14px;
-  background: rgba(255, 255, 255, 0.84);
+  background: linear-gradient(180deg, rgba(86, 55, 18, 0.92), rgba(45, 29, 11, 0.96));
   color: var(--up-accent-strong);
   font: inherit;
   font-size: 11px;
@@ -275,9 +280,9 @@ body {
 }
 
 .vault-refresh-btn--danger {
-  border-color: rgba(164, 59, 49, 0.22);
+  border-color: rgba(255, 151, 134, 0.24);
   color: var(--up-error);
-  background: rgba(255, 246, 245, 0.92);
+  background: linear-gradient(180deg, rgba(89, 34, 24, 0.94), rgba(49, 19, 14, 0.96));
 }
 
 .vault-summary {
@@ -298,16 +303,38 @@ body {
 }
 
 .vault-metric-card {
-  border: 1px solid rgba(20, 63, 126, 0.12);
+  border: 1px solid rgba(255, 199, 54, 0.14);
   border-radius: 14px;
   padding: 12px 13px;
-  background: rgba(255, 255, 255, 0.76);
+  background:
+    linear-gradient(180deg, rgba(77, 48, 16, 0.7), rgba(38, 24, 9, 0.92)),
+    rgba(33, 23, 12, 0.9);
+}
+
+.vault-metric-card--nav {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.vault-metric-card--nav:hover,
+.vault-metric-card--nav:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(255, 214, 112, 0.34);
+  box-shadow: 0 14px 24px rgba(0, 0, 0, 0.24), 0 0 0 1px rgba(255, 214, 112, 0.08);
+}
+
+.vault-metric-card--nav:focus-visible {
+  outline: none;
 }
 
 .vault-metric-card--primary {
   background:
-    linear-gradient(180deg, rgba(0, 100, 224, 0.12), rgba(255, 255, 255, 0.86)),
-    rgba(255, 255, 255, 0.76);
+    radial-gradient(circle at top left, rgba(255, 221, 133, 0.16), rgba(255, 221, 133, 0) 45%),
+    linear-gradient(180deg, rgba(96, 61, 18, 0.88), rgba(40, 26, 10, 0.96)),
+    rgba(33, 23, 12, 0.9);
 }
 
 .vault-metric-label,
@@ -345,9 +372,27 @@ body {
   align-items: center;
   gap: 8px;
   padding: 6px 10px;
-  border: 1px solid rgba(20, 63, 126, 0.12);
+  border: 1px solid rgba(255, 199, 54, 0.14);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(66, 42, 15, 0.78);
+}
+
+.vault-namespace-chip--nav {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background-color 140ms ease;
+}
+
+.vault-namespace-chip--nav:hover,
+.vault-namespace-chip--nav:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(255, 214, 112, 0.34);
+  box-shadow: 0 10px 18px rgba(0, 0, 0, 0.22);
+}
+
+.vault-namespace-chip--nav:focus-visible {
+  outline: none;
 }
 
 .vault-namespace-name {
@@ -371,14 +416,18 @@ body {
 
 .vault-pass-card,
 .vault-pass-environment {
-  border: 1px solid rgba(20, 63, 126, 0.12);
+  border: 1px solid rgba(255, 199, 54, 0.14);
   border-radius: 16px;
   padding: 14px;
-  background: rgba(255, 255, 255, 0.72);
+  background:
+    linear-gradient(180deg, rgba(63, 40, 14, 0.74), rgba(31, 21, 10, 0.92)),
+    rgba(30, 21, 10, 0.9);
 }
 
 .vault-pass-card--empty {
-  background: rgba(247, 250, 255, 0.82);
+  background:
+    linear-gradient(180deg, rgba(57, 38, 17, 0.88), rgba(28, 20, 10, 0.94)),
+    rgba(30, 21, 10, 0.9);
 }
 
 .vault-pass-card-head,
@@ -412,8 +461,8 @@ body {
   min-width: 86px;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(0, 100, 224, 0.12);
-  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(255, 201, 68, 0.16);
+  background: rgba(70, 45, 16, 0.82);
   color: var(--up-accent-strong);
   font-size: 10px;
   font-weight: 800;
@@ -436,9 +485,9 @@ body {
   justify-content: center;
   min-height: 32px;
   padding: 0 12px;
-  border: 1px solid rgba(0, 100, 224, 0.18);
+  border: 1px solid rgba(255, 201, 68, 0.2);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
+  background: linear-gradient(180deg, rgba(85, 54, 18, 0.92), rgba(44, 28, 11, 0.96));
   color: var(--up-accent-strong);
   font: inherit;
   font-size: 10px;
@@ -453,22 +502,35 @@ body {
   cursor: default;
 }
 
+.vault-pass-action-btn--working {
+  border-color: rgba(255, 219, 130, 0.34);
+  background: linear-gradient(180deg, rgba(122, 77, 24, 0.96), rgba(70, 43, 14, 0.98));
+  color: #fff1c7;
+  box-shadow: 0 0 0 1px rgba(255, 219, 130, 0.08), 0 10px 18px rgba(0, 0, 0, 0.22);
+}
+
 .vault-pass-status[data-status="complete"] {
-  border-color: rgba(12, 121, 72, 0.18);
-  color: #0c7948;
-  background: rgba(12, 121, 72, 0.08);
+  border-color: rgba(113, 216, 138, 0.22);
+  color: var(--up-success);
+  background: rgba(23, 74, 35, 0.42);
 }
 
 .vault-pass-status[data-status="partial"] {
-  border-color: rgba(184, 105, 0, 0.18);
-  color: #8d4f00;
-  background: rgba(184, 105, 0, 0.08);
+  border-color: rgba(255, 192, 73, 0.24);
+  color: #ffd36e;
+  background: rgba(96, 62, 15, 0.46);
 }
 
 .vault-pass-status[data-status="pending"] {
-  border-color: rgba(83, 96, 118, 0.18);
-  color: #445167;
-  background: rgba(83, 96, 118, 0.08);
+  border-color: rgba(177, 141, 74, 0.18);
+  color: #d7bb86;
+  background: rgba(65, 49, 24, 0.46);
+}
+
+.vault-pass-status[data-status="working"] {
+  border-color: rgba(255, 219, 130, 0.34);
+  color: #fff1c7;
+  background: rgba(116, 73, 21, 0.58);
 }
 
 .vault-pass-metrics {
@@ -479,10 +541,10 @@ body {
 }
 
 .vault-pass-metric {
-  border: 1px solid rgba(20, 63, 126, 0.1);
+  border: 1px solid rgba(255, 199, 54, 0.12);
   border-radius: 12px;
   padding: 10px 11px;
-  background: rgba(244, 248, 255, 0.8);
+  background: rgba(67, 43, 15, 0.58);
 }
 
 .vault-pass-metric-label,
@@ -514,10 +576,15 @@ body {
 }
 
 .vault-pass-record {
-  border: 1px solid rgba(20, 63, 126, 0.1);
+  border: 1px solid rgba(255, 199, 54, 0.12);
   border-radius: 12px;
   padding: 12px;
-  background: rgba(244, 248, 255, 0.8);
+  background: rgba(67, 43, 15, 0.58);
+}
+
+.vault-pass-record--working {
+  border-color: rgba(255, 219, 130, 0.28);
+  box-shadow: 0 0 0 1px rgba(255, 219, 130, 0.08), 0 18px 28px rgba(0, 0, 0, 0.18);
 }
 
 .vault-pass-environment-meta,
@@ -541,7 +608,7 @@ body {
   align-items: center;
   padding: 5px 8px;
   border-radius: 999px;
-  background: rgba(0, 100, 224, 0.08);
+  background: rgba(255, 199, 54, 0.12);
   color: var(--up-accent-strong);
   font-size: 10px;
   font-weight: 800;
@@ -550,7 +617,7 @@ body {
 }
 
 .vault-pass-tag--meta {
-  background: rgba(18, 49, 92, 0.06);
+  background: rgba(255, 232, 183, 0.08);
   color: var(--up-text);
 }
 
@@ -562,7 +629,7 @@ body {
 
 .vault-pass-tag--link:hover,
 .vault-pass-tag--link:focus-visible {
-  background: rgba(0, 100, 224, 0.12);
+  background: rgba(255, 211, 102, 0.18);
   color: var(--up-accent-strong);
   outline: none;
 }
@@ -570,13 +637,17 @@ body {
 .vault-sections {
   display: grid;
   gap: 14px;
+  scroll-margin-top: 12px;
 }
 
 .vault-area-card {
-  border: 1px solid rgba(20, 63, 126, 0.12);
+  border: 1px solid rgba(255, 199, 54, 0.14);
   border-radius: 16px;
   padding: 14px;
-  background: rgba(255, 255, 255, 0.7);
+  background:
+    linear-gradient(180deg, rgba(61, 40, 15, 0.72), rgba(29, 20, 10, 0.92)),
+    rgba(31, 21, 10, 0.9);
+  scroll-margin-top: 12px;
 }
 
 .vault-area-head {
@@ -611,8 +682,8 @@ body {
   min-width: 78px;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(0, 100, 224, 0.12);
-  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(255, 201, 68, 0.16);
+  background: rgba(71, 46, 16, 0.82);
   color: var(--up-accent-strong);
   font-size: 10px;
   font-weight: 800;
@@ -626,10 +697,29 @@ body {
 }
 
 .vault-entry-card {
-  border: 1px solid rgba(20, 63, 126, 0.1);
+  border: 1px solid rgba(255, 199, 54, 0.12);
   border-radius: 12px;
   padding: 11px 12px;
-  background: rgba(244, 248, 255, 0.78);
+  background: rgba(64, 42, 16, 0.56);
+  scroll-margin-top: 12px;
+}
+
+.vault-nav-flash {
+  animation: vault-nav-flash 1.4s ease;
+}
+
+@keyframes vault-nav-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 204, 77, 0.34);
+    border-color: rgba(255, 204, 77, 0.34);
+  }
+  35% {
+    box-shadow: 0 0 0 6px rgba(255, 204, 77, 0.14);
+    border-color: rgba(255, 214, 112, 0.42);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 204, 77, 0);
+  }
 }
 
 .vault-entry-head {
@@ -660,7 +750,7 @@ body {
   margin: 8px 0 0;
   padding: 12px;
   border-radius: 10px;
-  background: rgba(18, 49, 92, 0.06);
+  background: rgba(8, 6, 3, 0.34);
   color: var(--up-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   font-size: 11px;
@@ -718,19 +808,19 @@ body {
   max-width: min(100%, 24rem);
   field-sizing: content;
   height: 40px;
-  border: 1px solid rgba(20, 63, 126, 0.18);
+  border: 1px solid rgba(255, 203, 72, 0.2);
   border-radius: 12px;
   padding: 0 14px;
   background: var(--up-panel-strong);
   color: var(--up-text);
   font: inherit;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  box-shadow: inset 0 1px 0 rgba(255, 234, 191, 0.1);
 }
 
 .env-select:focus-visible {
   outline: none;
-  border-color: rgba(0, 100, 224, 0.48);
-  box-shadow: 0 0 0 3px rgba(0, 100, 224, 0.16);
+  border-color: rgba(255, 213, 95, 0.48);
+  box-shadow: 0 0 0 3px rgba(255, 213, 95, 0.12);
 }
 
 .switch-btn {
@@ -739,13 +829,14 @@ body {
   border: 1px solid var(--up-accent-strong);
   border-radius: 999px;
   padding: 0 18px;
-  background: linear-gradient(180deg, var(--up-accent), var(--up-accent-strong));
-  color: #ffffff;
+  background: linear-gradient(180deg, #ffd765, #d08d00);
+  color: #251500;
   font: inherit;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.08em;
   cursor: pointer;
+  box-shadow: 0 12px 22px rgba(0, 0, 0, 0.24), inset 0 1px 0 rgba(255, 247, 214, 0.34);
 }
 
 .switch-btn:disabled,
@@ -756,7 +847,7 @@ body {
 
 body.up-controller-disabled .settings-card {
   opacity: 0.78;
-  box-shadow: 0 10px 24px rgba(18, 49, 92, 0.08);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.14);
 }
 
 body.up-controller-disabled .switch-btn,
@@ -776,9 +867,9 @@ body.up-controller-disabled .env-select {
   gap: 12px;
   align-items: start;
   padding: 10px 12px;
-  border: 1px solid rgba(20, 63, 126, 0.12);
+  border: 1px solid rgba(255, 199, 54, 0.14);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.64);
+  background: rgba(62, 39, 14, 0.62);
 }
 
 .context-row dt {
@@ -795,6 +886,12 @@ body.up-controller-disabled .env-select {
   font-size: 12px;
   line-height: 1.45;
   word-break: break-all;
+}
+
+.context-row dd a,
+.vault-entry-preview a,
+.vault-raw-json a {
+  color: var(--up-link);
 }
 
 @media (max-width: 760px) {

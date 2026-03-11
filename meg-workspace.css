@@ -555,49 +555,29 @@ input[type="datetime-local"] {
 
 .theme-toggle {
   position: relative;
+  width: 50px;
+  height: 32px;
+  padding: 0;
   overflow: hidden;
+  isolation: isolate;
   border: 2px solid var(--meg-theme-ring);
   background: var(--meg-theme-preview);
+  color: var(--meg-body-text);
   box-shadow: 0 0 0 2px var(--meg-theme-halo), 0 5px 11px var(--meg-shadow-soft);
 }
 
 .theme-toggle::before,
 .theme-toggle::after {
-  content: "";
   position: absolute;
-  border-radius: 999px;
   pointer-events: none;
 }
 
 .theme-toggle::before {
-  inset: 4px;
-  background: var(--meg-theme-preview-modern);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.4);
+  content: "";
 }
 
 .theme-toggle::after {
-  right: 5px;
-  bottom: 5px;
-  width: 7px;
-  height: 7px;
-  background: var(--meg-theme-detail-modern);
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.12);
-}
-
-.theme-toggle[data-theme-target="retro"]::before {
-  background: var(--meg-theme-preview-retro);
-}
-
-.theme-toggle[data-theme-target="retro"]::after {
-  background: var(--meg-theme-detail-retro);
-}
-
-.theme-toggle[data-theme-target="modern"]::before {
-  background: var(--meg-theme-preview-modern);
-}
-
-.theme-toggle[data-theme-target="modern"]::after {
-  background: var(--meg-theme-detail-modern);
+  content: "";
 }
 
 .theme-toggle:hover:not(:disabled) {
@@ -608,6 +588,95 @@ input[type="datetime-local"] {
 
 .theme-toggle:active:not(:disabled) {
   transform: scale(0.97);
+}
+
+body.meg-standalone-mode[data-theme="retro"] .theme-toggle {
+  border-width: 1px;
+  border-radius: 999px;
+  border-color: rgba(20, 115, 230, 0.46);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(238, 247, 255, 0.98) 48%, rgba(211, 234, 255, 0.98) 100%);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.58),
+    0 10px 22px rgba(20, 115, 230, 0.24),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -8px 16px rgba(20, 115, 230, 0.12);
+}
+
+body.meg-standalone-mode[data-theme="retro"] .theme-toggle::before {
+  inset: 3px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 24% 24%, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.72) 18%, rgba(255, 255, 255, 0) 42%),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(223, 239, 255, 0.96) 36%, rgba(198, 231, 255, 0.98) 62%, rgba(208, 255, 249, 0.96) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.78),
+    inset 0 -4px 8px rgba(20, 115, 230, 0.12);
+}
+
+body.meg-standalone-mode[data-theme="retro"] .theme-toggle::after {
+  inset: 7px 9px;
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 24% 42%, rgba(255, 255, 255, 0.98) 0 16%, rgba(255, 255, 255, 0.32) 22%, rgba(255, 255, 255, 0) 38%),
+    linear-gradient(90deg, rgba(20, 115, 230, 0.28) 0 24%, rgba(255, 255, 255, 0) 24% 72%, rgba(0, 179, 255, 0.3) 72% 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.08) 54%, rgba(20, 115, 230, 0.14) 100%);
+  box-shadow:
+    inset 0 0 0 1px rgba(20, 115, 230, 0.16),
+    0 0 18px rgba(20, 115, 230, 0.18);
+}
+
+body.meg-standalone-mode[data-theme="retro"] .theme-toggle:hover:not(:disabled) {
+  border-color: #1473e6;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.68),
+    0 14px 26px rgba(20, 115, 230, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.98),
+    inset 0 -10px 18px rgba(20, 115, 230, 0.14);
+}
+
+body.meg-standalone-mode[data-theme="modern"] .theme-toggle {
+  border-width: 2px;
+  border-radius: 3px;
+  border-color: #6f628d;
+  background: linear-gradient(180deg, #dedede 0%, #bbbbbb 54%, #a7a7a7 100%);
+  box-shadow:
+    3px 3px 0 rgba(128, 97, 170, 0.34),
+    inset 2px 2px 0 rgba(255, 255, 255, 0.58),
+    inset -2px -2px 0 rgba(72, 72, 72, 0.26);
+}
+
+body.meg-standalone-mode[data-theme="modern"] .theme-toggle::before {
+  inset: 4px;
+  border-radius: 1px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0) 38%),
+    linear-gradient(90deg, #8e79c2 0 19%, #c7c7c7 19% 38%, #9d8ad0 38% 57%, #b1b1b1 57% 76%, #7b67a8 76% 100%);
+  box-shadow: inset 0 0 0 1px rgba(53, 53, 53, 0.32);
+}
+
+body.meg-standalone-mode[data-theme="modern"] .theme-toggle::after {
+  inset: 5px 6px;
+  border-radius: 0;
+  background:
+    linear-gradient(#6b5a91, #6b5a91) left 0 top 0 / 8px 8px no-repeat,
+    linear-gradient(#dedede, #dedede) left 10px top 0 / 8px 8px no-repeat,
+    linear-gradient(#8f78c5, #8f78c5) right 10px top 0 / 8px 8px no-repeat,
+    linear-gradient(#71608f, #71608f) right 0 top 0 / 8px 8px no-repeat,
+    linear-gradient(#b6b6b6, #b6b6b6) left 4px bottom 0 / 12px 8px no-repeat,
+    linear-gradient(#ececec, #ececec) right 4px bottom 0 / 12px 8px no-repeat,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0) 40%) center / 100% 100% no-repeat;
+  box-shadow:
+    inset 0 0 0 1px rgba(58, 45, 88, 0.4),
+    1px 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+body.meg-standalone-mode[data-theme="modern"] .theme-toggle:hover:not(:disabled) {
+  border-color: #5f4f87;
+  box-shadow:
+    4px 4px 0 rgba(128, 97, 170, 0.4),
+    inset 2px 2px 0 rgba(255, 255, 255, 0.62),
+    inset -2px -2px 0 rgba(72, 72, 72, 0.3);
 }
 
 .workspace-icon {
@@ -1275,7 +1344,6 @@ body.meg-standalone-mode[data-theme="retro"] #meg-reset-url,
 body.meg-standalone-mode[data-theme="retro"] #fldEsmUrl,
 body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"],
 body.meg-standalone-mode[data-theme="retro"] .workspace-icon-btn,
-body.meg-standalone-mode[data-theme="retro"] .theme-toggle,
 body.meg-standalone-mode[data-theme="retro"] .page-env-badge,
 body.meg-standalone-mode[data-theme="retro"] .page-env-badge-prefix,
 body.meg-standalone-mode[data-theme="retro"] .meg-saved-query-name,
@@ -1323,8 +1391,7 @@ body.meg-standalone-mode[data-theme="retro"] input[type="datetime-local"]::-webk
   opacity: 0.92;
 }
 
-body.meg-standalone-mode[data-theme="retro"] .workspace-icon-btn:hover:not(:disabled),
-body.meg-standalone-mode[data-theme="retro"] .theme-toggle:hover:not(:disabled) {
+body.meg-standalone-mode[data-theme="retro"] .workspace-icon-btn:hover:not(:disabled) {
   transform: none;
   box-shadow: none;
 }

@@ -39,6 +39,7 @@ const SIDEPANEL_SESSION_PORT_NAME = "underpar-sidepanel-session";
 const UP_DEVTOOLS_STATUS_PORT_NAME = "underpar-up-devtools-status";
 const DEBUG_FLOW_PERSIST_MAX = 8;
 const DEBUG_FLOW_PERSIST_DEBOUNCE_MS = 250;
+const IMS_RELAY_FETCH_TIMEOUT_MS = 15000;
 // Redirect-host filtering mode for flow capture trimming.
 // - "exact_path": ignore only the exact redirect URL path
 // - "path_tree": ignore redirect URL path and subtree
@@ -906,6 +907,25 @@ function normalizeImsRelayCredentials(value) {
   return "omit";
 }
 
+async function fetchWithAbortTimeout(url, init = {}, timeoutMs = 0) {
+  const normalizedTimeoutMs = Math.max(0, Number(timeoutMs || 0));
+  if (!normalizedTimeoutMs) {
+    return fetch(url, init);
+  }
+
+  const controller = new AbortController();
+  const requestInit = {
+    ...init,
+    signal: controller.signal,
+  };
+  const timerId = globalThis.setTimeout(() => controller.abort(), Math.max(2000, normalizedTimeoutMs));
+  try {
+    return await fetch(url, requestInit);
+  } finally {
+    globalThis.clearTimeout(timerId);
+  }
+}
+
 async function fetchImsRelayResponse(payload = {}) {
   const release = beginUnderparNetworkActivity("ims-relay");
   try {
@@ -923,14 +943,18 @@ async function fetchImsRelayResponse(payload = {}) {
   const headers = normalizeImsRelayHeaders(payload?.headers);
   const bodyText = typeof payload?.body === "string" ? payload.body : "";
 
-  const response = await fetch(requestUrl, {
-    method,
-    credentials,
-    cache: "no-store",
-    redirect: "follow",
-    headers,
-    body: method === "POST" ? bodyText : undefined,
-  });
+  const response = await fetchWithAbortTimeout(
+    requestUrl,
+    {
+      method,
+      credentials,
+      cache: "no-store",
+      redirect: "follow",
+      headers,
+      body: method === "POST" ? bodyText : undefined,
+    },
+    IMS_RELAY_FETCH_TIMEOUT_MS
+  );
 
   const headersObject = {};
   response.headers.forEach((value, key) => {

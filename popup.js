@@ -64,7 +64,7 @@ const DCR_CACHE_PREFIX = "underpar_dcr_cache_v1";
 const LEGACY_DCR_CACHE_PREFIX = "mincloudlogin_dcr_cache_v1";
 const UNDERPAR_VAULT_STORAGE_KEY = "underpar_vault_v1";
 const UNDERPAR_VAULT_SCHEMA_VERSION = 1;
-const UNDERPAR_PASS_VAULT_PREMIUM_DETECTION_VERSION = 2;
+const UNDERPAR_PASS_VAULT_PREMIUM_DETECTION_VERSION = 4;
 const UNDERPAR_VAULT_STATUS_PENDING = "pending";
 const UNDERPAR_VAULT_STATUS_COMPLETE = "complete";
 const UNDERPAR_VAULT_STATUS_PARTIAL = "partial";
@@ -84,6 +84,16 @@ const KNOWN_PREMIUM_SERVICE_SCOPES = Array.from(
   )
 );
 const REST_V2_SCOPE = PREMIUM_SERVICE_SCOPE_BY_KEY.restV2;
+const PREMIUM_SERVICE_SCOPE_ALIAS_BY_LABEL = Object.freeze({
+  degredation: PREMIUM_SERVICE_SCOPE_BY_KEY.degradation,
+  degradation: PREMIUM_SERVICE_SCOPE_BY_KEY.degradation,
+  esm: PREMIUM_SERVICE_SCOPE_BY_KEY.esm,
+  "rest api v2": PREMIUM_SERVICE_SCOPE_BY_KEY.restV2,
+  "rest apiv2": PREMIUM_SERVICE_SCOPE_BY_KEY.restV2,
+  "rest v2": PREMIUM_SERVICE_SCOPE_BY_KEY.restV2,
+  restapiv2: PREMIUM_SERVICE_SCOPE_BY_KEY.restV2,
+  restv2: PREMIUM_SERVICE_SCOPE_BY_KEY.restV2,
+});
 const PREMIUM_SERVICE_TITLE_BY_KEY = {
   cm: "Concurrency Monitoring",
   cmMvpd: "Concurrency Monitoring (MVPD)",
@@ -112,6 +122,9 @@ const LEGACY_DEBUG_FLOW_STORAGE_INDEX_KEY = "minclouddebug_flow_index_v1";
 const DEBUG_FLOW_STORAGE_PREFIX = "underpardebug_flow_v1:";
 const LEGACY_DEBUG_FLOW_STORAGE_PREFIX = "minclouddebug_flow_v1:";
 const AUTH_WINDOW_TIMEOUT_MS = 180000;
+const IMS_RELAY_MESSAGE_TIMEOUT_MS = 15000;
+const PROGRAMMERS_FETCH_TIMEOUT_MS = 15000;
+const NON_INTERACTIVE_AUTH_TIMEOUT_MS = 12000;
 const TOKEN_REFRESH_LEEWAY_MS = 2 * 60 * 1000;
 const JWT_VALUE_REDACTION_PATTERN = /\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g;
 const BEARER_TOKEN_REDACTION_PATTERN = /\bBearer\s+[A-Za-z0-9._~-]{20,}\b/gi;
@@ -517,7 +530,6 @@ function sanitizePassVaultApplicationData(appData = null, guid = "", fallbackNam
     String(guid || "").trim(),
   ]);
   const scopes = getScopesFromApplication(source);
-  const softwareStatement = extractSoftwareStatementFromAppData(source);
   const serviceProviders = sanitizePassVaultHintList(
     source?.serviceProviders,
     source?.contentProviders,
@@ -535,26 +547,17 @@ function sanitizePassVaultApplicationData(appData = null, guid = "", fallbackNam
     source?.__rawEnvelope?.entityData?.serviceProvider
   );
   const sanitized = {
-    ...(guid ? { id: guid, guid } : {}),
-    ...(appName ? { name: appName, displayName: appName } : {}),
+    ...(guid ? { guid } : {}),
+    ...(appName ? { name: appName } : {}),
   };
   if (scopes.length > 0) {
     sanitized.scopes = scopes.slice();
-    sanitized.scope = scopes.join(" ");
-  }
-  if (softwareStatement) {
-    sanitized.softwareStatement = softwareStatement;
-    sanitized.software_statement = softwareStatement;
   }
   if (serviceProviders.length > 0) {
     sanitized.serviceProviders = serviceProviders.slice();
-    sanitized.contentProviders = serviceProviders.slice();
-    sanitized.requestors = serviceProviders.slice();
-    sanitized.requestorIds = serviceProviders.slice();
   }
   if (requestor) {
     sanitized.requestor = requestor;
-    sanitized.serviceProvider = requestor;
   }
   return sanitized;
 }
@@ -577,6 +580,132 @@ function buildPassVaultApplicationsSnapshotFromRegisteredApplications(registered
     );
   });
   return output;
+}
+
+function getPassVaultRegisteredApplicationsByGuid(record = null) {
+  return record?.registeredApplicationsByGuid &&
+    typeof record.registeredApplicationsByGuid === "object" &&
+    !Array.isArray(record.registeredApplicationsByGuid)
+    ? record.registeredApplicationsByGuid
+    : {};
+}
+
+function getPassVaultStoredRegisteredApplicationCount(record = null) {
+  return Object.keys(getPassVaultRegisteredApplicationsByGuid(record)).length;
+}
+
+function getPassVaultRegisteredApplicationCount(record = null, fallbackCount = 0) {
+  const explicitCount = Math.max(
+    0,
+    Number(record?.registeredApplicationCount || record?.scannedRegisteredApplicationCount || 0)
+  );
+  return Math.max(explicitCount, Math.max(0, Number(fallbackCount || 0)), getPassVaultStoredRegisteredApplicationCount(record));
+}
+
+function buildPassVaultRetainedApplicationGuidSet(registeredApplicationsByGuid = {}, services = null) {
+  const retainedGuids = new Set();
+  const serviceSummaries = services && typeof services === "object" ? services : {};
+
+  ["restV2", "esm", "degradation"].forEach((serviceKey) => {
+    const summary = serviceSummaries?.[serviceKey];
+    if (!summary || typeof summary !== "object") {
+      return;
+    }
+    const primaryGuid = String(summary?.primaryGuid || "").trim();
+    if (primaryGuid) {
+      retainedGuids.add(primaryGuid);
+    }
+    (Array.isArray(summary?.appGuids) ? summary.appGuids : []).forEach((guid) => {
+      const normalizedGuid = String(guid || "").trim();
+      if (normalizedGuid) {
+        retainedGuids.add(normalizedGuid);
+      }
+    });
+  });
+
+  Object.entries(
+    registeredApplicationsByGuid && typeof registeredApplicationsByGuid === "object" && !Array.isArray(registeredApplicationsByGuid)
+      ? registeredApplicationsByGuid
+      : {}
+  ).forEach(([guidKey, applicationRecord]) => {
+    const guid = String(guidKey || applicationRecord?.guid || "").trim();
+    if (!guid || !applicationRecord || typeof applicationRecord !== "object") {
+      return;
+    }
+    const serviceKeys = Array.isArray(applicationRecord?.serviceKeys) ? applicationRecord.serviceKeys : [];
+    const hasCredentialCache = Boolean(normalizeUnderparVaultDcrCache(applicationRecord?.dcrCache || null));
+    const serviceCredentials =
+      applicationRecord?.serviceCredentialsByServiceKey &&
+      typeof applicationRecord.serviceCredentialsByServiceKey === "object" &&
+      !Array.isArray(applicationRecord.serviceCredentialsByServiceKey)
+        ? applicationRecord.serviceCredentialsByServiceKey
+        : {};
+    const hasServiceCredential = Object.values(serviceCredentials).some((value) =>
+      Boolean(normalizeUnderparVaultCredentialEntry(value))
+    );
+    if (serviceKeys.length > 0 || hasCredentialCache || hasServiceCredential) {
+      retainedGuids.add(guid);
+    }
+  });
+
+  return retainedGuids;
+}
+
+function compactPassVaultRegisteredApplications(registeredApplicationsByGuid = {}, services = null) {
+  const input =
+    registeredApplicationsByGuid && typeof registeredApplicationsByGuid === "object" && !Array.isArray(registeredApplicationsByGuid)
+      ? registeredApplicationsByGuid
+      : {};
+  const retainedGuids = buildPassVaultRetainedApplicationGuidSet(input, services);
+  const compacted = {};
+
+  Object.entries(input).forEach(([guidKey, rawApplicationRecord]) => {
+    const guid = String(guidKey || rawApplicationRecord?.guid || "").trim();
+    if (!guid || !retainedGuids.has(guid) || !rawApplicationRecord || typeof rawApplicationRecord !== "object") {
+      return;
+    }
+    const sanitizedApplicationData = sanitizePassVaultApplicationData(
+      rawApplicationRecord?.applicationData || null,
+      guid,
+      firstNonEmptyString([rawApplicationRecord?.appName, guid])
+    );
+    const normalizedCredentialEntries = {};
+    Object.entries(
+      rawApplicationRecord?.serviceCredentialsByServiceKey &&
+        typeof rawApplicationRecord.serviceCredentialsByServiceKey === "object" &&
+        !Array.isArray(rawApplicationRecord.serviceCredentialsByServiceKey)
+        ? rawApplicationRecord.serviceCredentialsByServiceKey
+        : {}
+    ).forEach(([serviceKey, credentialValue]) => {
+      const normalizedServiceKey = String(serviceKey || "").trim();
+      const normalizedCredential = normalizeUnderparVaultCredentialEntry(credentialValue);
+      if (!normalizedServiceKey || !normalizedCredential) {
+        return;
+      }
+      normalizedCredentialEntries[normalizedServiceKey] = normalizedCredential;
+    });
+    compacted[guid] = {
+      guid,
+      appName: firstNonEmptyString([
+        String(rawApplicationRecord?.appName || "").trim(),
+        String(sanitizedApplicationData?.name || "").trim(),
+        String(sanitizedApplicationData?.displayName || "").trim(),
+        guid,
+      ]),
+      scopes: uniqueSorted(
+        (Array.isArray(rawApplicationRecord?.scopes) ? rawApplicationRecord.scopes : []).concat(
+          getScopesFromApplication(sanitizedApplicationData)
+        )
+      ),
+      serviceKeys: uniqueSorted(Array.isArray(rawApplicationRecord?.serviceKeys) ? rawApplicationRecord.serviceKeys : []),
+      dcrCache: normalizeUnderparVaultDcrCache(rawApplicationRecord?.dcrCache || null),
+      serviceCredentialsByServiceKey: normalizedCredentialEntries,
+      applicationData: sanitizedApplicationData,
+      updatedAt: Number(rawApplicationRecord?.updatedAt || 0),
+    };
+  });
+
+  return compacted;
 }
 
 function buildPassVaultRuntimeAppInfoFromRecord(record = null, guid = "", applicationsSnapshot = null) {
@@ -608,10 +737,6 @@ function buildPassVaultRuntimeAppInfoFromRecord(record = null, guid = "", applic
     appName: firstNonEmptyString([applicationRecord?.appName, appData?.name, appData?.displayName, normalizedGuid]),
     appData,
     scopes: uniqueSorted(Array.isArray(applicationRecord?.scopes) ? applicationRecord.scopes : []),
-    softwareStatement: firstNonEmptyString([
-      applicationRecord?.softwareStatement,
-      extractSoftwareStatementFromAppData(appData),
-    ]),
   };
 }
 
@@ -801,10 +926,6 @@ function normalizeUnderparPassVaultProgrammerRecord(programmerId = "", record = 
           getScopesFromApplication(sanitizedApplicationData)
         )
       ),
-      softwareStatement: firstNonEmptyString([
-        String(rawApplicationRecord?.softwareStatement || "").trim(),
-        extractSoftwareStatementFromAppData(sanitizedApplicationData),
-      ]),
       serviceKeys: derivedServiceKeys,
       dcrCache: normalizeUnderparVaultDcrCache(rawApplicationRecord?.dcrCache || null),
       serviceCredentialsByServiceKey,
@@ -813,6 +934,12 @@ function normalizeUnderparPassVaultProgrammerRecord(programmerId = "", record = 
     };
   });
 
+  const registeredApplicationCount = Math.max(
+    getPassVaultRegisteredApplicationCount(record),
+    applicationGuids.size,
+    Object.keys(registeredApplicationsInput || {}).length,
+    Object.keys(legacyApplicationsSnapshot || {}).length
+  );
   const applicationsSnapshot = buildPassVaultApplicationsSnapshotFromRegisteredApplications(registeredApplicationsByGuid);
   const derivedPremiumServicesSnapshot = buildPassVaultRuntimeServicesSnapshot({
     registeredApplicationsByGuid,
@@ -875,6 +1002,7 @@ function normalizeUnderparPassVaultProgrammerRecord(programmerId = "", record = 
       loadError: firstNonEmptyString([legacyServiceSummary?.cm?.loadError, legacyCmServiceSnapshot?.loadError]),
     },
   };
+  const compactedRegisteredApplicationsByGuid = compactPassVaultRegisteredApplications(registeredApplicationsByGuid, services);
 
   return {
     programmerId: normalizedProgrammerId,
@@ -903,7 +1031,8 @@ function normalizeUnderparPassVaultProgrammerRecord(programmerId = "", record = 
     updatedAt: Number(record?.updatedAt || 0),
     hydratedAt: Number(record?.hydratedAt || 0),
     lastSelectedAt: Number(record?.lastSelectedAt || 0),
-    registeredApplicationsByGuid,
+    registeredApplicationCount,
+    registeredApplicationsByGuid: compactedRegisteredApplicationsByGuid,
     services,
   };
 }
@@ -1135,10 +1264,7 @@ async function ensurePassVaultLoaded(options = {}) {
     rebuildPassVaultProgrammerStatusIndex(normalizedVault);
     try {
       if (chrome?.storage?.local?.set && JSON.stringify(storedVault) !== JSON.stringify(normalizedVault)) {
-        trackPendingPassVaultStorageWrite(normalizedVault);
-        chrome.storage.local.set({
-          [UNDERPAR_VAULT_STORAGE_KEY]: normalizedVault,
-        });
+        await persistPassVaultPayloadToStorage(normalizedVault, { silent: true });
       }
     } catch (_error) {
       // Ignore vault cleanup write failures during initial load.
@@ -1227,14 +1353,7 @@ function persistPassVaultApplicationDcrCache(programmerId = "", appGuid = "", va
     mediaCompanyRecord.updatedAt = Date.now();
     vault.updatedAt = Date.now();
 
-    state.passVault = vault;
-    rebuildPassVaultProgrammerStatusIndex(vault);
-    if (chrome?.storage?.local?.set) {
-      trackPendingPassVaultStorageWrite(vault);
-      await chrome.storage.local.set({
-        [UNDERPAR_VAULT_STORAGE_KEY]: vault,
-      });
-    }
+    await persistPassVaultPayloadToStorage(vault, { silent: true });
     return nextApplicationRecord.dcrCache || null;
   });
 }
@@ -1428,16 +1547,45 @@ function buildPassVaultApplicationRecord(programmerId = "", guid = "", appData =
     scopes: uniqueSorted(
       (Array.isArray(existingRecord?.scopes) ? existingRecord.scopes : []).concat(getScopesFromApplication(normalizedAppData))
     ),
-    softwareStatement: firstNonEmptyString([
-      extractSoftwareStatementFromAppData(normalizedAppData),
-      String(existingRecord?.softwareStatement || "").trim(),
-    ]),
     serviceKeys: uniqueSorted(derivedServiceKeys),
     dcrCache: normalizeUnderparVaultDcrCache(loadDcrCache(programmerId, normalizedGuid) || existingRecord?.dcrCache || null),
     serviceCredentialsByServiceKey,
     applicationData: normalizedAppData,
     updatedAt: Date.now(),
   };
+}
+
+async function persistPassVaultPayloadToStorage(vault = null, options = {}) {
+  const persistableVault = normalizeUnderparVaultPayload(vault || createEmptyUnderparVaultPayload());
+  state.passVault = persistableVault;
+  rebuildPassVaultProgrammerStatusIndex(persistableVault);
+  if (!chrome?.storage?.local?.set) {
+    return persistableVault;
+  }
+
+  const marker = trackPendingPassVaultStorageWrite(persistableVault);
+  try {
+    await chrome.storage.local.set({
+      [UNDERPAR_VAULT_STORAGE_KEY]: persistableVault,
+    });
+  } catch (error) {
+    if (marker) {
+      state.passVaultPendingStorageWriteMarkers.delete(marker);
+    }
+    const message = String(error?.message || error || "").trim();
+    if (message.toLowerCase().includes("quota")) {
+      console.warn("UnderPAR VAULT persistence hit the Chrome storage quota.", error);
+      if (options?.silent !== true) {
+        setStatus("UnderPAR VAULT hit the Chrome storage quota. Only service-linked PASS data will be retained.", "error");
+      }
+      return persistableVault;
+    }
+    console.warn("UnderPAR VAULT persistence failed.", error);
+    if (options?.silent !== true) {
+      setStatus("UnderPAR could not persist the latest VAULT update.", "error");
+    }
+  }
+  return persistableVault;
 }
 
 function buildPassVaultProgrammerRecord(programmer, services = null, options = {}) {
@@ -1546,6 +1694,17 @@ function buildPassVaultProgrammerRecord(programmer, services = null, options = {
     options?.hydrationStatus != null
       ? normalizeUnderparVaultStatus(options.hydrationStatus)
       : normalizeUnderparVaultStatus(existingRecord?.hydrationStatus);
+  const servicesSummary = buildPassVaultServicesSummary(premiumServicesSnapshot, cmServiceSnapshot);
+  const registeredApplicationCount = Math.max(
+    getPassVaultRegisteredApplicationCount(existingRecord),
+    Object.keys(applicationsSnapshot).length,
+    Array.isArray(programmer?.applications) ? programmer.applications.length : 0,
+    Object.keys(registeredApplicationsByGuid).length
+  );
+  const compactedRegisteredApplicationsByGuid = compactPassVaultRegisteredApplications(
+    registeredApplicationsByGuid,
+    servicesSummary
+  );
 
   return {
     programmerId,
@@ -1562,8 +1721,9 @@ function buildPassVaultProgrammerRecord(programmer, services = null, options = {
     hydratedAt:
       hydrationStatus === UNDERPAR_VAULT_STATUS_COMPLETE ? now : Number(existingRecord?.hydratedAt || 0),
     lastSelectedAt: now,
-    registeredApplicationsByGuid,
-    services: buildPassVaultServicesSummary(premiumServicesSnapshot, cmServiceSnapshot),
+    registeredApplicationCount,
+    registeredApplicationsByGuid: compactedRegisteredApplicationsByGuid,
+    services: servicesSummary,
   };
 }
 
@@ -1603,14 +1763,7 @@ async function persistPassVaultProgrammerRecord(programmer, services = null, opt
     vault.pass.environments[environmentKey].mediaCompanies[programmerId] = nextRecord;
     vault.updatedAt = Date.now();
 
-    state.passVault = vault;
-    rebuildPassVaultProgrammerStatusIndex(vault);
-    if (chrome?.storage?.local?.set) {
-      trackPendingPassVaultStorageWrite(vault);
-      await chrome.storage.local.set({
-        [UNDERPAR_VAULT_STORAGE_KEY]: vault,
-      });
-    }
+    await persistPassVaultPayloadToStorage(vault, { silent: true });
     applyMediaCompanyOptionHydrationState();
     return nextRecord;
   });
@@ -1675,34 +1828,99 @@ async function invalidatePassVaultProgrammerRecord(programmerId = "", environmen
       return null;
     }
 
-    const appGuids = Object.keys(
-      mediaCompanyRecord?.registeredApplicationsByGuid &&
-        typeof mediaCompanyRecord.registeredApplicationsByGuid === "object"
-        ? mediaCompanyRecord.registeredApplicationsByGuid
-        : {}
-    );
+    const appGuids = Object.keys(getPassVaultRegisteredApplicationsByGuid(mediaCompanyRecord));
     purgePassVaultProgrammerLocalDcrCaches(normalizedProgrammerId, appGuids, normalizedEnvironmentKey);
     clearPassVaultProgrammerRuntimeState(normalizedProgrammerId, normalizedEnvironmentKey);
 
-    mediaCompanyRecord.hydrationStatus = UNDERPAR_VAULT_STATUS_PENDING;
-    mediaCompanyRecord.hydratedAt = 0;
-    mediaCompanyRecord.updatedAt = Date.now();
-    mediaCompanyRecord.registeredApplicationsByGuid = {};
-    mediaCompanyRecord.services = buildEmptyPassVaultServicesSummary();
+    delete environmentRecord.mediaCompanies[normalizedProgrammerId];
     environmentRecord.updatedAt = Date.now();
     vault.updatedAt = Date.now();
 
-    state.passVault = vault;
-    rebuildPassVaultProgrammerStatusIndex(vault);
-    if (chrome?.storage?.local?.set) {
-      trackPendingPassVaultStorageWrite(vault);
-      await chrome.storage.local.set({
-        [UNDERPAR_VAULT_STORAGE_KEY]: vault,
-      });
-    }
+    await persistPassVaultPayloadToStorage(vault, { silent: true });
     applyMediaCompanyOptionHydrationState();
-    return mediaCompanyRecord;
+    return null;
   });
+}
+
+function shouldClearSelectedProgrammerForVaultRehydrate(programmerId = "", environmentKey = getActiveAdobePassEnvironmentKey()) {
+  const normalizedProgrammerId = String(programmerId || "").trim();
+  const normalizedEnvironmentKey = normalizeEnvironmentKey(environmentKey);
+  const selectedProgrammer = resolveSelectedProgrammer();
+  return (
+    Boolean(normalizedProgrammerId) &&
+    normalizeEnvironmentKey(getActiveAdobePassEnvironmentKey()) === normalizedEnvironmentKey &&
+    String(selectedProgrammer?.programmerId || "").trim() === normalizedProgrammerId
+  );
+}
+
+function clearSelectedProgrammerUiForVaultRehydrate(programmerId = "", environmentKey = getActiveAdobePassEnvironmentKey(), controllerReason = "up-devtools-vault-rehydrate") {
+  if (!shouldClearSelectedProgrammerForVaultRehydrate(programmerId, environmentKey)) {
+    return false;
+  }
+
+  clearPremiumServiceAutoRefreshTimers();
+  state.premiumPanelRequestToken += 1;
+  selectProgrammerForController(null, controllerReason);
+  renderPremiumServices(null, null, {
+    controllerReason,
+  });
+  return true;
+}
+
+function passVaultProgrammerRecordHasHydrationResults(record = null) {
+  if (!record || typeof record !== "object") {
+    return false;
+  }
+
+  const registeredApplications = Object.keys(getPassVaultRegisteredApplicationsByGuid(record));
+  if (registeredApplications.length > 0) {
+    return true;
+  }
+
+  const serviceSummaries = record?.services && typeof record.services === "object" ? record.services : {};
+  return ["restV2", "esm", "degradation", "cm"].some((serviceKey) => {
+    const summary = serviceSummaries?.[serviceKey];
+    if (!summary || typeof summary !== "object") {
+      return false;
+    }
+    return (
+      summary.available === true ||
+      Number(summary.matchedTenantCount || 0) > 0 ||
+      (Array.isArray(summary.appGuids) && summary.appGuids.length > 0) ||
+      Boolean(String(summary.primaryGuid || "").trim())
+    );
+  });
+}
+
+async function waitForPassVaultProgrammerHydrationResult(
+  programmerId = "",
+  environmentKey = getActiveAdobePassEnvironmentKey(),
+  options = {}
+) {
+  const normalizedProgrammerId = String(programmerId || "").trim();
+  const normalizedEnvironmentKey = String(environmentKey || getActiveAdobePassEnvironmentKey()).trim();
+  if (!normalizedProgrammerId || !normalizedEnvironmentKey) {
+    return null;
+  }
+
+  const timeoutMs = Math.max(1000, Number(options.timeoutMs || 20000));
+  const pollMs = Math.max(50, Number(options.pollMs || 200));
+  const startedAt = Date.now();
+  let lastRecord = getPassVaultMediaCompanyRecord(normalizedProgrammerId, normalizedEnvironmentKey);
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const currentRecord = getPassVaultMediaCompanyRecord(normalizedProgrammerId, normalizedEnvironmentKey);
+    if (currentRecord) {
+      lastRecord = currentRecord;
+      const hydrationStatus = normalizeUnderparVaultStatus(currentRecord?.hydrationStatus);
+      if (hydrationStatus !== UNDERPAR_VAULT_STATUS_PENDING && passVaultProgrammerRecordHasHydrationResults(currentRecord)) {
+        return cloneJsonLikeValue(currentRecord, null);
+      }
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, pollMs));
+  }
+
+  return cloneJsonLikeValue(lastRecord, null);
 }
 
 async function rehydratePassVaultMediaCompanyFromDevtools(environmentKey = "", programmerId = "") {
@@ -1730,6 +1948,11 @@ async function rehydratePassVaultMediaCompanyFromDevtools(environmentKey = "", p
   setBusy(true, `Re-hydrating ${programmer.programmerName || programmer.programmerId}...`);
   setStatus(`Re-hydrating ${programmer.programmerName || programmer.programmerId} in ${targetEnvironmentLabel}...`, "info");
   try {
+    clearSelectedProgrammerUiForVaultRehydrate(
+      programmer.programmerId,
+      targetEnvironmentKey,
+      "up-devtools-vault-rehydrate-reset"
+    );
     await invalidatePassVaultProgrammerRecord(programmer.programmerId, targetEnvironmentKey);
     selectProgrammerForController(programmer, "up-devtools-vault-rehydrate");
     renderPremiumServicesLoading(programmer, {
@@ -1740,15 +1963,13 @@ async function rehydratePassVaultMediaCompanyFromDevtools(environmentKey = "", p
       forcePremiumRefresh: true,
     });
     applyMediaCompanyOptionHydrationState();
-    const refreshedRecord = cloneJsonLikeValue(
-      getPassVaultMediaCompanyRecord(programmer.programmerId, targetEnvironmentKey),
-      null
-    );
+    const refreshedRecord = await waitForPassVaultProgrammerHydrationResult(programmer.programmerId, targetEnvironmentKey);
     setStatus(`${programmer.programmerName || programmer.programmerId} re-hydrated for ${targetEnvironmentLabel}.`, "success");
     return {
       environmentKey: targetEnvironmentKey,
       programmerId: programmer.programmerId,
       record: refreshedRecord,
+      vaultPayload: cloneJsonLikeValue(state.passVault, null),
       message: `${programmer.programmerName || programmer.programmerId} re-hydrated for ${targetEnvironmentLabel}.`,
     };
   } finally {
@@ -1788,6 +2009,11 @@ async function rehydratePassVaultEnvironmentFromDevtools(environmentKey = "") {
         skippedProgrammers.push(programmerId);
         continue;
       }
+      clearSelectedProgrammerUiForVaultRehydrate(
+        programmer.programmerId,
+        targetEnvironmentKey,
+        "up-devtools-vault-environment-rehydrate-reset"
+      );
       await invalidatePassVaultProgrammerRecord(programmer.programmerId, targetEnvironmentKey);
       selectProgrammerForController(programmer, "up-devtools-vault-environment-rehydrate");
       renderPremiumServicesLoading(programmer, {
@@ -1797,6 +2023,7 @@ async function rehydratePassVaultEnvironmentFromDevtools(environmentKey = "") {
         controllerReason: "up-devtools-vault-environment-rehydrate",
         forcePremiumRefresh: true,
       });
+      await waitForPassVaultProgrammerHydrationResult(programmer.programmerId, targetEnvironmentKey);
       processedCount += 1;
     }
 
@@ -1815,6 +2042,7 @@ async function rehydratePassVaultEnvironmentFromDevtools(environmentKey = "") {
       processedCount,
       skippedCount: skippedProgrammers.length,
       environmentRecord: refreshedEnvironmentRecord,
+      vaultPayload: cloneJsonLikeValue(state.passVault, null),
       message,
     };
   } finally {
@@ -1918,16 +2146,15 @@ function getPassVaultCredentialTasks(services = null) {
     });
   };
 
-  collectRestV2AppCandidatesFromPremiumApps(services).forEach((appInfo) => pushTask("restV2", appInfo));
+  if (services?.restV2?.guid) {
+    pushTask("restV2", services.restV2);
+  }
   if (services?.esm?.guid) {
     pushTask("esm", services.esm);
   }
-  const degradationApps = Array.isArray(services?.degradationApps)
-    ? services.degradationApps
-    : services?.degradation?.guid
-      ? [services.degradation]
-      : [];
-  degradationApps.forEach((appInfo) => pushTask("degradation", appInfo));
+  if (services?.degradation?.guid) {
+    pushTask("degradation", services.degradation);
+  }
   return tasks;
 }
 
@@ -1961,7 +2188,7 @@ function buildPassVaultRuntimeServicesSnapshot(record = null) {
     return null;
   }
   const applicationsSnapshot = buildPassVaultApplicationsSnapshotFromRegisteredApplications(
-    record?.registeredApplicationsByGuid || {}
+    getPassVaultRegisteredApplicationsByGuid(record)
   );
   const resolveAppInfo = (guid = "") => buildPassVaultRuntimeAppInfoFromRecord(record, guid, applicationsSnapshot);
   const hasCredentialEntryForService = (serviceKey = "", guid = "") => {
@@ -1970,12 +2197,7 @@ function buildPassVaultRuntimeServicesSnapshot(record = null) {
     if (!normalizedServiceKey || !normalizedGuid) {
       return false;
     }
-    const applicationRecord =
-      record?.registeredApplicationsByGuid &&
-      typeof record.registeredApplicationsByGuid === "object" &&
-      !Array.isArray(record.registeredApplicationsByGuid)
-        ? record.registeredApplicationsByGuid[normalizedGuid]
-        : null;
+    const applicationRecord = getPassVaultRegisteredApplicationsByGuid(record)?.[normalizedGuid] || null;
     const credential = normalizeUnderparVaultCredentialEntry(
       applicationRecord?.serviceCredentialsByServiceKey?.[normalizedServiceKey] || null
     );
@@ -1994,11 +2216,7 @@ function buildPassVaultRuntimeServicesSnapshot(record = null) {
     const serviceKeyBackedMatch =
       candidates.find((appInfo) => {
         const applicationRecord =
-          record?.registeredApplicationsByGuid &&
-          typeof record.registeredApplicationsByGuid === "object" &&
-          !Array.isArray(record.registeredApplicationsByGuid)
-            ? record.registeredApplicationsByGuid[String(appInfo?.guid || "").trim()]
-            : null;
+          getPassVaultRegisteredApplicationsByGuid(record)?.[String(appInfo?.guid || "").trim()] || null;
         const serviceKeys = Array.isArray(applicationRecord?.serviceKeys) ? applicationRecord.serviceKeys : [];
         return serviceKeys.includes(normalizedServiceKey);
       }) || null;
@@ -2075,33 +2293,155 @@ function hasPassVaultRuntimeCoverageForAvailableServices(record = null, runtimeS
   return true;
 }
 
-function shouldForceLivePassVaultProgrammerHydration(
+function hasPassVaultRegisteredApplicationCoverage(record = null, programmerId = "") {
+  if (!record || typeof record !== "object") {
+    return false;
+  }
+  const normalizedProgrammerId = String(programmerId || record?.programmerId || "").trim();
+  if (!normalizedProgrammerId) {
+    return true;
+  }
+  const programmer = findProgrammerByProgrammerId(normalizedProgrammerId);
+  const expectedCount = Array.isArray(programmer?.applications) ? programmer.applications.length : 0;
+  if (expectedCount <= 0) {
+    return true;
+  }
+  const actualCount = getPassVaultRegisteredApplicationCount(record);
+  return actualCount >= expectedCount;
+}
+
+function hasPassVaultUnavailableRequiredService(record = null) {
+  if (!record || typeof record !== "object") {
+    return true;
+  }
+  const serviceSummaries = record?.services && typeof record.services === "object" ? record.services : {};
+  return PREMIUM_REQUIRED_SERVICE_KEYS.some((serviceKey) => serviceSummaries?.[serviceKey]?.available !== true);
+}
+
+function hasPassVaultScopedServiceSummaryMismatch(record = null) {
+  if (!record || typeof record !== "object") {
+    return false;
+  }
+  const applicationsSnapshot = buildPassVaultApplicationsSnapshotFromRegisteredApplications(record?.registeredApplicationsByGuid || {});
+  const detectedServices = findPremiumServiceApplications([], applicationsSnapshot);
+  const serviceSummaries = record?.services && typeof record.services === "object" ? record.services : {};
+  if (
+    detectedServices?.esm?.guid &&
+    !String(serviceSummaries?.esm?.primaryGuid || "").trim() &&
+    (Array.isArray(serviceSummaries?.esm?.appGuids) ? serviceSummaries.esm.appGuids.length : 0) === 0
+  ) {
+    return true;
+  }
+  if (
+    Array.isArray(detectedServices?.restV2Apps) &&
+    detectedServices.restV2Apps.length > 0 &&
+    (Array.isArray(serviceSummaries?.restV2?.appGuids) ? serviceSummaries.restV2.appGuids.length : 0) === 0
+  ) {
+    return true;
+  }
+  if (
+    Array.isArray(detectedServices?.degradationApps) &&
+    detectedServices.degradationApps.length > 0 &&
+    (Array.isArray(serviceSummaries?.degradation?.appGuids) ? serviceSummaries.degradation.appGuids.length : 0) === 0
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function getPassVaultProgrammerReuseReadiness(
   programmerId = "",
   environmentKey = getActiveAdobePassEnvironmentKey()
 ) {
   const normalizedProgrammerId = String(programmerId || "").trim();
   if (!normalizedProgrammerId) {
-    return true;
+    return {
+      record: null,
+      hydrationStatus: UNDERPAR_VAULT_STATUS_PENDING,
+      runtimeServices: null,
+      runtimeCoverage: false,
+      credentialCoverage: false,
+      cmCoverage: false,
+      unavailableRequiredService: true,
+      trustNegativeServiceSummary: false,
+      registeredApplicationCoverage: false,
+      scopedServiceSummaryMismatch: false,
+      detectionVersion: 0,
+      reusable: false,
+    };
   }
 
   const record = getPassVaultMediaCompanyRecord(normalizedProgrammerId, environmentKey);
-  if (!record) {
-    return true;
-  }
-  if (normalizeUnderparVaultStatus(record?.hydrationStatus) !== UNDERPAR_VAULT_STATUS_COMPLETE) {
-    return true;
-  }
+  const hydrationStatus = normalizeUnderparVaultStatus(record?.hydrationStatus);
+  const detectionVersion = Math.max(0, Number(record?.premiumDetectionVersion || record?.serviceDetectionVersion || 0));
+  const runtimeServices = record ? buildPassVaultRuntimeServicesSnapshot(record) : null;
+  const runtimeCoverage = Boolean(record && runtimeServices && hasPassVaultRuntimeCoverageForAvailableServices(record, runtimeServices));
+  const credentialCoverage = Boolean(
+    record && runtimeServices && hasPassVaultCredentialCoverageForServices(normalizedProgrammerId, runtimeServices)
+  );
+  const cmCoverage = hasPassVaultCmCoverage(record);
+  const unavailableRequiredService = hasPassVaultUnavailableRequiredService(record);
+  const registeredApplicationCoverage = hasPassVaultRegisteredApplicationCoverage(record, normalizedProgrammerId);
+  const scopedServiceSummaryMismatch = hasPassVaultScopedServiceSummaryMismatch(record);
+  const trustNegativeServiceSummary = !unavailableRequiredService || registeredApplicationCoverage;
+  const reusable =
+    hydrationStatus !== UNDERPAR_VAULT_STATUS_PENDING &&
+    runtimeCoverage &&
+    credentialCoverage &&
+    cmCoverage &&
+    trustNegativeServiceSummary &&
+    !scopedServiceSummaryMismatch;
 
-  const runtimeServices = buildPassVaultRuntimeServicesSnapshot(record);
-  if (
-    !runtimeServices ||
-    !hasPassVaultRuntimeCoverageForAvailableServices(record, runtimeServices) ||
-    !hasPassVaultCredentialCoverageForServices(normalizedProgrammerId, runtimeServices)
-  ) {
+  return {
+    record,
+    hydrationStatus,
+    runtimeServices,
+    runtimeCoverage,
+    credentialCoverage,
+    cmCoverage,
+    unavailableRequiredService,
+    trustNegativeServiceSummary,
+    registeredApplicationCoverage,
+    scopedServiceSummaryMismatch,
+    detectionVersion,
+    reusable,
+  };
+}
+
+function isPassVaultProgrammerReadyForReuse(programmerId = "", environmentKey = getActiveAdobePassEnvironmentKey()) {
+  return getPassVaultProgrammerReuseReadiness(programmerId, environmentKey).reusable === true;
+}
+
+function shouldForceLivePassVaultProgrammerHydration(
+  programmerId = "",
+  environmentKey = getActiveAdobePassEnvironmentKey()
+) {
+  const readiness = getPassVaultProgrammerReuseReadiness(programmerId, environmentKey);
+  if (!readiness.record) {
     return true;
   }
-
-  return !hasPassVaultCmCoverage(record);
+  if (readiness.hydrationStatus === UNDERPAR_VAULT_STATUS_PENDING) {
+    return true;
+  }
+  if (readiness.unavailableRequiredService && readiness.detectionVersion < UNDERPAR_PASS_VAULT_PREMIUM_DETECTION_VERSION) {
+    return true;
+  }
+  // Older VAULT rows can still be perfectly reusable. Do not force a cold hydrate
+  // on selection if the current ENV x Media Company record already has the service
+  // mappings, credentials, and CM coverage UnderPAR needs to operate.
+  if (readiness.reusable) {
+    return false;
+  }
+  if (readiness.detectionVersion < UNDERPAR_PASS_VAULT_PREMIUM_DETECTION_VERSION) {
+    return true;
+  }
+  return !(
+    readiness.runtimeCoverage &&
+    readiness.credentialCoverage &&
+    readiness.cmCoverage &&
+    readiness.trustNegativeServiceSummary &&
+    !readiness.scopedServiceSummaryMismatch
+  );
 }
 
 function getPassVaultRequiredScopeForService(serviceKey = "", appInfo = null) {
@@ -2384,19 +2724,35 @@ async function resolveMissingPassVaultServiceMappings(programmer, services = nul
     resolvedServices.restV2Apps.push(resolvedServices.restV2);
   }
 
-  for (const serviceKey of ["restV2", "esm", "degradation"]) {
-    const currentAppInfo =
-      serviceKey === "restV2"
-        ? resolvedServices?.restV2 || null
-        : serviceKey === "esm"
-          ? resolvedServices?.esm || null
-          : resolvedServices?.degradation || null;
-    if (!currentAppInfo?.guid) {
-      continue;
-    }
-    const selectionValid = await validateResolvedPremiumServiceSelection(programmer, serviceKey, currentAppInfo, options);
-    if (!selectionValid) {
-      dropPremiumServiceAppFromResolvedServices(resolvedServices, serviceKey, currentAppInfo.guid);
+  const validateSelectedServiceKeys = new Set(
+    (
+      Array.isArray(options?.validateSelectedServiceKeys) && options.validateSelectedServiceKeys.length > 0
+        ? options.validateSelectedServiceKeys
+        : []
+    )
+      .map((serviceKey) => String(serviceKey || "").trim())
+      .filter(Boolean)
+  );
+  const validateExistingSelections = options?.validateExistingSelections === true || validateSelectedServiceKeys.size > 0;
+  if (validateExistingSelections) {
+    const serviceKeysToValidate =
+      validateSelectedServiceKeys.size > 0
+        ? [...validateSelectedServiceKeys]
+        : ["restV2", "esm", "degradation"];
+    for (const serviceKey of serviceKeysToValidate) {
+      const currentAppInfo =
+        serviceKey === "restV2"
+          ? resolvedServices?.restV2 || null
+          : serviceKey === "esm"
+            ? resolvedServices?.esm || null
+            : resolvedServices?.degradation || null;
+      if (!currentAppInfo?.guid) {
+        continue;
+      }
+      const selectionValid = await validateResolvedPremiumServiceSelection(programmer, serviceKey, currentAppInfo, options);
+      if (!selectionValid) {
+        dropPremiumServiceAppFromResolvedServices(resolvedServices, serviceKey, currentAppInfo.guid);
+      }
     }
   }
 
@@ -2647,6 +3003,7 @@ async function queuePassVaultProgrammerCompilation(programmer, services = null, 
       forceRefresh,
       requiredServiceKeys: PREMIUM_REQUIRED_SERVICE_KEYS,
       requestTimeoutMs: PREMIUM_APPLICATION_DETAIL_TIMEOUT_MS,
+      validateSelectedServiceKeys: ["esm"],
     });
     setCurrentPremiumAppsSnapshot(programmer.programmerId, resolvedServices);
     const credentialResults = await hydratePassVaultServiceCredentials(programmer, resolvedServices, {
@@ -4628,6 +4985,7 @@ const state = {
   adobePassEnvironmentKey: DEFAULT_ADOBEPASS_ENVIRONMENT.key,
   adobePassEnvironmentStorageListenerBound: false,
   busy: false,
+  busyContext: "",
   globalNetworkActivityCount: 0,
   remoteNetworkActivityCount: 0,
   globalNetworkActivityContext: "",
@@ -4724,6 +5082,7 @@ const state = {
   consoleContextReady: false,
   consoleContextPromise: null,
   isBootstrapping: false,
+  sessionBootstrapGeneration: 0,
   environmentSwitchPromise: null,
   sessionMonitorIntervalId: 0,
   sessionMonitorStartTimeoutId: 0,
@@ -4968,10 +5327,20 @@ function hasGlobalNetworkActivity() {
   return getGlobalNetworkActivityCount() > 0;
 }
 
+function shouldShowBlockingBusyCursor() {
+  if (state.busy !== true) {
+    return false;
+  }
+  if (state.restricted === true) {
+    return true;
+  }
+  return Boolean(state.sessionReady || state.loginData);
+}
+
 function syncGlobalNetworkActivityIndicator() {
   const networkActivityCount = getGlobalNetworkActivityCount();
   const shouldShowBusy = state.busy === true || networkActivityCount > 0;
-  const shouldShowBlockingBusy = state.busy === true;
+  const shouldShowBlockingBusy = shouldShowBlockingBusyCursor();
   if (document?.body) {
     document.body.classList.toggle("net-busy", shouldShowBlockingBusy);
     if (shouldShowBlockingBusy) {
@@ -5086,16 +5455,18 @@ function installGlobalNetworkFetchTracker() {
 
 function setBusy(isBusy, context = "") {
   state.busy = isBusy;
+  state.busyContext = isBusy ? String(context || "").trim() : "";
   syncGlobalNetworkActivityIndicator();
 
-  els.authBtn.disabled = isBusy;
+  const shouldLockLoggedOutAuth = isBusy && isInteractiveAuthBusyContext(context);
+  els.authBtn.disabled = state.sessionReady || state.restricted ? isBusy : shouldLockLoggedOutAuth;
   if (!state.sessionReady || state.restricted) {
-    const busyLabel = context && context.toLowerCase().includes("sign") ? "Signing In..." : "Checking...";
-    els.authBtn.title = isBusy ? busyLabel : "Sign in to AdobePass";
-    els.authBtn.setAttribute("aria-label", isBusy ? busyLabel : "Sign in to AdobePass");
+    const busyLabel = shouldLockLoggedOutAuth ? "Signing In..." : "Sign in to AdobePass";
+    els.authBtn.title = busyLabel;
+    els.authBtn.setAttribute("aria-label", busyLabel);
     if (els.signInHeroBtn) {
-      els.signInHeroBtn.disabled = isBusy;
-      els.signInHeroBtn.textContent = isBusy ? busyLabel : "Sign In";
+      els.signInHeroBtn.disabled = shouldLockLoggedOutAuth;
+      els.signInHeroBtn.textContent = shouldLockLoggedOutAuth ? "Signing In..." : "Sign In";
     }
     return;
   }
@@ -5167,10 +5538,24 @@ async function sendRuntimeMessageSafe(payload, options = {}) {
   try {
     const attempts = Math.max(1, Number(options?.attempts || 1));
     const retryDelayMs = Math.max(0, Number(options?.retryDelayMs || 0));
+    const timeoutMs = Math.max(0, Number(options?.timeoutMs || 0));
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
       try {
+        if (timeoutMs > 0) {
+          return await Promise.race([
+            chrome.runtime.sendMessage(payload),
+            new Promise((_, reject) => {
+              window.setTimeout(() => {
+                reject(new Error(`Runtime message timed out after ${timeoutMs}ms.`));
+              }, timeoutMs);
+            }),
+          ]);
+        }
         return await chrome.runtime.sendMessage(payload);
-      } catch {
+      } catch (error) {
+        if (attempt >= attempts) {
+          throw error;
+        }
         if (attempt < attempts && retryDelayMs > 0) {
           await sleepMs(retryDelayMs);
         }
@@ -5254,6 +5639,7 @@ async function relayImsFetch(endpoint, options = {}) {
   let response = await sendRuntimeMessageSafe(message, {
     attempts: 3,
     retryDelayMs: 120,
+    timeoutMs: IMS_RELAY_MESSAGE_TIMEOUT_MS,
   });
   if (!response?.ok && response?.error && String(response.error).toLowerCase().includes("unsupported")) {
     response = await sendRuntimeMessageSafe(
@@ -5264,6 +5650,7 @@ async function relayImsFetch(endpoint, options = {}) {
       {
         attempts: 2,
         retryDelayMs: 120,
+        timeoutMs: IMS_RELAY_MESSAGE_TIMEOUT_MS,
       }
     );
   }
@@ -5917,6 +6304,35 @@ function sleepMs(durationMs) {
   return new Promise((resolve) => {
     setTimeout(resolve, Math.max(0, Number(durationMs) || 0));
   });
+}
+
+function withPromiseTimeout(promise, timeoutMs, message) {
+  const normalizedTimeoutMs = Math.max(0, Number(timeoutMs || 0));
+  if (!normalizedTimeoutMs) {
+    return promise;
+  }
+
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      window.setTimeout(() => {
+        reject(new Error(String(message || "Operation timed out.")));
+      }, normalizedTimeoutMs);
+    }),
+  ]);
+}
+
+function isInteractiveAuthBusyContext(context = "") {
+  const normalized = String(context || "").trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+
+  return (
+    normalized.includes("signing in") ||
+    normalized.includes("refreshing session") ||
+    normalized.includes("switching org")
+  );
 }
 
 function parseRetryAfterMs(value) {
@@ -11660,9 +12076,8 @@ function toRestV2RecordingContext(context, appInfoOverride = null, options = {})
         guid: String(selectedAppInfo.guid || ""),
         appName: String(selectedAppInfo.appName || selectedAppInfo.guid || ""),
         scopes: Array.isArray(selectedAppInfo.scopes) ? selectedAppInfo.scopes.slice(0, 12) : [],
-        softwareStatement: String(selectedAppInfo.softwareStatement || ""),
       }
-      : null;
+    : null;
   return {
     programmerId: context.programmerId,
     programmerName: context.programmerName || "",
@@ -18002,6 +18417,7 @@ async function resolveClickEsmDownloadContext(esmWorkspaceState = null) {
 async function resolveClickEsmAuthContext(context, requestToken, options = {}) {
   const programmer = context?.programmer || null;
   let appInfo = context?.appInfo || null;
+  const requireAccessToken = options?.requireAccessToken !== false;
   if (!programmer?.programmerId) {
     throw new Error("Media company is required to generate clickESM.");
   }
@@ -18031,25 +18447,33 @@ async function resolveClickEsmAuthContext(context, requestToken, options = {}) {
     programmer?.programmerId,
   ]) || "Media Company";
 
-  const tokenResult = await ensureDcrAccessTokenWithEsmRecovery(programmer.programmerId, appInfo, false, {
-    service: "esm-clickesm",
-    scope: PREMIUM_SERVICE_SCOPE_BY_KEY.esm,
-    requestorIds: Array.isArray(context?.requestorIds) ? context.requestorIds.slice(0, 24) : [],
-    mvpdIds: Array.isArray(context?.mvpdIds) ? context.mvpdIds.slice(0, 24) : [],
-    requestorId: String(context?.requestorIds?.[0] || ""),
-    mvpd: String(context?.mvpdIds?.[0] || ""),
-    appGuid: String(appInfo?.guid || ""),
-    appName: String(appInfo?.appName || appInfo?.guid || ""),
-    source: String(options.source || "sidepanel"),
-  });
-  appInfo = tokenResult?.appInfo || appInfo;
-  const accessToken = String(tokenResult?.accessToken || "");
+  let accessToken = "";
+  try {
+    const tokenResult = await ensureDcrAccessTokenWithEsmRecovery(programmer.programmerId, appInfo, false, {
+      service: "esm-clickesm",
+      scope: PREMIUM_SERVICE_SCOPE_BY_KEY.esm,
+      requestorIds: Array.isArray(context?.requestorIds) ? context.requestorIds.slice(0, 24) : [],
+      mvpdIds: Array.isArray(context?.mvpdIds) ? context.mvpdIds.slice(0, 24) : [],
+      requestorId: String(context?.requestorIds?.[0] || ""),
+      mvpd: String(context?.mvpdIds?.[0] || ""),
+      appGuid: String(appInfo?.guid || ""),
+      appName: String(appInfo?.appName || appInfo?.guid || ""),
+      source: String(options.source || "sidepanel"),
+    });
+    appInfo = tokenResult?.appInfo || appInfo;
+    accessToken = String(tokenResult?.accessToken || "");
+  } catch (error) {
+    if (requireAccessToken) {
+      throw error;
+    }
+    console.warn("UnderPAR MEG context falling back to vault credentials without a primed ESM token.", error);
+  }
 
   const dcrCache = loadDcrCache(programmer.programmerId, appInfo.guid) || {};
   const clientId = String(dcrCache.clientId || "");
   const clientSecret = String(dcrCache.clientSecret || "");
   const resolvedAccessToken = String(accessToken || dcrCache.accessToken || "");
-  if (!clientId || !clientSecret || !resolvedAccessToken) {
+  if (!clientId || !clientSecret || (requireAccessToken && !resolvedAccessToken)) {
     throw new Error("Unable to resolve ESM credentials/token for clickESM generation.");
   }
 
@@ -24702,6 +25126,7 @@ async function handleMegWorkspaceWorkspaceAction(message, sender = null) {
     const requestToken = Number(state.premiumPanelRequestToken || 0);
     const authContext = await resolveClickEsmAuthContext(context, requestToken, {
       source: String(message?.payload?.source || message?.source || "meg-workspace"),
+      requireAccessToken: false,
     });
     const selectedProgrammer = resolveSelectedProgrammer();
     const selectedServices = selectedProgrammer?.programmerId
@@ -37767,7 +38192,11 @@ async function startLogin(options = {}) {
 
   let authData;
   try {
-    authData = await runIdentityWebAuthFlow(requestState, extraParams, interactive);
+    authData = await withPromiseTimeout(
+      runIdentityWebAuthFlow(requestState, extraParams, interactive),
+      interactive ? 0 : NON_INTERACTIVE_AUTH_TIMEOUT_MS,
+      "Silent Experience Cloud login timed out."
+    );
   } catch (error) {
     log("Identity auth flow failed", error?.message || String(error));
     if (!(allowFallback && interactive && shouldUseAuthWindowFallback(error))) {
@@ -41872,16 +42301,7 @@ async function attemptSessionAutoBootstrap(trigger = "interval") {
   const cookieActivated = await tryActivateCookieSession(`session-monitor-${trigger}`, {
     restrictOnDenied: false,
   });
-  if (cookieActivated) {
-    return true;
-  }
-
-  const silent = await attemptSilentBootstrapLogin();
-  if (!silent) {
-    return false;
-  }
-
-  return activateSession(silent, `session-monitor-silent-${trigger}`);
+  return cookieActivated;
 }
 
 async function probeExperienceCloudSessionState() {
@@ -42064,6 +42484,7 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     return false;
   }
 
+  let programmersLoadError = null;
   try {
     await loadProgrammersData(enforced.loginData.accessToken);
   } catch (error) {
@@ -42085,13 +42506,12 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
       }
     }
 
-    await clearLoginData();
-    resetWorkflowForLoggedOut();
-    state.loginData = null;
-    state.sessionReady = false;
-    clearRefreshTimer();
-
     if (accessDenied) {
+      await clearLoginData();
+      resetWorkflowForLoggedOut();
+      state.loginData = null;
+      state.sessionReady = false;
+      clearRefreshTimer();
       await ensureRestrictedOrgOptionsFromToken(
         deniedAccessToken,
         deniedSessionData?.adobePassOrg || sessionData?.adobePassOrg || null
@@ -42103,13 +42523,11 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
       });
       state.restricted = true;
       setStatus("", "info");
+      render();
+      return false;
     } else {
-      state.restricted = false;
-      setStatus("Unable to verify AdobePass access. Please sign in again.", "error");
+      programmersLoadError = error instanceof Error ? error : new Error(String(error));
     }
-
-    render();
-    return false;
   }
 
   let sessionProfile = resolveLoginProfile(enforced.loginData);
@@ -42222,6 +42640,15 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   prefetchCmTenantsCatalogInBackground("session-activated", { forceRefresh: false });
   await saveLoginData(resolvedLoginData);
   scheduleNoTouchRefresh();
+  if (programmersLoadError) {
+    const message = String(programmersLoadError?.message || "").trim();
+    setStatus(
+      message || "Signed in, but UnderPAR could not load media companies. Refresh the session and retry.",
+      "error"
+    );
+  } else {
+    setStatus("", "info");
+  }
   render();
   queueCmConsoleAutoHydration(`session-activated:${source}`);
   log(`Session activated (${source})`, {
@@ -42466,11 +42893,15 @@ function applyMediaCompanyOptionHydrationState() {
 
     const programmer = programmerByKey.get(optionValue) || null;
     const hydrationStatus = getPassVaultProgrammerHydrationStatus(programmer?.programmerId);
-    if (hydrationStatus === UNDERPAR_VAULT_STATUS_COMPLETE) {
+    const reusable = isPassVaultProgrammerReadyForReuse(programmer?.programmerId);
+    if (hydrationStatus === UNDERPAR_VAULT_STATUS_COMPLETE || reusable) {
       option.style.color = "";
       option.style.fontWeight = "";
-      option.title = "UnderPAR vault hydrated for this Media Company.";
-      option.dataset.vaultHydration = UNDERPAR_VAULT_STATUS_COMPLETE;
+      option.title =
+        hydrationStatus === UNDERPAR_VAULT_STATUS_COMPLETE
+          ? "UnderPAR vault hydrated for this Media Company."
+          : "UnderPAR vault already has reusable service mappings and credentials for this Media Company.";
+      option.dataset.vaultHydration = reusable ? UNDERPAR_VAULT_STATUS_COMPLETE : hydrationStatus;
       return;
     }
 
@@ -42485,8 +42916,9 @@ function applyMediaCompanyOptionHydrationState() {
 
   const selectedProgrammer = resolveSelectedProgrammer();
   const selectedStatus = getPassVaultProgrammerHydrationStatus(selectedProgrammer?.programmerId);
+  const selectedReusable = isPassVaultProgrammerReadyForReuse(selectedProgrammer?.programmerId);
   els.mediaCompanySelect.style.color =
-    selectedStatus && selectedStatus !== UNDERPAR_VAULT_STATUS_COMPLETE ? "rgba(42, 56, 77, 0.72)" : "";
+    selectedStatus && selectedStatus !== UNDERPAR_VAULT_STATUS_COMPLETE && !selectedReusable ? "rgba(42, 56, 77, 0.72)" : "";
 }
 
 function populateMediaCompanySelect() {
@@ -42615,6 +43047,7 @@ async function refreshProgrammerPanels(options = {}) {
   const forcePremiumRefresh = options.forcePremiumRefresh === true;
   const controllerReason = String(options?.controllerReason || "").trim();
   const requestToken = ++state.premiumPanelRequestToken;
+  let provisionalServices = null;
   const cmMvpdSelectionKey = buildCurrentCmMvpdSelectionKey(programmer);
   if (forcePremiumRefresh) {
     state.cmTenantBundleByTenantKey.clear();
@@ -42702,10 +43135,13 @@ async function refreshProgrammerPanels(options = {}) {
       cmMvpdSelectionKey,
     };
     setCurrentPremiumAppsSnapshot(programmer.programmerId, initialMergedServices);
+    provisionalServices = initialMergedServices;
     const initialVaultCredentialsReady = hasPassVaultCredentialCoverageForServices(
       programmer.programmerId,
       initialMergedServices
     );
+    emitPremiumServiceDecisionLogs(programmer, initialMergedServices);
+    renderPremiumServices(initialMergedServices, programmer, { controllerReason });
     const shouldCompileVaultCredentials =
       forcePremiumRefresh ||
       !isPassVaultProgrammerHydrated(programmer.programmerId) ||
@@ -42781,6 +43217,12 @@ async function refreshProgrammerPanels(options = {}) {
     }
   } catch (error) {
     if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
+      return;
+    }
+    if (provisionalServices && typeof provisionalServices === "object") {
+      setStatus(error instanceof Error ? error.message : String(error), "error");
+      emitPremiumServiceDecisionLogs(programmer, provisionalServices);
+      renderPremiumServices(provisionalServices, programmer, { controllerReason });
       return;
     }
     renderPremiumServicesError(error, { controllerReason });
@@ -42911,14 +43353,47 @@ function resolveRestV2AppForServiceProvider(restV2Apps, serviceProviderId, progr
 }
 
 function normalizeScope(scope) {
-  return String(scope || "").trim().toLowerCase();
+  const normalized = String(scope || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+  if (!normalized) {
+    return "";
+  }
+  return PREMIUM_SERVICE_SCOPE_ALIAS_BY_LABEL[normalized] || normalized;
 }
 
 function tokenizeScopeCandidate(value = "") {
-  return String(value || "")
-    .split(/[\s,\n,;]+/)
+  const normalizedValue = String(value || "").replace(/\s+/g, " ").trim();
+  if (!normalizedValue) {
+    return [];
+  }
+
+  const tokens = new Set();
+  const pushToken = (candidate) => {
+    const normalizedCandidate = String(candidate || "").replace(/\s+/g, " ").trim();
+    if (normalizedCandidate) {
+      tokens.add(normalizedCandidate);
+    }
+  };
+
+  pushToken(normalizedValue);
+  normalizedValue
+    .split(/[,\n;]+/)
     .map((part) => String(part || "").trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .forEach((part) => {
+      pushToken(part);
+      if (!/\s/.test(part)) {
+        return;
+      }
+      const pieces = part.split(/\s+/).filter(Boolean);
+      if (pieces.length > 1 && pieces.every((piece) => /[:._-]/.test(piece))) {
+        pieces.forEach((piece) => pushToken(piece));
+      }
+    });
+
+  return [...tokens];
 }
 
 const REGISTERED_APPLICATION_SCOPE_FIELD_PATHS = [
@@ -43730,6 +44205,20 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
   );
 
   const byGuid = {};
+  const mergeApplicationEntity = (item) => {
+    const guid = resolveApplicationGuidFromEntityData(item);
+    if (!guid) {
+      return false;
+    }
+    const existing = byGuid[guid];
+    const merged = {
+      ...(existing && typeof existing === "object" ? existing : {}),
+      ...(item && typeof item === "object" ? item : {}),
+      id: guid,
+    };
+    byGuid[guid] = merged;
+    return true;
+  };
   let successCount = 0;
   let lastError = null;
   for (const lookupUrl of uniqueUrlCandidates) {
@@ -43771,23 +44260,17 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
     );
 
     const items = normalizeApplicationsResponse(payload?.parsed || payload);
+    let mergedCount = 0;
     for (const item of items) {
-      const guid = resolveApplicationGuidFromEntityData(item);
-      if (!guid) {
-        continue;
+      if (mergeApplicationEntity(item)) {
+        mergedCount += 1;
       }
-      const existing = byGuid[guid];
-      const merged = {
-        ...(existing && typeof existing === "object" ? existing : {}),
-        ...(item && typeof item === "object" ? item : {}),
-        id: guid,
-      };
-      byGuid[guid] = merged;
     }
 
-    if ((expectedCount > 0 && Object.keys(byGuid).length >= expectedCount) || Object.keys(byGuid).length > 0 || expectedCount === 0) {
+    if (expectedCount > 0 && Object.keys(byGuid).length >= expectedCount) {
       break;
     }
+
   }
 
   if (successCount === 0) {
@@ -43805,6 +44288,50 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
       }
     );
     throw (lastError instanceof Error ? lastError : new Error(reason));
+  }
+
+  if (expectedCount > 0 && Object.keys(byGuid).length < expectedCount) {
+    const missingGuids = [...expectedGuidSet].filter((guid) => !Object.prototype.hasOwnProperty.call(byGuid, guid));
+    const detailConcurrency = Math.max(1, Math.min(4, Number(options.detailConcurrency || 4)));
+    const queueState = { index: 0 };
+    await Promise.all(
+      Array.from({ length: Math.min(detailConcurrency, missingGuids.length) }, () =>
+        (async () => {
+          while (true) {
+            const currentIndex = queueState.index;
+            queueState.index += 1;
+            if (currentIndex >= missingGuids.length) {
+              return;
+            }
+            const guid = missingGuids[currentIndex];
+            try {
+              const details = await fetchApplicationDetailsByGuid(guid, {
+                timeoutMs: requestTimeoutMs,
+                preferAuthenticatedHeaders: true,
+              });
+              if (details && typeof details === "object") {
+                mergeApplicationEntity({
+                  ...details,
+                  id: guid,
+                });
+              }
+            } catch (error) {
+              emitPremiumDecisionDebugEvent(
+                {
+                  phase: "premium-application-detail-backfill-error",
+                  programmerId: String(programmerId || ""),
+                  guid: String(guid || ""),
+                  error: error instanceof Error ? error.message : String(error),
+                },
+                {
+                  programmer: resolvedProgrammer,
+                }
+              );
+            }
+          }
+        })()
+      )
+    );
   }
 
   setCurrentProgrammerApplicationsSnapshot(programmerId, byGuid);
@@ -43836,11 +44363,7 @@ function getProgrammerRegisteredApplicationGuids(programmer = null, applications
   };
 
   const programmerApplications = Array.isArray(programmer?.applications) ? programmer.applications : [];
-  if (programmerApplications.length > 0) {
-    programmerApplications.forEach((appRef) => pushGuid(appRef));
-    return ordered;
-  }
-
+  programmerApplications.forEach((appRef) => pushGuid(appRef));
   Object.keys(applicationsData || {}).forEach((guid) => pushGuid(guid));
   return ordered;
 }
@@ -43866,7 +44389,7 @@ async function hydrateApplicationScopesForProgrammer(programmer, applicationsDat
     Array.isArray(options.requiredServiceKeys) && options.requiredServiceKeys.length > 0
       ? options.requiredServiceKeys
       : PREMIUM_REQUIRED_SERVICE_KEYS;
-  const stopWhenResolved = options.stopWhenResolved !== false;
+  const stopWhenResolved = options.stopWhenResolved === true;
 
   const guidOrder = getProgrammerRegisteredApplicationGuids(programmer, byGuid);
   if (guidOrder.length === 0) {
@@ -44116,12 +44639,22 @@ function buildOrderedPremiumServiceCandidates(applicationsArray, applicationsDat
     });
   }
 
-  const orderedEntries =
-    appRefsByGuid.size > 0
-      ? [...appRefsByGuid.entries()]
-          .sort((left, right) => Number(left[1]?.index || 0) - Number(right[1]?.index || 0))
-          .map(([guid]) => [guid, applicationsData?.[guid]])
-      : Object.entries(applicationsData);
+  const orderedEntries = [];
+  const seenGuids = new Set();
+  if (appRefsByGuid.size > 0) {
+    [...appRefsByGuid.entries()]
+      .sort((left, right) => Number(left[1]?.index || 0) - Number(right[1]?.index || 0))
+      .forEach(([guid]) => {
+        seenGuids.add(guid);
+        orderedEntries.push([guid, applicationsData?.[guid]]);
+      });
+  }
+  Object.entries(applicationsData || {}).forEach(([guid, appData]) => {
+    if (!guid || seenGuids.has(guid)) {
+      return;
+    }
+    orderedEntries.push([guid, appData]);
+  });
 
   const candidates = [];
   for (const [guid, appData] of orderedEntries) {
@@ -44480,6 +45013,26 @@ function tokenScopeSatisfiesRequiredScope(tokenScope = "", accessToken = "", req
   }
 
   return granted.has(normalizedRequiredScope);
+}
+
+function isEsmRequiredServiceScope(requiredScope = "", serviceHint = "") {
+  const normalizedRequiredScope = normalizeScope(requiredScope);
+  const normalizedServiceHint = normalizeScope(serviceHint);
+  return (
+    normalizedRequiredScope === normalizeScope(PREMIUM_SERVICE_SCOPE_BY_KEY.esm) ||
+    normalizedServiceHint.includes("esm")
+  );
+}
+
+function shouldAllowImplicitEsmTokenScope(requiredScope = "", serviceHint = "", accessToken = "", attemptedScope = "") {
+  if (!isEsmRequiredServiceScope(requiredScope, serviceHint)) {
+    return false;
+  }
+  if (!String(accessToken || "").trim()) {
+    return false;
+  }
+  const normalizedAttemptedScope = normalizeScope(firstNonEmptyString([attemptedScope, requiredScope]));
+  return normalizedAttemptedScope === normalizeScope(PREMIUM_SERVICE_SCOPE_BY_KEY.esm);
 }
 
 function resolveRequiredPremiumServiceScope(appInfo, debugMeta = null) {
@@ -44918,8 +45471,21 @@ async function requestClientCredentialsToken(clientId, clientSecret, debugMeta =
           requestedScopeHint: attemptedScope,
         }
       );
-      if (!scopeSatisfied) {
+      const allowImplicitScope = shouldAllowImplicitEsmTokenScope(
+        normalizedRequestedScope,
+        normalizedServiceHint,
+        accessToken,
+        attemptedScope
+      );
+      if (!scopeSatisfied && !allowImplicitScope) {
         throw new Error(`Token response missing required scope "${normalizedRequestedScope}".`);
+      }
+      if (!scopeSatisfied && allowImplicitScope) {
+        emitTokenDebugEvent("token-response-implicit-esm-scope", {
+          oauthScope: tokenScope,
+          requestedScope: normalizedRequestedScope,
+          attemptedScope,
+        });
       }
       emitTokenDebugEvent("token-response", {
         ttlSeconds,
@@ -44955,9 +45521,7 @@ async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false,
   const debugFlowId = String(debugMeta?.flowId || "").trim();
   let requiredServiceScope = resolveRequiredPremiumServiceScope(resolvedAppInfo, debugMeta);
   const normalizedServiceHint = normalizeScope(firstNonEmptyString([debugMeta?.service, debugMeta?.scope]));
-  const normalizedRequiredServiceScope = normalizeScope(requiredServiceScope);
-  const isEsmRequiredScope =
-    normalizedRequiredServiceScope === normalizeScope(PREMIUM_SERVICE_SCOPE_BY_KEY.esm) || normalizedServiceHint.includes("esm");
+  const isEsmRequiredScope = isEsmRequiredServiceScope(requiredServiceScope, normalizedServiceHint);
   const strictScopeValidation = debugMeta?.strictScopeValidation === true || isEsmRequiredScope;
   const tokenAttemptMode =
     debugMeta?.tokenAttemptMode === "scoped-only" || isEsmRequiredScope ? "scoped-only" : "default";
@@ -45067,6 +45631,11 @@ async function ensureDcrAccessToken(programmerId, appInfo, forceRefresh = false,
         strictUnknown: strictScopeValidation,
         requestedScopeHint: String(cache.tokenRequestedScope || cache.serviceScope || ""),
       }
+    ) && !shouldAllowImplicitEsmTokenScope(
+      requiredServiceScope,
+      normalizedServiceHint,
+      String(cache.accessToken || ""),
+      String(cache.tokenRequestedScope || cache.serviceScope || "")
     );
     if (forceRefresh || tokenMissing || tokenExpired || tokenScopeMismatch || cacheServiceScopeMismatch) {
       emitDcrDebugEvent("token-refresh-required", {
@@ -51208,12 +51777,16 @@ async function fetchProgrammersFromApi(options = {}) {
       }
 
       for (const headers of headerVariants) {
-        const response = await fetch(endpoint, {
-          method: "GET",
-          credentials: "include",
-          mode: "cors",
-          headers,
-        });
+        const response = await fetchWithAbortTimeout(
+          endpoint,
+          {
+            method: "GET",
+            credentials: "include",
+            mode: "cors",
+            headers,
+          },
+          PROGRAMMERS_FETCH_TIMEOUT_MS
+        );
 
         const responseText = await response.text().catch(() => "");
         if (responseLooksLikeExperienceCloudSignIn(response, responseText)) {
@@ -51293,8 +51866,7 @@ async function loadProgrammersData(accessToken = "") {
     return true;
   } catch (error) {
     log("Media company load failed", error);
-    state.programmers = [];
-    resetWorkflowForLoggedOut();
+    applyProgrammerEntities([]);
     throw error;
   }
 }
@@ -51708,6 +52280,7 @@ function render() {
 }
 
 async function signInInteractive() {
+  cancelPendingBootstrapSession();
   state.sessionMonitorSuppressed = false;
   setBusy(true, "Signing in...");
   setStatus("", "info");
@@ -51881,7 +52454,9 @@ async function onRestrictedSignOut() {
 }
 
 async function onAuthClick() {
-  if (state.busy) {
+  const allowInteractiveLoginWhileChecking =
+    state.busy && !state.sessionReady && !state.restricted && !isInteractiveAuthBusyContext(state.busyContext);
+  if (state.busy && !allowInteractiveLoginWhileChecking) {
     return;
   }
 
@@ -51898,11 +52473,22 @@ async function onAuthClick() {
   toggleAvatarMenu();
 }
 
+function isBootstrapSessionCurrent(generation) {
+  return Number(state.sessionBootstrapGeneration || 0) === Number(generation || 0);
+}
+
+function cancelPendingBootstrapSession() {
+  state.sessionBootstrapGeneration = Number(state.sessionBootstrapGeneration || 0) + 1;
+  state.isBootstrapping = false;
+}
+
 async function bootstrapSession() {
   if (state.isBootstrapping) {
     return;
   }
 
+  const bootstrapGeneration = Number(state.sessionBootstrapGeneration || 0) + 1;
+  state.sessionBootstrapGeneration = bootstrapGeneration;
   state.sessionMonitorSuppressed = false;
   state.isBootstrapping = true;
   setBusy(true, "Checking session...");
@@ -51910,9 +52496,15 @@ async function bootstrapSession() {
 
   try {
     const stored = await loadStoredLoginData();
+    if (!isBootstrapSessionCurrent(bootstrapGeneration)) {
+      return;
+    }
     if (stored) {
       try {
         const profile = await fetchProfile(stored.accessToken);
+        if (!isBootstrapSessionCurrent(bootstrapGeneration)) {
+          return;
+        }
         const storedSessionPayload = {
           ...buildLoginSessionPayloadFromAuth(stored, profile, stored.imageUrl),
           adobePassOrg: stored.adobePassOrg || null,
@@ -51936,6 +52528,9 @@ async function bootstrapSession() {
           return;
         }
       } catch (error) {
+        if (!isBootstrapSessionCurrent(bootstrapGeneration)) {
+          return;
+        }
         log("Stored session invalid", error);
         await clearLoginData();
       }
@@ -51944,22 +52539,11 @@ async function bootstrapSession() {
     const cookieActivated = await tryActivateCookieSession("bootstrap-cookie-precheck", {
       restrictOnDenied: false,
     });
-    if (cookieActivated) {
+    if (!isBootstrapSessionCurrent(bootstrapGeneration)) {
       return;
     }
-
-    const silent = await attemptSilentBootstrapLogin();
-    if (silent) {
-      const activated = await activateSession(silent, "silent-bootstrap");
-      if (activated) {
-        setStatus("", "info");
-        return;
-      }
-
-      if (state.restricted) {
-        setStatus("", "info");
-        return;
-      }
+    if (cookieActivated) {
+      return;
     }
 
     resetWorkflowForLoggedOut();
@@ -51968,9 +52552,11 @@ async function bootstrapSession() {
     state.sessionReady = false;
     setStatus("", "info");
   } finally {
-    state.isBootstrapping = false;
-    setBusy(false);
-    render();
+    if (isBootstrapSessionCurrent(bootstrapGeneration)) {
+      state.isBootstrapping = false;
+      setBusy(false);
+      render();
+    }
   }
 }
 
