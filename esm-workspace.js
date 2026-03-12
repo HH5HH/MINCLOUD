@@ -853,6 +853,17 @@ function cloneWorkspaceRows(rows) {
   });
 }
 
+function cloneWorkspaceJsonCompatible(value, fallback = null) {
+  if (value == null) {
+    return fallback;
+  }
+  try {
+    return JSON.parse(JSON.stringify(value));
+  } catch {
+    return fallback;
+  }
+}
+
 const ESM_CARD_ZOOM_TOKEN_BY_KEY = {
   YR: "/year",
   MO: "/month",
@@ -944,7 +955,7 @@ function buildWorkspaceExportSnapshot(options = {}) {
     mvpdIds: Array.isArray(state.mvpdIds) ? state.mvpdIds.slice(0, 24) : [],
     vaultExportPayload:
       options?.vaultExportPayload && typeof options.vaultExportPayload === "object"
-        ? cloneJsonCompatible(options.vaultExportPayload, null)
+        ? cloneWorkspaceJsonCompatible(options.vaultExportPayload, null)
         : null,
     generatedAt: generatedAt.toISOString(),
     clientTimeZone: CLIENT_TIMEZONE,
@@ -1444,7 +1455,7 @@ function maybeConsumePendingAutoRerun() {
   if (!pendingProgrammerKey) {
     return;
   }
-  if (state.controllerOnline) {
+  if (state.controllerOnline !== true) {
     return;
   }
 
@@ -3508,7 +3519,6 @@ function applyReportResult(payload) {
   cardState.running = false;
 
   if (payload?.superseded === true) {
-    renderCardMessage(cardState, "Superseded by newer ESM selection.");
     syncWorkspaceNetworkIndicator();
     return;
   }
@@ -3728,13 +3738,14 @@ function applyControllerState(payload) {
     syncActionButtonsDisabled();
   }
   const currentProgrammerKey = getProgrammerIdentityKey(state.programmerId, state.programmerName);
+  const isMediaCompanySwitchReason =
+    !controllerReason || controllerReason === "media-company-change" || controllerReason === "programmer-change";
   const shouldTriggerWorkspaceRedraw =
     hasWorkspaceCards &&
     Boolean(currentProgrammerKey) &&
     ((programmerChanged &&
       Boolean(previousProgrammerKey) &&
-      state.controllerOnline === false &&
-      (controllerReason === "programmer-change" || controllerReason === "media-company-change")) ||
+      isMediaCompanySwitchReason) ||
       (environmentChanged && controllerReason === "environment-switch"));
   if (shouldTriggerWorkspaceRedraw && currentProgrammerKey) {
     state.pendingAutoRerunProgrammerKey = currentProgrammerKey;

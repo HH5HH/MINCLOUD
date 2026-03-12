@@ -78,6 +78,8 @@ const CM_CMU_NON_DIMENSION_PATH_SEGMENTS = new Set([
   "usage",
 ]);
 const CM_TENANT_QUERY_PARAM_KEYS = ["tenant", "tenant_id", "tenant-id"];
+const CM_WORKSPACE_EXPORT_FILE_SYSTEM_QUERY_KEYS = new Set(["format", "limit"]);
+const CM_QUERY_CONTEXT_HIDDEN_KEYS = new Set(["metrics", ...CM_WORKSPACE_EXPORT_FILE_SYSTEM_QUERY_KEYS]);
 
 function parseWorkspaceExportPayload() {
   const payloadNode = document.getElementById(WORKSPACE_TEARSHEET_PAYLOAD_ID);
@@ -2257,9 +2259,14 @@ function buildCardHeaderContextMarkup(urlValue, endpointUrl = "") {
           .join("")
       : '<span class="card-url-path-segment card-url-path-segment-empty">cm</span>';
 
+  const queryPairs = context.queryPairs.filter((pair) => {
+    const normalizedKey = String(pair?.key || "").trim().toLowerCase();
+    return Boolean(normalizedKey) && !CM_QUERY_CONTEXT_HIDDEN_KEYS.has(normalizedKey);
+  });
+
   const queryMarkup =
-    context.queryPairs.length > 0
-      ? context.queryPairs
+    queryPairs.length > 0
+      ? queryPairs
           .map((pair) => {
             const keyHtml = `<span class="card-url-query-key">${escapeHtml(pair.key)}</span>`;
             if (!pair.hasValue) {

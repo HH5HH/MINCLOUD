@@ -6315,7 +6315,36 @@ async function fetchWithRefresh(url, options = {}) {
 
 
 /* ---------- REQUESTOR + MVPD FILTERS ---------- */
+function __appendPinnedMediaCompanyQueryParam(url) {
+  const raw = String(url || '').trim();
+  if (!raw) return raw;
+
+  const hiddenScope = String(
+    document.querySelector('input[name=theme_scope], input[name=media_company_scope], input[name=media-company-scope]')?.value || ''
+  ).trim();
+  const titleMatch = String(document.title || '').match(/—\s*(.+)$/);
+  const mediaCompanyScope = hiddenScope || (titleMatch && String(titleMatch[1] || '').trim()) || '';
+  if (!mediaCompanyScope) return raw;
+
+  try {
+    const parsed = new URL(raw, window.location.href);
+    if (!/\/esm\/v3\/media-company\//i.test(String(parsed.pathname || ''))) {
+      return parsed.toString();
+    }
+    parsed.searchParams.set('media-company', mediaCompanyScope);
+    return parsed.toString();
+  } catch {
+    if (!/\/esm\/v3\/media-company\//i.test(raw)) return raw;
+    const [path, query = ''] = raw.split('?');
+    const params = new URLSearchParams(query);
+    params.set('media-company', mediaCompanyScope);
+    const nextQuery = params.toString();
+    return nextQuery ? `${path}?${nextQuery}` : path;
+  }
+}
+
 function appendFilterParams(url) {
+  const scopedUrl = __appendPinnedMediaCompanyQueryParam(url);
   const reqSel = document.getElementById('fltr_requestorid');
   const mvpdSel = document.getElementById('fltr_mvpdId');
 
@@ -6327,16 +6356,16 @@ function appendFilterParams(url) {
     ? [...mvpdSel.selectedOptions].map(o => o.value).filter(Boolean)
     : [];
 
-  if (!reqIds.length && !mvpdIds.length) return url;
+  if (!reqIds.length && !mvpdIds.length) return scopedUrl;
 
-  const sep = url.includes('?') ? '&' : '?';
+  const sep = scopedUrl.includes('?') ? '&' : '?';
 
   const params = [
     ...reqIds.map(id => 'requestor-id=' + encodeURIComponent(id)),
     ...mvpdIds.map(id => 'mvpd=' + encodeURIComponent(id))
   ];
 
-  return url + sep + params.join('&');
+  return scopedUrl + sep + params.join('&');
 }
 
 function __ensureJsonFormatQuery(url) {
@@ -8669,6 +8698,30 @@ function deriveCmuEnvBase(value = "") {
   }
 }
 
+function getVisibleSystemQueryString(value = "") {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return "";
+  }
+  try {
+    const parsed = new URL(raw, window.location.href);
+    const searchParams = new URLSearchParams(parsed.search);
+    ["format", "limit", "metrics"].forEach((key) => searchParams.delete(key));
+    const nextQuery = searchParams.toString();
+    return nextQuery ? `?${nextQuery}` : "";
+  } catch {
+    const queryIndex = raw.indexOf("?");
+    if (queryIndex < 0) {
+      return "";
+    }
+    const queryText = raw.slice(queryIndex + 1).trim();
+    const searchParams = new URLSearchParams(queryText);
+    ["format", "limit", "metrics"].forEach((key) => searchParams.delete(key));
+    const nextQuery = searchParams.toString();
+    return nextQuery ? `?${nextQuery}` : "";
+  }
+}
+
 function getCompactCmuLabel(value = "") {
   const raw = String(value || "").trim();
   if (!raw) {
@@ -8678,9 +8731,10 @@ function getCompactCmuLabel(value = "") {
     const parsed = new URL(raw, window.location.href);
     const pathname = String(parsed.pathname || "");
     const compactPath = pathname.replace(/^\/esm\/v3\/(?:media-company\/)?/i, "").replace(/^\/+/, "");
-    return (compactPath || "") + String(parsed.search || "");
+    return (compactPath || "") + getVisibleSystemQueryString(parsed.toString());
   } catch {
-    return raw.replace(/^https?:\/\/[^?#]+\/esm\/v3\/(?:media-company\/)?/i, "");
+    const compactPath = raw.replace(/^https?:\/\/[^?#]+\/esm\/v3\/(?:media-company\/)?/i, "").replace(/\?.*$/, "");
+    return compactPath + getVisibleSystemQueryString(raw);
   }
 }
 

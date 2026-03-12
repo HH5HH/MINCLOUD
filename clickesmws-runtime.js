@@ -75,6 +75,7 @@
   let ESM_NODE_BASE_URL = "https://mgmt.auth.adobe.com/esm/v3/media-company/";
   const ESM_NODE_BASE_PATH = "esm/v3/media-company/";
   const WORKSPACE_EXPORT_FILE_SYSTEM_QUERY_KEYS = new Set(["format", "limit"]);
+  const ESM_QUERY_CONTEXT_HIDDEN_KEYS = new Set(["metrics", ...WORKSPACE_EXPORT_FILE_SYSTEM_QUERY_KEYS]);
   const CLICK_ESM_ZOOM_OPTIONS = ["YR", "MO", "DAY", "HR", "MIN"];
   const CLICK_ESM_ZOOM_TOKEN_BY_KEY = {
     YR: "/year",
@@ -389,7 +390,7 @@
     const entries = [];
     parsed.searchParams.forEach((value, key) => {
       const normalizedKey = String(key || "").trim().toLowerCase();
-      if (!normalizedKey || WORKSPACE_EXPORT_FILE_SYSTEM_QUERY_KEYS.has(normalizedKey)) {
+      if (!normalizedKey || ESM_QUERY_CONTEXT_HIDDEN_KEYS.has(normalizedKey)) {
         return;
       }
       const normalizedValue = String(value || "").trim();
@@ -537,6 +538,32 @@
     }
   }
 
+  function appendPinnedMediaCompanyQueryParam(url) {
+    const raw = String(url || "").trim();
+    const mediaCompanyScope = String(payload?.programmerId || "").trim();
+    if (!raw || !mediaCompanyScope) {
+      return raw;
+    }
+
+    try {
+      const parsed = new URL(raw, window.location.href);
+      if (!/\/esm\/v3\/media-company\//i.test(String(parsed.pathname || ""))) {
+        return parsed.toString();
+      }
+      parsed.searchParams.set("media-company", mediaCompanyScope);
+      return parsed.toString();
+    } catch {
+      if (!/\/esm\/v3\/media-company\//i.test(raw)) {
+        return raw;
+      }
+      const [path, query = ""] = raw.split("?");
+      const params = new URLSearchParams(query);
+      params.set("media-company", mediaCompanyScope);
+      const nextQuery = params.toString();
+      return nextQuery ? `${path}?${nextQuery}` : path;
+    }
+  }
+
   async function refreshToken() {
     const cid = String(document.querySelector('input[name="cid"]')?.value || "").trim();
     const csc = String(document.querySelector('input[name="csc"]')?.value || "").trim();
@@ -569,7 +596,7 @@
   }
 
   async function fetchWithAuth(url) {
-    const targetUrl = String(url || "").trim();
+    const targetUrl = appendPinnedMediaCompanyQueryParam(String(url || "").trim());
     if (!targetUrl) {
       throw new Error("ESM endpoint URL is required.");
     }
@@ -1364,9 +1391,14 @@
             .join("")
         : '<span class="card-url-path-segment card-url-path-segment-empty">media-company</span>';
 
+    const queryPairs = context.queryPairs.filter((pair) => {
+      const normalizedKey = String(pair?.key || "").trim().toLowerCase();
+      return Boolean(normalizedKey) && !ESM_QUERY_CONTEXT_HIDDEN_KEYS.has(normalizedKey);
+    });
+
     const queryMarkup =
-      context.queryPairs.length > 0
-        ? context.queryPairs
+      queryPairs.length > 0
+        ? queryPairs
             .map((pair) => {
               const keyHtml = `<span class="card-url-query-key">${escapeHtml(pair.key)}</span>`;
               if (!pair.hasValue) {

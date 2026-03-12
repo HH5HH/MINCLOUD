@@ -2937,7 +2937,37 @@ async function validateResolvedPremiumServiceSelection(programmer, serviceKey = 
   }
 }
 
-function buildEsmHydrationProbeUrl() {
+function appendPinnedEsmMediaCompanyQueryParam(rawUrl = "", mediaCompanyId = "") {
+  const normalizedUrl = String(rawUrl || "").trim();
+  const normalizedMediaCompanyId = String(mediaCompanyId || "").trim();
+  if (!normalizedUrl || !normalizedMediaCompanyId) {
+    return normalizedUrl;
+  }
+
+  const hasAbsoluteScheme = /^[a-z][a-z\d+.-]*:/i.test(normalizedUrl);
+  const fallbackBase = String(getActiveAdobePassEnvironment()?.esmBase || `${ADOBE_MGMT_BASE}/esm/v3/media-company/`).trim();
+  try {
+    const parsed = hasAbsoluteScheme ? new URL(normalizedUrl) : new URL(normalizedUrl, fallbackBase || "https://example.invalid");
+    if (!/\/esm\/v3\/media-company\//i.test(String(parsed.pathname || ""))) {
+      return normalizedUrl;
+    }
+    parsed.searchParams.set("media-company", normalizedMediaCompanyId);
+    parsed.hash = "";
+    return hasAbsoluteScheme ? parsed.toString() : `${String(parsed.pathname || "")}${String(parsed.search || "")}`;
+  } catch {
+    if (!/\/esm\/v3\/media-company\//i.test(normalizedUrl)) {
+      return normalizedUrl;
+    }
+    const withoutHash = normalizedUrl.split("#")[0] || "";
+    const [path, query = ""] = withoutHash.split("?");
+    const params = new URLSearchParams(query);
+    params.set("media-company", normalizedMediaCompanyId);
+    const nextQuery = params.toString();
+    return nextQuery ? `${path}?${nextQuery}` : path;
+  }
+}
+
+function buildEsmHydrationProbeUrl(mediaCompanyId = "") {
   const fallbackBase = String(getActiveAdobePassEnvironment()?.esmBase || `${ADOBE_MGMT_BASE}/esm/v3/media-company/`).trim();
   let seedUrl = "";
 
@@ -2955,9 +2985,9 @@ function buildEsmHydrationProbeUrl() {
     if (!parsed.searchParams.has("limit")) {
       parsed.searchParams.set("limit", "1");
     }
-    return parsed.toString();
+    return appendPinnedEsmMediaCompanyQueryParam(parsed.toString(), mediaCompanyId);
   } catch {
-    return seedUrl;
+    return appendPinnedEsmMediaCompanyQueryParam(seedUrl, mediaCompanyId);
   }
 }
 
@@ -2979,7 +3009,7 @@ async function probeEsmServiceAccess(programmerId = "", appInfo = null, options 
     tokenAttemptMode: "scoped-only",
     lockAppSelection: options?.lockAppSelection === true,
   });
-  const probeUrl = buildEsmHydrationProbeUrl();
+  const probeUrl = buildEsmHydrationProbeUrl(normalizedProgrammerId);
   const response = await fetchWithRateLimitRetry(
     () =>
       fetchWithAbortTimeout(
@@ -18938,7 +18968,8 @@ function buildMegWorkspaceTearsheetFileName(snapshot = {}) {
     firstNonEmptyString([snapshot?.programmerName, snapshot?.programmerId, "EsmScope"]),
     "EsmScope"
   );
-  return `${scopeLabel}_MEG_${Date.now()}.html`;
+  const envTag = getAdobePassEnvironmentFileTag(snapshot?.adobePassEnvironment);
+  return `${scopeLabel}_MEG_${envTag}_${Date.now()}.html`;
 }
 
 function buildMegWorkspaceTearsheetHtml(snapshot, templateHtml, stylesheetText, runtimeScriptText, authContext = {}) {
@@ -19991,11 +20022,59 @@ function buildClickCmuRuntimePatchSnippet(context = {}) {
   --reset-border:#346D0C;
   --reset-hover:#489014;
   --reset-text:#F5F8F2;
+  --bg:#f2f9eb;
+  --bg-gradient:
+    radial-gradient(circle at 8% -12%, rgba(64, 129, 17, 0.16), rgba(64, 129, 17, 0) 46%),
+    radial-gradient(circle at 92% -8%, rgba(110, 206, 42, 0.14), rgba(110, 206, 42, 0) 44%),
+    radial-gradient(circle at 50% 120%, rgba(52, 109, 12, 0.12), rgba(52, 109, 12, 0) 50%),
+    linear-gradient(180deg, #fbfdf4 0%, #f2f9eb 100%);
+  --panel:rgba(255, 255, 255, 0.92);
+  --text-primary:#1f2229;
+  --text-muted:#346D0C;
+  --col-list-text:#346D0C;
+  --accent:#408111;
+  --accent-strong:#346D0C;
+  --accent-rgb:64, 129, 17;
+  --field-bg:rgba(255, 255, 255, 0.96);
+  --field-border:rgba(64, 129, 17, 0.24);
+  --field-border-focus:#408111;
+  --field-focus-ring:rgba(64, 129, 17, 0.22);
+  --button-bg:rgba(255, 255, 255, 0.96);
+  --button-hover:#f4faee;
+  --button-border:rgba(64, 129, 17, 0.24);
+  --button-text:#346D0C;
+  --table-head:#eff8e7;
+  --table-row:rgba(255, 255, 255, 0.96);
+  --table-alt:#f7fbf2;
+  --row-hover:#edf6e4;
+  --table-row-hover:#edf6e4;
+  --border:rgba(64, 129, 17, 0.24);
+  --shadow:rgba(52, 109, 12, 0.15);
   --parent-highlight:rgba(64, 129, 17, .18);
   --parent-highlight-border:rgba(52, 109, 12, .58);
   --parent-highlight-glow:rgba(64, 129, 17, .24);
+  --match-row-hover:rgba(231, 244, 221, 0.98);
   --chip-highlight-bg:rgba(64, 129, 17, .16);
   --chip-highlight-border:rgba(52, 109, 12, .60);
+  --footer-muted:#346D0C;
+  --spinner-track:rgba(64, 129, 17, 0.22);
+  --spinner-head:rgba(31, 34, 41, 0.45);
+  --theme-preview:linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 250, 238, 0.97) 100%);
+  --theme-ring:#408111;
+  --theme-halo:rgba(64, 129, 17, 0.12);
+  --theme-shadow:rgba(52, 109, 12, 0.08);
+  --page-surface-bg:linear-gradient(180deg, #fbfdf4 0%, #f2f9eb 100%);
+  --card-shell-bg:rgba(255, 255, 255, 0.92);
+  --card-shell-alt-bg:#f7fbf2;
+  --table-shell-bg:linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 250, 238, 0.98));
+  --local-col-menu-bg:rgba(255, 255, 255, 0.96);
+  --local-col-menu-alt-bg:#f7fbf2;
+  --local-col-menu-hover:#edf6e4;
+  --local-col-menu-border:rgba(64, 129, 17, 0.24);
+  --parent-highlight-shell-bg:rgba(237, 246, 228, 0.98);
+  --parent-highlight-shell-alt-bg:rgba(244, 250, 238, 0.97);
+  --search-result-stripe-a:var(--parent-highlight-shell-alt-bg);
+  --search-result-stripe-b:var(--parent-highlight-shell-bg);
 }
 body[data-theme="dark"]{
   --zip-accent-500:85, 150, 38;
@@ -20045,6 +20124,10 @@ body[data-theme="dark"]{
   --parent-highlight-glow:rgba(144, 231, 82, .27);
   --chip-highlight-bg:rgba(144, 231, 82, .20);
   --chip-highlight-border:rgba(159, 234, 105, .64);
+}
+#fltr_requestorid,
+#fltr_mvpdId{
+  display:none !important;
 }
 </style>
 <script>
@@ -20246,6 +20329,73 @@ body[data-theme="dark"]{
     return nextHeaders;
   }
 
+  function deriveCmuEnvBase(value = "") {
+    const raw = String(value || "").trim();
+    if (!raw) {
+      return "";
+    }
+    try {
+      const parsed = new URL(raw, CM_REPORTS_BASE_URL);
+      if (!isCmuReportsUrl(parsed.toString())) {
+        return "";
+      }
+      return \`\${parsed.origin.replace(/\\/+$/, "")}/v2/\`;
+    } catch {
+      return /^https?:\\/\\/[^?#]+\\/v2\\//i.test(raw)
+        ? String(raw).replace(/^(https?:\\/\\/[^?#]+).*$/i, "$1/v2/")
+        : "";
+    }
+  }
+
+  function getVisibleSystemQueryString(value = "") {
+    const raw = String(value || "").trim();
+    if (!raw) {
+      return "";
+    }
+    try {
+      const parsed = new URL(raw, CM_REPORTS_BASE_URL);
+      const searchParams = new URLSearchParams(parsed.search);
+      ["format", "limit", "metrics"].forEach((key) => searchParams.delete(key));
+      const nextQuery = searchParams.toString();
+      return nextQuery ? "?" + nextQuery : "";
+    } catch {
+      const queryIndex = raw.indexOf("?");
+      if (queryIndex < 0) {
+        return "";
+      }
+      const queryText = raw.slice(queryIndex + 1).trim();
+      const searchParams = new URLSearchParams(queryText);
+      ["format", "limit", "metrics"].forEach((key) => searchParams.delete(key));
+      const nextQuery = searchParams.toString();
+      return nextQuery ? "?" + nextQuery : "";
+    }
+  }
+
+  function getCompactCmuLabel(value = "") {
+    const raw = String(value || "").trim();
+    if (!raw) {
+      return "";
+    }
+    try {
+      const parsed = new URL(raw, CM_REPORTS_BASE_URL);
+      const pathname = String(parsed.pathname || "");
+      const compactPath = pathname.replace(/^\\/v2\\//i, "").replace(/^\\/+/, "");
+      return \`\${compactPath || ""}\${getVisibleSystemQueryString(parsed.toString())}\`;
+    } catch {
+      const compactPath = raw.replace(/^https?:\\/\\/[^?#]+\\/v2\\//i, "").replace(/\\?.*$/, "");
+      return \`\${compactPath}\${getVisibleSystemQueryString(raw)}\`;
+    }
+  }
+
+  function getEnvBadgeMessage(value = "") {
+    const raw = String(value || "").trim();
+    if (!raw) {
+      return "Data Environment";
+    }
+    const label = /staging|stage/i.test(raw) ? "Staging" : "Production";
+    return [\`Environment : \${label}\`, \`CMU : \${raw}\`].join("\\n");
+  }
+
   function buildClickCmuEnvironmentBadgeMessage(environment = ACTIVE_ADOBEPASS_ENVIRONMENT) {
     const resolved = resolveRuntimeAdobePassEnvironment(environment);
     return [\`Environment : \${resolved.label}\`, \`Concurrency Monitoring : \${resolved.cmReportsBase}\`].join(
@@ -20254,12 +20404,16 @@ body[data-theme="dark"]{
   }
 
   function syncClickCmuEnvironmentBadge() {
+    const anchors = [...document.querySelectorAll("dl > dt > a[href]")];
+    const firstHref = String(anchors.find((anchor) => String(anchor?.href || "").trim())?.href || "").trim();
     const envDisplay = document.getElementById("envBaseDisplay");
     const envBadge = envDisplay?.closest(".env-badge");
     const envMessage = buildClickCmuEnvironmentBadgeMessage(ACTIVE_ADOBEPASS_ENVIRONMENT);
-    const envBase = String(
-      ACTIVE_ADOBEPASS_ENVIRONMENT.cmReportsBase || DEFAULT_ADOBEPASS_ENVIRONMENT.cmReportsBase
-    ).trim();
+    const envBase =
+      deriveCmuEnvBase(firstHref) ||
+      \`\${String(
+        ACTIVE_ADOBEPASS_ENVIRONMENT.cmReportsBase || DEFAULT_ADOBEPASS_ENVIRONMENT.cmReportsBase
+      ).trim().replace(/\\/+$/, "")}/v2/\`;
     if (envDisplay) {
       envDisplay.textContent = "";
       envDisplay.title = envMessage;
@@ -20271,6 +20425,18 @@ body[data-theme="dark"]{
       envBadge.setAttribute("aria-label", envMessage);
       envBadge.dataset.baseUrl = envBase;
     }
+    anchors.forEach((anchor) => {
+      const fullHref = String(anchor?.href || "").trim();
+      if (!fullHref) {
+        return;
+      }
+      const compactLabel = getCompactCmuLabel(fullHref);
+      if (!compactLabel) {
+        return;
+      }
+      anchor.dataset.fullUrl = fullHref;
+      anchor.textContent = compactLabel;
+    });
   }
 
   function tokenizeScopeSet(scope) {
@@ -20876,6 +21042,10 @@ body[data-theme="dark"]{
   };
 
   syncClickCmuEnvironmentBadge();
+
+  document.querySelectorAll("#fltr_requestorid, #fltr_mvpdId").forEach((node) => {
+    node.remove();
+  });
 
   const searchInput = document.getElementById("searchText");
   if (searchInput && String(searchInput.placeholder || "").trim()) {
@@ -22502,11 +22672,15 @@ async function megWorkspaceFetchResponse(rawUrl, requestToken, options = {}) {
   if (!requestUrl) {
     throw new Error("ESM endpoint URL is required.");
   }
+  const scopedRequestUrl = appendPinnedEsmMediaCompanyQueryParam(
+    requestUrl,
+    String(context?.programmer?.programmerId || "")
+  );
 
   const response = await fetchWithPremiumAuth(
     context.programmer.programmerId,
     context.appInfo,
-    requestUrl,
+    scopedRequestUrl,
     {
       method: "GET",
     },
@@ -22526,7 +22700,7 @@ async function megWorkspaceFetchResponse(rawUrl, requestToken, options = {}) {
 
   const bodyText = await response.text().catch(() => "");
   return {
-    requestUrl,
+    requestUrl: scopedRequestUrl,
     responseOk: response.ok,
     status: Number(response.status || 0),
     statusText: String(response.statusText || ""),
@@ -24013,7 +24187,10 @@ function esmWorkspaceBuildRequestMetadata(esmWorkspaceState) {
 }
 
 async function esmWorkspaceFetchWithPremiumAuth(esmWorkspaceState, url, options = {}, debugMeta = {}) {
-  const finalUrl = String(url || "").trim();
+  const finalUrl = appendPinnedEsmMediaCompanyQueryParam(
+    String(url || "").trim(),
+    String(esmWorkspaceState?.programmer?.programmerId || "")
+  );
   const requestMeta = esmWorkspaceBuildRequestMetadata(esmWorkspaceState);
   const activeFlowId = getActiveEsmWorkspaceDebugFlowId();
   const requestScope = String(debugMeta?.scope || "esm").trim() || "esm";
@@ -32481,7 +32658,7 @@ async function handleDegradationWorkspaceAction(message, sender = null) {
           String(state.selectedRequestorId || "").trim(),
         ]);
         const cardMvpd = String(card?.mvpd || "").trim();
-        const includeAllMvpd = endpointKey === "all" || card?.includeAllMvpd === true || !cardMvpd;
+        const includeAllMvpd = card?.includeAllMvpd === true || !cardMvpd;
         const queryValues = {
           requestorId: cardRequestor,
           programmerId: cardRequestor,
@@ -36639,7 +36816,7 @@ async function stopDegradationWorkspaceRecording(panelState) {
   }
 }
 
-async function resolveDegradationDebugFlowIdForRequest(panelState, options = {}) {
+function resolveDegradationDebugFlowIdForRequest(panelState, options = {}) {
   const activeFlowId = getActiveDegradationWorkspaceDebugFlowId();
   if (activeFlowId) {
     return activeFlowId;
@@ -36653,11 +36830,12 @@ async function resolveDegradationDebugFlowIdForRequest(panelState, options = {})
     });
     return existingActivityFlowId;
   }
-  return ensureDegradationWorkspaceActivityDebugFlow({
+  void ensureDegradationWorkspaceActivityDebugFlow({
     reason: String(options.reason || "degradation-request"),
     preferredWindowId: Number(options.preferredWindowId || panelState?.controllerWindowId || 0),
     fallbackTabId: Number(options.fallbackTabId || state.degradationWorkspaceTabId || 0),
   });
+  return "";
 }
 
 function isDegradationServiceRequestActive(section, requestToken, programmerId) {
@@ -37193,6 +37371,7 @@ function degradationBuildReportPayload(endpointSpec, queryValues, result = {}) {
     method: "GET",
     programmerId: String(queryValues?.programmerId || "").trim(),
     mvpd: String(queryValues?.mvpd || "").trim(),
+    includeAllMvpd: queryValues?.includeAllMvpd === true,
     mvpdScopeLabel: degradationBuildScopeLabel(queryValues),
     apiVersion: String(queryValues?.apiVersion || "").trim(),
     ok: result.ok === true,
@@ -37289,18 +37468,13 @@ async function degradationExecuteStatusRequest(panelState, endpointSpec, options
     api_version: DEGRADATION_API_VERSION,
   };
 
-  let debugFlowId = "";
-  try {
-    debugFlowId = String(
-      (await resolveDegradationDebugFlowIdForRequest(panelState, {
-        reason: `degradation:${endpointSpec.path}`,
-        preferredWindowId: Number(panelState?.controllerWindowId || 0),
-        fallbackTabId: Number(state.degradationWorkspaceTabId || 0),
-      })) || ""
-    ).trim();
-  } catch {
-    debugFlowId = "";
-  }
+  const debugFlowId = String(
+    resolveDegradationDebugFlowIdForRequest(panelState, {
+      reason: `degradation:${endpointSpec.path}`,
+      preferredWindowId: Number(panelState?.controllerWindowId || 0),
+      fallbackTabId: Number(state.degradationWorkspaceTabId || 0),
+    }) || ""
+  ).trim();
   const debugMeta = {
     flowId: debugFlowId,
     service: "degradation",
@@ -37709,15 +37883,13 @@ async function degradationRunMegaProgrammerSweepFromPanel(panelState, options = 
   if (!degradationRequireSelectedRequestor(panelState, queryValues)) {
     return [];
   }
-  queryValues.includeAllMvpd = true;
-  queryValues.mvpd = "";
   degradationSetControllerStatus(panelState, "");
   emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
     phase: "mega-button-clicked",
     requestScope: "degradation-all",
     programmerId: String(queryValues.programmerId || ""),
     mediaCompanyId: String(panelState?.programmer?.programmerId || "").trim(),
-    includeAllMvpd: true,
+    includeAllMvpd: queryValues.includeAllMvpd === true,
     workspaceKey: "degradation-workspace",
     workspaceOrigin: "DEGRADATION Workspace",
   });
@@ -37851,7 +38023,7 @@ function wireDegradationPanelInteractions(panelState, requestToken) {
         "all",
       ]);
       if (endpointKey === "all") {
-        await degradationRunMegaProgrammerSweepFromPanel(panelState, {
+        await degradationRunAllStatusEndpointsFromPanel(panelState, {
           requestToken: panelState.requestToken,
           openWorkspace: true,
           activateWorkspace: true,

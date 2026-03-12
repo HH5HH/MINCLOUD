@@ -1783,12 +1783,8 @@
           "all",
         ]);
 
-        let mvpd = getSelectedMvpdId();
-        let includeAllMvpd = !mvpd;
-        if (normalizedEndpointKey === "all") {
-          mvpd = "";
-          includeAllMvpd = true;
-        }
+        const mvpd = getSelectedMvpdId();
+        const includeAllMvpd = !mvpd;
 
         return {
           requestorId,
@@ -2212,6 +2208,7 @@
           programmerId: String(queryValues?.programmerId || "").trim(),
           requestorId: String(queryValues?.requestorId || "").trim(),
           mvpd: String(queryValues?.mvpd || "").trim(),
+          includeAllMvpd: queryValues?.includeAllMvpd === true,
           mvpdScopeLabel: buildScopeLabel(queryValues),
           apiVersion: String(queryValues?.apiVersion || "").trim(),
           ok: result.ok === true,
@@ -2622,7 +2619,7 @@
         const endpointKey = String(report?.endpointKey || "all").trim().toLowerCase();
         const requestorId = firstNonEmptyString([report?.requestorId, report?.programmerId]);
         const programmerId = firstNonEmptyString([report?.programmerId, report?.requestorId]);
-        const includeAllMvpd = endpointKey === "all" || !String(report?.mvpd || "").trim();
+        const includeAllMvpd = report?.includeAllMvpd === true || !String(report?.mvpd || "").trim();
         return {
           requestorId,
           programmerId,

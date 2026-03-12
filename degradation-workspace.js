@@ -166,7 +166,7 @@ function getReportPayload(report = null) {
     programmerId: String(report.programmerId || "").trim(),
     mvpd,
     mvpdScopeLabel: String(report.mvpdScopeLabel || "").trim(),
-    includeAllMvpd: !mvpd,
+    includeAllMvpd: report?.includeAllMvpd === true || !mvpd,
     selectionKey: String(report.selectionKey || state.selectionKey || "").trim(),
   };
 }
