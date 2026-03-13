@@ -1,6 +1,7 @@
 const DEGRADATION_WORKSPACE_MESSAGE_TYPE = "underpar:degradation-workspace";
 const BLONDIE_BUTTON_STATES = new Set(["inactive", "ready", "active", "ack"]);
 const BLONDIE_BUTTON_ACK_RESET_MS = 2000;
+const DEGRADATION_WORKSPACE_MAX_REPORTS = 60;
 const BLONDIE_BUTTON_INACTIVE_MESSAGE =
   "No zip-zap without SLACKTIVATION.  Please feed ZIP.KEY to UP Tab inside Developer Tools";
 const BLONDIE_BUTTON_ICON_URLS = (() => {
@@ -9,7 +10,7 @@ const BLONDIE_BUTTON_ICON_URLS = (() => {
   return {
     inactive: resolveIconUrl("icons/blondie-active.svg"),
     ready: resolveIconUrl("icons/blondie-slacktivated.svg"),
-    active: resolveIconUrl("icons/blondie-ack.svg"),
+    active: resolveIconUrl("icons/blondie-degradation-active.svg"),
     ack: resolveIconUrl("icons/blondie-inactive.svg"),
   };
 })();
@@ -38,6 +39,7 @@ const state = {
   autoRerunInFlightSelectionKey: "",
   pendingWorkspaceDeeplink: null,
   pendingWorkspaceDeeplinkConsuming: false,
+  pendingWorkspaceDeeplinkActivating: false,
 };
 
 const els = {
@@ -45,7 +47,6 @@ const els = {
   filterState: document.getElementById("workspace-filter-state"),
   status: document.getElementById("workspace-status"),
   rerunIndicator: document.getElementById("workspace-rerun-indicator"),
-  blondieAllButton: document.getElementById("workspace-blondie-all"),
   rerunAllButton: document.getElementById("workspace-rerun-all"),
   clearButton: document.getElementById("workspace-clear-all"),
   cardsHost: document.getElementById("workspace-cards"),
@@ -140,6 +141,16 @@ function buildWorkspaceDeeplinkSelectionKey(context = null) {
     return "";
   }
   return [environmentKey || "release-production", programmerId, requestorId || "*", mvpd || "*"].join("|");
+}
+
+function parseWorkspaceSelectionKey(selectionKey = "") {
+  const [environmentKey = "", programmerId = "", requestorId = "", mvpd = ""] = String(selectionKey || "").trim().split("|");
+  return {
+    environmentKey: String(environmentKey || "").trim(),
+    programmerId: String(programmerId || "").trim(),
+    requestorId: String(requestorId || "").trim() === "*" ? "" : String(requestorId || "").trim(),
+    mvpd: String(mvpd || "").trim() === "*" ? "" : String(mvpd || "").trim(),
+  };
 }
 
 function parseWorkspaceDeeplinkBoolean(value = "") {
@@ -247,21 +258,45 @@ function normalizeReport(report = null) {
   if (!report || typeof report !== "object") {
     return null;
   }
+  const selectionKey = String(report.selectionKey || "").trim();
+  const selectionParts = parseWorkspaceSelectionKey(selectionKey);
   const rows = Array.isArray(report.rows) ? report.rows : [];
   const columns = Array.isArray(report.columns)
     ? report.columns.map((value) => String(value || "").trim()).filter(Boolean)
     : rows.length > 0
       ? Object.keys(rows[0]).map((value) => String(value || "").trim()).filter(Boolean)
       : [];
+  const requestorId = firstNonEmptyString([report.requestorId, report.programmerId, selectionParts.requestorId]);
+  const mvpd = firstNonEmptyString([report.mvpd, selectionParts.mvpd]);
+  const includeAllMvpd = report?.includeAllMvpd === true || !mvpd;
   const normalized = {
     ...report,
     reportId: String(report.reportId || "").trim(),
     queryKey: String(report.queryKey || report.reportId || "").trim(),
+    runGroupId: String(report.runGroupId || "").trim(),
     endpointTitle: String(report.endpointTitle || report.endpointPath || "DEGRADATION Status").trim(),
-    mvpdScopeLabel: String(report.mvpdScopeLabel || "").trim(),
+    requestorId,
+    programmerId: String(report.programmerId || requestorId).trim(),
+    mediaCompanyId: firstNonEmptyString([report.mediaCompanyId, report.mediaCompany, selectionParts.programmerId]),
+    mediaCompanyName: String(report.mediaCompanyName || report.mediaCompanyLabel || report.programmerName || "").trim(),
+    mvpd,
+    includeAllMvpd,
+    mvpdLabel: String(report.mvpdLabel || "").trim(),
+    mvpdScopeLabel: firstNonEmptyString([
+      report.mvpdScopeLabel,
+      includeAllMvpd ? "ALL MVPDs" : "",
+      report.mvpdLabel,
+      mvpd,
+    ]),
     requestUrl: String(report.requestUrl || "").trim(),
     statusText: String(report.statusText || "").trim(),
     error: String(report.error || "").trim(),
+    adobePassEnvironmentKey: firstNonEmptyString([
+      report.adobePassEnvironmentKey,
+      report.environmentKey,
+      selectionParts.environmentKey,
+    ]),
+    adobePassEnvironmentLabel: String(report.adobePassEnvironmentLabel || report.environmentLabel || "").trim(),
     columns,
     rows,
     rowCount: Number(report.rowCount || rows.length || 0),
@@ -270,10 +305,8 @@ function normalizeReport(report = null) {
     fetchedAt: Number(report.fetchedAt || 0),
     durationMs: Number(report.durationMs || 0),
     ok: report.ok === true,
-    programmerId: String(report.programmerId || "").trim(),
-    mvpd: String(report.mvpd || "").trim(),
+    selectionKey,
     apiVersion: String(report.apiVersion || "").trim(),
-    selectionKey: String(report.selectionKey || "").trim(),
   };
   return normalized;
 }
@@ -293,19 +326,27 @@ function getReportPayload(report = null) {
   if (!report || typeof report !== "object") {
     return null;
   }
-  const mvpd = String(report.mvpd || "").trim();
-  const requestorId = firstNonEmptyString([report.requestorId, report.programmerId, state.requestorId]);
+  const selectionParts = parseWorkspaceSelectionKey(report.selectionKey);
+  const requestorId = firstNonEmptyString([report.requestorId, report.programmerId, selectionParts.requestorId, state.requestorId]);
+  const mvpd = firstNonEmptyString([report.mvpd, selectionParts.mvpd]);
+  const includeAllMvpd = report?.includeAllMvpd === true || !mvpd;
   return {
     reportId: String(report.reportId || "").trim(),
     queryKey: String(report.queryKey || "").trim(),
+    runGroupId: String(report.runGroupId || "").trim(),
     endpointKey: String(report.endpointKey || "").trim().toLowerCase(),
     endpointPath: String(report.endpointPath || "").trim(),
     requestUrl: String(report.requestUrl || "").trim(),
-    programmerId: String(report.programmerId || "").trim(),
+    programmerId: String(report.programmerId || requestorId).trim(),
     requestorId,
+    mediaCompanyId: firstNonEmptyString([report.mediaCompanyId, selectionParts.programmerId]),
+    mediaCompanyName: String(report.mediaCompanyName || "").trim(),
     mvpd,
-    mvpdScopeLabel: String(report.mvpdScopeLabel || "").trim(),
-    includeAllMvpd: report?.includeAllMvpd === true || !mvpd,
+    mvpdLabel: String(report.mvpdLabel || "").trim(),
+    mvpdScopeLabel: firstNonEmptyString([report.mvpdScopeLabel, includeAllMvpd ? "ALL MVPDs" : "", mvpd]),
+    includeAllMvpd,
+    adobePassEnvironmentKey: firstNonEmptyString([report.adobePassEnvironmentKey, selectionParts.environmentKey]),
+    adobePassEnvironmentLabel: String(report.adobePassEnvironmentLabel || "").trim(),
     selectionKey: String(report.selectionKey || state.selectionKey || "").trim(),
   };
 }
@@ -384,11 +425,6 @@ async function copyReportRequestUrl(reportId = "") {
 function syncActionButtonsDisabled() {
   const hasCards = state.reports.length > 0;
   const isBusy = state.batchRunning === true;
-  if (els.blondieAllButton) {
-    els.blondieAllButton.disabled = isBusy || !hasCards;
-    els.blondieAllButton.classList.toggle("net-busy", isBusy);
-    els.blondieAllButton.setAttribute("aria-busy", isBusy ? "true" : "false");
-  }
   if (els.rerunAllButton) {
     els.rerunAllButton.disabled = isBusy || !hasCards;
     els.rerunAllButton.classList.toggle("net-busy", isBusy);
@@ -424,10 +460,14 @@ function getBlondieButtonState(button = null) {
   return BLONDIE_BUTTON_STATES.has(stateValue) ? stateValue : getBlondieButtonDefaultState();
 }
 
-function getBlondieButtonTitle(buttonState = "") {
+function getBlondieButtonTitle(buttonState = "", button = null) {
   const normalizedState = BLONDIE_BUTTON_STATES.has(String(buttonState || "").trim().toLowerCase())
     ? String(buttonState || "").trim().toLowerCase()
     : getBlondieButtonDefaultState();
+  const receiptHover = String(button?.dataset?.receiptHover || "").trim();
+  if (normalizedState !== "inactive" && receiptHover) {
+    return receiptHover;
+  }
   if (normalizedState === "active") {
     return ":blondiebtn: is delivering your Slack CSV...";
   }
@@ -452,7 +492,7 @@ function renderBlondieButtonState(button, nextState = "", options = {}) {
   if (!BLONDIE_BUTTON_STATES.has(normalizedState)) {
     normalizedState = getBlondieButtonDefaultState();
   }
-  const title = getBlondieButtonTitle(normalizedState);
+  const title = getBlondieButtonTitle(normalizedState, button);
   button.dataset.blondieState = normalizedState;
   button.disabled = false;
   button.title = title;
@@ -544,11 +584,19 @@ function formatDegradationReportCellValue(rawValue) {
 }
 
 function buildDegradationReportCsvFileName(report = null) {
-  const mediaCompany = sanitizeFileNameSegment(firstNonEmptyString([state.programmerName, state.programmerId]), "MediaCompany");
+  const mediaCompany = sanitizeFileNameSegment(
+    firstNonEmptyString([report?.mediaCompanyName, report?.mediaCompanyId, state.programmerName, state.programmerId]),
+    "MediaCompany"
+  );
   const endpoint = sanitizeFileNameSegment(firstNonEmptyString([report?.endpointKey, report?.endpointPath, report?.endpointTitle]), "dgr");
-  const requestor = sanitizeFileNameSegment(firstNonEmptyString([report?.programmerId, state.requestorId]), "requestor");
+  const requestor = sanitizeFileNameSegment(firstNonEmptyString([report?.requestorId, report?.programmerId, state.requestorId]), "requestor");
   const scope = sanitizeFileNameSegment(report?.mvpd || "all-mvpds", "all-mvpds");
-  const rawEnvironment = String(report?.requestUrl || state.adobePassEnvironment?.degradationBase || "").trim().toLowerCase();
+  const rawEnvironment = firstNonEmptyString([
+    report?.adobePassEnvironmentLabel,
+    report?.adobePassEnvironmentKey,
+    report?.requestUrl,
+    state.adobePassEnvironment?.degradationBase,
+  ]).toLowerCase();
   const envTag = rawEnvironment.includes("staging") || rawEnvironment.includes("stage") ? "STAGE" : "PROD";
   const stamp = new Date(report?.fetchedAt || Date.now()).toISOString().replace(/[:.]/g, "-");
   return `${mediaCompany}_clickDGR_${endpoint}_${requestor}_${scope}_${envTag}_${stamp}.csv`;
@@ -583,6 +631,15 @@ function downloadDegradationReportCsv(reportId = "") {
   triggerFileDownload(csvBody, buildDegradationReportCsvFileName(report), "text/csv;charset=utf-8");
 }
 
+function getDegradationBlondieMediaCompanyLabel(report = null) {
+  const name = String(report?.mediaCompanyName || "").trim();
+  const id = firstNonEmptyString([report?.mediaCompanyId, state.programmerId]);
+  if (name && id && name.toLowerCase() !== id.toLowerCase()) {
+    return `${name} (${id})`;
+  }
+  return name || id || "N/A";
+}
+
 function buildDegradationBlondieScopeLabel(report = null) {
   const requestorId = firstNonEmptyString([report?.requestorId, report?.programmerId, state.requestorId, "N/A"]);
   const scopeLabel = firstNonEmptyString([
@@ -592,7 +649,7 @@ function buildDegradationBlondieScopeLabel(report = null) {
     state.mvpdScopeLabel,
     "ALL MVPDs",
   ]);
-  return `${requestorId} X ${scopeLabel}`;
+  return `${getDegradationBlondieMediaCompanyLabel(report)} X ${requestorId} X ${scopeLabel}`;
 }
 
 function buildDegradationBlondieStatusSummary(report = null) {
@@ -627,6 +684,7 @@ function buildDegradationBlondieReportItem(report = null) {
     requestUrl: String(report.requestUrl || "").trim(),
     endpointKey: String(report.endpointKey || "").trim().toLowerCase(),
     endpointPath: String(report.endpointPath || "").trim(),
+    fetchedAt: Math.max(0, Number(report.fetchedAt || 0)),
     rowCount: Math.max(0, Number(report.rowCount || 0)),
     activeCount: Math.max(0, Number(report.activeCount || 0)),
     ok: report.ok === true,
@@ -636,86 +694,122 @@ function buildDegradationBlondieReportItem(report = null) {
   };
 }
 
-function buildDegradationBlondieExportPayload(report = null) {
-  const reportItem = buildDegradationBlondieReportItem(report);
-  if (!reportItem) {
-    return null;
-  }
-  const requestorId = firstNonEmptyString([report.requestorId, report.programmerId, state.requestorId]);
-  const mediaCompanyId = String(state.programmerId || "").trim();
-  const environmentKey = getEnvironmentKey(state.adobePassEnvironment) || "release-production";
-  const includeAllMvpd = report?.includeAllMvpd === true || !String(report.mvpd || "").trim();
-  return {
-    workspaceKey: "degradation",
-    workspaceLabel: "DEGRADATION",
-    displayNodeLabel: String(report.endpointTitle || "DEGRADATION Status").trim(),
-    datasetLabel: `${String(report.endpointTitle || "DEGRADATION Status").trim()} | ${getNoRulesScopeLabel(report)}`,
-    requestLabel: String(report.endpointTitle || "DEGRADATION Status").trim(),
-    requestUrl: String(report.requestUrl || "").trim(),
-    programmerId: mediaCompanyId,
-    programmerName: String(state.programmerName || "").trim(),
-    requestorId,
-    mvpd: includeAllMvpd ? "" : String(report.mvpd || "").trim(),
-    mvpdLabel: String(state.mvpdLabel || "").trim(),
-    mvpdScopeLabel: String(report.mvpdScopeLabel || state.mvpdScopeLabel || "").trim(),
-    adobePassEnvironmentKey: environmentKey,
-    adobePassEnvironmentLabel: String(state.adobePassEnvironment?.label || "").trim(),
-    endpointKey: String(report.endpointKey || "").trim().toLowerCase(),
-    endpointPath: String(report.endpointPath || "").trim(),
-    endpointKeys: [String(report.endpointKey || "").trim().toLowerCase()].filter(Boolean),
-    includeAllMvpd,
-    selectionKey:
-      String(report.selectionKey || state.selectionKey || "").trim() ||
-      buildWorkspaceDeeplinkSelectionKey({
-        environmentKey,
-        programmerId: mediaCompanyId,
-        requestorId,
-        mvpd: includeAllMvpd ? "" : String(report.mvpd || "").trim(),
-      }),
-    messageOnly: true,
-    skipCsvAttachment: true,
-    reportCount: 1,
-    reportItems: [reportItem],
-    columns: [],
-    rows: [],
-    rowCount: Math.max(0, Number(report.rowCount || 0)),
-  };
+function getDegradationReportGroupId(report = null) {
+  return firstNonEmptyString([report?.runGroupId, report?.reportId]);
 }
 
-function buildDegradationBlondieBatchExportPayload(reportList = state.reports) {
-  const reports = Array.isArray(reportList) ? reportList.filter((report) => report && typeof report === "object") : [];
+function buildDegradationReportGroups(reportList = state.reports) {
+  const groups = [];
+  const groupMap = new Map();
+  const reports = normalizeReports(reportList);
+  reports.forEach((report) => {
+    const groupId = getDegradationReportGroupId(report);
+    if (!groupId) {
+      return;
+    }
+    let group = groupMap.get(groupId);
+    if (!group) {
+      group = {
+        groupId,
+        reports: [],
+        latestFetchedAt: Number(report?.fetchedAt || 0),
+      };
+      groupMap.set(groupId, group);
+      groups.push(group);
+    }
+    group.reports.push(report);
+    group.latestFetchedAt = Math.max(group.latestFetchedAt, Number(report?.fetchedAt || 0));
+  });
+  return groups
+    .map((group) => {
+      const reportsInGroup = Array.isArray(group.reports) ? group.reports.slice() : [];
+      const firstReport = reportsInGroup[0] || null;
+      const endpointKeys = [...new Set(reportsInGroup.map((report) => String(report?.endpointKey || "").trim().toLowerCase()).filter(Boolean))];
+      const includeAllMvpd = firstReport?.includeAllMvpd === true || !String(firstReport?.mvpd || "").trim();
+      return {
+        groupId: group.groupId,
+        reports: reportsInGroup,
+        firstReport,
+        endpointKeys,
+        requestLabel:
+          endpointKeys.length > 1
+            ? "GET ALL"
+            : firstNonEmptyString([firstReport?.endpointTitle, firstReport?.endpointKey, firstReport?.endpointPath, "DEGRADATION Status"]),
+        reportCount: reportsInGroup.length,
+        latestFetchedAt: group.latestFetchedAt,
+        scopeLabel: buildDegradationBlondieScopeLabel(firstReport),
+        environmentKey: firstNonEmptyString([firstReport?.adobePassEnvironmentKey]),
+        environmentLabel: firstNonEmptyString([firstReport?.adobePassEnvironmentLabel, firstReport?.adobePassEnvironmentKey]),
+        selectionKey: String(firstReport?.selectionKey || "").trim(),
+        requestorId: firstNonEmptyString([firstReport?.requestorId, firstReport?.programmerId]),
+        mediaCompanyId: String(firstReport?.mediaCompanyId || "").trim(),
+        mediaCompanyName: String(firstReport?.mediaCompanyName || "").trim(),
+        mvpd: includeAllMvpd ? "" : String(firstReport?.mvpd || "").trim(),
+        mvpdLabel: String(firstReport?.mvpdLabel || "").trim(),
+        mvpdScopeLabel: firstNonEmptyString([
+          firstReport?.mvpdScopeLabel,
+          includeAllMvpd ? "ALL MVPDs" : "",
+          firstReport?.mvpd,
+          "ALL MVPDs",
+        ]),
+        includeAllMvpd,
+      };
+    })
+    .sort((left, right) => Number(right.latestFetchedAt || 0) - Number(left.latestFetchedAt || 0));
+}
+
+function getDegradationReportGroup(groupId = "", reportList = state.reports) {
+  const normalizedGroupId = String(groupId || "").trim();
+  if (!normalizedGroupId) {
+    return null;
+  }
+  return buildDegradationReportGroups(reportList).find((group) => String(group?.groupId || "").trim() === normalizedGroupId) || null;
+}
+
+function buildDegradationBlondieGroupExportPayload(groupId = "", reportList = state.reports) {
+  const group = getDegradationReportGroup(groupId, reportList);
+  if (!group) {
+    return null;
+  }
+  const reports = Array.isArray(group.reports) ? group.reports : [];
   const reportItems = reports.map((report) => buildDegradationBlondieReportItem(report)).filter(Boolean);
   if (reportItems.length === 0) {
     return null;
   }
-  const requestorId = firstNonEmptyString([state.requestorId, reports[0]?.requestorId, reports[0]?.programmerId, ""]);
-  const mvpd = String(state.mvpd || reports[0]?.mvpd || "").trim();
-  const includeAllMvpd = !mvpd;
-  const endpointKeys = [...new Set(reportItems.map((item) => String(item.endpointKey || "").trim().toLowerCase()).filter(Boolean))];
-  const mediaCompanyId = String(state.programmerId || "").trim();
-  const environmentKey = getEnvironmentKey(state.adobePassEnvironment) || "release-production";
-  const scopeLabel = firstNonEmptyString([state.mvpdScopeLabel, includeAllMvpd ? "ALL MVPDs" : mvpd, "ALL MVPDs"]);
+  const firstReport = group.firstReport || reports[0] || null;
+  const requestorId = firstNonEmptyString([group.requestorId, firstReport?.requestorId, firstReport?.programmerId, ""]);
+  const mvpd = String(group.mvpd || firstReport?.mvpd || "").trim();
+  const includeAllMvpd = group.includeAllMvpd === true || !mvpd;
+  const endpointKeys = Array.isArray(group.endpointKeys) ? group.endpointKeys : [];
+  const mediaCompanyId = String(group.mediaCompanyId || firstReport?.mediaCompanyId || "").trim();
+  const mediaCompanyName = String(group.mediaCompanyName || firstReport?.mediaCompanyName || "").trim();
+  const environmentKey = firstNonEmptyString([group.environmentKey, getEnvironmentKey(state.adobePassEnvironment), "release-production"]);
+  const environmentLabel = firstNonEmptyString([group.environmentLabel, firstReport?.adobePassEnvironmentLabel]);
+  const mvpdScopeLabel = firstNonEmptyString([group.mvpdScopeLabel, includeAllMvpd ? "ALL MVPDs" : mvpd, "ALL MVPDs"]);
+  const scopeReceiptLabel = `${getDegradationBlondieMediaCompanyLabel(firstReport)} X ${requestorId || "N/A"} X ${mvpdScopeLabel}`;
+  const requestLabel = String(group.requestLabel || reportItems[0]?.title || "DEGRADATION Status").trim();
+  const multiEndpoint = endpointKeys.length > 1;
   return {
     workspaceKey: "degradation",
     workspaceLabel: "DEGRADATION",
-    displayNodeLabel: endpointKeys.length > 1 ? "DEGRADATION GET ALL" : reportItems[0].title,
-    datasetLabel: `${endpointKeys.length > 1 ? "DEGRADATION GET ALL" : reportItems[0].title} | ${requestorId || "N/A"} X ${scopeLabel}`,
-    requestLabel: endpointKeys.length > 1 ? "GET ALL" : reportItems[0].title,
-    requestUrl: endpointKeys.length === 1 ? String(reportItems[0].requestUrl || "").trim() : "",
+    displayNodeLabel: multiEndpoint ? "DEGRADATION GET ALL" : requestLabel,
+    datasetLabel: `${multiEndpoint ? "DEGRADATION GET ALL" : requestLabel} | ${scopeReceiptLabel}`,
+    requestLabel: multiEndpoint ? "GET ALL" : requestLabel,
+    requestUrl: endpointKeys.length === 1 ? String(reportItems[0].requestUrl || firstReport?.requestUrl || "").trim() : "",
     programmerId: mediaCompanyId,
-    programmerName: String(state.programmerName || "").trim(),
+    programmerName: mediaCompanyName,
     requestorId,
     mvpd: includeAllMvpd ? "" : mvpd,
-    mvpdLabel: String(state.mvpdLabel || "").trim(),
-    mvpdScopeLabel: scopeLabel,
+    mvpdLabel: String(group.mvpdLabel || firstReport?.mvpdLabel || "").trim(),
+    mvpdScopeLabel,
     adobePassEnvironmentKey: environmentKey,
-    adobePassEnvironmentLabel: String(state.adobePassEnvironment?.label || "").trim(),
-    endpointKey: endpointKeys.length > 1 ? "all" : endpointKeys[0] || "",
-    endpointPath: endpointKeys.length > 1 ? "all" : endpointKeys[0] || "",
+    adobePassEnvironmentLabel: environmentLabel,
+    endpointKey: multiEndpoint ? "all" : endpointKeys[0] || "",
+    endpointPath: multiEndpoint ? "all" : endpointKeys[0] || "",
     endpointKeys,
     includeAllMvpd,
     selectionKey:
-      String(state.selectionKey || "").trim() ||
+      String(group.selectionKey || firstReport?.selectionKey || "").trim() ||
       buildWorkspaceDeeplinkSelectionKey({
         environmentKey,
         programmerId: mediaCompanyId,
@@ -729,15 +823,9 @@ function buildDegradationBlondieBatchExportPayload(reportList = state.reports) {
     columns: [],
     rows: [],
     rowCount: reports.reduce((count, report) => count + Math.max(0, Number(report?.rowCount || 0)), 0),
+    responseReceivedAt: Math.max(0, Number(group.latestFetchedAt || 0)),
+    createdAt: Math.max(0, Number(group.latestFetchedAt || Date.now() || 0)),
   };
-}
-
-function buildBlondieButtonMarkup(reportIdAttr = "") {
-  const initialState = getBlondieButtonDefaultState();
-  const title = escapeHtml(getBlondieButtonTitle(initialState));
-  return `<button type="button" class="degradation-report-action-btn underpar-blondie-btn" data-action="blondie-export" data-report-id="${reportIdAttr}" data-blondie-state="${escapeHtml(initialState)}" title="${title}" aria-label="${title}">
-          <img class="underpar-blondie-icon" src="${escapeHtml(BLONDIE_BUTTON_ICON_URLS[initialState])}" alt="" aria-hidden="true" />
-        </button>`;
 }
 
 function renderReportFooter(report = null) {
@@ -748,10 +836,7 @@ function renderReportFooter(report = null) {
   const hasCsv = report.ok === true && Number(report.rowCount || 0) > 0;
   return `
     <footer class="degradation-report-footer">
-      <div class="underpar-export-actions">
-        ${buildBlondieButtonMarkup(reportIdAttr)}
-        ${hasCsv ? `<a class="degradation-report-csv-link" href="#" data-action="download-csv" data-report-id="${reportIdAttr}">CSV</a>` : ""}
-      </div>
+      ${hasCsv ? `<div class="underpar-export-actions"><a class="degradation-report-csv-link" href="#" data-action="download-csv" data-report-id="${reportIdAttr}">CSV</a></div>` : ""}
       <div class="degradation-report-footer-controls">
         <p class="degradation-report-last-modified">Last modified: ${escapeHtml(new Date(report.fetchedAt || Date.now()).toLocaleString())}</p>
       </div>
@@ -873,9 +958,29 @@ function buildPendingWorkspaceDeeplinkSetupMessage(pending = null) {
   const reportLabel = buildPendingWorkspaceDeeplinkReportLabel(pending);
   const contextLabel = buildPendingWorkspaceDeeplinkContextLabel(pending);
   if (contextLabel) {
-    return `To rerun ${reportLabel} from Slack, set up DEGRADATION for ${contextLabel}. It will run once the setup matches.`;
+    return `Restoring DEGRADATION for ${contextLabel} before rerunning ${reportLabel} from Slack.`;
   }
-  return `Set up DEGRADATION to rerun ${reportLabel} from Slack.`;
+  return `Restoring DEGRADATION before rerunning ${reportLabel} from Slack.`;
+}
+
+async function maybeActivatePendingWorkspaceDeeplinkContext() {
+  const pending = state.pendingWorkspaceDeeplink;
+  if (!pending || !state.controllerOnline || state.pendingWorkspaceDeeplinkActivating) {
+    return { ok: false, pending: true };
+  }
+  state.pendingWorkspaceDeeplinkActivating = true;
+  try {
+    return await sendWorkspaceAction("activate-deeplink-context", {
+      deeplink: pending,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    state.pendingWorkspaceDeeplinkActivating = false;
+  }
 }
 
 async function maybeConsumePendingWorkspaceDeeplink() {
@@ -887,6 +992,11 @@ async function maybeConsumePendingWorkspaceDeeplink() {
     return;
   }
   if (!state.degradationReady || !String(state.programmerId || "").trim()) {
+    const activationResult = await maybeActivatePendingWorkspaceDeeplinkContext();
+    if (!activationResult?.ok) {
+      setStatus(activationResult?.error || buildPendingWorkspaceDeeplinkSetupMessage(pending), activationResult?.error ? "error" : "info");
+      return;
+    }
     setStatus(buildPendingWorkspaceDeeplinkSetupMessage(pending), "info");
     return;
   }
@@ -900,6 +1010,11 @@ async function maybeConsumePendingWorkspaceDeeplink() {
     });
   const expectedSelectionKey = String(pending.selectionKey || "").trim();
   if (expectedSelectionKey && currentSelectionKey !== expectedSelectionKey) {
+    const activationResult = await maybeActivatePendingWorkspaceDeeplinkContext();
+    if (!activationResult?.ok) {
+      setStatus(activationResult?.error || buildPendingWorkspaceDeeplinkSetupMessage(pending), activationResult?.error ? "error" : "info");
+      return;
+    }
     setStatus(buildPendingWorkspaceDeeplinkSetupMessage(pending), "info");
     return;
   }
@@ -937,66 +1052,35 @@ async function maybeConsumePendingWorkspaceDeeplink() {
 }
 
 function applyControllerState(payload = {}) {
-  const previousSelectionKey = String(state.selectionKey || "").trim();
-  const previousProgrammerId = String(state.programmerId || "").trim();
-  const previousProgrammerName = String(state.programmerName || "").trim();
-  const previousEnvironmentKey = getEnvironmentKey(state.adobePassEnvironment);
-  const controllerReason = String(payload?.controllerReason || "").trim().toLowerCase();
   const nextEnvironment =
     payload?.adobePassEnvironment && typeof payload.adobePassEnvironment === "object"
       ? {
           ...payload.adobePassEnvironment,
         }
       : state.adobePassEnvironment;
-  const nextEnvironmentKey = getEnvironmentKey(nextEnvironment);
-  const nextProgrammerId = String(payload?.programmerId || "");
-  const nextProgrammerName = String(payload?.programmerName || "");
-  const nextSelectionKey = String(payload?.selectionKey || previousSelectionKey || "").trim();
-  const selectionChanged = Boolean(previousSelectionKey && nextSelectionKey && previousSelectionKey !== nextSelectionKey);
-  const environmentChanged = Boolean(previousEnvironmentKey && nextEnvironmentKey && previousEnvironmentKey !== nextEnvironmentKey);
-  const programmerChanged =
-    Boolean(previousProgrammerId || previousProgrammerName) &&
-    (previousProgrammerId !== String(nextProgrammerId || "").trim() ||
-      (previousProgrammerName &&
-        nextProgrammerName &&
-        previousProgrammerName.toLowerCase() !== String(nextProgrammerName || "").trim().toLowerCase()));
 
   state.controllerOnline = payload?.controllerOnline === true;
   state.adobePassEnvironment = nextEnvironment;
   state.degradationReady = payload?.degradationReady === true;
   state.slackReady = payload?.slack?.ready === true;
   state.slackUserName = String(payload?.slack?.userName || "").trim();
-  state.programmerId = nextProgrammerId;
-  state.programmerName = nextProgrammerName;
+  state.programmerId = String(payload?.programmerId || "");
+  state.programmerName = String(payload?.programmerName || "");
   state.requestorId = String(payload?.requestorId || "");
   state.mvpd = String(payload?.mvpd || "");
   state.mvpdLabel = String(payload?.mvpdLabel || "");
   state.mvpdScopeLabel = String(payload?.mvpdScopeLabel || "");
-  state.selectionKey = nextSelectionKey;
+  state.selectionKey = String(payload?.selectionKey || state.selectionKey || "").trim();
   state.appGuid = String(payload?.appGuid || "");
   state.appName = String(payload?.appName || "");
-  const selectionTransition = selectionChanged || environmentChanged || programmerChanged;
-  const shouldSuppressAutoRerun = Boolean(state.pendingWorkspaceDeeplink) || controllerReason.includes("deeplink");
-  if (selectionTransition && shouldSuppressAutoRerun) {
-    clearPendingAutoRerun();
-    if (state.reports.length > 0) {
-      clearWorkspaceCards();
-    }
-  } else if (selectionTransition && state.reports.length > 0) {
-    queuePendingAutoRerun(nextSelectionKey);
-  } else if (selectionTransition && state.reports.length === 0) {
-    state.pendingAutoRerunCards = [];
-    state.pendingAutoRerunSelectionKey = String(nextSelectionKey || "").trim();
-  }
   updateControllerBanner();
   syncBlondieButtons();
   syncActionButtonsDisabled();
-  maybeConsumePendingAutoRerun();
   void maybeConsumePendingWorkspaceDeeplink();
 }
 
 function getScopeValues(report = null) {
-  const requestor = firstNonEmptyString([report?.programmerId, state.requestorId, "N/A"]);
+  const requestor = firstNonEmptyString([report?.requestorId, report?.programmerId, state.requestorId, "N/A"]);
   const scope = firstNonEmptyString([report?.mvpdScopeLabel, report?.mvpd, state.mvpdScopeLabel, "ALL MVPDs"]);
   return {
     requestor,
@@ -1021,6 +1105,11 @@ function renderScopeEmphasisHtml(report = null) {
 function renderNoRulesCompactHtml(report = null) {
   const methodLabel = firstNonEmptyString([report?.endpointTitle, "DEGRADATION Status"]);
   return `${escapeHtml(methodLabel)}: No rules active for ${renderScopeEmphasisHtml(report)}.`;
+}
+
+function buildDegradationReceiptHoverText(group = null) {
+  const capturedAt = new Date(group?.latestFetchedAt || Date.now()).toLocaleString();
+  return `Slack receipt for this DEGRADATION run Captured ${capturedAt}`;
 }
 
 function renderTable(report = null) {
@@ -1114,6 +1203,72 @@ function renderReportCard(report = null) {
   `;
 }
 
+function renderResultGroupScopeHtml(group = null) {
+  const mediaCompany = firstNonEmptyString([group?.mediaCompanyName, group?.mediaCompanyId, "N/A"]);
+  const requestor = firstNonEmptyString([group?.requestorId, "N/A"]);
+  const mvpdScope = firstNonEmptyString([group?.mvpdScopeLabel, group?.includeAllMvpd === true ? "ALL MVPDs" : "", group?.mvpd, "ALL MVPDs"]);
+  return [
+    `<span class="degradation-result-group-scope-value">${escapeHtml(mediaCompany)}</span>`,
+    `<span class="degradation-result-group-scope-sep"> X </span>`,
+    `<span class="degradation-result-group-scope-value">${escapeHtml(requestor)}</span>`,
+    `<span class="degradation-result-group-scope-sep"> X </span>`,
+    `<span class="degradation-result-group-scope-value">${escapeHtml(mvpdScope)}</span>`,
+  ].join("");
+}
+
+function renderResultGroupBlondieButton(group = null) {
+  const groupId = escapeHtml(String(group?.groupId || ""));
+  const receiptHoverText = buildDegradationReceiptHoverText(group);
+  const initialState = getBlondieButtonDefaultState();
+  const title = getBlondieButtonTitle(initialState, {
+    dataset: {
+      receiptHover: receiptHoverText,
+    },
+  });
+  const iconUrl = escapeHtml(BLONDIE_BUTTON_ICON_URLS[initialState] || BLONDIE_BUTTON_ICON_URLS.inactive);
+  return `
+    <button
+      type="button"
+      class="workspace-icon-btn workspace-icon-btn--blondie workspace-icon-btn--blondie-group underpar-blondie-btn"
+      data-action="blondie-export-group"
+      data-group-id="${groupId}"
+      data-receipt-hover="${escapeHtml(receiptHoverText)}"
+      data-blondie-state="${escapeHtml(initialState)}"
+      title="${escapeHtml(title)}"
+      aria-label="${escapeHtml(title)}"
+    >
+      <img class="underpar-blondie-icon underpar-blondie-icon--workspace" src="${iconUrl}" alt="" aria-hidden="true" />
+    </button>
+  `;
+}
+
+function renderReportGroup(group = null) {
+  if (!group || typeof group !== "object") {
+    return "";
+  }
+  const resultsLabel = `${Math.max(0, Number(group.reportCount || 0))} result${Number(group.reportCount || 0) === 1 ? "" : "s"}`;
+  const environmentLabel = firstNonEmptyString([group.environmentLabel, group.environmentKey, "Unknown ENV"]);
+  const timestampLabel = escapeHtml(new Date(group.latestFetchedAt || Date.now()).toLocaleString());
+  const requestLabel = escapeHtml(String(group.requestLabel || "DEGRADATION Status"));
+  const cardsMarkup = (Array.isArray(group.reports) ? group.reports : []).map((report) => renderReportCard(report)).join("");
+  return `
+    <section class="degradation-result-group" data-group-id="${escapeHtml(String(group.groupId || ""))}">
+      <header class="degradation-result-group-head">
+        <div class="degradation-result-group-title-row">
+          <p class="degradation-result-group-title">${requestLabel}</p>
+          <p class="degradation-result-group-count">${escapeHtml(resultsLabel)}</p>
+        </div>
+        <p class="degradation-result-group-scope">${renderResultGroupScopeHtml(group)}</p>
+        <p class="degradation-result-group-meta">${escapeHtml(environmentLabel)} | ${timestampLabel}</p>
+      </header>
+      <div class="degradation-result-group-body">${cardsMarkup}</div>
+      <footer class="degradation-result-group-footer">
+        <div class="underpar-export-actions">${renderResultGroupBlondieButton(group)}</div>
+      </footer>
+    </section>
+  `;
+}
+
 function renderReports() {
   if (!els.cardsHost) {
     return;
@@ -1123,8 +1278,8 @@ function renderReports() {
     syncActionButtonsDisabled();
     return;
   }
-  const cardsMarkup = state.reports.map((report) => renderReportCard(report)).join("");
-  els.cardsHost.innerHTML = cardsMarkup;
+  const groupsMarkup = buildDegradationReportGroups(state.reports).map((group) => renderReportGroup(group)).join("");
+  els.cardsHost.innerHTML = groupsMarkup;
   syncBlondieButtons(els.cardsHost);
   syncActionButtonsDisabled();
 }
@@ -1139,26 +1294,15 @@ function upsertReport(report = null) {
   if (!normalized) {
     return;
   }
-  const identity = getReportIdentity(normalized);
-  const nextReports = [];
-  let inserted = false;
-
-  if (identity) {
-    nextReports.push(normalized);
-    inserted = true;
-    state.reports.forEach((existing) => {
-      const existingIdentity = getReportIdentity(existing);
-      if (!existingIdentity || existingIdentity !== identity) {
-        nextReports.push(existing);
-      }
-    });
-  }
-
-  if (!inserted) {
-    nextReports.push(normalized, ...state.reports);
-  }
-
-  state.reports = normalizeReports(nextReports).slice(0, 30);
+  const reportId = String(normalized.reportId || "").trim();
+  const nextReports = [normalized];
+  state.reports.forEach((existing) => {
+    if (reportId && String(existing?.reportId || "").trim() === reportId) {
+      return;
+    }
+    nextReports.push(existing);
+  });
+  state.reports = normalizeReports(nextReports).slice(0, DEGRADATION_WORKSPACE_MAX_REPORTS);
   if (normalized.selectionKey) {
     state.selectionKey = normalized.selectionKey;
   }
@@ -1176,14 +1320,11 @@ function handleReportsSync(payload = {}) {
   if (selectionKey) {
     state.selectionKey = selectionKey;
   }
-  if (hasWorkspaceRefreshTransition()) {
-    return;
-  }
   replaceReports(reports);
   if (reports.length > 0) {
-    setStatus(`Loaded ${reports.length} DEGRADATION report card${reports.length === 1 ? "" : "s"}.`, "success");
+    setStatus(`Loaded ${reports.length} DEGRADATION report${reports.length === 1 ? "" : "s"} in workspace.`, "success");
   } else {
-    setStatus("No DEGRADATION report cards are cached for this selection.", "info");
+    setStatus("No DEGRADATION reports are cached in this workspace.", "info");
   }
 }
 
@@ -1242,23 +1383,9 @@ function handleWorkspaceEvent(eventName, payload = {}) {
     } else {
       setStatus(total > 0 ? `Re-run completed for ${total} report(s).` : "Re-run completed.");
     }
-    maybeConsumePendingAutoRerun();
     return;
   }
   if (event === "environment-switch-rerun") {
-    if (state.batchRunning) {
-      return;
-    }
-    if (state.pendingAutoRerunCards.length > 0) {
-      maybeConsumePendingAutoRerun();
-      return;
-    }
-    if (state.reports.length === 0) {
-      return;
-    }
-    void rerunAllCards({
-      reason: "manual-reload",
-    });
     return;
   }
   if (event === "workspace-clear") {
@@ -1287,9 +1414,7 @@ async function sendWorkspaceAction(action, payload = {}) {
 function clearWorkspace() {
   clearPendingAutoRerun();
   clearWorkspaceCards();
-  void sendWorkspaceAction("clear-all", {
-    selectionKey: String(state.selectionKey || "").trim(),
-  });
+  void sendWorkspaceAction("clear-all");
   setStatus("DEGRADATION workspace cleared.", "info");
 }
 
@@ -1329,64 +1454,47 @@ async function rerunAllCards(options = {}) {
   return true;
 }
 
-async function deliverAllCardsToBlondie() {
-  if (!(els.blondieAllButton instanceof HTMLButtonElement)) {
+async function deliverGroupToBlondie(groupId = "", button = null) {
+  if (!(button instanceof HTMLButtonElement)) {
     return;
   }
-  const currentState = getBlondieButtonState(els.blondieAllButton);
+  const currentState = getBlondieButtonState(button);
   if (currentState === "active" || currentState === "ack" || state.batchRunning) {
     return;
   }
   if (!canUseBlondieButton()) {
-    renderBlondieButtonState(els.blondieAllButton, "inactive");
+    renderBlondieButtonState(button, "inactive");
     setStatus(BLONDIE_BUTTON_INACTIVE_MESSAGE, "error");
     return;
   }
-  const exportPayload = buildDegradationBlondieBatchExportPayload();
+  const exportPayload = buildDegradationBlondieGroupExportPayload(groupId);
   if (!exportPayload) {
     setStatus("No visible DEGRADATION reports are available for :blondiebtn:.", "error");
     return;
   }
 
-  state.batchRunning = true;
-  renderBlondieButtonState(els.blondieAllButton, "active");
-  syncActionButtonsDisabled();
-  setStatus(
-    `:blondiebtn: is delivering ${Math.max(0, Number(exportPayload.reportCount || 0))} DEGRADATION report${Number(exportPayload.reportCount || 0) === 1 ? "" : "s"} to Slack...`
-  );
+  renderBlondieButtonState(button, "active");
+  setStatus("", "info");
 
   try {
     const result = await sendWorkspaceAction("blondie-export-all", {
       exportPayload,
     });
-    state.batchRunning = false;
-    syncActionButtonsDisabled();
     if (!result?.ok) {
-      renderBlondieButtonState(els.blondieAllButton, getBlondieButtonDefaultState());
+      renderBlondieButtonState(button, getBlondieButtonDefaultState());
       setStatus(result?.error || "Unable to deliver DEGRADATION reports with :blondiebtn:.", "error");
       return;
     }
-    renderBlondieButtonState(els.blondieAllButton, "ack");
-    queueBlondieButtonAckReset(els.blondieAllButton);
-    const reportCount = Math.max(0, Number(exportPayload.reportCount || 0));
-    setStatus(
-      `:blondiebtn: delivered ${reportCount} DEGRADATION report${reportCount === 1 ? "" : "s"} to your ZipTool panel.`,
-      "success"
-    );
+    renderBlondieButtonState(button, "ack");
+    queueBlondieButtonAckReset(button);
+    setStatus("", "info");
   } catch (error) {
-    state.batchRunning = false;
-    syncActionButtonsDisabled();
-    renderBlondieButtonState(els.blondieAllButton, getBlondieButtonDefaultState());
+    renderBlondieButtonState(button, getBlondieButtonDefaultState());
     setStatus(error instanceof Error ? error.message : "Unable to deliver DEGRADATION reports with :blondiebtn:.", "error");
   }
 }
 
 function registerEventHandlers() {
-  if (els.blondieAllButton) {
-    els.blondieAllButton.addEventListener("click", () => {
-      void deliverAllCardsToBlondie();
-    });
-  }
   if (els.rerunAllButton) {
     els.rerunAllButton.addEventListener("click", () => {
       void rerunAllCards();
@@ -1402,49 +1510,17 @@ function registerEventHandlers() {
       if (!(event.target instanceof Element)) {
         return;
       }
+      const groupBlondieTrigger = event.target.closest('button[data-action="blondie-export-group"]');
+      if (groupBlondieTrigger instanceof HTMLButtonElement) {
+        event.preventDefault();
+        void deliverGroupToBlondie(String(groupBlondieTrigger.getAttribute("data-group-id") || "").trim(), groupBlondieTrigger);
+        return;
+      }
       const csvTrigger = event.target.closest('a[data-action="download-csv"]');
       if (csvTrigger instanceof HTMLAnchorElement) {
         event.preventDefault();
         downloadDegradationReportCsv(String(csvTrigger.getAttribute("data-report-id") || "").trim());
         setStatus("CSV download started.", "success");
-        return;
-      }
-      const blondieTrigger = event.target.closest('button[data-action="blondie-export"]');
-      if (blondieTrigger instanceof HTMLButtonElement) {
-        event.preventDefault();
-        const currentBlondieState = getBlondieButtonState(blondieTrigger);
-        if (currentBlondieState === "active" || currentBlondieState === "ack") {
-          return;
-        }
-        if (!canUseBlondieButton()) {
-          renderBlondieButtonState(blondieTrigger, "inactive");
-          setStatus(BLONDIE_BUTTON_INACTIVE_MESSAGE, "error");
-          return;
-        }
-        const report = findReportById(String(blondieTrigger.getAttribute("data-report-id") || "").trim());
-        const exportPayload = buildDegradationBlondieExportPayload(report);
-        if (!exportPayload) {
-          setStatus("No visible DEGRADATION report data is available for :blondiebtn:.", "error");
-          return;
-        }
-        renderBlondieButtonState(blondieTrigger, "active");
-        void sendWorkspaceAction("blondie-export", {
-          exportPayload,
-        })
-          .then((result) => {
-            if (!result?.ok) {
-              renderBlondieButtonState(blondieTrigger, getBlondieButtonDefaultState());
-              setStatus(result?.error || "Unable to deliver the DEGRADATION report with :blondiebtn:.", "error");
-              return;
-            }
-            renderBlondieButtonState(blondieTrigger, "ack");
-            queueBlondieButtonAckReset(blondieTrigger);
-            setStatus(":blondiebtn: delivered 1 DEGRADATION report to your ZipTool panel.", "success");
-          })
-          .catch((error) => {
-            renderBlondieButtonState(blondieTrigger, getBlondieButtonDefaultState());
-            setStatus(error instanceof Error ? error.message : "Unable to deliver the DEGRADATION report with :blondiebtn:.", "error");
-          });
         return;
       }
       const copyUrlTrigger = event.target.closest('button[data-action="copy-request-url"]');

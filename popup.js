@@ -2361,6 +2361,7 @@ function normalizeUnderparBlondieExportPayload(input = null) {
           requestUrl: String(sourceItem.requestUrl || "").trim(),
           endpointKey: String(sourceItem.endpointKey || "").trim().toLowerCase(),
           endpointPath: String(sourceItem.endpointPath || "").trim(),
+          fetchedAt: Math.max(0, Number(sourceItem.fetchedAt || 0)),
           rowCount: Math.max(0, Number(sourceItem.rowCount || 0)),
           activeCount: Math.max(0, Number(sourceItem.activeCount || 0)),
           ok: sourceItem.ok === true,
@@ -2425,6 +2426,15 @@ function normalizeUnderparBlondieExportPayload(input = null) {
     messageOnly,
     skipCsvAttachment: source.skipCsvAttachment === true || messageOnly,
     rowCount: Math.max(0, Number(source.rowCount || rows.length || 0)),
+    responseReceivedAt: Math.max(
+      0,
+      Number(
+        source.responseReceivedAt ||
+          reportItems.reduce((latest, item) => Math.max(latest, Number(item?.fetchedAt || 0)), 0) ||
+          source.createdAt ||
+          0
+      )
+    ),
   };
 }
 
@@ -2939,6 +2949,49 @@ function buildUnderparBlondieSignatureLine(payload = null, workspaceDeeplinkUrl 
   return `// ${zipZapLink} :blondiebtn: in UnderPAR`;
 }
 
+function buildUnderparDegradationBlondieScopeLabel(payload = null) {
+  const programmerName = String(payload?.programmerName || "").trim();
+  const programmerId = String(payload?.programmerId || "").trim();
+  const programmerLabel =
+    programmerName && programmerId && programmerName.toLowerCase() !== programmerId.toLowerCase()
+      ? `${programmerName} (${programmerId})`
+      : programmerName || programmerId;
+  const requestorId = String(payload?.requestorId || "").trim();
+  const mvpdScopeLabel = String(
+    firstNonEmptyString([
+      payload?.mvpdScopeLabel,
+      payload?.includeAllMvpd === true ? "ALL MVPDs" : "",
+      payload?.mvpdLabel,
+      payload?.mvpd,
+    ])
+  ).trim();
+  return [programmerLabel, requestorId, mvpdScopeLabel].filter(Boolean).join(" X ");
+}
+
+function formatUnderparDegradationReceiptTimestamp(value = 0) {
+  const timestamp = Number(value || 0);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) {
+    return "";
+  }
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      timeZoneName: "short",
+    }).format(new Date(timestamp));
+  } catch {
+    try {
+      return new Date(timestamp).toLocaleString();
+    } catch {
+      return "";
+    }
+  }
+}
+
 function buildUnderparDegradationBlondieMarkdown(payload = null) {
   const normalizedPayload = normalizeUnderparBlondieExportPayload(payload);
   if (!normalizedPayload) {
@@ -2946,27 +2999,14 @@ function buildUnderparDegradationBlondieMarkdown(payload = null) {
   }
   const requestLineValue = formatUnderparBlondieHeaderRequestValue(normalizedPayload);
   const workspaceDeeplinkUrl = buildUnderparBlondieWorkspaceDeeplinkUrl(normalizedPayload);
-  const scopeLabel = [
-    String(normalizedPayload.requestorId || "").trim(),
-    String(
-      firstNonEmptyString([
-        normalizedPayload.mvpdScopeLabel,
-        normalizedPayload.includeAllMvpd === true ? "ALL MVPDs" : "",
-        normalizedPayload.mvpdLabel,
-        normalizedPayload.mvpd,
-      ])
-    ).trim(),
-  ]
-    .filter(Boolean)
-    .join(" X ");
-  const headerLines = [`*UNDERPAR ${escapeUnderparSlackMrkdwn(normalizedPayload.workspaceLabel)} query*`];
-  if (requestLineValue) {
-    headerLines.push(`• Request: ${escapeUnderparSlackMrkdwn(requestLineValue)}`);
-  }
+  const scopeLabel = buildUnderparDegradationBlondieScopeLabel(normalizedPayload);
+  const headerLines = [`*UNDERPAR ${escapeUnderparSlackMrkdwn(normalizedPayload.workspaceLabel)} results*`];
   if (scopeLabel) {
-    headerLines.push(`• Scope: ${escapeUnderparSlackMrkdwn(scopeLabel)}`);
+    headerLines.push(`Scope: ${escapeUnderparSlackMrkdwn(scopeLabel)}`);
   }
-  headerLines.push(`• Reports: ${Math.max(0, Number(normalizedPayload.reportCount || normalizedPayload.reportItems.length || 0))}`);
+  if (requestLineValue) {
+    headerLines.push(`Request: ${escapeUnderparSlackMrkdwn(requestLineValue)}`);
+  }
 
   const reportLines = normalizedPayload.reportItems
     .map((item) => {
@@ -2984,10 +3024,15 @@ function buildUnderparDegradationBlondieMarkdown(payload = null) {
       return `• ${title}: ${summary}`;
     })
     .filter(Boolean);
+  const resultsCountLine = `Results :  ${Math.max(0, Number(normalizedPayload.reportCount || normalizedPayload.reportItems.length || 0))}`;
+  const responseReceivedLabel = formatUnderparDegradationReceiptTimestamp(normalizedPayload.responseReceivedAt);
+  const receiptTimestampLine = responseReceivedLabel ? `Response Received: ${escapeUnderparSlackMrkdwn(responseReceivedLabel)}` : "";
+  const detailsFooterLines = [resultsCountLine, receiptTimestampLine].filter(Boolean);
 
   const signatureLine = buildUnderparBlondieSignatureLine(normalizedPayload, workspaceDeeplinkUrl);
   return headerLines
     .concat(reportLines.length > 0 ? ["", ...reportLines] : [])
+    .concat(detailsFooterLines.length > 0 ? (reportLines.length > 0 ? detailsFooterLines : ["", ...detailsFooterLines]) : [])
     .concat(["", signatureLine])
     .join("\n")
     .trim()
@@ -35961,6 +36006,16 @@ function buildDegradationWorkspaceSelectionKey(context = null) {
   return [environmentKey || DEFAULT_ADOBEPASS_ENVIRONMENT.key, programmerId, requestorId || "*", mvpd || "*"].join("|");
 }
 
+function parseDegradationWorkspaceSelectionKey(selectionKey = "") {
+  const [environmentKey = "", programmerId = "", requestorId = "", mvpd = ""] = String(selectionKey || "").trim().split("|");
+  return {
+    environmentKey: String(environmentKey || "").trim(),
+    programmerId: String(programmerId || "").trim(),
+    requestorId: String(requestorId || "").trim() === "*" ? "" : String(requestorId || "").trim(),
+    mvpd: String(mvpd || "").trim() === "*" ? "" : String(mvpd || "").trim(),
+  };
+}
+
 function degradationWorkspaceGetSelectionContext(programmer = null, services = null) {
   const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : resolveSelectedProgrammer();
   const adobePassEnvironment = {
@@ -36186,23 +36241,19 @@ function degradationWorkspaceStoreReport(reportPayload = null, queryState = null
   if (!Number.isFinite(Number(clonedReport.fetchedAt || 0)) || Number(clonedReport.fetchedAt || 0) <= 0) {
     clonedReport.fetchedAt = Date.now();
   }
-  const queryKey = firstNonEmptyString([clonedReport.queryKey, clonedReport.reportId]);
   const existingReports = Array.isArray(state.degradationWorkspaceReportsBySelectionKey.get(selectionKey))
     ? state.degradationWorkspaceReportsBySelectionKey.get(selectionKey)
     : [];
-  const mergedReports = [];
-  if (queryKey) {
-    mergedReports.push(clonedReport);
-    existingReports.forEach((item) => {
-      const existingQueryKey = firstNonEmptyString([item?.queryKey, item?.reportId]);
-      if (existingQueryKey !== queryKey) {
-        mergedReports.push(item);
-      }
-    });
-  } else {
-    mergedReports.push(clonedReport, ...existingReports);
-  }
-  const cappedReports = mergedReports.slice(0, 30);
+  const reportId = String(clonedReport.reportId || "").trim();
+  const mergedReports = [clonedReport];
+  existingReports.forEach((item) => {
+    if (reportId && String(item?.reportId || "").trim() === reportId) {
+      return;
+    }
+    mergedReports.push(item);
+  });
+  mergedReports.sort((left, right) => Number(right?.fetchedAt || 0) - Number(left?.fetchedAt || 0));
+  const cappedReports = mergedReports.slice(0, 60);
   state.degradationWorkspaceReportsBySelectionKey.set(selectionKey, cappedReports);
   if (queryState && typeof queryState === "object") {
     state.degradationWorkspaceQueryStateBySelectionKey.set(selectionKey, cloneJsonLikeValue(queryState, null));
@@ -36210,6 +36261,24 @@ function degradationWorkspaceStoreReport(reportPayload = null, queryState = null
   state.degradationWorkspaceLastSelectionKey = selectionKey;
   degradationWorkspaceTrimCacheMaps(80);
   return selectionKey;
+}
+
+function degradationWorkspaceGetAllReports() {
+  const reports = [];
+  const seen = new Set();
+  for (const reportList of state.degradationWorkspaceReportsBySelectionKey.values()) {
+    (Array.isArray(reportList) ? reportList : []).forEach((report) => {
+      const reportId = String(report?.reportId || "").trim();
+      if (reportId && seen.has(reportId)) {
+        return;
+      }
+      if (reportId) {
+        seen.add(reportId);
+      }
+      reports.push(cloneJsonLikeValue(report, null));
+    });
+  }
+  return reports.sort((left, right) => Number(right?.fetchedAt || 0) - Number(left?.fetchedAt || 0));
 }
 
 function degradationWorkspaceGetReports(selectionKey = "") {
@@ -36229,7 +36298,7 @@ function degradationWorkspaceGetReports(selectionKey = "") {
 
 function degradationWorkspaceBroadcastReports(selectionKey = "", targetWindowId = 0) {
   const resolvedWindowId = Number(targetWindowId || 0) || Number(state.degradationWorkspaceWindowId || 0);
-  const reports = degradationWorkspaceGetReports(selectionKey);
+  const reports = degradationWorkspaceGetAllReports();
   const resolvedSelectionKey = firstNonEmptyString([selectionKey, state.degradationWorkspaceLastSelectionKey]);
   void degradationWorkspaceSendWorkspaceMessage(
     "reports-sync",
@@ -36243,6 +36312,7 @@ function degradationWorkspaceBroadcastReports(selectionKey = "", targetWindowId 
 }
 
 function degradationWorkspaceBuildCardQuery(card = null) {
+  const selectionParts = parseDegradationWorkspaceSelectionKey(card?.selectionKey);
   const endpointKey = firstNonEmptyString([
     String(card?.endpointKey || "").trim().toLowerCase(),
     String(card?.endpointPath || "").trim().toLowerCase(),
@@ -36253,23 +36323,104 @@ function degradationWorkspaceBuildCardQuery(card = null) {
   const requestorId = firstNonEmptyString([
     String(card?.requestorId || "").trim(),
     String(card?.programmerId || "").trim(),
+    selectionParts.requestorId,
     String(state.selectedRequestorId || "").trim(),
   ]);
-  const mvpd = String(card?.mvpd || "").trim();
+  const mvpd = firstNonEmptyString([String(card?.mvpd || "").trim(), selectionParts.mvpd]);
   const includeAllMvpd = card?.includeAllMvpd === true || !mvpd;
+  const mediaCompanyId = firstNonEmptyString([String(card?.mediaCompanyId || "").trim(), selectionParts.programmerId]);
+  const mediaCompanyName = String(card?.mediaCompanyName || "").trim();
+  const mvpdLabel = String(card?.mvpdLabel || "").trim();
+  const mvpdScopeLabel = firstNonEmptyString([card?.mvpdScopeLabel, includeAllMvpd ? "ALL MVPDs" : "", mvpd]);
+  const adobePassEnvironmentKey = firstNonEmptyString([
+    card?.adobePassEnvironmentKey,
+    selectionParts.environmentKey,
+    getActiveAdobePassEnvironmentKey(),
+  ]);
+  const adobePassEnvironmentLabel = String(card?.adobePassEnvironmentLabel || "").trim();
   return {
+    runGroupId: String(card?.runGroupId || "").trim(),
     endpointKey,
+    endpointPath: String(card?.endpointPath || "").trim(),
     requestorId,
+    mediaCompanyId,
+    mediaCompanyName,
     mvpd: includeAllMvpd ? "" : mvpd,
+    mvpdLabel,
+    mvpdScopeLabel,
     includeAllMvpd,
+    adobePassEnvironmentKey,
+    adobePassEnvironmentLabel,
+    selectionKey:
+      String(card?.selectionKey || "").trim() ||
+      buildDegradationWorkspaceSelectionKey({
+        environmentKey: adobePassEnvironmentKey,
+        programmerId: mediaCompanyId,
+        requestorId,
+        mvpd: includeAllMvpd ? "" : mvpd,
+      }),
     queryValues: {
       requestorId,
       programmerId: requestorId,
+      mediaCompanyId,
+      mediaCompanyName,
       endpointKey,
       includeAllMvpd,
       mvpd: includeAllMvpd ? "" : mvpd,
+      mvpdLabel,
+      mvpdScopeLabel,
+      adobePassEnvironmentKey,
+      adobePassEnvironmentLabel,
       apiVersion: DEGRADATION_API_VERSION,
     },
+  };
+}
+
+function groupDegradationWorkspaceCardQueries(cards = []) {
+  const groups = [];
+  const groupMap = new Map();
+  (Array.isArray(cards) ? cards : []).forEach((card) => {
+    const request = degradationWorkspaceBuildCardQuery(card);
+    if (!request) {
+      return;
+    }
+    const groupKey = firstNonEmptyString([
+      request.runGroupId,
+      request.selectionKey,
+      [request.mediaCompanyId, request.requestorId, request.mvpd || "*", request.endpointKey].join("|"),
+    ]);
+    let group = groupMap.get(groupKey);
+    if (!group) {
+      group = {
+        groupKey,
+        cards: [],
+      };
+      groupMap.set(groupKey, group);
+      groups.push(group);
+    }
+    group.cards.push(request);
+  });
+  return groups;
+}
+
+function buildDegradationWorkspaceCardGroupDeeplink(group = null) {
+  const firstCard = Array.isArray(group?.cards) ? group.cards[0] : null;
+  if (!firstCard) {
+    return null;
+  }
+  return {
+    endpointKey: firstCard.endpointKey,
+    endpointKeys: group.cards.map((card) => String(card?.endpointKey || "").trim().toLowerCase()).filter(Boolean),
+    endpointPath: String(firstCard.endpointPath || firstCard.endpointKey || "").trim(),
+    programmerId: String(firstCard.mediaCompanyId || "").trim(),
+    programmerName: String(firstCard.mediaCompanyName || "").trim(),
+    requestorId: String(firstCard.requestorId || "").trim(),
+    mvpd: firstCard.includeAllMvpd === true ? "" : String(firstCard.mvpd || "").trim(),
+    mvpdLabel: String(firstCard.mvpdLabel || "").trim(),
+    includeAllMvpd: firstCard.includeAllMvpd === true,
+    environmentKey: String(firstCard.adobePassEnvironmentKey || "").trim(),
+    environmentLabel: String(firstCard.adobePassEnvironmentLabel || "").trim(),
+    selectionKey: String(firstCard.selectionKey || "").trim(),
   };
 }
 
@@ -36393,6 +36544,182 @@ function buildDegradationWorkspaceBlondieExportPayload(report = null, options = 
   return payload;
 }
 
+function normalizeDegradationWorkspaceDeeplinkEndpointKeys(value = null) {
+  const rawValues = Array.isArray(value) ? value : String(value || "").split(",");
+  const output = [];
+  const seen = new Set();
+  rawValues.forEach((entry) => {
+    const normalized = String(entry || "").trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) {
+      return;
+    }
+    seen.add(normalized);
+    output.push(normalized);
+  });
+  return output;
+}
+
+function normalizeDegradationWorkspaceDeeplinkPayload(input = null) {
+  const source = input && typeof input === "object" && !Array.isArray(input) ? input : null;
+  if (!source) {
+    return null;
+  }
+  const endpointKeys = normalizeDegradationWorkspaceDeeplinkEndpointKeys(
+    source.endpointKeys || source.endpointKey || source.endpointPath || ""
+  );
+  const endpointKey = firstNonEmptyString([source.endpointKey, source.endpointPath, endpointKeys[0]]).toLowerCase();
+  const programmerId = String(source.programmerId || "").trim();
+  const requestorId = String(source.requestorId || "").trim();
+  if ((!endpointKey && endpointKeys.length === 0) || !programmerId || !requestorId) {
+    return null;
+  }
+  const mvpd = String(source.mvpd || "").trim();
+  const includeAllMvpd = source.includeAllMvpd === true || !mvpd;
+  const environmentKey =
+    String(source.environmentKey || source.adobePassEnvironmentKey || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+    DEFAULT_ADOBEPASS_ENVIRONMENT.key;
+  return {
+    endpointKey: endpointKey || endpointKeys[0] || "",
+    endpointKeys: endpointKeys.length > 0 ? endpointKeys : [endpointKey].filter(Boolean),
+    endpointPath: String(source.endpointPath || endpointKey).trim(),
+    requestUrl: String(source.requestUrl || "").trim(),
+    displayNodeLabel: String(source.displayNodeLabel || source.datasetLabel || "").trim(),
+    programmerId,
+    programmerName: String(source.programmerName || "").trim(),
+    requestorId,
+    mvpd: includeAllMvpd ? "" : mvpd,
+    mvpdLabel: String(source.mvpdLabel || "").trim(),
+    includeAllMvpd,
+    environmentKey,
+    environmentLabel: String(source.environmentLabel || source.adobePassEnvironmentLabel || "").trim(),
+    selectionKey:
+      String(source.selectionKey || "").trim() ||
+      buildDegradationWorkspaceSelectionKey({
+        environmentKey,
+        programmerId,
+        requestorId,
+        mvpd: includeAllMvpd ? "" : mvpd,
+      }),
+    source: String(source.source || "blondie-button").trim() || "blondie-button",
+    createdAt: Math.max(0, Number(source.createdAt || Date.now() || 0)),
+  };
+}
+
+async function activateDegradationWorkspaceDeeplinkContext(input = null, options = {}) {
+  const deeplink = normalizeDegradationWorkspaceDeeplinkPayload(input);
+  if (!deeplink) {
+    return { ok: false, error: "Invalid DEGRADATION deeplink context." };
+  }
+
+  const targetWindowId = Number(options.targetWindowId || 0);
+  const targetEnvironmentKey =
+    String(deeplink.environmentKey || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() || DEFAULT_ADOBEPASS_ENVIRONMENT.key;
+  if (targetEnvironmentKey !== String(getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim()) {
+    const switchResult = await switchAdobePassEnvironmentInPlace(targetEnvironmentKey, {
+      source: "degradation-deeplink",
+    });
+    if (!switchResult?.ok || switchResult?.requiresSignIn) {
+      const environmentLabel = firstNonEmptyString([deeplink.environmentLabel, targetEnvironmentKey]);
+      return {
+        ok: false,
+        error: switchResult?.error || `Unable to switch UnderPAR to ${environmentLabel}.`,
+      };
+    }
+  }
+
+  const matchedProgrammer = findProgrammerByProgrammerId(deeplink.programmerId);
+  if (!matchedProgrammer) {
+    return {
+      ok: false,
+      error: `Media Company ${deeplink.programmerId} is not available in this UnderPAR session.`,
+    };
+  }
+
+  const selectedProgrammer = resolveSelectedProgrammer();
+  const currentProgrammerId = String(selectedProgrammer?.programmerId || "").trim();
+  const currentRequestorId = String(state.selectedRequestorId || "").trim();
+  const currentMvpdId = String(state.selectedMvpdId || "").trim();
+  const expectedMvpdId = deeplink.includeAllMvpd === true ? "" : String(deeplink.mvpd || "").trim();
+  const needsSelectionRestore =
+    currentProgrammerId !== String(matchedProgrammer.programmerId || "").trim() ||
+    currentRequestorId !== deeplink.requestorId ||
+    currentMvpdId !== expectedMvpdId;
+
+  if (needsSelectionRestore) {
+    const restoreResult = await restoreAdobePassEnvironmentSwitchSelection({
+      programmerId: deeplink.programmerId,
+      programmerName: deeplink.programmerName,
+      mediaCompanyName: deeplink.programmerName,
+      requestorId: deeplink.requestorId,
+      mvpdId: expectedMvpdId,
+    }).catch((error) => ({
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    if (restoreResult?.ok === false) {
+      return {
+        ok: false,
+        error: restoreResult.error || "Unable to restore the saved DEGRADATION context.",
+      };
+    }
+    if (String(restoreResult?.missingSelection || "").trim()) {
+      return {
+        ok: false,
+        error: `${restoreResult.missingSelection} is not available in this UnderPAR environment.`,
+      };
+    }
+  } else if (!isProgrammerWorkspaceHydrationReady(String(matchedProgrammer.programmerId || "").trim())) {
+    await refreshProgrammerPanels({
+      forcePremiumRefresh: false,
+      controllerReason: "degradation-deeplink",
+    });
+  }
+
+  const restoredProgrammer = resolveSelectedProgrammer();
+  if (String(restoredProgrammer?.programmerId || "").trim() !== String(deeplink.programmerId || "").trim()) {
+    return {
+      ok: false,
+      error: `Unable to restore Media Company ${deeplink.programmerId} for this DEGRADATION deeplink.`,
+    };
+  }
+
+  const services = getCurrentPremiumAppsSnapshot(restoredProgrammer.programmerId);
+  const selectionContext = degradationWorkspaceGetSelectionContext(restoredProgrammer, services);
+  if (selectionContext.degradationReady !== true) {
+    const programmerLabel = firstNonEmptyString([restoredProgrammer.programmerName, restoredProgrammer.programmerId, deeplink.programmerId]);
+    return {
+      ok: false,
+      error: `${programmerLabel} is not DEGRADATION scoped in ${firstNonEmptyString([deeplink.environmentLabel, targetEnvironmentKey])}.`,
+    };
+  }
+  if (String(selectionContext.requestorId || "").trim() !== deeplink.requestorId) {
+    return {
+      ok: false,
+      error: `Requestor ${deeplink.requestorId} is not available for Media Company ${deeplink.programmerId}.`,
+    };
+  }
+  if (String(selectionContext.mvpd || "").trim() !== expectedMvpdId) {
+    const mvpdLabel = firstNonEmptyString([deeplink.mvpdLabel, expectedMvpdId]);
+    return {
+      ok: false,
+      error: mvpdLabel
+        ? `MVPD ${mvpdLabel} is not available for requestor ${deeplink.requestorId}.`
+        : "Unable to restore the saved MVPD scope for this DEGRADATION deeplink.",
+    };
+  }
+
+  degradationWorkspaceBroadcastControllerState(restoredProgrammer, services, targetWindowId, {
+    controllerReason: "slack-blondie-deeplink",
+  });
+  return {
+    ok: true,
+    selectionKey: selectionContext.selectionKey,
+    programmerId: selectionContext.programmerId,
+    requestorId: selectionContext.requestorId,
+    mvpd: selectionContext.mvpd,
+  };
+}
+
 async function handleDegradationWorkspaceAction(message, sender = null) {
   const action = String(message?.action || "").trim().toLowerCase();
   const senderWindowId = Number(sender?.tab?.windowId || 0);
@@ -36455,18 +36782,24 @@ async function handleDegradationWorkspaceAction(message, sender = null) {
     return { ok: true };
   }
 
+  if (action === "activate-deeplink-context") {
+    return await activateDegradationWorkspaceDeeplinkContext(message?.deeplink || null, {
+      targetWindowId: senderWindowId || state.degradationWorkspaceWindowId || 0,
+    });
+  }
+
   if (action === "rerun-all") {
-    const panelState = getActiveDegradationWorkspaceState();
-    if (!panelState) {
-      return { ok: false, error: "Open DEGRADATION in the UnderPAR side panel before re-running reports." };
-    }
-    const requestToken = Number(state.premiumPanelRequestToken || 0);
-    if (!isDegradationServiceRequestActive(panelState.section, requestToken, panelState.programmer?.programmerId)) {
-      return { ok: false, error: "DEGRADATION controller is no longer active for the selected media company." };
-    }
     const cards = Array.isArray(message?.cards) ? message.cards : [];
     if (cards.length === 0) {
       return { ok: false, error: "No DEGRADATION reports are available to re-run." };
+    }
+    const requestGroups = groupDegradationWorkspaceCardQueries(cards);
+    if (requestGroups.length === 0) {
+      return { ok: false, error: "No DEGRADATION reports are available to re-run." };
+    }
+    let panelState = getActiveDegradationWorkspaceState();
+    if (!panelState) {
+      return { ok: false, error: "Open DEGRADATION in the UnderPAR side panel before re-running reports." };
     }
 
     const targetWindowId = Number(senderWindowId || state.degradationWorkspaceWindowId || panelState.controllerWindowId || 0);
@@ -36492,23 +36825,47 @@ async function handleDegradationWorkspaceAction(message, sender = null) {
       { targetWindowId }
     );
 
-    degradationSetBusy(panelState, true);
     try {
-      for (const card of cards) {
-        const request = degradationWorkspaceBuildCardQuery(card);
-        if (!request) {
+      for (const requestGroup of requestGroups) {
+        const deeplink = buildDegradationWorkspaceCardGroupDeeplink(requestGroup);
+        if (!deeplink) {
           continue;
         }
-        await degradationRunStatusEndpointFromPanel(panelState, request.endpointKey, {
-          requestToken,
-          queryValues: request.queryValues,
-          manageBusy: false,
-          openWorkspace: false,
+        const activationResult = await activateDegradationWorkspaceDeeplinkContext(deeplink, {
           targetWindowId,
         });
+        if (!activationResult?.ok) {
+          return {
+            ok: false,
+            error: activationResult?.error || "Unable to restore the saved DEGRADATION context for re-run.",
+          };
+        }
+        panelState = getActiveDegradationWorkspaceState();
+        if (!panelState) {
+          return { ok: false, error: "Open DEGRADATION in the UnderPAR side panel before re-running reports." };
+        }
+        const requestToken = Number(state.premiumPanelRequestToken || 0);
+        if (!isDegradationServiceRequestActive(panelState.section, requestToken, panelState.programmer?.programmerId)) {
+          return { ok: false, error: "DEGRADATION controller is no longer active for the selected media company." };
+        }
+        degradationSetBusy(panelState, true);
+        const rerunGroupId = buildDegradationRunGroupId();
+        for (const request of requestGroup.cards) {
+          await degradationRunStatusEndpointFromPanel(panelState, request.endpointKey, {
+            requestToken,
+            queryValues: request.queryValues,
+            runGroupId: rerunGroupId,
+            manageBusy: false,
+            openWorkspace: false,
+            targetWindowId,
+          });
+        }
       }
     } finally {
-      degradationSetBusy(panelState, false);
+      const activePanelState = getActiveDegradationWorkspaceState();
+      if (activePanelState) {
+        degradationSetBusy(activePanelState, false);
+      }
       void degradationWorkspaceSendWorkspaceMessage(
         "batch-end",
         {
@@ -40767,19 +41124,32 @@ function degradationSetBusy(panelState, busy) {
 }
 
 function degradationCollectFormValues(panelState) {
+  const activeEnvironment = getActiveAdobePassEnvironment();
   const requestorId = String(state.selectedRequestorId || "").trim();
   const programmerId = requestorId;
+  const mediaCompanyId = String(panelState?.programmer?.programmerId || "").trim();
+  const mediaCompanyName = String(
+    panelState?.programmer?.programmerName || panelState?.programmer?.mediaCompanyName || ""
+  ).trim();
   const endpointKey = firstNonEmptyString([String(panelState?.endpointSelect?.value || "").trim().toLowerCase(), "all"]);
   const rawMvpd = String(state.selectedMvpdId || "").trim();
   const includeAllMvpd = !rawMvpd;
   const mvpd = includeAllMvpd ? "" : rawMvpd;
+  const mvpdLabel = mvpd ? getRestV2MvpdPickerLabel(requestorId, mvpd) || mvpd : "";
+  const mvpdScopeLabel = mvpd ? (mvpdLabel && mvpdLabel !== mvpd ? `${mvpdLabel} (${mvpd})` : mvpd) : "ALL MVPDs";
   const apiVersion = DEGRADATION_API_VERSION;
   return {
     requestorId,
     programmerId,
+    mediaCompanyId,
+    mediaCompanyName,
     endpointKey,
     includeAllMvpd,
     mvpd,
+    mvpdLabel,
+    mvpdScopeLabel,
+    adobePassEnvironmentKey: String(activeEnvironment?.key || getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim(),
+    adobePassEnvironmentLabel: String(activeEnvironment?.label || "").trim(),
     apiVersion,
   };
 }
@@ -41223,16 +41593,25 @@ function degradationBuildReportPayload(endpointSpec, queryValues, result = {}) {
   return {
     reportId: `degradation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
     queryKey,
+    runGroupId: String(result.runGroupId || "").trim(),
     selectionKey,
     endpointKey: String(endpointSpec?.key || "").trim(),
     endpointPath: String(endpointSpec?.path || "").trim(),
     endpointTitle: String(endpointSpec?.title || "").trim(),
     requestUrl: String(result.requestUrl || "").trim(),
     method: "GET",
+    requestorId: String(queryValues?.requestorId || state.selectedRequestorId || "").trim(),
     programmerId: String(queryValues?.programmerId || "").trim(),
+    mediaCompanyId: String(queryValues?.mediaCompanyId || "").trim(),
+    mediaCompanyName: String(queryValues?.mediaCompanyName || "").trim(),
     mvpd: String(queryValues?.mvpd || "").trim(),
+    mvpdLabel: String(queryValues?.mvpdLabel || "").trim(),
     includeAllMvpd: queryValues?.includeAllMvpd === true,
-    mvpdScopeLabel: degradationBuildScopeLabel(queryValues),
+    mvpdScopeLabel: String(queryValues?.mvpdScopeLabel || degradationBuildScopeLabel(queryValues)).trim(),
+    adobePassEnvironmentKey:
+      String(queryValues?.adobePassEnvironmentKey || getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+      DEFAULT_ADOBEPASS_ENVIRONMENT.key,
+    adobePassEnvironmentLabel: String(queryValues?.adobePassEnvironmentLabel || getActiveAdobePassEnvironment()?.label || "").trim(),
     apiVersion: String(queryValues?.apiVersion || "").trim(),
     ok: result.ok === true,
     status: Number(result.status || 0),
@@ -41245,6 +41624,10 @@ function degradationBuildReportPayload(endpointSpec, queryValues, result = {}) {
     fetchedAt: Number(result.fetchedAt || Date.now()),
     durationMs: Number(result.durationMs || 0),
   };
+}
+
+function buildDegradationRunGroupId() {
+  return `dgr-run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 function degradationRefreshSelectedAppForRequest(panelState, options = {}) {
@@ -41379,6 +41762,7 @@ async function degradationExecuteStatusRequest(panelState, endpointSpec, options
     const reason = degradationBuildPremiumErrorMessage(response.status, response.statusText, responseText);
     return degradationBuildReportPayload(endpointSpec, queryValues, {
       selectionKey: String(options.selectionKey || "").trim(),
+      runGroupId: String(options.runGroupId || "").trim(),
       ok: false,
       status: Number(response.status || 0),
       statusText: String(response.statusText || "").trim(),
@@ -41393,6 +41777,7 @@ async function degradationExecuteStatusRequest(panelState, endpointSpec, options
   if (response.status === 204 || !responseText.trim()) {
     return degradationBuildReportPayload(endpointSpec, queryValues, {
       selectionKey: String(options.selectionKey || "").trim(),
+      runGroupId: String(options.runGroupId || "").trim(),
       ok: true,
       status: Number(response.status || 0),
       statusText: String(response.statusText || "").trim(),
@@ -41410,6 +41795,7 @@ async function degradationExecuteStatusRequest(panelState, endpointSpec, options
   const rows = degradationFilterAppliedActiveRows(degradationExtractRows(endpointSpec, parsedPayload, queryValues));
   return degradationBuildReportPayload(endpointSpec, queryValues, {
     selectionKey: String(options.selectionKey || "").trim(),
+    runGroupId: String(options.runGroupId || "").trim(),
     ok: true,
     status: Number(response.status || 0),
     statusText: String(response.statusText || "").trim(),
@@ -41514,6 +41900,7 @@ async function degradationRunStatusEndpointFromPanel(panelState, endpointKey, op
           ...options.queryValues,
         }
       : degradationCollectFormValues(panelState);
+  const runGroupId = String(options.runGroupId || buildDegradationRunGroupId()).trim();
   if (!degradationRequireSelectedRequestor(panelState, queryValues)) {
     return null;
   }
@@ -41569,6 +41956,7 @@ async function degradationRunStatusEndpointFromPanel(panelState, endpointKey, op
     const report = await degradationExecuteStatusRequest(panelState, endpointSpec, {
       queryValues,
       selectionKey,
+      runGroupId,
     });
     degradationWorkspaceStoreReport(report, queryValues);
     emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
@@ -41607,6 +41995,7 @@ async function degradationRunStatusEndpointFromPanel(panelState, endpointKey, op
     });
     const errorReport = degradationBuildReportPayload(endpointSpec, queryValues, {
       selectionKey: String(selectionContext.selectionKey || "").trim(),
+      runGroupId,
       ok: false,
       status: 0,
       statusText: "",
@@ -41672,6 +42061,7 @@ async function degradationRunAllStatusEndpointsFromPanel(panelState, options = {
   degradationSetControllerStatus(panelState, "");
   degradationSetBusy(panelState, true);
   const reports = [];
+  const runGroupId = buildDegradationRunGroupId();
   try {
     let targetWindowId = Number(options.targetWindowId || 0);
     if (options.openWorkspace !== false) {
@@ -41695,6 +42085,7 @@ async function degradationRunAllStatusEndpointsFromPanel(panelState, options = {
       const report = await degradationRunStatusEndpointFromPanel(panelState, endpointSpec.key, {
         requestToken,
         queryValues,
+        runGroupId,
         manageBusy: false,
         openWorkspace: false,
         targetWindowId,
@@ -41763,6 +42154,7 @@ async function degradationRunMegaProgrammerSweepFromPanel(panelState, options = 
 
   let targetWindowId = 0;
   degradationSetBusy(panelState, true);
+  const runGroupId = buildDegradationRunGroupId();
   try {
     if (options.openWorkspace !== false) {
       const workspaceResult = await degradationOpenWorkspaceFromPanel(panelState, {
@@ -41779,6 +42171,7 @@ async function degradationRunMegaProgrammerSweepFromPanel(panelState, options = 
     const report = await degradationExecuteStatusRequest(panelState, endpointSpec, {
       queryValues,
       selectionKey: selectionContext.selectionKey,
+      runGroupId,
       targetWindowId,
     });
     degradationWorkspaceStoreReport(report, queryValues);
@@ -41815,6 +42208,7 @@ async function degradationRunMegaProgrammerSweepFromPanel(panelState, options = 
     });
     const errorReport = degradationBuildReportPayload(endpointSpec, queryValues, {
       selectionKey: selectionContext.selectionKey,
+      runGroupId,
       ok: false,
       status: 0,
       statusText: "",
