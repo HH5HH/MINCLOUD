@@ -22031,6 +22031,13 @@ function downloadEsmCsv(rows, sortRule, context, fileName) {
 }
 
 function isEsmServiceRequestActive(section, requestToken, programmerId) {
+  if (section?.__underparDetachedEsmState === true) {
+    if (Number(requestToken || 0) !== Number(state.premiumPanelRequestToken || 0)) {
+      return false;
+    }
+    const selected = resolveSelectedProgrammer();
+    return Boolean(selected && selected.programmerId === programmerId);
+  }
   if (!section || !section.isConnected) {
     return false;
   }
@@ -23483,6 +23490,52 @@ async function resolveClickEsmDownloadContext(esmWorkspaceState = null) {
     passVaultRecord: getPassVaultMediaCompanyRecord(selectedProgrammer.programmerId),
     section: esmWorkspaceState?.section || null,
   };
+}
+
+function buildDetachedEsmWorkspaceState(programmer, appInfo, requestToken = state.premiumPanelRequestToken, options = {}) {
+  return {
+    section: {
+      isConnected: true,
+      __underparDetachedEsmState: true,
+    },
+    programmer: programmer && typeof programmer === "object" ? { ...programmer } : null,
+    appInfo: appInfo && typeof appInfo === "object" ? { ...appInfo } : null,
+    contentElement: null,
+    requestToken: Number(requestToken || 0),
+    controllerWindowId: Number(options?.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0),
+    endpointByUrl: new Map(),
+    catalog: [],
+    netInFlight: 0,
+  };
+}
+
+async function resolveEsmStateForWorkspaceAction(options = {}) {
+  const liveEsmState = getActiveEsmWorkspaceState();
+  if (liveEsmState) {
+    return liveEsmState;
+  }
+
+  const programmer = resolveSelectedProgrammer();
+  if (!programmer?.programmerId) {
+    return null;
+  }
+
+  await hydrateProgrammerFromPassVault(programmer, {
+    forceReload: false,
+    forceOverwrite: false,
+    forceDcrRestore: true,
+  }).catch(() => null);
+
+  const programmerId = String(programmer.programmerId || "").trim();
+  const services = getCurrentPremiumAppsSnapshot(programmerId) || {};
+  const esmApp = hasEsmScopedApp(services) ? services.esm : null;
+  if (!esmApp?.guid) {
+    return null;
+  }
+
+  return buildDetachedEsmWorkspaceState(programmer, esmApp, Number(state.premiumPanelRequestToken || 0), {
+    controllerWindowId: Number(options?.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0),
+  });
 }
 
 async function resolveClickEsmAuthContext(context, requestToken, options = {}) {
@@ -30438,7 +30491,7 @@ function getActiveEsmWorkspaceState() {
 
 async function handleEsmWorkspaceWorkspaceAction(message, sender = null) {
   const action = String(message?.action || "").trim().toLowerCase();
-  const esmWorkspaceState = getActiveEsmWorkspaceState();
+  let esmWorkspaceState = getActiveEsmWorkspaceState();
   const senderWindowId = Number(sender?.tab?.windowId || 0);
   const senderTabId = Number(sender?.tab?.id || 0);
   const controllerWindowId = esmWorkspaceState
@@ -30467,6 +30520,12 @@ async function handleEsmWorkspaceWorkspaceAction(message, sender = null) {
       windowId: senderWindowId,
       tabId: senderTabId,
     });
+    if (!esmWorkspaceState) {
+      esmWorkspaceState = await resolveEsmStateForWorkspaceAction({
+        controllerWindowId: senderWindowId || Number(state.esmWorkspaceWorkspaceWindowId || 0),
+        reason: "workspace-ready",
+      }).catch(() => null);
+    }
     if (esmWorkspaceState) {
       if (senderWindowId > 0) {
         esmWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
@@ -30540,7 +30599,14 @@ async function handleEsmWorkspaceWorkspaceAction(message, sender = null) {
   }
 
   if (!esmWorkspaceState) {
-    return { ok: false, error: "Open ESM in the UnderPAR side panel to run reports." };
+    esmWorkspaceState = await resolveEsmStateForWorkspaceAction({
+      controllerWindowId: senderWindowId || Number(state.esmWorkspaceWorkspaceWindowId || 0),
+      reason: action || "workspace-action",
+    }).catch(() => null);
+  }
+
+  if (!esmWorkspaceState) {
+    return { ok: false, error: "Select a media company with ESM access to run reports." };
   }
 
   const requestToken = Number(state.premiumPanelRequestToken || 0);

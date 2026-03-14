@@ -154,6 +154,8 @@ const state = {
   pendingAutoRerunProgrammerKey: "",
   autoRerunInFlightProgrammerKey: "",
   pendingAutoRerunCards: [],
+  programmerSwitchRecoveryKey: "",
+  programmerSwitchRecoveryCount: 0,
   pendingWorkspaceDeeplink: null,
   pendingWorkspaceDeeplinkConsuming: false,
   blondieTimeRuntimeState: null,
@@ -1629,6 +1631,16 @@ function updateWorkspaceLockState() {
   updateNonEsmMode();
 }
 
+function hasRunnableWorkspaceControllerContext() {
+  return (
+    state.controllerOnline === true ||
+    (state.programmerHydrationReady === true &&
+      state.esmAvailabilityResolved === true &&
+      state.esmAvailable === true &&
+      hasProgrammerContext())
+  );
+}
+
 function updateControllerBanner() {
   if (!els.controllerState || !els.filterState) {
     return;
@@ -1640,7 +1652,7 @@ function updateControllerBanner() {
     els.filterState.textContent = "ESM access is unavailable for this media company.";
     return;
   }
-  if (!state.controllerOnline) {
+  if (!hasRunnableWorkspaceControllerContext()) {
     if (hasProgrammerContext) {
       els.controllerState.textContent = `Selected Media Company: ${getProgrammerLabel()}`;
       els.filterState.textContent = "Waiting for ESM controller sync from UnderPAR side panel...";
@@ -1677,6 +1689,23 @@ function getProgrammerIdentityKey(programmerId = "", programmerName = "") {
   }
   const name = String(programmerName || "").trim().toLowerCase();
   return name ? `name:${name}` : "";
+}
+
+function buildProgrammerSwitchRecoveryKey(
+  programmerKey = getProgrammerIdentityKey(state.programmerId, state.programmerName),
+  workspaceContextKey = state.workspaceContextKey
+) {
+  const normalizedProgrammerKey = String(programmerKey || "").trim();
+  const normalizedContextKey = String(workspaceContextKey || "").trim();
+  if (normalizedProgrammerKey && normalizedContextKey) {
+    return `${normalizedProgrammerKey}::${normalizedContextKey}`;
+  }
+  return normalizedProgrammerKey || normalizedContextKey;
+}
+
+function resetProgrammerSwitchRecoveryState() {
+  state.programmerSwitchRecoveryKey = "";
+  state.programmerSwitchRecoveryCount = 0;
 }
 
 function hasProgrammerIdentityChanged(previousProgrammerId = "", previousProgrammerName = "", nextProgrammerId = "", nextProgrammerName = "") {
@@ -1740,12 +1769,51 @@ function doesWorkspaceEventMatchCurrentContext(payload = {}) {
   return true;
 }
 
+function doesWorkspaceEventMatchCurrentProgrammerEnvironment(payload = {}) {
+  const incomingProgrammerId = String(payload?.programmerId || "").trim();
+  const currentProgrammerId = String(state.programmerId || "").trim();
+  if (incomingProgrammerId && currentProgrammerId && incomingProgrammerId !== currentProgrammerId) {
+    return false;
+  }
+
+  const incomingEnvironmentKey = String(payload?.adobePassEnvironmentKey || "").trim();
+  const currentEnvironmentKey = String(state.adobePassEnvironment?.key || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim();
+  if (incomingEnvironmentKey && currentEnvironmentKey && incomingEnvironmentKey !== currentEnvironmentKey) {
+    return false;
+  }
+
+  return true;
+}
+
+function isInFlightProgrammerSwitchWorkspaceEvent(eventName, payload = {}) {
+  const normalizedEvent = String(eventName || "").trim().toLowerCase();
+  const reason = String(payload?.reason || "").trim().toLowerCase();
+  const requestSource = String(payload?.requestSource || "").trim().toLowerCase();
+  const isBatchSwitchEvent =
+    (normalizedEvent === "batch-start" || normalizedEvent === "batch-end") && reason === "programmer-switch";
+  const isReportSwitchEvent =
+    (normalizedEvent === "report-start" || normalizedEvent === "report-result") &&
+    requestSource === "workspace-programmer-switch";
+  if (!isBatchSwitchEvent && !isReportSwitchEvent) {
+    return false;
+  }
+  if (!doesWorkspaceEventMatchCurrentProgrammerEnvironment(payload)) {
+    return false;
+  }
+  return Boolean(
+    state.programmerSwitchLoading === true ||
+      String(state.pendingAutoRerunProgrammerKey || "").trim() ||
+      String(state.autoRerunInFlightProgrammerKey || "").trim()
+  );
+}
+
 function clearPendingProgrammerSwitchTransition() {
   state.programmerSwitchLoading = false;
   state.programmerSwitchLoadingKey = "";
   state.pendingAutoRerunProgrammerKey = "";
   state.autoRerunInFlightProgrammerKey = "";
   state.pendingAutoRerunCards = [];
+  resetProgrammerSwitchRecoveryState();
 }
 
 async function autoRerunCardsForProgrammerSwitch(expectedProgrammerKey = "") {
@@ -1799,7 +1867,7 @@ function maybeConsumePendingAutoRerun() {
     }
     return;
   }
-  if (state.controllerOnline !== true) {
+  if (!hasRunnableWorkspaceControllerContext()) {
     return;
   }
 
@@ -4986,6 +5054,9 @@ function applyReportStart(payload) {
   if (!cardState) {
     return;
   }
+  if (requestSource === "workspace-programmer-switch") {
+    resetProgrammerSwitchRecoveryState();
+  }
   cardState.activeRunId = String(payload?.runId || "").trim();
   cardState.running = true;
   cardState.rows = [];
@@ -5133,8 +5204,10 @@ function applyControllerState(payload) {
 
   const previousProgrammerId = String(state.programmerId || "");
   const previousProgrammerName = String(state.programmerName || "");
+  const previousProgrammerKey = getProgrammerIdentityKey(previousProgrammerId, previousProgrammerName);
   const incomingProgrammerId = String(payload?.programmerId || "");
   const incomingProgrammerName = String(payload?.programmerName || "");
+  const controllerReason = String(payload?.controllerReason || "").trim().toLowerCase();
   const sameProgrammerIdentity = !hasProgrammerIdentityChanged(
     previousProgrammerId,
     previousProgrammerName,
@@ -5245,6 +5318,7 @@ function applyControllerState(payload) {
     state.programmerName
   );
   if (programmerChanged || environmentChanged) {
+    resetProgrammerSwitchRecoveryState();
     closeBlondieTimePicker({ restoreFocus: false });
     if (priorBlondieTimeRuntimeState?.running && isBlondieTimeOwnedByCurrentWorkspace(priorBlondieTimeRuntimeState)) {
       void stopBlondieTime({
@@ -5266,8 +5340,15 @@ function applyControllerState(payload) {
     syncActionButtonsDisabled();
   }
   const currentProgrammerKey = getProgrammerIdentityKey(state.programmerId, state.programmerName);
+  const isMediaCompanySwitchReason =
+    !controllerReason || controllerReason === "media-company-change" || controllerReason === "programmer-change";
   const shouldTriggerWorkspaceRedraw =
-    replayCardsForSwitch.length > 0 && Boolean(currentProgrammerKey) && (programmerChanged || environmentChanged);
+    replayCardsForSwitch.length > 0 &&
+    Boolean(currentProgrammerKey) &&
+    ((programmerChanged &&
+      Boolean(previousProgrammerKey) &&
+      isMediaCompanySwitchReason) ||
+      (environmentChanged && controllerReason === "environment-switch"));
   if (shouldTriggerWorkspaceRedraw && currentProgrammerKey) {
     state.workspaceReplayCards = cloneWorkspaceReplayCards(replayCardsForSwitch);
     state.pendingAutoRerunCards = cloneWorkspaceReplayCards(replayCardsForSwitch);
@@ -5305,11 +5386,11 @@ function handleWorkspaceEvent(eventName, payload) {
     return;
   }
 
-  if (
-    ["report-start", "report-result", "batch-start", "batch-end", "csv-complete"].includes(event) &&
-    !doesWorkspaceEventMatchCurrentContext(payload)
-  ) {
-    return;
+  if (["report-start", "report-result", "batch-start", "batch-end", "csv-complete"].includes(event)) {
+    const matchesCurrentContext = doesWorkspaceEventMatchCurrentContext(payload);
+    if (!matchesCurrentContext && !isInFlightProgrammerSwitchWorkspaceEvent(event, payload)) {
+      return;
+    }
   }
 
   if (event === "controller-state") {
@@ -5350,7 +5431,35 @@ function handleWorkspaceEvent(eventName, payload) {
 
   if (event === "batch-end") {
     state.batchRunning = false;
-    if (String(payload?.reason || "").trim().toLowerCase() === "programmer-switch" && !String(state.pendingAutoRerunProgrammerKey || "").trim()) {
+    const reason = String(payload?.reason || "").trim().toLowerCase();
+    const total = Number(payload?.total || 0);
+    const currentProgrammerKey = getProgrammerIdentityKey(state.programmerId, state.programmerName);
+    const recoveryKey = buildProgrammerSwitchRecoveryKey(currentProgrammerKey, state.workspaceContextKey);
+    const recoveryCards =
+      Array.isArray(state.pendingAutoRerunCards) && state.pendingAutoRerunCards.length > 0
+        ? cloneWorkspaceReplayCards(state.pendingAutoRerunCards)
+        : getWorkspaceReplayCards();
+    const shouldRetryEmptyProgrammerSwitch =
+      reason === "programmer-switch" &&
+      total > 0 &&
+      !hasWorkspaceCardContext() &&
+      recoveryCards.length > 0 &&
+      Boolean(currentProgrammerKey) &&
+      (state.programmerSwitchRecoveryKey !== recoveryKey || Number(state.programmerSwitchRecoveryCount || 0) < 1);
+    if (shouldRetryEmptyProgrammerSwitch) {
+      state.programmerSwitchRecoveryKey = recoveryKey;
+      state.programmerSwitchRecoveryCount = Number(state.programmerSwitchRecoveryCount || 0) + 1;
+      state.pendingAutoRerunCards = cloneWorkspaceReplayCards(recoveryCards);
+      state.pendingAutoRerunProgrammerKey = currentProgrammerKey;
+      state.programmerSwitchLoading = true;
+      state.programmerSwitchLoadingKey = currentProgrammerKey;
+      state.autoRerunInFlightProgrammerKey = "";
+      syncActionButtonsDisabled();
+      setStatus(`Retrying workspace redraw for ${getProgrammerLabel()}...`);
+      maybeConsumePendingAutoRerun();
+      return;
+    }
+    if (reason === "programmer-switch" && !String(state.pendingAutoRerunProgrammerKey || "").trim()) {
       state.programmerSwitchLoading = false;
       state.programmerSwitchLoadingKey = "";
       state.autoRerunInFlightProgrammerKey = "";
@@ -5363,7 +5472,6 @@ function handleWorkspaceEvent(eventName, payload) {
     });
     syncWorkspaceReplayCardsFromCurrentCards();
     syncActionButtonsDisabled();
-    const total = Number(payload?.total || 0);
     setStatus(total > 0 ? `Re-run completed for ${total} report(s).` : "Re-run completed.");
     maybeConsumePendingAutoRerun();
     return;
@@ -5415,7 +5523,7 @@ async function maybeConsumePendingWorkspaceDeeplink() {
   if (!pending || state.pendingWorkspaceDeeplinkConsuming) {
     return;
   }
-  if (!state.controllerOnline || !String(state.programmerId || "").trim()) {
+  if (!hasRunnableWorkspaceControllerContext() || !String(state.programmerId || "").trim()) {
     return;
   }
   if (state.esmAvailable === false || state.esmContainerVisible === false || state.workspaceLocked || state.nonEsmMode) {
