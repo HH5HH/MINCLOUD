@@ -38,6 +38,59 @@
           </div>
         </div>
         <div class="workspace-actions">
+          <div class="workspace-blondie-time-wrap">
+            <button
+              id="workspace-blondie-time"
+              class="workspace-blondie-time-btn"
+              type="button"
+              title="Click to arm Blondie Time for your Slack DM. Shift-click to arm pass-transition delivery."
+              aria-label="Click to arm Blondie Time for your Slack DM. Shift-click to arm pass-transition delivery."
+              aria-haspopup="dialog"
+              aria-expanded="false"
+              aria-controls="workspace-blondie-time-picker"
+              data-blondie-time-state="inactive"
+              data-blondie-time-mode="self"
+            >
+              <span class="workspace-blondie-time-plate workspace-blondie-time-plate--base" aria-hidden="true"></span>
+              <span class="workspace-blondie-time-plate workspace-blondie-time-plate--overlay" aria-hidden="true"></span>
+              <span class="workspace-blondie-time-copy" aria-hidden="true">
+                <span class="workspace-blondie-time-wordmark">Blondie</span>
+                <span class="workspace-blondie-time-subtitle">TIME</span>
+              </span>
+              <span id="workspace-blondie-time-countdown" class="workspace-blondie-time-countdown" aria-hidden="true"></span>
+            </button>
+            <button
+              id="workspace-blondie-time-stop"
+              class="workspace-blondie-time-stop"
+              type="button"
+              title="Stop Blondie Time"
+              aria-label="Stop Blondie Time"
+              hidden
+            >
+              <span aria-hidden="true">X</span>
+            </button>
+            <div
+              id="workspace-blondie-time-picker"
+              class="workspace-blondie-time-picker"
+              role="dialog"
+              aria-modal="false"
+              aria-label="Set Blondie Time repeat interval"
+              hidden
+            >
+              <p class="workspace-blondie-time-picker-eyebrow">Blondie Time</p>
+              <p class="workspace-blondie-time-picker-title">Choose the repeat interval</p>
+              <p id="workspace-blondie-time-picker-hint" class="workspace-blondie-time-picker-hint">
+                Click repeats every open report card to your Slack DM.
+              </p>
+              <div class="workspace-blondie-time-chip-row" role="group" aria-label="Repeat interval">
+                <button type="button" class="workspace-blondie-time-chip" data-minutes="2">2 min</button>
+                <button type="button" class="workspace-blondie-time-chip" data-minutes="5">5 min</button>
+                <button type="button" class="workspace-blondie-time-chip" data-minutes="10">10 min</button>
+                <button type="button" class="workspace-blondie-time-chip" data-minutes="15">15 min</button>
+              </div>
+              <p class="workspace-blondie-time-picker-meta">Esc cancels. The X kill switch appears after the first lap starts.</p>
+            </div>
+          </div>
           <span id="page-env-badge" class="page-env-badge" aria-label="Data Environment" title="Data Environment">
             <span class="page-env-badge-prefix">ENV</span>
             <span class="page-env-badge-sep">|</span>

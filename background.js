@@ -65,6 +65,11 @@ const UNDERPAR_WORKSPACE_PATHS = Object.freeze([
   "degradation-workspace.html",
   "bobtools-workspace.html",
 ]);
+const UNDERPAR_BLONDIE_TIME_MESSAGE_TYPE = "underpar:blondie-time";
+const UNDERPAR_BLONDIE_TIME_STORAGE_KEY = "underpar_blondie_time_esm_state";
+const UNDERPAR_BLONDIE_TIME_ALARM_NAME = "underpar:blondie-time:esm";
+const UNDERPAR_BLONDIE_TIME_NOTIFICATION_ID = "underpar:blondie-time:esm";
+const UNDERPAR_BLONDIE_TIME_NOTIFICATION_BACKOFF_MS = 30 * 1000;
 const BUILD_FINGERPRINT_FILES = [
   "manifest.json",
   "background.js",
@@ -126,6 +131,295 @@ async function configureSidePanelBehavior() {
     await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
   } catch {
     // Ignore when side panel APIs are unavailable.
+  }
+}
+
+function createBlondieTimeRunId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `blondie-time-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function normalizeBlondieTimeTriggerMode(value = "") {
+  return String(value || "").trim().toLowerCase() === "teammate" ? "teammate" : "self";
+}
+
+function cloneBlondieTimeDeliveryTarget(value = null) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  if (String(value?.mode || "").trim().toLowerCase() !== "teammate") {
+    return null;
+  }
+  const userId = String(value?.userId || "").trim().toUpperCase();
+  if (!userId) {
+    return null;
+  }
+  return {
+    mode: "teammate",
+    userId,
+    userName: String(value?.userName || "").trim(),
+  };
+}
+
+function normalizeBlondieTimeIntervalMinutes(value = 0) {
+  const normalized = Number(value || 0);
+  return Number.isFinite(normalized) && normalized > 0 ? normalized : 2;
+}
+
+function normalizeBlondieTimeState(value = null) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const intervalMinutes = normalizeBlondieTimeIntervalMinutes(value?.intervalMinutes || 2);
+  const rawIntervalMs = Number(value?.intervalMs || 0);
+  const intervalMs =
+    Number.isFinite(rawIntervalMs) && rawIntervalMs > 0 ? Math.max(intervalMinutes * 60 * 1000, rawIntervalMs) : intervalMinutes * 60 * 1000;
+  return {
+    workspace: "esm",
+    runId: String(value?.runId || "").trim(),
+    running: value?.running === true,
+    intervalMinutes,
+    intervalMs,
+    nextFireAt: Math.max(0, Number(value?.nextFireAt || 0)),
+    startedAt: Math.max(0, Number(value?.startedAt || 0)),
+    targetWindowId: Math.max(0, Number(value?.targetWindowId || 0)),
+    workspaceContextKey: String(value?.workspaceContextKey || "").trim(),
+    programmerId: String(value?.programmerId || "").trim(),
+    programmerName: String(value?.programmerName || "").trim(),
+    triggerMode: normalizeBlondieTimeTriggerMode(value?.triggerMode || "self"),
+    deliveryTarget: cloneBlondieTimeDeliveryTarget(value?.deliveryTarget || null),
+    noteText: String(value?.noteText || ""),
+    lastError: String(value?.lastError || "").trim(),
+    lastStopReason: String(value?.lastStopReason || "").trim(),
+    lastLapAt: Math.max(0, Number(value?.lastLapAt || 0)),
+    lastDeliveredCount: Math.max(0, Number(value?.lastDeliveredCount || 0)),
+    lapCount: Math.max(0, Number(value?.lapCount || 0)),
+    lastNotificationAt: Math.max(0, Number(value?.lastNotificationAt || 0)),
+  };
+}
+
+async function readBlondieTimeState() {
+  try {
+    const payload = await chrome.storage.local.get(UNDERPAR_BLONDIE_TIME_STORAGE_KEY);
+    return normalizeBlondieTimeState(payload?.[UNDERPAR_BLONDIE_TIME_STORAGE_KEY] || null);
+  } catch {
+    return null;
+  }
+}
+
+async function writeBlondieTimeState(nextState = null) {
+  const normalizedState = normalizeBlondieTimeState(nextState);
+  if (!normalizedState) {
+    await chrome.storage.local.remove(UNDERPAR_BLONDIE_TIME_STORAGE_KEY);
+    return null;
+  }
+  await chrome.storage.local.set({
+    [UNDERPAR_BLONDIE_TIME_STORAGE_KEY]: normalizedState,
+  });
+  return normalizedState;
+}
+
+async function ensureBlondieTimeAlarmScheduled(timerState = null) {
+  const normalizedState = normalizeBlondieTimeState(timerState);
+  if (!normalizedState?.running) {
+    await chrome.alarms.clear(UNDERPAR_BLONDIE_TIME_ALARM_NAME);
+    return null;
+  }
+  const when = Math.max(Date.now() + 500, Number(normalizedState.nextFireAt || 0));
+  const existingAlarm = await chrome.alarms.get(UNDERPAR_BLONDIE_TIME_ALARM_NAME);
+  if (!existingAlarm || Math.abs(Number(existingAlarm.scheduledTime || 0) - when) > 1500) {
+    await chrome.alarms.create(UNDERPAR_BLONDIE_TIME_ALARM_NAME, { when });
+  }
+  return when;
+}
+
+async function findBlondieTimeWorkspaceTab(targetWindowId = 0) {
+  const urlPrefix = chrome.runtime.getURL(UNDERPAR_ESM_WORKSPACE_PATH);
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (!String(tab?.url || "").startsWith(urlPrefix)) {
+      continue;
+    }
+    if (targetWindowId > 0 && Number(tab?.windowId || 0) !== targetWindowId) {
+      continue;
+    }
+    return tab;
+  }
+  return null;
+}
+
+async function focusBlondieTimeWorkspace(targetWindowId = 0) {
+  const existingTab = await findBlondieTimeWorkspaceTab(targetWindowId);
+  if (existingTab?.id) {
+    try {
+      await chrome.tabs.update(existingTab.id, { active: true });
+    } catch {
+      // Fall through to create a fresh workspace tab.
+    }
+    if (existingTab.windowId) {
+      try {
+        await chrome.windows.update(existingTab.windowId, { focused: true });
+      } catch {
+        // Ignore focus failures.
+      }
+    }
+    return existingTab;
+  }
+  const createOptions = {
+    url: chrome.runtime.getURL(UNDERPAR_ESM_WORKSPACE_PATH),
+    active: true,
+  };
+  if (targetWindowId > 0) {
+    try {
+      return await chrome.tabs.create({
+        ...createOptions,
+        windowId: targetWindowId,
+      });
+    } catch {
+      // Retry without a window affinity if the stored window no longer exists.
+    }
+  }
+  return await chrome.tabs.create(createOptions);
+}
+
+async function notifyBlondieTimeIssue(message = "", timerState = null) {
+  const normalizedState = normalizeBlondieTimeState(timerState);
+  const now = Date.now();
+  if (normalizedState && now - Number(normalizedState.lastNotificationAt || 0) < UNDERPAR_BLONDIE_TIME_NOTIFICATION_BACKOFF_MS) {
+    await chrome.notifications.clear(UNDERPAR_BLONDIE_TIME_NOTIFICATION_ID).catch(() => {});
+  }
+  try {
+    await chrome.notifications.create(UNDERPAR_BLONDIE_TIME_NOTIFICATION_ID, {
+      type: "basic",
+      iconUrl: "icons/underpar-128.png",
+      title: "Blondie Time",
+      message: String(message || "Blondie Time needs your attention.").trim(),
+      priority: 1,
+      buttons: [{ title: "Open ESM Workspace" }],
+    });
+  } catch {
+    return normalizedState;
+  }
+  if (!normalizedState) {
+    return null;
+  }
+  return await writeBlondieTimeState({
+    ...normalizedState,
+    lastNotificationAt: now,
+  });
+}
+
+async function stopBlondieTime(reason = "", options = {}) {
+  const previousState = normalizeBlondieTimeState(options?.state || (await readBlondieTimeState()));
+  await chrome.alarms.clear(UNDERPAR_BLONDIE_TIME_ALARM_NAME);
+  if (!previousState) {
+    return null;
+  }
+  const nextState = {
+    ...previousState,
+    running: false,
+    nextFireAt: 0,
+    lastError: options?.clearError === true ? "" : String(reason || previousState.lastError || "").trim(),
+    lastStopReason: String(reason || previousState.lastStopReason || options?.lastStopReason || "").trim(),
+  };
+  const storedState = await writeBlondieTimeState(nextState);
+  if (options?.notify === true && String(reason || "").trim()) {
+    return await notifyBlondieTimeIssue(reason, storedState);
+  }
+  return storedState;
+}
+
+async function startBlondieTime(message = {}) {
+  const intervalMinutes = normalizeBlondieTimeIntervalMinutes(message?.intervalMinutes || 2);
+  const nextFireAt = Date.now() + intervalMinutes * 60 * 1000;
+  const nextState = {
+    workspace: "esm",
+    runId: createBlondieTimeRunId(),
+    running: true,
+    intervalMinutes,
+    intervalMs: intervalMinutes * 60 * 1000,
+    nextFireAt,
+    startedAt: Date.now(),
+    targetWindowId: Math.max(0, Number(message?.windowId || 0)),
+    workspaceContextKey: String(message?.workspaceContextKey || "").trim(),
+    programmerId: String(message?.programmerId || "").trim(),
+    programmerName: String(message?.programmerName || "").trim(),
+    triggerMode: normalizeBlondieTimeTriggerMode(message?.triggerMode || "self"),
+    deliveryTarget: cloneBlondieTimeDeliveryTarget(message?.deliveryTarget || null),
+    noteText: String(message?.noteText || ""),
+    lastError: "",
+    lastStopReason: "",
+    lastLapAt: 0,
+    lastDeliveredCount: 0,
+    lapCount: 1,
+    lastNotificationAt: 0,
+  };
+  const storedState = await writeBlondieTimeState(nextState);
+  await ensureBlondieTimeAlarmScheduled(storedState);
+  return storedState;
+}
+
+async function ensureBlondieTimeRuntimeConsistency() {
+  const timerState = await readBlondieTimeState();
+  if (!timerState?.running) {
+    await chrome.alarms.clear(UNDERPAR_BLONDIE_TIME_ALARM_NAME);
+    return timerState;
+  }
+  await ensureBlondieTimeAlarmScheduled(timerState);
+  return timerState;
+}
+
+async function handleBlondieTimeAlarm() {
+  const timerState = await readBlondieTimeState();
+  if (!timerState?.running) {
+    return;
+  }
+  const workspaceTab = await findBlondieTimeWorkspaceTab(timerState.targetWindowId);
+  if (!workspaceTab) {
+    await stopBlondieTime("Blondie Time could not find its ESM workspace tab.", {
+      state: timerState,
+      notify: true,
+    });
+    return;
+  }
+
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: UNDERPAR_BLONDIE_TIME_MESSAGE_TYPE,
+      channel: "workspace-control",
+      action: "fire-lap",
+      targetWindowId: Number(timerState.targetWindowId || 0),
+      state: timerState,
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || "Blondie Time could not complete the scheduled lap.");
+    }
+
+    const liveState = await readBlondieTimeState();
+    if (!liveState?.running || String(liveState.runId || "") !== String(timerState.runId || "")) {
+      return;
+    }
+
+    const nextFireAt = Date.now() + timerState.intervalMs;
+    const nextState = {
+      ...liveState,
+      nextFireAt,
+      lastError: "",
+      lastStopReason: "",
+      lastLapAt: Date.now(),
+      lastDeliveredCount: Math.max(0, Number(response?.deliveredCount || 0)),
+      lapCount: Math.max(1, Number(liveState?.lapCount || timerState?.lapCount || 1)) + 1,
+    };
+    const storedState = await writeBlondieTimeState(nextState);
+    await ensureBlondieTimeAlarmScheduled(storedState);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await stopBlondieTime(message || "Blondie Time stopped unexpectedly.", {
+      state: timerState,
+      notify: true,
+    });
   }
 }
 
@@ -2815,6 +3109,7 @@ function handleWebRequestError(details) {
 
 chrome.runtime.onInstalled.addListener((details) => {
   void configureSidePanelBehavior();
+  void ensureBlondieTimeRuntimeConsistency();
   void ensureImsLoginRedirectRule();
   void ensureUnderparEsmDeeplinkRedirectRule();
   void ensureUnderparDegradationDeeplinkRedirectRule();
@@ -2825,6 +3120,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 
 chrome.runtime.onStartup.addListener(() => {
   void configureSidePanelBehavior();
+  void ensureBlondieTimeRuntimeConsistency();
   void ensureImsLoginRedirectRule();
   void ensureUnderparEsmDeeplinkRedirectRule();
   void ensureUnderparDegradationDeeplinkRedirectRule();
@@ -2834,6 +3130,50 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === UNDERPAR_BLONDIE_TIME_MESSAGE_TYPE && message?.channel === "runtime-command") {
+    void (async () => {
+      const action = String(message?.action || "").trim().toLowerCase();
+      if (action === "query") {
+        const timerState = await ensureBlondieTimeRuntimeConsistency();
+        return {
+          ok: true,
+          state: timerState,
+        };
+      }
+      if (action === "start") {
+        const timerState = await startBlondieTime(message);
+        return {
+          ok: true,
+          state: timerState,
+        };
+      }
+      if (action === "cancel") {
+        const reason = String(message?.reason || "manual").trim();
+        const timerState = await stopBlondieTime(reason, {
+          clearError: reason === "manual",
+        });
+        return {
+          ok: true,
+          state: timerState,
+        };
+      }
+      return {
+        ok: false,
+        error: `Unsupported Blondie Time action: ${action || "unknown"}`,
+      };
+    })()
+      .then((result) => {
+        sendResponse(result && typeof result === "object" ? result : { ok: true });
+      })
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return true;
+  }
+
   if (message?.type === BUILD_INFO_REQUEST_TYPE || message?.type === LEGACY_BUILD_INFO_REQUEST_TYPE) {
     void syncBuildInfo("buildInfoRequest")
       .then((info) => {
@@ -3148,6 +3488,31 @@ chrome.runtime.onConnect.addListener((port) => {
   port.onDisconnect.addListener(onDisconnect);
 });
 
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (String(alarm?.name || "") !== UNDERPAR_BLONDIE_TIME_ALARM_NAME) {
+    return;
+  }
+  void handleBlondieTimeAlarm();
+});
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+  if (String(notificationId || "") !== UNDERPAR_BLONDIE_TIME_NOTIFICATION_ID) {
+    return;
+  }
+  void readBlondieTimeState().then((timerState) => {
+    return focusBlondieTimeWorkspace(Number(timerState?.targetWindowId || 0));
+  });
+});
+
+chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) => {
+  if (String(notificationId || "") !== UNDERPAR_BLONDIE_TIME_NOTIFICATION_ID || Number(buttonIndex || 0) !== 0) {
+    return;
+  }
+  void readBlondieTimeState().then((timerState) => {
+    return focusBlondieTimeWorkspace(Number(timerState?.targetWindowId || 0));
+  });
+});
+
 chrome.tabs.onRemoved.addListener((tabId) => {
   const normalizedTabId = normalizeTabId(tabId);
   if (!normalizedTabId) {
@@ -3194,6 +3559,7 @@ if (chrome.webRequest) {
 }
 
 void configureSidePanelBehavior();
+void ensureBlondieTimeRuntimeConsistency();
 void ensureImsLoginRedirectRule();
 void ensureUnderparEsmDeeplinkRedirectRule();
 void ensureUnderparDegradationDeeplinkRedirectRule();

@@ -41,6 +41,9 @@
   --s2-icon-size-compact: 15px;
   --danger-rgb: 186, 54, 54;
   --danger-strong-rgb: 159, 37, 37;
+  --blondie-time-size: 72px;
+  --blondie-time-stop-size: 26px;
+  --blondie-time-focus-ring: rgba(0, 100, 224, 0.28);
   font-family: "Avenir Next", "Segoe UI Variable", "Gill Sans MT", "Trebuchet MS", sans-serif;
 }
 
@@ -177,6 +180,7 @@ body::after {
 
 .workspace-header {
   position: relative;
+  z-index: 24;
   border: 1px solid var(--legacy-border);
   border-radius: var(--s2-radius-strong);
   background: var(--legacy-panel);
@@ -188,6 +192,8 @@ body::after {
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  overflow: visible;
+  isolation: isolate;
   animation: workspace-enter 260ms ease-out;
 }
 
@@ -237,11 +243,310 @@ body::after {
 }
 
 .workspace-actions {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.workspace-blondie-time-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  isolation: isolate;
+}
+
+.workspace-blondie-time-btn {
+  --blondie-time-progress: 1;
+  --blondie-time-base-image: url("icons/blondie-time-notslacktivated.svg");
+  --blondie-time-overlay-image: none;
+  appearance: none;
+  position: relative;
+  width: var(--blondie-time-size);
+  height: var(--blondie-time-size);
+  padding: 0;
+  border: 1px solid rgba(20, 53, 104, 0.24);
+  border-radius: 999px;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(255, 255, 255, 0.64), rgba(255, 255, 255, 0) 48%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(221, 237, 252, 0.96));
+  box-shadow: 0 10px 22px rgba(17, 45, 89, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.76);
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease,
+    filter 160ms ease;
+}
+
+.workspace-blondie-time-btn:hover:not(:disabled) {
+  transform: translateY(-2px) scale(1.015);
+  box-shadow: 0 14px 28px rgba(17, 45, 89, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.workspace-blondie-time-btn:disabled {
+  cursor: default;
+  filter: saturate(0.78) contrast(0.96);
+}
+
+.workspace-blondie-time-btn:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px var(--blondie-time-focus-ring),
+    0 12px 24px rgba(17, 45, 89, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.workspace-blondie-time-btn[data-blondie-time-state="ready"] {
+  --blondie-time-base-image: url("icons/blondie-time-slacktivated.svg");
+}
+
+.workspace-blondie-time-btn[data-blondie-time-state="picker"] {
+  --blondie-time-base-image: url("icons/blondie-time-settime.svg");
+  box-shadow: 0 14px 28px rgba(17, 45, 89, 0.24), 0 0 0 1px rgba(112, 124, 141, 0.26);
+}
+
+.workspace-blondie-time-btn[data-blondie-time-state="active"] {
+  --blondie-time-base-image: url("icons/blondie-time-active-reveal.svg");
+  --blondie-time-overlay-image: url("icons/blondie-time-settime.svg");
+  border-color: rgba(39, 154, 214, 0.4);
+  box-shadow:
+    0 16px 32px rgba(14, 86, 158, 0.24),
+    0 0 0 1px rgba(85, 228, 255, 0.18),
+    0 0 24px rgba(85, 228, 255, 0.22);
+}
+
+.workspace-blondie-time-btn[data-blondie-time-state="warn"] {
+  --blondie-time-base-image: url("icons/blondie-time-warn.svg");
+  border-color: rgba(var(--danger-rgb), 0.45);
+  box-shadow:
+    0 16px 30px rgba(var(--danger-rgb), 0.22),
+    0 0 0 1px rgba(255, 112, 87, 0.22);
+}
+
+.workspace-blondie-time-plate {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-image: var(--blondie-time-base-image);
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  pointer-events: none;
+}
+
+.workspace-blondie-time-plate--overlay {
+  background-image: var(--blondie-time-overlay-image);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.workspace-blondie-time-btn[data-blondie-time-state="active"] .workspace-blondie-time-plate--overlay {
+  opacity: 1;
+  -webkit-mask-image: conic-gradient(from -90deg, #000 0turn calc(var(--blondie-time-progress) * 1turn), transparent 0);
+  mask-image: conic-gradient(from -90deg, #000 0turn calc(var(--blondie-time-progress) * 1turn), transparent 0);
+}
+
+.workspace-blondie-time-copy {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  pointer-events: none;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.24), 0 4px 14px rgba(255, 255, 255, 0.3);
+}
+
+.workspace-blondie-time-wordmark {
+  margin-top: -5px;
+  font-family: "Brush Script MT", "Segoe Script", "Snell Roundhand", cursive;
+  font-size: 25px;
+  line-height: 1;
+  font-weight: 700;
+  color: rgba(19, 25, 41, 0.92);
+}
+
+.workspace-blondie-time-subtitle {
+  margin-top: -2px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(251, 248, 244, 0.84);
+  font-size: 9px;
+  line-height: 1;
+  font-weight: 800;
+  letter-spacing: 0.28em;
+  color: rgba(29, 45, 71, 0.86);
+}
+
+.workspace-blondie-time-countdown {
+  position: absolute;
+  left: 50%;
+  bottom: 7px;
+  z-index: 2;
+  min-width: 48px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(10, 27, 49, 0.76);
+  box-shadow: 0 8px 14px rgba(8, 20, 37, 0.28);
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  color: #f7fbff;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+}
+
+.workspace-blondie-time-btn[data-blondie-time-state="active"] .workspace-blondie-time-countdown {
+  opacity: 1;
+}
+
+.workspace-blondie-time-stop {
+  appearance: none;
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  z-index: 3;
+  width: var(--blondie-time-stop-size);
+  height: var(--blondie-time-stop-size);
+  padding: 0;
+  border: 1px solid rgba(var(--danger-rgb), 0.44);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 247, 244, 0.98), rgba(255, 219, 209, 0.96));
+  color: rgb(var(--danger-strong-rgb));
+  box-shadow: 0 10px 18px rgba(var(--danger-rgb), 0.24);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.workspace-blondie-time-stop:hover:not(:disabled) {
+  transform: translateY(-1px) scale(1.04);
+  box-shadow: 0 12px 20px rgba(var(--danger-rgb), 0.28);
+}
+
+.workspace-blondie-time-stop:focus-visible {
+  outline: none;
+  box-shadow:
+    0 0 0 3px rgba(var(--danger-rgb), 0.18),
+    0 12px 20px rgba(var(--danger-rgb), 0.28);
+}
+
+.workspace-blondie-time-picker {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  z-index: 12;
+  width: min(286px, calc(100vw - 38px));
+  padding: 14px 14px 12px;
+  border: 1px solid rgba(23, 65, 127, 0.18);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.99), rgba(241, 247, 255, 0.98)),
+    radial-gradient(circle at top right, rgba(80, 212, 255, 0.12), transparent 54%);
+  box-shadow: 0 18px 34px rgba(16, 45, 92, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+.workspace-blondie-time-picker::before {
+  content: "";
+  position: absolute;
+  top: -7px;
+  right: 26px;
+  width: 14px;
+  height: 14px;
+  border-top: 1px solid rgba(23, 65, 127, 0.18);
+  border-left: 1px solid rgba(23, 65, 127, 0.18);
+  background: rgba(255, 255, 255, 0.98);
+  transform: rotate(45deg);
+}
+
+.workspace-blondie-time-picker-eyebrow,
+.workspace-blondie-time-picker-title,
+.workspace-blondie-time-picker-hint,
+.workspace-blondie-time-picker-meta {
+  margin: 0;
+}
+
+.workspace-blondie-time-picker-eyebrow {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #4f6d96;
+}
+
+.workspace-blondie-time-picker-title {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 760;
+  color: #17335d;
+}
+
+.workspace-blondie-time-picker-hint {
+  margin-top: 6px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: #35527e;
+}
+
+.workspace-blondie-time-chip-row {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.workspace-blondie-time-chip {
+  appearance: none;
+  min-height: 38px;
+  padding: 0 12px;
+  border: 1px solid rgba(23, 65, 127, 0.2);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(231, 243, 255, 0.96));
+  color: #16345c;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0.03em;
+  transition:
+    transform 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease,
+    background-color 140ms ease;
+}
+
+.workspace-blondie-time-chip:hover,
+.workspace-blondie-time-chip:focus-visible {
+  outline: none;
+  transform: translateY(-1px);
+  border-color: rgba(0, 100, 224, 0.34);
+  box-shadow: 0 10px 18px rgba(16, 45, 92, 0.14);
+  background: linear-gradient(180deg, rgba(245, 251, 255, 0.99), rgba(217, 238, 255, 0.98));
+}
+
+.workspace-blondie-time-chip[data-selected="true"] {
+  border-color: rgba(0, 100, 224, 0.48);
+  background: linear-gradient(180deg, rgba(234, 246, 255, 0.99), rgba(205, 231, 255, 0.98));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.workspace-blondie-time-picker-meta {
+  margin-top: 10px;
+  font-size: 10.5px;
+  line-height: 1.45;
+  color: #5c7398;
 }
 
 .workspace-icon-btn {
@@ -419,6 +724,10 @@ body::after {
   color: #8e2b24;
 }
 
+.workspace-status.warn {
+  color: #8b3a23;
+}
+
 .workspace-header,
 .workspace-status,
 .workspace-lock-banner,
@@ -469,6 +778,8 @@ body::after {
 }
 
 .workspace-cards {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -478,6 +789,18 @@ body.workspace-locked .workspace-cards {
   opacity: 0.36;
   filter: saturate(0.62) blur(7px);
   pointer-events: none;
+}
+
+@media (max-width: 720px) {
+  .workspace-blondie-time-picker {
+    right: auto;
+    left: 0;
+  }
+
+  .workspace-blondie-time-picker::before {
+    right: auto;
+    left: 28px;
+  }
 }
 
 @keyframes workspace-enter {

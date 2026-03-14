@@ -106,6 +106,10 @@ const BLONDIE_BUTTON_INACTIVE_MESSAGE =
 const BLONDIE_BUTTON_SHARE_TARGETS_EMPTY_MESSAGE =
   "No pass-transition roster is cached yet. Re-SLACKTIVATE UnderPAR in the VAULT.";
 const BLONDIE_BUTTON_SHARE_NOTE_EMPTY_MESSAGE = "Enter a Slack note before sending.";
+const BLONDIE_TIME_MESSAGE_TYPE = "underpar:blondie-time";
+const BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES = Object.freeze([2, 5, 10, 15]);
+const BLONDIE_TIME_PREFS_STORAGE_KEY = "underpar_blondie_time_esm_prefs";
+const BLONDIE_TIME_RUNTIME_STORAGE_KEY = "underpar_blondie_time_esm_state";
 const BLONDIE_BUTTON_ICON_URLS = (() => {
   const resolveIconUrl = (path) =>
     typeof chrome !== "undefined" && chrome?.runtime?.getURL ? chrome.runtime.getURL(path) : path;
@@ -152,6 +156,19 @@ const state = {
   pendingAutoRerunCards: [],
   pendingWorkspaceDeeplink: null,
   pendingWorkspaceDeeplinkConsuming: false,
+  blondieTimeRuntimeState: null,
+  blondieTimePickerOpen: false,
+  blondieTimePendingMode: "self",
+  blondieTimeCountdownRafId: 0,
+  blondieTimeCountdownSecond: -1,
+  blondieTimeLocalWarning: "",
+  blondieTimeOutsidePointerHandler: null,
+  blondieTimeOutsideKeyHandler: null,
+  blondieTimeLapRunning: false,
+  blondieTimePrefs: {
+    lastIntervalMinutes: BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0],
+    lastTriggerMode: "self",
+  },
 };
 
 const els = {
@@ -170,6 +187,11 @@ const els = {
   cardsHost: document.getElementById("workspace-cards"),
   pageEnvBadge: document.getElementById("page-env-badge"),
   pageEnvBadgeValue: document.getElementById("page-env-badge-value"),
+  blondieTimeButton: document.getElementById("workspace-blondie-time"),
+  blondieTimeStopButton: document.getElementById("workspace-blondie-time-stop"),
+  blondieTimePicker: document.getElementById("workspace-blondie-time-picker"),
+  blondieTimePickerHint: document.getElementById("workspace-blondie-time-picker-hint"),
+  blondieTimeCountdown: document.getElementById("workspace-blondie-time-countdown"),
 };
 
 let workspaceStylesheetTextCache = "";
@@ -1470,6 +1492,7 @@ function syncWorkspaceNetworkIndicator() {
 function syncActionButtonsDisabled() {
   setActionButtonsDisabled(state.batchRunning || state.workspaceLocked);
   syncWorkspaceNetworkIndicator();
+  renderBlondieTimeControl();
 }
 
 function syncTearsheetButtonsVisibility() {
@@ -1553,12 +1576,20 @@ function shouldShowNonEsmMode() {
 
 function clearWorkspaceCards(options = {}) {
   const preserveReplayContext = options?.preserveReplayContext === true;
+  if (!preserveReplayContext && isBlondieTimeActiveForCurrentWorkspace()) {
+    void stopBlondieTime({
+      reason: "Workspace cards were cleared. Blondie Time stopped.",
+      silent: true,
+      restoreFocus: false,
+    });
+  }
   if (!preserveReplayContext) {
     state.workspaceReplayCards = [];
     state.pendingAutoRerunCards = [];
   }
   state.cardsById.forEach((cardState) => {
     teardownCardHeaderQueryEditors(cardState);
+    cardState.tableState = null;
     cardState.element?.remove();
   });
   state.cardsById.clear();
@@ -2244,6 +2275,753 @@ function syncBlondieButtons(root = document) {
       return;
     }
     renderBlondieButtonState(button, "ready");
+  });
+}
+
+function normalizeBlondieTimeTriggerMode(value = "") {
+  return String(value || "").trim().toLowerCase() === "teammate" ? "teammate" : "self";
+}
+
+function cloneBlondieTimeDeliveryTarget(value = null) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  if (String(value?.mode || "").trim().toLowerCase() !== "teammate") {
+    return null;
+  }
+  const userId = String(value?.userId || "").trim().toUpperCase();
+  if (!userId) {
+    return null;
+  }
+  return {
+    mode: "teammate",
+    userId,
+    userName: String(value?.userName || "").trim(),
+  };
+}
+
+function normalizeBlondieTimeRuntimeState(value = null) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const rawIntervalMinutes = Number(value?.intervalMinutes || BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0]);
+  const intervalMinutes = Number.isFinite(rawIntervalMinutes) && rawIntervalMinutes > 0
+    ? rawIntervalMinutes
+    : BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0];
+  const rawIntervalMs = Number(value?.intervalMs || 0);
+  const intervalMs =
+    Number.isFinite(rawIntervalMs) && rawIntervalMs > 0 ? Math.max(intervalMinutes * 60 * 1000, rawIntervalMs) : intervalMinutes * 60 * 1000;
+  return {
+    workspace: "esm",
+    runId: String(value?.runId || "").trim(),
+    running: value?.running === true,
+    intervalMinutes,
+    intervalMs,
+    nextFireAt: Math.max(0, Number(value?.nextFireAt || 0)),
+    startedAt: Math.max(0, Number(value?.startedAt || 0)),
+    targetWindowId: Math.max(0, Number(value?.targetWindowId || 0)),
+    workspaceContextKey: String(value?.workspaceContextKey || "").trim(),
+    programmerId: String(value?.programmerId || "").trim(),
+    programmerName: String(value?.programmerName || "").trim(),
+    triggerMode: normalizeBlondieTimeTriggerMode(value?.triggerMode || "self"),
+    deliveryTarget: cloneBlondieTimeDeliveryTarget(value?.deliveryTarget || null),
+    noteText: String(value?.noteText || ""),
+    lastError: String(value?.lastError || "").trim(),
+    lastStopReason: String(value?.lastStopReason || "").trim(),
+    lastLapAt: Math.max(0, Number(value?.lastLapAt || 0)),
+    lastDeliveredCount: Math.max(0, Number(value?.lastDeliveredCount || 0)),
+    lapCount: Math.max(0, Number(value?.lapCount || 0)),
+  };
+}
+
+function normalizeBlondieTimePrefs(value = null) {
+  const intervalMinutes = BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES.includes(Number(value?.lastIntervalMinutes))
+    ? Number(value?.lastIntervalMinutes)
+    : BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0];
+  return {
+    lastIntervalMinutes: intervalMinutes,
+    lastTriggerMode: normalizeBlondieTimeTriggerMode(value?.lastTriggerMode || "self"),
+  };
+}
+
+function getCurrentBlondieTimeRuntimeState() {
+  return normalizeBlondieTimeRuntimeState(state.blondieTimeRuntimeState || null);
+}
+
+function isBlondieTimeOwnedByCurrentWorkspace(runtimeState = null) {
+  const normalizedState = normalizeBlondieTimeRuntimeState(runtimeState || getCurrentBlondieTimeRuntimeState());
+  if (!normalizedState) {
+    return false;
+  }
+  const targetWindowId = Number(normalizedState.targetWindowId || 0);
+  if (!targetWindowId || !Number(state.windowId || 0)) {
+    return true;
+  }
+  return targetWindowId === Number(state.windowId || 0);
+}
+
+function isBlondieTimeContextCurrent(runtimeState = null) {
+  const normalizedState = normalizeBlondieTimeRuntimeState(runtimeState || getCurrentBlondieTimeRuntimeState());
+  if (!normalizedState) {
+    return false;
+  }
+  const runtimeContextKey = String(normalizedState.workspaceContextKey || "").trim();
+  const currentContextKey = String(state.workspaceContextKey || "").trim();
+  if (!runtimeContextKey || !currentContextKey) {
+    return true;
+  }
+  return runtimeContextKey === currentContextKey;
+}
+
+function isBlondieTimeActiveForCurrentWorkspace(runtimeState = null) {
+  const normalizedState = normalizeBlondieTimeRuntimeState(runtimeState || getCurrentBlondieTimeRuntimeState());
+  return Boolean(
+    normalizedState?.running &&
+      isBlondieTimeOwnedByCurrentWorkspace(normalizedState) &&
+      isBlondieTimeContextCurrent(normalizedState)
+  );
+}
+
+function getBlondieTimeStartDisabledReason() {
+  if (state.workspaceLocked) {
+    return getWorkspaceLockMessage();
+  }
+  if (state.batchRunning) {
+    return "Wait for the current workspace batch to finish before arming Blondie Time.";
+  }
+  if (!state.controllerOnline) {
+    return "Open the UnderPAR side panel to arm Blondie Time.";
+  }
+  if (!state.slackReady) {
+    return BLONDIE_BUTTON_INACTIVE_MESSAGE;
+  }
+  if (!hasWorkspaceCardContext()) {
+    return "Open at least one ESM report card to arm Blondie Time.";
+  }
+  return "";
+}
+
+function canArmBlondieTime() {
+  return !getBlondieTimeStartDisabledReason();
+}
+
+function getBlondieTimePendingMode() {
+  return normalizeBlondieTimeTriggerMode(state.blondieTimePendingMode || state.blondieTimePrefs?.lastTriggerMode || "self");
+}
+
+function getBlondieTimeRemainingMs(runtimeState = null) {
+  const normalizedState = normalizeBlondieTimeRuntimeState(runtimeState || getCurrentBlondieTimeRuntimeState());
+  if (!normalizedState?.running || !isBlondieTimeOwnedByCurrentWorkspace(normalizedState)) {
+    return 0;
+  }
+  return Math.max(0, Number(normalizedState.nextFireAt || 0) - Date.now());
+}
+
+function formatBlondieTimeRemaining(ms = 0) {
+  const totalSeconds = Math.max(0, Math.ceil(Number(ms || 0) / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getBlondieTimeButtonTitle() {
+  const runtimeState = getCurrentBlondieTimeRuntimeState();
+  const currentWarning = String(state.blondieTimeLocalWarning || "").trim();
+  if (isBlondieTimeActiveForCurrentWorkspace(runtimeState)) {
+    const remainingLabel = formatBlondieTimeRemaining(getBlondieTimeRemainingMs(runtimeState));
+    const cadenceLabel = `${runtimeState.intervalMinutes} minute${runtimeState.intervalMinutes === 1 ? "" : "s"}`;
+    if (runtimeState.triggerMode === "teammate" && runtimeState.deliveryTarget?.userName) {
+      return `Blondie Time repeats every ${cadenceLabel} to ${runtimeState.deliveryTarget.userName}. ${remainingLabel} until the next lap.`;
+    }
+    return `Blondie Time repeats every ${cadenceLabel} to your Slack DM. ${remainingLabel} until the next lap.`;
+  }
+  if (runtimeState?.running && !isBlondieTimeOwnedByCurrentWorkspace(runtimeState)) {
+    return "Blondie Time is already armed in another ESM workspace window.";
+  }
+  if (state.blondieTimePickerOpen) {
+    return getBlondieTimePendingMode() === "teammate"
+      ? "Choose a repeat interval for pass-transition delivery. Escape cancels."
+      : "Choose a repeat interval for your Slack DM. Escape cancels.";
+  }
+  if (currentWarning) {
+    return currentWarning;
+  }
+  const disabledReason = getBlondieTimeStartDisabledReason();
+  if (disabledReason) {
+    return disabledReason;
+  }
+  return "Click arms Blondie Time for your Slack DM. Shift-click arms pass-transition delivery for every open Blondie button.";
+}
+
+function getBlondieTimeVisualState() {
+  const runtimeState = getCurrentBlondieTimeRuntimeState();
+  if (isBlondieTimeActiveForCurrentWorkspace(runtimeState)) {
+    return "active";
+  }
+  if (state.blondieTimePickerOpen) {
+    return "picker";
+  }
+  if (String(state.blondieTimeLocalWarning || "").trim()) {
+    return "warn";
+  }
+  return canArmBlondieTime() ? "ready" : "inactive";
+}
+
+function getBlondieTimePickerButtons() {
+  return Array.from(els.blondieTimePicker?.querySelectorAll(".workspace-blondie-time-chip") || []).filter(
+    (button) => button instanceof HTMLButtonElement
+  );
+}
+
+function syncBlondieTimeChipSelection() {
+  const runtimeState = getCurrentBlondieTimeRuntimeState();
+  const selectedMinutes = isBlondieTimeActiveForCurrentWorkspace(runtimeState)
+    ? Number(runtimeState.intervalMinutes || BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0])
+    : Number(state.blondieTimePrefs?.lastIntervalMinutes || BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0]);
+  getBlondieTimePickerButtons().forEach((button) => {
+    button.dataset.selected = Number(button.dataset.minutes || 0) === selectedMinutes ? "true" : "false";
+  });
+}
+
+function stopBlondieTimeCountdownAnimation() {
+  if (state.blondieTimeCountdownRafId) {
+    window.cancelAnimationFrame(state.blondieTimeCountdownRafId);
+    state.blondieTimeCountdownRafId = 0;
+  }
+  state.blondieTimeCountdownSecond = -1;
+  if (els.blondieTimeButton) {
+    els.blondieTimeButton.style.setProperty("--blondie-time-progress", "1");
+  }
+  if (els.blondieTimeCountdown) {
+    els.blondieTimeCountdown.textContent = "";
+  }
+}
+
+function updateBlondieTimeCountdownFrame() {
+  const runtimeState = getCurrentBlondieTimeRuntimeState();
+  if (!isBlondieTimeActiveForCurrentWorkspace(runtimeState) || !(els.blondieTimeButton instanceof HTMLButtonElement)) {
+    stopBlondieTimeCountdownAnimation();
+    renderBlondieTimeControl();
+    return;
+  }
+  const remainingMs = getBlondieTimeRemainingMs(runtimeState);
+  const intervalMs = Math.max(1, Number(runtimeState.intervalMs || runtimeState.intervalMinutes * 60 * 1000 || 1));
+  const progress = Math.max(0, Math.min(1, remainingMs / intervalMs));
+  els.blondieTimeButton.style.setProperty("--blondie-time-progress", progress.toFixed(4));
+  const nextSecond = Math.max(0, Math.ceil(remainingMs / 1000));
+  if (nextSecond !== state.blondieTimeCountdownSecond) {
+    state.blondieTimeCountdownSecond = nextSecond;
+    if (els.blondieTimeCountdown) {
+      els.blondieTimeCountdown.textContent = formatBlondieTimeRemaining(remainingMs);
+    }
+    const title = getBlondieTimeButtonTitle();
+    els.blondieTimeButton.title = title;
+    els.blondieTimeButton.setAttribute("aria-label", title);
+  }
+  state.blondieTimeCountdownRafId = window.requestAnimationFrame(updateBlondieTimeCountdownFrame);
+}
+
+function syncBlondieTimeCountdownAnimation() {
+  if (isBlondieTimeActiveForCurrentWorkspace()) {
+    if (!state.blondieTimeCountdownRafId) {
+      state.blondieTimeCountdownRafId = window.requestAnimationFrame(updateBlondieTimeCountdownFrame);
+    }
+    return;
+  }
+  stopBlondieTimeCountdownAnimation();
+}
+
+function removeBlondieTimePickerDismissHandlers() {
+  if (typeof state.blondieTimeOutsidePointerHandler === "function") {
+    document.removeEventListener("pointerdown", state.blondieTimeOutsidePointerHandler, true);
+  }
+  if (typeof state.blondieTimeOutsideKeyHandler === "function") {
+    document.removeEventListener("keydown", state.blondieTimeOutsideKeyHandler, true);
+  }
+  state.blondieTimeOutsidePointerHandler = null;
+  state.blondieTimeOutsideKeyHandler = null;
+}
+
+function closeBlondieTimePicker(options = {}) {
+  if (!state.blondieTimePickerOpen) {
+    return;
+  }
+  state.blondieTimePickerOpen = false;
+  removeBlondieTimePickerDismissHandlers();
+  renderBlondieTimeControl();
+  if (options?.restoreFocus !== false && els.blondieTimeButton instanceof HTMLButtonElement) {
+    els.blondieTimeButton.focus({ preventScroll: true });
+  }
+}
+
+function focusBlondieTimePickerButton(minutes = 0) {
+  const buttons = getBlondieTimePickerButtons();
+  if (buttons.length === 0) {
+    return;
+  }
+  const preferred = buttons.find((button) => Number(button.dataset.minutes || 0) === Number(minutes || 0));
+  (preferred || buttons[0]).focus({ preventScroll: true });
+}
+
+function openBlondieTimePicker(mode = "self") {
+  if (!(els.blondieTimeButton instanceof HTMLButtonElement) || isBlondieTimeActiveForCurrentWorkspace()) {
+    return;
+  }
+  const disabledReason = getBlondieTimeStartDisabledReason();
+  if (disabledReason) {
+    state.blondieTimeLocalWarning = "";
+    renderBlondieTimeControl();
+    setStatus(disabledReason, "error");
+    return;
+  }
+  closeBlondieSharePicker();
+  state.blondieTimeLocalWarning = "";
+  state.blondieTimePendingMode = normalizeBlondieTimeTriggerMode(mode);
+  state.blondieTimePickerOpen = true;
+  removeBlondieTimePickerDismissHandlers();
+  state.blondieTimeOutsidePointerHandler = (event) => {
+    if (els.blondieTimePicker?.contains(event.target) || els.blondieTimeButton?.contains(event.target)) {
+      return;
+    }
+    closeBlondieTimePicker({ restoreFocus: false });
+  };
+  state.blondieTimeOutsideKeyHandler = (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeBlondieTimePicker();
+    }
+  };
+  document.addEventListener("pointerdown", state.blondieTimeOutsidePointerHandler, true);
+  document.addEventListener("keydown", state.blondieTimeOutsideKeyHandler, true);
+  renderBlondieTimeControl();
+  window.requestAnimationFrame(() => {
+    focusBlondieTimePickerButton(state.blondieTimePrefs?.lastIntervalMinutes || BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0]);
+  });
+}
+
+function renderBlondieTimeControl() {
+  if (!(els.blondieTimeButton instanceof HTMLButtonElement)) {
+    return;
+  }
+  const runtimeState = getCurrentBlondieTimeRuntimeState();
+  const visualState = getBlondieTimeVisualState();
+  const title = getBlondieTimeButtonTitle();
+  const runningHere = isBlondieTimeActiveForCurrentWorkspace(runtimeState);
+  const startDisabledReason = getBlondieTimeStartDisabledReason();
+  els.blondieTimeButton.dataset.blondieTimeState = visualState;
+  els.blondieTimeButton.dataset.blondieTimeMode = getBlondieTimePendingMode();
+  els.blondieTimeButton.disabled = runningHere || (!state.blondieTimePickerOpen && Boolean(startDisabledReason) && visualState !== "warn");
+  els.blondieTimeButton.title = title;
+  els.blondieTimeButton.setAttribute("aria-label", title);
+  els.blondieTimeButton.setAttribute("aria-expanded", state.blondieTimePickerOpen ? "true" : "false");
+  if (els.blondieTimePicker) {
+    els.blondieTimePicker.hidden = !state.blondieTimePickerOpen;
+  }
+  if (els.blondieTimePickerHint) {
+    els.blondieTimePickerHint.textContent =
+      getBlondieTimePendingMode() === "teammate"
+        ? "Shift-click mode repeats every open report card to one pass-transition teammate after you pick the recipient."
+        : "Click mode repeats every open report card straight to your Slack DM.";
+  }
+  if (els.blondieTimeStopButton) {
+    els.blondieTimeStopButton.hidden = !runningHere;
+    els.blondieTimeStopButton.disabled = state.blondieTimeLapRunning;
+  }
+  syncBlondieTimeChipSelection();
+  syncBlondieTimeCountdownAnimation();
+}
+
+function applyBlondieTimeRuntimeState(nextState = null, options = {}) {
+  const normalizedState = normalizeBlondieTimeRuntimeState(nextState);
+  state.blondieTimeRuntimeState = normalizedState;
+  if (!options?.preserveWarning) {
+    state.blondieTimeLocalWarning =
+      normalizedState && !normalizedState.running && isBlondieTimeOwnedByCurrentWorkspace(normalizedState)
+        ? String(normalizedState.lastError || "").trim()
+        : "";
+  }
+  renderBlondieTimeControl();
+}
+
+async function sendBlondieTimeRuntimeAction(action = "", payload = {}) {
+  try {
+    return await chrome.runtime.sendMessage({
+      type: BLONDIE_TIME_MESSAGE_TYPE,
+      channel: "runtime-command",
+      action: String(action || "").trim().toLowerCase(),
+      workspace: "esm",
+      windowId: Number(state.windowId || 0),
+      workspaceContextKey: String(state.workspaceContextKey || "").trim(),
+      programmerId: String(state.programmerId || "").trim(),
+      programmerName: String(state.programmerName || "").trim(),
+      ...payload,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+async function refreshBlondieTimeRuntimeState() {
+  const result = await sendBlondieTimeRuntimeAction("query");
+  if (!result?.ok) {
+    return result;
+  }
+  applyBlondieTimeRuntimeState(result?.state || null);
+  return result;
+}
+
+async function loadBlondieTimePrefs() {
+  try {
+    const payload = await chrome.storage.local.get(BLONDIE_TIME_PREFS_STORAGE_KEY);
+    state.blondieTimePrefs = normalizeBlondieTimePrefs(payload?.[BLONDIE_TIME_PREFS_STORAGE_KEY] || null);
+  } catch {
+    state.blondieTimePrefs = normalizeBlondieTimePrefs(state.blondieTimePrefs);
+  }
+  renderBlondieTimeControl();
+}
+
+async function persistBlondieTimePrefs(prefs = {}) {
+  const normalizedPrefs = normalizeBlondieTimePrefs({
+    ...state.blondieTimePrefs,
+    ...prefs,
+  });
+  state.blondieTimePrefs = normalizedPrefs;
+  try {
+    await chrome.storage.local.set({
+      [BLONDIE_TIME_PREFS_STORAGE_KEY]: normalizedPrefs,
+    });
+  } catch {
+    // Ignore storage failures and keep the in-memory preference.
+  }
+  renderBlondieTimeControl();
+}
+
+function handleBlondieTimePickerKeydown(event) {
+  if (!state.blondieTimePickerOpen) {
+    return;
+  }
+  const buttons = getBlondieTimePickerButtons();
+  if (buttons.length === 0) {
+    return;
+  }
+  const activeIndex = buttons.findIndex((button) => button === document.activeElement);
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeBlondieTimePicker();
+    return;
+  }
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)) {
+    return;
+  }
+  event.preventDefault();
+  const lastIndex = buttons.length - 1;
+  let nextIndex = activeIndex >= 0 ? activeIndex : 0;
+  if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+    nextIndex = nextIndex <= 0 ? lastIndex : nextIndex - 1;
+  } else {
+    nextIndex = nextIndex >= lastIndex ? 0 : nextIndex + 1;
+  }
+  buttons[nextIndex]?.focus({ preventScroll: true });
+}
+
+function getCardBlondieButton(cardState = null) {
+  const button = cardState?.bodyElement?.querySelector(".underpar-blondie-btn");
+  return button instanceof HTMLButtonElement ? button : null;
+}
+
+async function deliverEsmCardToBlondie(cardState, options = {}) {
+  const tableState = options?.tableState && typeof options.tableState === "object" ? options.tableState : cardState?.tableState;
+  const blondieButton = options?.button instanceof HTMLButtonElement ? options.button : getCardBlondieButton(cardState);
+  const quiet = options?.quiet === true;
+  const allowAckState = options?.allowAckState === true;
+  const deliveryTarget = cloneBlondieTimeDeliveryTarget(options?.deliveryTarget || null);
+  const noteText = String(options?.noteText || "");
+
+  if (!cardState || !tableState || !(blondieButton instanceof HTMLButtonElement)) {
+    return {
+      ok: false,
+      error: "Blondie delivery is unavailable for this report card.",
+    };
+  }
+
+  const currentBlondieState = getBlondieButtonState(blondieButton);
+  if (currentBlondieState === "active") {
+    return {
+      ok: false,
+      error: "A Blondie delivery is already in progress for this report card.",
+    };
+  }
+  if (currentBlondieState === "ack" && !allowAckState) {
+    return {
+      ok: false,
+      error: "Wait for the current Blondie acknowledgment pulse to finish before sending again.",
+    };
+  }
+  if (!canUseBlondieButton()) {
+    renderBlondieButtonState(blondieButton, "inactive");
+    if (!quiet) {
+      setStatus(BLONDIE_BUTTON_INACTIVE_MESSAGE, "error");
+    }
+    return {
+      ok: false,
+      error: BLONDIE_BUTTON_INACTIVE_MESSAGE,
+    };
+  }
+
+  const exportPayload = buildEsmBlondieExportPayload(cardState, tableState);
+  if (!exportPayload) {
+    const errorMessage = "No visible ESM rows are available for :blondiebtn:.";
+    if (!quiet) {
+      setStatus(errorMessage, "error");
+    }
+    return {
+      ok: false,
+      error: errorMessage,
+    };
+  }
+
+  renderBlondieButtonState(blondieButton, "active");
+  try {
+    const result = await sendWorkspaceAction("blondie-export", {
+      exportPayload,
+      card: getCardPayload(cardState),
+      deliveryTarget,
+      noteText,
+    });
+    if (!result?.ok) {
+      renderBlondieButtonState(blondieButton, getBlondieButtonDefaultState());
+      const errorMessage = result?.error || "Unable to deliver ESM rows with :blondiebtn:.";
+      if (!quiet) {
+        setStatus(errorMessage, "error");
+      }
+      return {
+        ok: false,
+        error: errorMessage,
+      };
+    }
+    renderBlondieButtonState(blondieButton, "ack");
+    queueBlondieButtonAckReset(blondieButton);
+    const deliveredRecipientLabel = String(result?.recipient_label || "").trim();
+    if (!quiet) {
+      setStatus(
+        deliveredRecipientLabel
+          ? `:blondiebtn: delivered ${exportPayload.rowCount} ESM row(s) to ${deliveredRecipientLabel}.`
+          : `:blondiebtn: delivered ${exportPayload.rowCount} ESM row(s) to your Slack DM.`,
+        "success"
+      );
+    }
+    return {
+      ...result,
+      ok: true,
+      exportPayload,
+      deliveredRecipientLabel,
+    };
+  } catch (error) {
+    renderBlondieButtonState(blondieButton, getBlondieButtonDefaultState());
+    const errorMessage = error instanceof Error ? error.message : "Unable to deliver ESM rows with :blondiebtn:.";
+    if (!quiet) {
+      setStatus(errorMessage, "error");
+    }
+    return {
+      ok: false,
+      error: errorMessage,
+    };
+  }
+}
+
+async function executeWorkspaceBlondieTimeLap(options = {}) {
+  if (state.blondieTimeLapRunning) {
+    return {
+      ok: false,
+      error: "Blondie Time is already firing.",
+    };
+  }
+  if (!ensureWorkspaceUnlocked()) {
+    return {
+      ok: false,
+      error: getWorkspaceLockMessage(),
+    };
+  }
+  if (!canUseBlondieButton()) {
+    return {
+      ok: false,
+      error: BLONDIE_BUTTON_INACTIVE_MESSAGE,
+    };
+  }
+  const candidateCards = getOrderedCardStates().filter((cardState) => cardState?.tableState && getCardBlondieButton(cardState));
+  if (candidateCards.length === 0) {
+    return {
+      ok: false,
+      error: "Open at least one ESM report card before starting Blondie Time.",
+    };
+  }
+
+  const triggerMode = normalizeBlondieTimeTriggerMode(options?.triggerMode || "self");
+  const deliveryTarget =
+    triggerMode === "teammate" ? cloneBlondieTimeDeliveryTarget(options?.deliveryTarget || null) : null;
+  if (triggerMode === "teammate" && !deliveryTarget?.userId) {
+    return {
+      ok: false,
+      error: "Pick a pass-transition teammate before starting Blondie Time.",
+    };
+  }
+
+  state.blondieTimeLapRunning = true;
+  renderBlondieTimeControl();
+  let deliveredCount = 0;
+  let deliveredRowCount = 0;
+  const errors = [];
+  try {
+    for (const cardState of candidateCards) {
+      const result = await deliverEsmCardToBlondie(cardState, {
+        tableState: cardState.tableState,
+        button: getCardBlondieButton(cardState),
+        quiet: true,
+        allowAckState: true,
+        deliveryTarget,
+        noteText: options?.noteText || "",
+      });
+      if (!result?.ok) {
+        errors.push(result?.error || "Unable to deliver one of the Blondie report cards.");
+        continue;
+      }
+      deliveredCount += 1;
+      deliveredRowCount += Math.max(0, Number(result?.exportPayload?.rowCount || 0));
+    }
+  } finally {
+    state.blondieTimeLapRunning = false;
+    renderBlondieTimeControl();
+  }
+
+  if (errors.length > 0) {
+    const errorMessage =
+      deliveredCount > 0
+        ? `Blondie Time stopped after ${deliveredCount}/${candidateCards.length} report card deliveries. ${errors[0]}`
+        : errors[0];
+    state.blondieTimeLocalWarning = errorMessage;
+    renderBlondieTimeControl();
+    setStatus(errorMessage, "error");
+    return {
+      ok: false,
+      error: errorMessage,
+      deliveredCount,
+      attemptedCount: candidateCards.length,
+      deliveredRowCount,
+    };
+  }
+
+  state.blondieTimeLocalWarning = "";
+  renderBlondieTimeControl();
+  const destinationLabel =
+    triggerMode === "teammate"
+      ? deliveryTarget?.userName || deliveryTarget?.userId || "your teammate"
+      : "your Slack DM";
+  return {
+    ok: true,
+    deliveredCount,
+    attemptedCount: candidateCards.length,
+    deliveredRowCount,
+    summary: `Blondie Time delivered ${deliveredCount} report card(s) (${deliveredRowCount} row(s)) to ${destinationLabel}.`,
+  };
+}
+
+async function stopBlondieTime(options = {}) {
+  closeBlondieTimePicker({ restoreFocus: options?.restoreFocus !== false });
+  const reason = String(options?.reason || "manual").trim();
+  const result = await sendBlondieTimeRuntimeAction("cancel", {
+    reason,
+  });
+  if (!result?.ok) {
+    const errorMessage = result?.error || "Unable to stop Blondie Time.";
+    if (!options?.silent) {
+      setStatus(errorMessage, "error");
+    }
+    return {
+      ok: false,
+      error: errorMessage,
+    };
+  }
+  applyBlondieTimeRuntimeState(result?.state || null, {
+    preserveWarning: false,
+  });
+  if (reason === "manual") {
+    state.blondieTimeLocalWarning = "";
+    renderBlondieTimeControl();
+  }
+  return result;
+}
+
+async function armBlondieTime(intervalMinutes = 0, options = {}) {
+  const normalizedInterval = BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES.includes(Number(intervalMinutes))
+    ? Number(intervalMinutes)
+    : Number(state.blondieTimePrefs?.lastIntervalMinutes || BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0]);
+  const triggerMode = normalizeBlondieTimeTriggerMode(options?.triggerMode || state.blondieTimePendingMode || "self");
+  const deliveryTarget =
+    triggerMode === "teammate" ? cloneBlondieTimeDeliveryTarget(options?.deliveryTarget || null) : null;
+  const noteText = String(options?.noteText || "");
+
+  await persistBlondieTimePrefs({
+    lastIntervalMinutes: normalizedInterval,
+    lastTriggerMode: triggerMode,
+  });
+  closeBlondieTimePicker({ restoreFocus: false });
+
+  const lapResult = await executeWorkspaceBlondieTimeLap({
+    triggerMode,
+    deliveryTarget,
+    noteText,
+  });
+  if (!lapResult?.ok) {
+    return lapResult;
+  }
+
+  const scheduleResult = await sendBlondieTimeRuntimeAction("start", {
+    intervalMinutes: normalizedInterval,
+    triggerMode,
+    deliveryTarget,
+    noteText,
+  });
+  if (!scheduleResult?.ok) {
+    const errorMessage = scheduleResult?.error || "The first Blondie Time lap ran, but repeat scheduling failed.";
+    state.blondieTimeLocalWarning = errorMessage;
+    renderBlondieTimeControl();
+    setStatus(errorMessage, "error");
+    return {
+      ok: false,
+      error: errorMessage,
+    };
+  }
+
+  applyBlondieTimeRuntimeState(scheduleResult?.state || null);
+  return {
+    ok: true,
+    ...lapResult,
+    state: scheduleResult?.state || null,
+  };
+}
+
+async function handleBlondieTimeAlarmLap(message = {}) {
+  const runtimeState = normalizeBlondieTimeRuntimeState(message?.state || getCurrentBlondieTimeRuntimeState());
+  if (!runtimeState?.running || !isBlondieTimeOwnedByCurrentWorkspace(runtimeState)) {
+    return {
+      ok: false,
+      error: "This ESM workspace is not the active Blondie Time target.",
+    };
+  }
+  if (!isBlondieTimeContextCurrent(runtimeState)) {
+    return {
+      ok: false,
+      error: "Blondie Time no longer matches the active ESM workspace context. Re-arm it for the current media company.",
+    };
+  }
+  applyBlondieTimeRuntimeState(runtimeState);
+  return await executeWorkspaceBlondieTimeLap({
+    triggerMode: runtimeState.triggerMode,
+    deliveryTarget: runtimeState.deliveryTarget,
+    noteText: runtimeState.noteText,
   });
 }
 
@@ -3918,6 +4696,7 @@ function ensureCard(cardMeta) {
     subtitleElement: null,
     closeButton: null,
     bodyElement: null,
+    tableState: null,
   };
 
   createCardElements(cardState);
@@ -3932,8 +4711,16 @@ function ensureCard(cardMeta) {
       document.removeEventListener("keydown", cardState.pickerOutsideKeyHandler, true);
     }
     teardownCardHeaderQueryEditors(cardState);
+    cardState.tableState = null;
     cardState.element.remove();
     state.cardsById.delete(cardState.cardId);
+    if (!hasWorkspaceCardContext() && isBlondieTimeActiveForCurrentWorkspace()) {
+      void stopBlondieTime({
+        reason: "All ESM report cards were closed. Blondie Time stopped.",
+        silent: true,
+        restoreFocus: false,
+      });
+    }
     syncWorkspaceReplayCardsFromCurrentCards();
     syncActionButtonsDisabled();
   });
@@ -4058,6 +4845,7 @@ function renderCardTable(cardState, rows, lastModified) {
       hasAuthZFail,
     },
   };
+  cardState.tableState = tableState;
 
   const headerRow = thead.querySelector("tr");
   headers.forEach((header) => {
@@ -4136,58 +4924,12 @@ function renderCardTable(cardState, rows, lastModified) {
       if (currentBlondieState === "active" || currentBlondieState === "ack") {
         return;
       }
-      if (!canUseBlondieButton()) {
-        renderBlondieButtonState(blondieButton, "inactive");
-        setStatus(BLONDIE_BUTTON_INACTIVE_MESSAGE, "error");
-        return;
-      }
-      const exportPayload = buildEsmBlondieExportPayload(cardState, tableState);
-      if (!exportPayload) {
-        setStatus("No visible ESM rows are available for :blondiebtn:.", "error");
-        return;
-      }
-      const sendExport = async (deliveryTarget = null) => {
-        renderBlondieButtonState(blondieButton, "active");
-        try {
-          const result = await sendWorkspaceAction("blondie-export", {
-            exportPayload,
-            card: getCardPayload(cardState),
-            deliveryTarget: deliveryTarget?.target || deliveryTarget || null,
-            noteText: deliveryTarget?.noteText || "",
-          });
-          if (!result?.ok) {
-            renderBlondieButtonState(blondieButton, getBlondieButtonDefaultState());
-            setStatus(result?.error || "Unable to deliver ESM rows with :blondiebtn:.", "error");
-            return {
-              ok: false,
-              error: result?.error || "Unable to deliver ESM rows with :blondiebtn:.",
-            };
-          }
-          renderBlondieButtonState(blondieButton, "ack");
-          queueBlondieButtonAckReset(blondieButton);
-          const deliveredRecipientLabel = String(result?.recipient_label || "").trim();
-          const deliveredViaDialog = !!deliveryTarget && !!deliveredRecipientLabel;
-          setStatus(
-            deliveredViaDialog
-              ? `:blondiebtn: delivered ${exportPayload.rowCount} ESM row(s) to ${deliveredRecipientLabel}.`
-              : `:blondiebtn: delivered ${exportPayload.rowCount} ESM row(s) to your Slack DM.`,
-            "success"
-          );
-          return result;
-        } catch (error) {
-          renderBlondieButtonState(blondieButton, getBlondieButtonDefaultState());
-          const message = error instanceof Error ? error.message : "Unable to deliver ESM rows with :blondiebtn:.";
-          setStatus(message, "error");
-          return {
-            ok: false,
-            error: message,
-          };
-        }
-      };
       if (event.shiftKey) {
         openBlondieSharePicker(blondieButton, async ({ selectedTarget, noteText }) => {
-          return sendExport({
-            target: {
+          return await deliverEsmCardToBlondie(cardState, {
+            tableState,
+            button: blondieButton,
+            deliveryTarget: {
               mode: "teammate",
               userId: selectedTarget.userId,
               userName: selectedTarget.userName || selectedTarget.label,
@@ -4197,7 +4939,10 @@ function renderCardTable(cardState, rows, lastModified) {
         });
         return;
       }
-      await sendExport(null);
+      await deliverEsmCardToBlondie(cardState, {
+        tableState,
+        button: blondieButton,
+      });
     });
   }
 
@@ -4407,6 +5152,7 @@ function applyControllerState(payload) {
     (Array.isArray(state.pendingAutoRerunCards) && state.pendingAutoRerunCards.length > 0) ||
     Boolean(String(state.pendingAutoRerunProgrammerKey || "").trim()) ||
     Boolean(String(state.autoRerunInFlightProgrammerKey || "").trim());
+  const priorBlondieTimeRuntimeState = getCurrentBlondieTimeRuntimeState();
 
   let nextEsmAvailable = null;
   if (payload?.esmAvailable === true) {
@@ -4458,6 +5204,9 @@ function applyControllerState(payload) {
   if (!state.slackReady || state.slackShareTargets.length === 0) {
     closeBlondieSharePicker();
   }
+  if (!state.slackReady) {
+    closeBlondieTimePicker({ restoreFocus: false });
+  }
   state.premiumPanelRequestToken = Math.max(
     0,
     Number(payload?.premiumPanelRequestToken || state.premiumPanelRequestToken || 0)
@@ -4495,6 +5244,14 @@ function applyControllerState(payload) {
     state.programmerName
   );
   if (programmerChanged || environmentChanged) {
+    closeBlondieTimePicker({ restoreFocus: false });
+    if (priorBlondieTimeRuntimeState?.running && isBlondieTimeOwnedByCurrentWorkspace(priorBlondieTimeRuntimeState)) {
+      void stopBlondieTime({
+        reason: "The active ESM workspace context changed. Blondie Time stopped.",
+        silent: true,
+        restoreFocus: false,
+      });
+    }
     state.batchRunning = false;
     state.programmerSwitchLoading = false;
     state.programmerSwitchLoadingKey = "";
@@ -4836,6 +5593,13 @@ function clearWorkspace() {
     return;
   }
   clearPendingProgrammerSwitchTransition();
+  if (isBlondieTimeActiveForCurrentWorkspace()) {
+    void stopBlondieTime({
+      reason: "Workspace cleared. Blondie Time stopped.",
+      silent: true,
+      restoreFocus: false,
+    });
+  }
   clearWorkspaceCards();
 }
 
@@ -4864,6 +5628,71 @@ function registerEventHandlers() {
       clearWorkspace();
     });
   }
+
+  if (els.blondieTimeButton) {
+    els.blondieTimeButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (isBlondieTimeActiveForCurrentWorkspace()) {
+        return;
+      }
+      openBlondieTimePicker(event.shiftKey ? "teammate" : "self");
+    });
+  }
+
+  if (els.blondieTimeStopButton) {
+    els.blondieTimeStopButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      void stopBlondieTime({
+        reason: "manual",
+      });
+    });
+  }
+
+  if (els.blondieTimePicker) {
+    els.blondieTimePicker.addEventListener("keydown", handleBlondieTimePickerKeydown);
+  }
+
+  getBlondieTimePickerButtons().forEach((button) => {
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const intervalMinutes = Number(button.dataset.minutes || 0);
+      if (!BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES.includes(intervalMinutes)) {
+        return;
+      }
+      const triggerMode = getBlondieTimePendingMode();
+      if (triggerMode === "teammate") {
+        closeBlondieTimePicker({ restoreFocus: false });
+        openBlondieSharePicker(els.blondieTimeButton, async ({ selectedTarget, noteText }) => {
+          return await armBlondieTime(intervalMinutes, {
+            triggerMode: "teammate",
+            deliveryTarget: {
+              mode: "teammate",
+              userId: selectedTarget.userId,
+              userName: selectedTarget.userName || selectedTarget.label,
+            },
+            noteText,
+          });
+        });
+        return;
+      }
+      await armBlondieTime(intervalMinutes, {
+        triggerMode: "self",
+      });
+    });
+  });
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local" || !changes || typeof changes !== "object") {
+      return;
+    }
+    if (Object.prototype.hasOwnProperty.call(changes, BLONDIE_TIME_PREFS_STORAGE_KEY)) {
+      state.blondieTimePrefs = normalizeBlondieTimePrefs(changes[BLONDIE_TIME_PREFS_STORAGE_KEY]?.newValue || null);
+      renderBlondieTimeControl();
+    }
+    if (Object.prototype.hasOwnProperty.call(changes, BLONDIE_TIME_RUNTIME_STORAGE_KEY)) {
+      applyBlondieTimeRuntimeState(changes[BLONDIE_TIME_RUNTIME_STORAGE_KEY]?.newValue || null);
+    }
+  });
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type !== ESM_WORKSPACE_MESSAGE_TYPE || message?.channel !== "workspace-event") {
@@ -4897,6 +5726,31 @@ function registerEventHandlers() {
     sendResponse({ ok: false, error: `Unsupported controller query: ${action}` });
     return true;
   });
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== BLONDIE_TIME_MESSAGE_TYPE || message?.channel !== "workspace-control") {
+      return false;
+    }
+    const targetWindowId = Number(message?.targetWindowId || 0);
+    if (targetWindowId > 0 && Number(state.windowId || 0) > 0 && targetWindowId !== Number(state.windowId)) {
+      return false;
+    }
+    const action = String(message?.action || "").trim().toLowerCase();
+    if (action !== "fire-lap") {
+      return false;
+    }
+    void handleBlondieTimeAlarmLap(message)
+      .then((result) => {
+        sendResponse(result);
+      })
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return true;
+  });
 }
 
 async function init() {
@@ -4912,7 +5766,10 @@ async function init() {
   } catch {
     state.windowId = 0;
   }
+  renderBlondieTimeControl();
   registerEventHandlers();
+  await loadBlondieTimePrefs();
+  await refreshBlondieTimeRuntimeState();
   syncTearsheetButtonsVisibility();
   updateWorkspaceLockState();
   updateControllerBanner();
