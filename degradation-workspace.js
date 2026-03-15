@@ -3,7 +3,7 @@ const BLONDIE_BUTTON_STATES = new Set(["inactive", "ready", "active", "ack"]);
 const BLONDIE_BUTTON_ACK_RESET_MS = 2000;
 const DEGRADATION_WORKSPACE_MAX_REPORTS = 60;
 const BLONDIE_BUTTON_INACTIVE_MESSAGE =
-  "No zip-zip without SLACKTIVATION. Please visit VAULT container on the UP Tab to feed your ZIP.KEY to UnderPAR";
+  "No zip-zap without SLACKTIVATION. Please visit VAULT container on the UP Tab to feed your ZIP.KEY to UnderPAR";
 const BLONDIE_BUTTON_SHARE_TARGETS_EMPTY_MESSAGE =
   "No pass-transition roster is cached yet. Re-SLACKTIVATE UnderPAR in the VAULT.";
 const BLONDIE_BUTTON_SHARE_NOTE_EMPTY_MESSAGE = "Enter a Slack note before sending.";

@@ -63,11 +63,6 @@
               </p>
               <p id="workspace-filter-state" class="workspace-filter-state"></p>
               <div class="bt-controller-meta">
-                <span id="page-env-badge" class="page-env-badge" aria-label="Data Environment" title="Data Environment">
-                  <span class="page-env-badge-prefix">ENV</span>
-                  <span class="page-env-badge-sep">|</span>
-                  <span id="page-env-badge-value" class="page-env-badge-value"></span>
-                </span>
                 <p id="bt-monitor-title" class="bt-monitor-title">BT_WS idle</p>
               </div>
               <p id="bt-monitor-subtitle" class="bt-monitor-subtitle">
@@ -77,6 +72,11 @@
           </div>
         </div>
         <div class="bt-controller-controls">
+          <span id="page-env-badge" class="page-env-badge" aria-label="Data Environment" title="Data Environment">
+            <span class="page-env-badge-prefix">ENV</span>
+            <span class="page-env-badge-sep">|</span>
+            <span id="page-env-badge-value" class="page-env-badge-value"></span>
+          </span>
           <div class="bt-threshold-grid" role="group" aria-label="Threshold setters">
             <label class="spectrum-Field bt-threshold-field">
               <span class="spectrum-FieldLabel bt-field-label">Min AuthN</span>
@@ -127,12 +127,12 @@
           <div class="bt-toolbar-actions">
             <button
               id="bt-refresh-now"
-              class="spectrum-Button spectrum-Button--secondary bt-action-btn"
+              class="workspace-icon-btn workspace-icon-btn--rerun bt-refresh-icon-btn"
               type="button"
               title="Re-run all BT analysis tables without sending Slack output"
               aria-label="Re-run all BT analysis tables without sending Slack output"
             >
-              <span class="spectrum-Button-label">Refresh</span>
+              <span class="workspace-icon workspace-icon--rerun-glyph" aria-hidden="true">f5</span>
             </button>
             <button
               id="bt-session-report-toggle"

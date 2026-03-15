@@ -102,7 +102,7 @@ const DEFAULT_ADOBEPASS_ENVIRONMENT =
 const BLONDIE_BUTTON_STATES = new Set(["inactive", "ready", "active", "ack"]);
 const BLONDIE_BUTTON_ACK_RESET_MS = 2000;
 const BLONDIE_BUTTON_INACTIVE_MESSAGE =
-  "No zip-zip without SLACKTIVATION. Please visit VAULT container on the UP Tab to feed your ZIP.KEY to UnderPAR";
+  "No zip-zap without SLACKTIVATION. Please visit VAULT container on the UP Tab to feed your ZIP.KEY to UnderPAR";
 const BLONDIE_BUTTON_SHARE_TARGETS_EMPTY_MESSAGE =
   "No pass-transition roster is cached yet. Re-SLACKTIVATE UnderPAR in the VAULT.";
 const BLONDIE_BUTTON_SHARE_NOTE_EMPTY_MESSAGE = "Enter a Slack note before sending.";
@@ -118,6 +118,7 @@ const BLONDIE_TIME_WORKSPACE_DEFAULT_THRESHOLDS = Object.freeze({
   authzSuccessMin: 10,
   latencyMaxMs: 10000,
 });
+const UNDERPAR_EXPORTED_HTML_ESM_TARGET_NAME = "UnderPAR_ESM_Workspace";
 const BLONDIE_BUTTON_ICON_URLS = (() => {
   const resolveIconUrl = (path) =>
     typeof chrome !== "undefined" && chrome?.runtime?.getURL ? chrome.runtime.getURL(path) : path;
@@ -2415,6 +2416,11 @@ function getCurrentBlondieTimeRuntimeState() {
   return normalizeBlondieTimeRuntimeState(state.blondieTimeRuntimeState || null);
 }
 
+function isBlondieTimeWorkspaceSessionActive(runtimeState = null) {
+  const normalizedState = normalizeBlondieTimeRuntimeState(runtimeState || getCurrentBlondieTimeRuntimeState());
+  return Boolean(normalizedState?.running && String(normalizedState.workspace || "").trim().toLowerCase() === "bt");
+}
+
 function isBlondieTimeOwnedByCurrentWorkspace(runtimeState = null) {
   const normalizedState = normalizeBlondieTimeRuntimeState(runtimeState || getCurrentBlondieTimeRuntimeState());
   if (!normalizedState) {
@@ -2485,7 +2491,7 @@ function formatBlondieTimeRemaining(ms = 0) {
 function getBlondieTimeButtonTitle() {
   const runtimeState = getCurrentBlondieTimeRuntimeState();
   const currentWarning = String(state.blondieTimeLocalWarning || "").trim();
-  if (runtimeState?.running && String(runtimeState.workspace || "").trim().toLowerCase() === "bt") {
+  if (isBlondieTimeWorkspaceSessionActive(runtimeState)) {
     if (runtimeState.triggerMode === "teammate" && runtimeState.deliveryTarget?.userName) {
       return `Blondie Time is live in BT_WS for ${runtimeState.deliveryTarget.userName}. Click to open the active workspace.`;
     }
@@ -2498,12 +2504,12 @@ function getBlondieTimeButtonTitle() {
   if (disabledReason) {
     return disabledReason;
   }
-  return "Click launches BT_WS with the current ESM context. Shift-click opens BT_WS in pass-transition mode.";
+  return "Click opens BT_WS with the current ESM context. Shift-click seeds pass-transition mode in BT_WS.";
 }
 
 function getBlondieTimeVisualState() {
   const runtimeState = getCurrentBlondieTimeRuntimeState();
-  if (runtimeState?.running && String(runtimeState.workspace || "").trim().toLowerCase() === "bt") {
+  if (isBlondieTimeWorkspaceSessionActive(runtimeState)) {
     return "active";
   }
   if (String(state.blondieTimeLocalWarning || "").trim()) {
@@ -2605,7 +2611,7 @@ function focusBlondieTimePickerButton(minutes = 0) {
 }
 
 function openBlondieTimePicker(mode = "self") {
-  if (!(els.blondieTimeButton instanceof HTMLButtonElement) || isBlondieTimeActiveForCurrentWorkspace()) {
+  if (!(els.blondieTimeButton instanceof HTMLButtonElement) || isBlondieTimeWorkspaceSessionActive()) {
     return;
   }
   const disabledReason = getBlondieTimeStartDisabledReason();
@@ -2644,9 +2650,10 @@ function renderBlondieTimeControl() {
   if (!(els.blondieTimeButton instanceof HTMLButtonElement)) {
     return;
   }
+  const runtimeActive = isBlondieTimeWorkspaceSessionActive();
   const visualState = getBlondieTimeVisualState();
   const title = getBlondieTimeButtonTitle();
-  const startDisabledReason = getBlondieTimeStartDisabledReason();
+  const startDisabledReason = runtimeActive ? "" : getBlondieTimeStartDisabledReason();
   els.blondieTimeButton.dataset.blondieTimeState = visualState;
   els.blondieTimeButton.dataset.blondieTimeMode = getBlondieTimePendingMode();
   els.blondieTimeButton.disabled = Boolean(startDisabledReason);
@@ -2654,11 +2661,14 @@ function renderBlondieTimeControl() {
   els.blondieTimeButton.setAttribute("aria-label", title);
   if (els.blondieTimeStopButton) {
     els.blondieTimeStopButton.hidden = true;
+    els.blondieTimeStopButton.disabled = true;
   }
   if (els.blondieTimePicker) {
     els.blondieTimePicker.hidden = true;
   }
-  stopBlondieTimeCountdownAnimation();
+  if (!runtimeActive) {
+    stopBlondieTimeCountdownAnimation();
+  }
 }
 
 function applyBlondieTimeRuntimeState(nextState = null, options = {}) {
@@ -3075,6 +3085,19 @@ async function launchBlondieTimeWorkspaceSession(intervalMinutes = 0, options = 
   };
 }
 
+async function focusActiveBlondieTimeWorkspace() {
+  closeBlondieTimePicker({ restoreFocus: false });
+  await ensureBlondieTimeWorkspaceTab({
+    activate: true,
+    windowId: Number(state.windowId || 0),
+  });
+  setStatus("Blondie Time is already active in BT_WS.", "success");
+  return {
+    ok: true,
+    opened: true,
+  };
+}
+
 async function armBlondieTime(intervalMinutes = 0, options = {}) {
   const disabledReason = getBlondieTimeStartDisabledReason();
   if (disabledReason) {
@@ -3085,16 +3108,8 @@ async function armBlondieTime(intervalMinutes = 0, options = {}) {
     };
   }
   const runtimeState = getCurrentBlondieTimeRuntimeState();
-  if (runtimeState?.running && String(runtimeState.workspace || "").trim().toLowerCase() === "bt") {
-    await ensureBlondieTimeWorkspaceTab({
-      activate: true,
-      windowId: Number(state.windowId || 0),
-    });
-    setStatus("Blondie Time is already active in BT_WS.", "success");
-    return {
-      ok: true,
-      opened: true,
-    };
+  if (isBlondieTimeWorkspaceSessionActive(runtimeState)) {
+    return await focusActiveBlondieTimeWorkspace();
   }
   const normalizedInterval = BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES.includes(Number(intervalMinutes))
     ? Number(intervalMinutes)
@@ -3131,6 +3146,13 @@ async function armBlondieTime(intervalMinutes = 0, options = {}) {
     ok: true,
     launched: true,
   };
+}
+
+async function handleBlondieTimeLauncherClick(event) {
+  event.preventDefault();
+  return await armBlondieTime(state.blondieTimePrefs?.lastIntervalMinutes || BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0], {
+    triggerMode: event.shiftKey ? "teammate" : "self",
+  });
 }
 
 async function handleBlondieTimeAlarmLap(message = {}) {
@@ -3667,14 +3689,85 @@ function buildWorkspaceCardId(prefix = "workspace") {
   return `${normalizedPrefix}-${stamp}-${random}`;
 }
 
+function buildWorkspaceCardRequestIdentity(rawValue = "") {
+  const normalizedRequestPath = normalizeWorkspaceDeeplinkRequestPath(rawValue);
+  if (!normalizedRequestPath) {
+    return "";
+  }
+  try {
+    const parsed = new URL(normalizedRequestPath, ESM_NODE_BASE_URL || DEFAULT_ADOBEPASS_ENVIRONMENT.esmBase);
+    parsed.hash = "";
+    parsed.searchParams.delete("media-company");
+    const normalizedPath = String(parsed.pathname || "").replace(/\/+$/g, "") || "/";
+    const entries = [];
+    parsed.searchParams.forEach((value, key) => {
+      const normalizedKey = String(key || "").trim();
+      if (!normalizedKey) {
+        return;
+      }
+      entries.push([normalizedKey, String(value || "").trim()]);
+    });
+    entries.sort((left, right) => {
+      const leftKey = `${normalizeDimensionName(left[0]) || String(left[0] || "").trim().toLowerCase()}\u0000${String(left[1] || "").trim()}`;
+      const rightKey = `${normalizeDimensionName(right[0]) || String(right[0] || "").trim().toLowerCase()}\u0000${String(right[1] || "").trim()}`;
+      return leftKey.localeCompare(rightKey, undefined, { numeric: true, sensitivity: "base" });
+    });
+    const search = entries
+      .map(([key, value]) => `${encodeURIComponent(String(key || "").trim())}=${encodeURIComponent(String(value || "").trim())}`)
+      .join("&");
+    return `${normalizedPath}${search ? `?${search}` : ""}`;
+  } catch (_error) {
+    return normalizedRequestPath;
+  }
+}
+
+function collectCardRequestIdentityKeys(cardLike = null) {
+  const keys = new Set();
+  [
+    String(cardLike?.originCardKey || "").trim(),
+    buildCardDisplayRequestUrl(cardLike),
+    String(cardLike?.requestUrl || "").trim(),
+    String(cardLike?.endpointUrl || "").trim(),
+    String(cardLike?.seedRequestUrl || "").trim(),
+    String(cardLike?.seedEndpointUrl || "").trim(),
+  ].forEach((value) => {
+    const identity = buildWorkspaceCardRequestIdentity(value);
+    if (identity) {
+      keys.add(identity);
+    }
+  });
+  return keys;
+}
+
 function findCardByOriginKey(originCardKey = "") {
   const normalizedOriginCardKey = String(originCardKey || "").trim();
   if (!normalizedOriginCardKey) {
     return null;
   }
+  const normalizedOriginIdentity = buildWorkspaceCardRequestIdentity(normalizedOriginCardKey);
   for (const cardState of state.cardsById.values()) {
-    if (String(cardState?.originCardKey || "").trim() === normalizedOriginCardKey) {
+    const existingOriginKey = String(cardState?.originCardKey || "").trim();
+    if (
+      existingOriginKey === normalizedOriginCardKey ||
+      (normalizedOriginIdentity && buildWorkspaceCardRequestIdentity(existingOriginKey) === normalizedOriginIdentity)
+    ) {
       return cardState;
+    }
+  }
+  return null;
+}
+
+function findCardByRequestIdentity(cardLike = null) {
+  const targetKeys = collectCardRequestIdentityKeys(cardLike);
+  if (targetKeys.size === 0) {
+    return null;
+  }
+  for (const cardState of state.cardsById.values()) {
+    const existingKeys = collectCardRequestIdentityKeys(cardState);
+    for (const key of existingKeys) {
+      if (targetKeys.has(key)) {
+        return cardState;
+      }
     }
   }
   return null;
@@ -4675,101 +4768,142 @@ function wireCardColumnFilterCloud(cardState) {
   updateVisualState();
 }
 
-function ensureCard(cardMeta) {
-  const cardId = String(cardMeta?.cardId || "").trim();
-  if (!cardId) {
+function syncExistingCardMeta(existing, cardMeta, options = {}) {
+  if (!existing) {
     return null;
   }
-
-  if (state.cardsById.has(cardId)) {
-    const existing = state.cardsById.get(cardId);
-    if (typeof existing.activeRunId !== "string") {
-      existing.activeRunId = "";
+  const preserveQueryState = options?.preserveQueryState === true;
+  if (typeof existing.activeRunId !== "string") {
+    existing.activeRunId = "";
+  }
+  if (preserveQueryState) {
+    if (!String(existing.originCardKey || "").trim() && String(cardMeta?.originCardKey || "").trim()) {
+      existing.originCardKey = String(cardMeta?.originCardKey || "").trim();
     }
-    const previousEndpointKey = getWorkspaceEndpointKey(String(existing.endpointUrl || existing.requestUrl || ""));
-    if (cardMeta?.endpointUrl) {
-      existing.endpointUrl = String(cardMeta.endpointUrl);
+    if (!String(existing.displayNodeLabel || "").trim() && "displayNodeLabel" in (cardMeta || {})) {
+      existing.displayNodeLabel = String(cardMeta?.displayNodeLabel || "").trim();
     }
-    if (cardMeta?.requestUrl) {
-      existing.requestUrl = String(cardMeta.requestUrl);
+    if ((!Array.isArray(existing.columns) || existing.columns.length === 0) && Array.isArray(cardMeta?.columns)) {
+      existing.columns = normalizeEsmColumns(cardMeta.columns);
     }
-    if ("zoomKey" in (cardMeta || {})) {
+    if (!String(existing.zoomKey || "").trim() && "zoomKey" in (cardMeta || {})) {
       existing.zoomKey = resolveWorkspaceCardZoomKey({
         zoomKey: String(cardMeta?.zoomKey || ""),
         endpointUrl: cardMeta?.endpointUrl || existing.endpointUrl,
         requestUrl: cardMeta?.requestUrl || existing.requestUrl,
       });
     }
-    if (Array.isArray(cardMeta?.columns)) {
-      existing.columns = normalizeEsmColumns(cardMeta.columns);
-    }
-    if ("originCardKey" in (cardMeta || {})) {
-      existing.originCardKey = String(cardMeta?.originCardKey || existing.originCardKey || "").trim();
-    }
-    if ("displayNodeLabel" in (cardMeta || {})) {
-      existing.displayNodeLabel = String(cardMeta?.displayNodeLabel || "").trim();
-    }
-    if ("preserveQueryContext" in (cardMeta || {})) {
-      existing.preserveQueryContext = cardMeta?.preserveQueryContext === true;
-    }
-    if ("presetLocalFilterBootstrapPending" in (cardMeta || {})) {
-      existing.presetLocalFilterBootstrapPending = cardMeta?.presetLocalFilterBootstrapPending === true;
-    }
-    if ("seedEndpointUrl" in (cardMeta || {})) {
-      existing.seedEndpointUrl = String(cardMeta?.seedEndpointUrl || "").trim();
-    }
-    if ("seedRequestUrl" in (cardMeta || {})) {
-      existing.seedRequestUrl = String(cardMeta?.seedRequestUrl || "").trim();
-    }
-    if ("seedPresetLocalFilterBootstrapPending" in (cardMeta || {})) {
-      existing.seedPresetLocalFilterBootstrapPending = cardMeta?.seedPresetLocalFilterBootstrapPending === true;
-    }
-    if (cardMeta?.localColumnFilters && typeof cardMeta.localColumnFilters === "object") {
-      existing.localColumnFilters = normalizeLocalColumnFilters(cardMeta.localColumnFilters);
-    }
-    if (cardMeta?.seedLocalColumnFilters && typeof cardMeta.seedLocalColumnFilters === "object") {
-      existing.seedLocalColumnFilters = normalizeLocalColumnFilters(cardMeta.seedLocalColumnFilters);
-    }
-    if (cardMeta?.localColumnExclusions && typeof cardMeta.localColumnExclusions === "object") {
-      existing.localColumnExclusions = normalizeLocalColumnFilters(cardMeta.localColumnExclusions);
-      if (
-        existing.exclusionBootstrapPhase !== "complete" &&
-        !hasLocalColumnFilters(cardMeta?.localColumnFilters) &&
-        hasLocalColumnFilters(cardMeta?.localColumnExclusions)
-      ) {
-        existing.pendingLocalColumnExclusions = normalizeLocalColumnFilters(cardMeta.localColumnExclusions);
-      } else if (!hasLocalColumnFilters(cardMeta?.localColumnExclusions)) {
-        existing.pendingLocalColumnExclusions = new Map();
-      }
-    }
-    if (cardMeta?.seedLocalColumnExclusions && typeof cardMeta.seedLocalColumnExclusions === "object") {
-      existing.seedLocalColumnExclusions = normalizeLocalColumnFilters(cardMeta.seedLocalColumnExclusions);
-    }
-    const nextEndpointKey = getWorkspaceEndpointKey(String(existing.endpointUrl || existing.requestUrl || ""));
-    if (previousEndpointKey && nextEndpointKey && previousEndpointKey !== nextEndpointKey) {
-      existing.localColumnFilters = new Map();
-      existing.localColumnExclusions = new Map();
-      existing.pendingLocalColumnExclusions = new Map();
-      existing.exclusionBootstrapPhase = "idle";
-      existing.bootstrapDistinctByColumn = new Map();
-      existing.bootstrapDescriptionByColumn = new Map();
-      existing.seedEndpointUrl = "";
-      existing.seedRequestUrl = "";
-      existing.seedLocalColumnFilters = new Map();
-      existing.seedLocalColumnExclusions = new Map();
-      existing.seedPresetLocalFilterBootstrapPending = false;
-      existing.startingUiLocalColumnFilters = new Map();
-      existing.startingUiLocalColumnExclusions = new Map();
-      existing.startingUiPersistentQuerySignature = "[]";
-      existing.startingUiStateCaptured = false;
-      existing.localDistinctByColumn.clear();
-      existing.localDescriptionByColumn.clear();
-      existing.localHasBaselineData = false;
-      existing.pickerOpenColumn = "";
-      teardownCardHeaderQueryEditors(existing);
-    }
+    existing.preserveQueryContext = existing.preserveQueryContext === true || cardMeta?.preserveQueryContext === true;
     updateCardHeader(existing);
     return existing;
+  }
+
+  const previousEndpointKey = getWorkspaceEndpointKey(String(existing.endpointUrl || existing.requestUrl || ""));
+  if (cardMeta?.endpointUrl) {
+    existing.endpointUrl = String(cardMeta.endpointUrl);
+  }
+  if (cardMeta?.requestUrl) {
+    existing.requestUrl = String(cardMeta.requestUrl);
+  }
+  if ("zoomKey" in (cardMeta || {})) {
+    existing.zoomKey = resolveWorkspaceCardZoomKey({
+      zoomKey: String(cardMeta?.zoomKey || ""),
+      endpointUrl: cardMeta?.endpointUrl || existing.endpointUrl,
+      requestUrl: cardMeta?.requestUrl || existing.requestUrl,
+    });
+  }
+  if (Array.isArray(cardMeta?.columns)) {
+    existing.columns = normalizeEsmColumns(cardMeta.columns);
+  }
+  if ("originCardKey" in (cardMeta || {})) {
+    existing.originCardKey = String(cardMeta?.originCardKey || existing.originCardKey || "").trim();
+  }
+  if ("displayNodeLabel" in (cardMeta || {})) {
+    existing.displayNodeLabel = String(cardMeta?.displayNodeLabel || "").trim();
+  }
+  if ("preserveQueryContext" in (cardMeta || {})) {
+    existing.preserveQueryContext = cardMeta?.preserveQueryContext === true;
+  }
+  if ("presetLocalFilterBootstrapPending" in (cardMeta || {})) {
+    existing.presetLocalFilterBootstrapPending = cardMeta?.presetLocalFilterBootstrapPending === true;
+  }
+  if ("seedEndpointUrl" in (cardMeta || {})) {
+    existing.seedEndpointUrl = String(cardMeta?.seedEndpointUrl || "").trim();
+  }
+  if ("seedRequestUrl" in (cardMeta || {})) {
+    existing.seedRequestUrl = String(cardMeta?.seedRequestUrl || "").trim();
+  }
+  if ("seedPresetLocalFilterBootstrapPending" in (cardMeta || {})) {
+    existing.seedPresetLocalFilterBootstrapPending = cardMeta?.seedPresetLocalFilterBootstrapPending === true;
+  }
+  if (cardMeta?.localColumnFilters && typeof cardMeta.localColumnFilters === "object") {
+    existing.localColumnFilters = normalizeLocalColumnFilters(cardMeta.localColumnFilters);
+  }
+  if (cardMeta?.seedLocalColumnFilters && typeof cardMeta.seedLocalColumnFilters === "object") {
+    existing.seedLocalColumnFilters = normalizeLocalColumnFilters(cardMeta.seedLocalColumnFilters);
+  }
+  if (cardMeta?.localColumnExclusions && typeof cardMeta.localColumnExclusions === "object") {
+    existing.localColumnExclusions = normalizeLocalColumnFilters(cardMeta.localColumnExclusions);
+    if (
+      existing.exclusionBootstrapPhase !== "complete" &&
+      !hasLocalColumnFilters(cardMeta?.localColumnFilters) &&
+      hasLocalColumnFilters(cardMeta?.localColumnExclusions)
+    ) {
+      existing.pendingLocalColumnExclusions = normalizeLocalColumnFilters(cardMeta.localColumnExclusions);
+    } else if (!hasLocalColumnFilters(cardMeta?.localColumnExclusions)) {
+      existing.pendingLocalColumnExclusions = new Map();
+    }
+  }
+  if (cardMeta?.seedLocalColumnExclusions && typeof cardMeta.seedLocalColumnExclusions === "object") {
+    existing.seedLocalColumnExclusions = normalizeLocalColumnFilters(cardMeta.seedLocalColumnExclusions);
+  }
+  const nextEndpointKey = getWorkspaceEndpointKey(String(existing.endpointUrl || existing.requestUrl || ""));
+  if (previousEndpointKey && nextEndpointKey && previousEndpointKey !== nextEndpointKey) {
+    existing.localColumnFilters = new Map();
+    existing.localColumnExclusions = new Map();
+    existing.pendingLocalColumnExclusions = new Map();
+    existing.exclusionBootstrapPhase = "idle";
+    existing.bootstrapDistinctByColumn = new Map();
+    existing.bootstrapDescriptionByColumn = new Map();
+    existing.seedEndpointUrl = "";
+    existing.seedRequestUrl = "";
+    existing.seedLocalColumnFilters = new Map();
+    existing.seedLocalColumnExclusions = new Map();
+    existing.seedPresetLocalFilterBootstrapPending = false;
+    existing.startingUiLocalColumnFilters = new Map();
+    existing.startingUiLocalColumnExclusions = new Map();
+    existing.startingUiPersistentQuerySignature = "[]";
+    existing.startingUiStateCaptured = false;
+    existing.localDistinctByColumn.clear();
+    existing.localDescriptionByColumn.clear();
+    existing.localHasBaselineData = false;
+    existing.pickerOpenColumn = "";
+    teardownCardHeaderQueryEditors(existing);
+  }
+  updateCardHeader(existing);
+  return existing;
+}
+
+function ensureCard(cardMeta) {
+  const cardId = String(cardMeta?.cardId || "").trim();
+  if (!cardId) {
+    return null;
+  }
+
+  let existing = state.cardsById.get(cardId) || null;
+  let preserveQueryState = false;
+  if (!existing) {
+    existing = findCardByOriginKey(String(cardMeta?.originCardKey || "").trim());
+    preserveQueryState = Boolean(existing);
+  }
+  if (!existing) {
+    existing = findCardByRequestIdentity(cardMeta);
+    preserveQueryState = Boolean(existing);
+  }
+  if (existing) {
+    return syncExistingCardMeta(existing, cardMeta, {
+      preserveQueryState,
+    });
   }
 
   const cardState = {
@@ -5790,10 +5924,7 @@ function registerEventHandlers() {
 
   if (els.blondieTimeButton) {
     els.blondieTimeButton.addEventListener("click", async (event) => {
-      event.preventDefault();
-      await armBlondieTime(state.blondieTimePrefs?.lastIntervalMinutes || BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0], {
-        triggerMode: event.shiftKey ? "teammate" : "self",
-      });
+      await handleBlondieTimeLauncherClick(event);
     });
   }
 
@@ -5833,6 +5964,7 @@ function registerEventHandlers() {
         });
         return;
       }
+      closeBlondieTimePicker({ restoreFocus: false });
       await armBlondieTime(intervalMinutes, {
         triggerMode: "self",
       });
@@ -5920,6 +6052,11 @@ async function init() {
     await initializeWorkspaceAdobePassEnvironment();
   } catch {
     applyWorkspaceAdobePassEnvironment(DEFAULT_ADOBEPASS_ENVIRONMENT.key);
+  }
+  try {
+    window.name = UNDERPAR_EXPORTED_HTML_ESM_TARGET_NAME;
+  } catch (_error) {
+    // Ignore browsing-context naming failures.
   }
   state.pendingWorkspaceDeeplink = parseWorkspaceDeeplinkPayloadFromLocation();
   try {

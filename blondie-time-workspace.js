@@ -25,10 +25,14 @@ const FIXED_EXPORT_COLUMNS = Object.freeze([
   "Avg AuthZ Latency",
 ]);
 const BLONDIE_BUTTON_INACTIVE_MESSAGE =
-  "No zip-zip without SLACKTIVATION. Please visit VAULT container on the UP Tab to feed your ZIP.KEY to UnderPAR";
+  "No zip-zap without SLACKTIVATION. Please visit VAULT container on the UP Tab to feed your ZIP.KEY to UnderPAR";
 const BLONDIE_BUTTON_SHARE_TARGETS_EMPTY_MESSAGE =
   "No pass-transition roster is cached yet. Re-SLACKTIVATE UnderPAR in the VAULT.";
 const BLONDIE_BUTTON_SHARE_NOTE_EMPTY_MESSAGE = "Enter a Slack note before sending.";
+const BLONDIE_TIME_CLOSE_GUARD_STORAGE_KEY = "underpar_blondie_time_bt_close_guard";
+const BLONDIE_TIME_CLOSE_GUARD_MIN_LAPS = 3;
+const BLONDIE_TIME_CLOSE_GUARD_PROMPT =
+  "An active Blondie Time session is still running. Closing BT_WS will stop monitoring and auto-export the current session CSV.";
 
 if (!BLONDIE_TIME_LOGIC?.analyzeRows) {
   throw new Error("UnderPAR Blondie Time logic runtime is unavailable.");
@@ -47,6 +51,7 @@ const blondieSharePickerController = UNDERPAR_BLONDIE_SHARE_PICKER.createControl
 
 const state = {
   windowId: 0,
+  tabId: 0,
   controllerOnline: false,
   controllerStateVersion: 0,
   controllerStateUpdatedAt: 0,
@@ -78,6 +83,7 @@ const state = {
   timerCountdownRafId: 0,
   timerCountdownSecond: -1,
   timerLocalWarning: "",
+  closeGuardPersistTimerId: 0,
   timerOutsidePointerHandler: null,
   timerOutsideKeyHandler: null,
 };
@@ -372,6 +378,7 @@ function normalizeRuntimeState(value = null) {
     nextFireAt: Math.max(0, Number(value?.nextFireAt || 0)),
     startedAt: Math.max(0, Number(value?.startedAt || 0)),
     targetWindowId: Math.max(0, Number(value?.targetWindowId || 0)),
+    targetTabId: Math.max(0, Number(value?.targetTabId || 0)),
     workspaceContextKey: String(value?.workspaceContextKey || "").trim(),
     programmerId: String(value?.programmerId || "").trim(),
     programmerName: String(value?.programmerName || "").trim(),
@@ -398,6 +405,10 @@ function isRuntimeActiveHere(runtimeState = state.runtimeState) {
   if (!normalized?.running || normalized.workspace !== "bt") {
     return false;
   }
+  const runtimeTabId = Number(normalized.targetTabId || 0);
+  if (runtimeTabId > 0 && Number(state.tabId || 0) > 0) {
+    return runtimeTabId === Number(state.tabId || 0);
+  }
   const runtimeWindowId = Number(normalized.targetWindowId || 0);
   if (runtimeWindowId > 0 && Number(state.windowId || 0) > 0 && runtimeWindowId !== Number(state.windowId || 0)) {
     return false;
@@ -411,6 +422,87 @@ function getRemainingRuntimeMs(runtimeState = state.runtimeState) {
     return 0;
   }
   return Math.max(0, Number(normalized.nextFireAt || 0) - Date.now());
+}
+
+function getEstablishedLapCount(runtimeState = state.runtimeState) {
+  const normalized = normalizeRuntimeState(runtimeState);
+  return Math.max(Math.max(0, Number(normalized?.lapCount || 0)), state.sessionHistory.length);
+}
+
+function shouldProtectActiveSessionOnClose(runtimeState = state.runtimeState) {
+  return isRuntimeActiveHere(runtimeState) && getEstablishedLapCount(runtimeState) >= BLONDIE_TIME_CLOSE_GUARD_MIN_LAPS;
+}
+
+function buildCloseGuardSnapshot() {
+  const runtimeState = normalizeRuntimeState(state.runtimeState);
+  const cards = getOrderedCards().map((cardState) => buildCardPayload(cardState));
+  const sessionWindow = getSessionWindow();
+  const lapCount = getEstablishedLapCount(runtimeState);
+  const activeRuntime = isRuntimeActiveHere(runtimeState);
+  const startedAt = Math.max(0, Number(state.sessionStartedAt || runtimeState?.startedAt || 0));
+  if (!activeRuntime && !lapCount && !startedAt && cards.length === 0) {
+    return null;
+  }
+  return {
+    schemaVersion: 1,
+    workspace: "bt",
+    capturedAt: Date.now(),
+    windowId: Math.max(0, Number(state.windowId || runtimeState?.targetWindowId || 0)),
+    tabId: Math.max(0, Number(state.tabId || runtimeState?.targetTabId || 0)),
+    runId: String(runtimeState?.runId || "").trim(),
+    workspaceContextKey: String(state.workspaceContextKey || runtimeState?.workspaceContextKey || "").trim(),
+    programmerId: String(state.programmerId || runtimeState?.programmerId || "").trim(),
+    programmerName: String(state.programmerName || runtimeState?.programmerName || "").trim(),
+    activeRuntime,
+    lapCount,
+    sessionStartedAt: startedAt,
+    sessionStoppedAt: Math.max(0, Number(state.sessionStoppedAt || 0)),
+    sessionWindow: {
+      start: String(sessionWindow.start || "").trim(),
+      end: String(sessionWindow.end || "").trim(),
+    },
+    cards,
+  };
+}
+
+async function writeCloseGuardSnapshot(snapshot = null) {
+  try {
+    if (snapshot && typeof snapshot === "object") {
+      await chrome.storage.local.set({
+        [BLONDIE_TIME_CLOSE_GUARD_STORAGE_KEY]: snapshot,
+      });
+      return;
+    }
+    await chrome.storage.local.remove(BLONDIE_TIME_CLOSE_GUARD_STORAGE_KEY);
+  } catch {
+    // Ignore close-guard persistence failures.
+  }
+}
+
+function scheduleCloseGuardSnapshotPersist(options = {}) {
+  if (state.closeGuardPersistTimerId) {
+    window.clearTimeout(state.closeGuardPersistTimerId);
+    state.closeGuardPersistTimerId = 0;
+  }
+  const persist = () => {
+    state.closeGuardPersistTimerId = 0;
+    void writeCloseGuardSnapshot(buildCloseGuardSnapshot());
+  };
+  if (options?.immediate === true) {
+    persist();
+    return;
+  }
+  state.closeGuardPersistTimerId = window.setTimeout(persist, 0);
+}
+
+function handleBeforeUnload(event) {
+  if (!shouldProtectActiveSessionOnClose()) {
+    return undefined;
+  }
+  scheduleCloseGuardSnapshotPersist({ immediate: true });
+  event.preventDefault();
+  event.returnValue = BLONDIE_TIME_CLOSE_GUARD_PROMPT;
+  return BLONDIE_TIME_CLOSE_GUARD_PROMPT;
 }
 
 function formatCountdown(ms = 0) {
@@ -1071,6 +1163,7 @@ function getOrderedCards() {
 function renderCard(cardState) {
   analyzeCard(cardState);
   const summary = buildCardSummary(cardState);
+  const sendToEsmTitle = `Send ${summary.title} to ESM Workspace`;
   const footerLines = summary.lines
     .map((line) => `<div class="bt-footer-line">${escapeHtml(line)}</div>`)
     .join("");
@@ -1090,14 +1183,21 @@ function renderCard(cardState) {
   article.innerHTML = `
     <div class="bt-analysis-card-head">
       <div>
-        <h2 class="bt-analysis-card-title">${escapeHtml(summary.title)}</h2>
+        <h2 class="bt-analysis-card-title">
+          <button
+            class="bt-analysis-card-title-btn bt-send-to-esm-btn"
+            type="button"
+            data-card-id="${escapeHtml(cardState.cardId)}"
+            title="${escapeHtml(sendToEsmTitle)}"
+            aria-label="${escapeHtml(sendToEsmTitle)}"
+          >
+            ${escapeHtml(summary.title)}
+          </button>
+        </h2>
         <p class="bt-analysis-card-subtitle">${escapeHtml(summary.subtitle)}</p>
       </div>
       <div class="bt-analysis-card-actions">
         <span class="bt-chip${hitCount > 0 ? " bt-chip--alert" : ""}">${hitCount > 0 ? `${formatInteger(hitCount)} hits` : "No offenders"}</span>
-        <button class="bt-action-btn bt-send-to-esm-btn" type="button" data-card-id="${escapeHtml(cardState.cardId)}">
-          <span class="spectrum-Button-label">Send to ESM Workspace</span>
-        </button>
       </div>
     </div>
     <div class="bt-analysis-body">
@@ -1376,6 +1476,7 @@ function appendLapHistory(entry = null) {
   }
   state.sessionStoppedAt = 0;
   state.sessionHistory.push(normalized);
+  scheduleCloseGuardSnapshotPersist();
 }
 
 function getSessionFlattenedRows() {
@@ -1704,6 +1805,7 @@ async function sendBlondieTimeRuntimeAction(action = "", payload = {}) {
       action: String(action || "").trim().toLowerCase(),
       workspace: "bt",
       windowId: Number(state.windowId || 0),
+      tabId: Number(state.tabId || 0),
       workspaceContextKey: String(state.workspaceContextKey || "").trim(),
       programmerId: String(state.programmerId || "").trim(),
       programmerName: String(state.programmerName || "").trim(),
@@ -2029,6 +2131,7 @@ async function consumeLaunchContext(context = null) {
   state.sessionExporting = false;
   state.exportPanelOpen = false;
   rerenderWorkspace();
+  scheduleCloseGuardSnapshotPersist({ immediate: true });
   openTimerPicker(launchContext.triggerMode, { focus: true });
   setStatus("BT_WS loaded the current ESM context. Choose an interval to start Blondie Time.", "success");
   return true;
@@ -2056,6 +2159,7 @@ async function refreshRuntimeState() {
     state.timerLocalWarning = String(state.runtimeState?.lastError || "").trim();
   }
   rerenderWorkspace();
+  scheduleCloseGuardSnapshotPersist();
 }
 
 async function stopMonitoring(reason = "manual") {
@@ -2072,6 +2176,7 @@ async function stopMonitoring(reason = "manual") {
   state.exportPanelOpen = true;
   state.timerLocalWarning = "";
   rerenderWorkspace();
+  scheduleCloseGuardSnapshotPersist({ immediate: true });
   setStatus("Blondie Time stopped. The Monitoring Session summary and BT PDF/CSV export are ready below.", "success");
 }
 
@@ -2285,6 +2390,8 @@ async function openCardInEsmWorkspace(cardId = "") {
 }
 
 function registerEventHandlers() {
+  window.addEventListener("beforeunload", handleBeforeUnload);
+
   [els.thresholdMinAuthn, els.thresholdAuthn, els.thresholdAuthz, els.thresholdLatency].forEach((input) => {
     input?.addEventListener("change", updateThresholdsFromInputs);
   });
@@ -2417,6 +2524,7 @@ function registerEventHandlers() {
         state.timerLocalWarning = String(state.runtimeState?.lastError || "").trim();
       }
       rerenderWorkspace();
+      scheduleCloseGuardSnapshotPersist();
     }
     if (Object.prototype.hasOwnProperty.call(changes, BLONDIE_TIME_WORKSPACE_LAUNCH_STORAGE_KEY)) {
       const nextValue = normalizeLaunchContext(changes[BLONDIE_TIME_WORKSPACE_LAUNCH_STORAGE_KEY]?.newValue || null);
@@ -2442,8 +2550,17 @@ function registerEventHandlers() {
     if (message?.type !== BLONDIE_TIME_MESSAGE_TYPE || message?.channel !== "workspace-control") {
       return false;
     }
+    const targetTabId = Number(message?.targetTabId || message?.state?.targetTabId || 0);
+    if (targetTabId > 0 && Number(state.tabId || 0) > 0 && targetTabId !== Number(state.tabId || 0)) {
+      return false;
+    }
     const targetWindowId = Number(message?.targetWindowId || 0);
-    if (targetWindowId > 0 && Number(state.windowId || 0) > 0 && targetWindowId !== Number(state.windowId || 0)) {
+    if (
+      targetTabId <= 0 &&
+      targetWindowId > 0 &&
+      Number(state.windowId || 0) > 0 &&
+      targetWindowId !== Number(state.windowId || 0)
+    ) {
       return false;
     }
     if (String(message?.action || "").trim().toLowerCase() !== "fire-lap") {
@@ -2466,12 +2583,9 @@ function registerEventHandlers() {
 }
 
 async function init() {
-  try {
-    const currentWindow = await chrome.windows.getCurrent();
-    state.windowId = Number(currentWindow?.id || 0);
-  } catch {
-    state.windowId = 0;
-  }
+  const [windowResult, tabResult] = await Promise.allSettled([chrome.windows.getCurrent(), chrome.tabs.getCurrent()]);
+  state.windowId = windowResult.status === "fulfilled" ? Number(windowResult.value?.id || 0) : 0;
+  state.tabId = tabResult.status === "fulfilled" ? Number(tabResult.value?.id || 0) : 0;
   renderThresholdInputs();
   rerenderWorkspace();
   registerEventHandlers();
@@ -2484,6 +2598,7 @@ async function init() {
   if (launchContext) {
     await consumeLaunchContext(launchContext);
   }
+  scheduleCloseGuardSnapshotPersist({ immediate: true });
 }
 
 void init();

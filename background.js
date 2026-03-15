@@ -11,12 +11,16 @@ const UNDERPAR_ESM_DEEPLINK_REDIRECT_RULE_ID = 164002;
 const UNDERPAR_DEGRADATION_DEEPLINK_REDIRECT_RULE_ID = 164003;
 const UNDERPAR_CM_DEEPLINK_REDIRECT_RULE_ID = 164004;
 const UNDERPAR_BT_DEEPLINK_REDIRECT_RULE_ID = 164005;
+const UNDERPAR_ESM_BRIDGE_DEEPLINK_REDIRECT_RULE_ID = 164006;
+const UNDERPAR_ESM_DEEPLINK_STORAGE_KEY = "underpar_pending_esm_deeplink_v1";
 const UNDERPAR_ESM_DEEPLINK_MARKER_PARAM = "underpar_deeplink";
 const UNDERPAR_ESM_DEEPLINK_MARKER_VALUE = "esm";
+const UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE = "esm-bridge";
 const UNDERPAR_BT_DEEPLINK_MARKER_VALUE = "bt";
 const UNDERPAR_DEGRADATION_DEEPLINK_MARKER_VALUE = "degradation";
 const UNDERPAR_CM_DEEPLINK_MARKER_VALUE = "cm";
 const UNDERPAR_ESM_WORKSPACE_PATH = "esm-workspace.html";
+const UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH = "esm-deeplink-bridge.html";
 const UNDERPAR_BLONDIE_TIME_WORKSPACE_PATH = "blondie-time-workspace.html";
 const UNDERPAR_BLONDIE_TIME_DEEPLINK_BRIDGE_PATH = "blondie-time-deeplink-bridge.html";
 const UNDERPAR_DEGRADATION_WORKSPACE_PATH = "degradation-workspace.html";
@@ -72,6 +76,7 @@ const UNDERPAR_WORKSPACE_PATHS = Object.freeze([
 ]);
 const UNDERPAR_BLONDIE_TIME_MESSAGE_TYPE = "underpar:blondie-time";
 const UNDERPAR_BLONDIE_TIME_DEEPLINK_REQUEST_TYPE = "underpar:openBlondieTimeWorkspaceFromDeeplink";
+const UNDERPAR_ESM_DEEPLINK_REQUEST_TYPE = "underpar:openEsmWorkspaceFromDeeplink";
 const UNDERPAR_BLONDIE_TIME_STORAGE_KEY = "underpar_blondie_time_esm_state";
 const UNDERPAR_BLONDIE_TIME_ALARM_NAME = "underpar:blondie-time:esm";
 const UNDERPAR_BLONDIE_TIME_NOTIFICATION_ID = "underpar:blondie-time:esm";
@@ -197,6 +202,7 @@ function normalizeBlondieTimeState(value = null) {
     nextFireAt: Math.max(0, Number(value?.nextFireAt || 0)),
     startedAt: Math.max(0, Number(value?.startedAt || 0)),
     targetWindowId: Math.max(0, Number(value?.targetWindowId || 0)),
+    targetTabId: Math.max(0, Number(value?.targetTabId || 0)),
     workspaceContextKey: String(value?.workspaceContextKey || "").trim(),
     programmerId: String(value?.programmerId || "").trim(),
     programmerName: String(value?.programmerName || "").trim(),
@@ -247,15 +253,149 @@ async function ensureBlondieTimeAlarmScheduled(timerState = null) {
   return when;
 }
 
-async function findBlondieTimeWorkspaceTab(targetWindowId = 0) {
+function isBlondieTimeWorkspaceTab(tabLike = null) {
   const btUrlPrefix = chrome.runtime.getURL(UNDERPAR_BLONDIE_TIME_WORKSPACE_PATH);
-  const tabs = await chrome.tabs.query({});
-  for (const tab of tabs) {
-    const tabUrl = String(tab?.url || "");
-    if (!tabUrl.startsWith(btUrlPrefix)) {
+  return String(tabLike?.url || "").startsWith(btUrlPrefix);
+}
+
+function isEsmWorkspaceTab(tabLike = null) {
+  const esmUrlPrefix = chrome.runtime.getURL(UNDERPAR_ESM_WORKSPACE_PATH);
+  return String(tabLike?.url || "").startsWith(esmUrlPrefix);
+}
+
+async function findEsmWorkspaceTab(targetWindowId = 0) {
+  const normalizedWindowId = normalizeWindowId(targetWindowId);
+  if (normalizedWindowId > 0) {
+    try {
+      const tabs = await chrome.tabs.query({ windowId: normalizedWindowId });
+      for (const tab of tabs) {
+        if (isEsmWorkspaceTab(tab)) {
+          return tab;
+        }
+      }
+    } catch {
+      // Ignore stale preferred windows and fall back to any UnderPAR ESM workspace.
+    }
+  }
+
+  try {
+    const tabs = await chrome.tabs.query({});
+    for (const tab of tabs) {
+      if (isEsmWorkspaceTab(tab)) {
+        return tab;
+      }
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function getPreferredUnderparControllerWindowId(fallbackWindowId = 0) {
+  const explicitWindowId = normalizeWindowId(fallbackWindowId);
+  const readyWindowIds = [];
+  const anyWindowIds = [];
+  for (const entry of controllerBridgeState.sidepanelStateByPort.values()) {
+    const windowId = normalizeWindowId(entry?.windowId);
+    if (!windowId) {
       continue;
     }
-    if (targetWindowId > 0 && Number(tab?.windowId || 0) !== targetWindowId) {
+    if (!anyWindowIds.includes(windowId)) {
+      anyWindowIds.push(windowId);
+    }
+    if (entry?.sessionReady === true && !readyWindowIds.includes(windowId)) {
+      readyWindowIds.push(windowId);
+    }
+  }
+  if (readyWindowIds.length > 0) {
+    if (explicitWindowId > 0 && readyWindowIds.includes(explicitWindowId)) {
+      return explicitWindowId;
+    }
+    return readyWindowIds[0];
+  }
+  if (anyWindowIds.length > 0) {
+    if (explicitWindowId > 0 && anyWindowIds.includes(explicitWindowId)) {
+      return explicitWindowId;
+    }
+    return anyWindowIds[0];
+  }
+  return explicitWindowId;
+}
+
+async function focusEsmWorkspace(targetWindowId = 0) {
+  const preferredWindowId = getPreferredUnderparControllerWindowId(targetWindowId);
+  const existingTab = await findEsmWorkspaceTab(preferredWindowId);
+  if (existingTab?.id) {
+    try {
+      await chrome.tabs.update(existingTab.id, { active: true });
+    } catch {
+      // Fall through to create a fresh workspace tab.
+    }
+    if (existingTab.windowId) {
+      try {
+        await chrome.windows.update(existingTab.windowId, { focused: true });
+      } catch {
+        // Ignore focus failures.
+      }
+    }
+    return existingTab;
+  }
+  const createOptions = {
+    url: chrome.runtime.getURL(UNDERPAR_ESM_WORKSPACE_PATH),
+    active: true,
+  };
+  if (preferredWindowId > 0) {
+    try {
+      return await chrome.tabs.create({
+        ...createOptions,
+        windowId: preferredWindowId,
+      });
+    } catch {
+      // Retry without a window affinity if the preferred controller window no longer exists.
+    }
+  }
+  return await chrome.tabs.create(createOptions);
+}
+
+async function enqueuePendingUnderparEsmDeeplink(payload = null) {
+  const normalizedPayload = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : null;
+  if (!normalizedPayload?.requestPath) {
+    throw new Error("This UnderPAR deeplink is missing a valid ESM request path.");
+  }
+  const existing = await chrome.storage.local.get(UNDERPAR_ESM_DEEPLINK_STORAGE_KEY).catch(() => ({}));
+  const existingValue = existing?.[UNDERPAR_ESM_DEEPLINK_STORAGE_KEY];
+  const queue = (Array.isArray(existingValue) ? existingValue : [existingValue])
+    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry));
+  queue.push({
+    ...normalizedPayload,
+    createdAt: Math.max(0, Number(normalizedPayload.createdAt || Date.now() || 0)) || Date.now(),
+  });
+  await chrome.storage.local.set({
+    [UNDERPAR_ESM_DEEPLINK_STORAGE_KEY]: queue,
+  });
+  return queue.length;
+}
+
+async function findBlondieTimeWorkspaceTab(target = 0) {
+  const normalizedState = target && typeof target === "object" ? normalizeBlondieTimeState(target) : null;
+  const targetWindowId = Math.max(0, Number(normalizedState?.targetWindowId || target || 0));
+  const targetTabId = Math.max(0, Number(normalizedState?.targetTabId || 0));
+
+  if (targetTabId > 0) {
+    try {
+      const tab = await chrome.tabs.get(targetTabId);
+      if (!isBlondieTimeWorkspaceTab(tab)) {
+        return null;
+      }
+      return tab;
+    } catch {
+      return null;
+    }
+  }
+
+  const tabs = await chrome.tabs.query(targetWindowId > 0 ? { windowId: targetWindowId } : {});
+  for (const tab of tabs) {
+    if (!isBlondieTimeWorkspaceTab(tab)) {
       continue;
     }
     return tab;
@@ -263,8 +403,10 @@ async function findBlondieTimeWorkspaceTab(targetWindowId = 0) {
   return null;
 }
 
-async function focusBlondieTimeWorkspace(targetWindowId = 0) {
-  const existingTab = await findBlondieTimeWorkspaceTab(targetWindowId);
+async function focusBlondieTimeWorkspace(target = 0) {
+  const normalizedState = target && typeof target === "object" ? normalizeBlondieTimeState(target) : null;
+  const targetWindowId = Math.max(0, Number(normalizedState?.targetWindowId || target || 0));
+  const existingTab = await findBlondieTimeWorkspaceTab(normalizedState || targetWindowId);
   if (existingTab?.id) {
     try {
       await chrome.tabs.update(existingTab.id, { active: true });
@@ -356,6 +498,7 @@ async function startBlondieTime(message = {}) {
     nextFireAt,
     startedAt: Date.now(),
     targetWindowId: Math.max(0, Number(message?.windowId || 0)),
+    targetTabId: Math.max(0, Number(message?.tabId || 0)),
     workspaceContextKey: String(message?.workspaceContextKey || "").trim(),
     programmerId: String(message?.programmerId || "").trim(),
     programmerName: String(message?.programmerName || "").trim(),
@@ -384,12 +527,40 @@ async function ensureBlondieTimeRuntimeConsistency() {
   return timerState;
 }
 
+async function stopBlondieTimeForClosedWorkspaceTab(tabId = 0) {
+  const normalizedTabId = normalizeTabId(tabId);
+  if (!normalizedTabId) {
+    return;
+  }
+  const timerState = await readBlondieTimeState();
+  if (!timerState?.running) {
+    return;
+  }
+
+  const targetTabId = Math.max(0, Number(timerState.targetTabId || 0));
+  if (targetTabId > 0 && targetTabId !== normalizedTabId) {
+    return;
+  }
+  if (targetTabId <= 0) {
+    const survivingWorkspaceTab = await findBlondieTimeWorkspaceTab(timerState);
+    if (survivingWorkspaceTab) {
+      return;
+    }
+  }
+
+  await stopBlondieTime("", {
+    state: timerState,
+    clearError: true,
+    lastStopReason: "BT workspace tab closed",
+  });
+}
+
 async function handleBlondieTimeAlarm() {
   const timerState = await readBlondieTimeState();
   if (!timerState?.running) {
     return;
   }
-  const workspaceTab = await findBlondieTimeWorkspaceTab(timerState.targetWindowId);
+  const workspaceTab = await findBlondieTimeWorkspaceTab(timerState);
   if (!workspaceTab) {
     await stopBlondieTime("Blondie Time could not find its BT workspace tab.", {
       state: timerState,
@@ -404,6 +575,7 @@ async function handleBlondieTimeAlarm() {
       channel: "workspace-control",
       action: "fire-lap",
       targetWindowId: Number(timerState.targetWindowId || 0),
+      targetTabId: Number(timerState.targetTabId || 0),
       state: timerState,
     });
     if (!response?.ok) {
@@ -768,6 +940,14 @@ async function ensureUnderparEsmDeeplinkRedirectRule() {
     UNDERPAR_ESM_DEEPLINK_REDIRECT_RULE_ID,
     UNDERPAR_ESM_DEEPLINK_MARKER_VALUE,
     UNDERPAR_ESM_WORKSPACE_PATH
+  );
+}
+
+async function ensureUnderparEsmBridgeDeeplinkRedirectRule() {
+  return ensureUnderparWorkspaceDeeplinkRedirectRule(
+    UNDERPAR_ESM_BRIDGE_DEEPLINK_REDIRECT_RULE_ID,
+    UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE,
+    UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH
   );
 }
 
@@ -3133,6 +3313,7 @@ chrome.runtime.onInstalled.addListener((details) => {
   void ensureBlondieTimeRuntimeConsistency();
   void ensureImsLoginRedirectRule();
   void ensureUnderparEsmDeeplinkRedirectRule();
+  void ensureUnderparEsmBridgeDeeplinkRedirectRule();
   void ensureUnderparBtDeeplinkRedirectRule();
   void ensureUnderparDegradationDeeplinkRedirectRule();
   void ensureUnderparCmDeeplinkRedirectRule();
@@ -3145,6 +3326,7 @@ chrome.runtime.onStartup.addListener(() => {
   void ensureBlondieTimeRuntimeConsistency();
   void ensureImsLoginRedirectRule();
   void ensureUnderparEsmDeeplinkRedirectRule();
+  void ensureUnderparEsmBridgeDeeplinkRedirectRule();
   void ensureUnderparBtDeeplinkRedirectRule();
   void ensureUnderparDegradationDeeplinkRedirectRule();
   void ensureUnderparCmDeeplinkRedirectRule();
@@ -3153,6 +3335,33 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === UNDERPAR_ESM_DEEPLINK_REQUEST_TYPE) {
+    void (async () => {
+      const payload = message?.payload && typeof message.payload === "object" ? message.payload : null;
+      const senderTabId = Number(_sender?.tab?.id || 0);
+      const senderWindowId = Number(_sender?.tab?.windowId || 0);
+      const closeSenderTab = message?.closeSenderTab === true;
+      await enqueuePendingUnderparEsmDeeplink(payload);
+      const workspaceTab = await focusEsmWorkspace(senderWindowId);
+      sendResponse({
+        ok: true,
+        tabId: Number(workspaceTab?.id || 0),
+        windowId: Number(workspaceTab?.windowId || 0),
+      });
+      if (closeSenderTab && senderTabId > 0 && senderTabId !== Number(workspaceTab?.id || 0)) {
+        globalThis.setTimeout(() => {
+          void chrome.tabs.remove(senderTabId).catch(() => {});
+        }, 75);
+      }
+    })().catch((error) => {
+      sendResponse({
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+    return true;
+  }
+
   if (message?.type === UNDERPAR_BLONDIE_TIME_DEEPLINK_REQUEST_TYPE) {
     void readBlondieTimeState()
       .then((timerState) => focusBlondieTimeWorkspace(Number(timerState?.targetWindowId || 0)))
@@ -3542,7 +3751,7 @@ chrome.notifications.onClicked.addListener((notificationId) => {
     return;
   }
   void readBlondieTimeState().then((timerState) => {
-    return focusBlondieTimeWorkspace(Number(timerState?.targetWindowId || 0));
+    return focusBlondieTimeWorkspace(timerState);
   });
 });
 
@@ -3551,7 +3760,7 @@ chrome.notifications.onButtonClicked.addListener((notificationId, buttonIndex) =
     return;
   }
   void readBlondieTimeState().then((timerState) => {
-    return focusBlondieTimeWorkspace(Number(timerState?.targetWindowId || 0));
+    return focusBlondieTimeWorkspace(timerState);
   });
 });
 
@@ -3574,6 +3783,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   debugState.flowIdByTabId.delete(normalizedTabId);
   scheduleFlowIndexPersist();
   void detachDebuggerForTab(normalizedTabId, "tab-removed");
+  void stopBlondieTimeForClosedWorkspaceTab(normalizedTabId);
 });
 
 chrome.debugger.onEvent.addListener(handleDebuggerEvent);
@@ -3604,6 +3814,7 @@ void configureSidePanelBehavior();
 void ensureBlondieTimeRuntimeConsistency();
 void ensureImsLoginRedirectRule();
 void ensureUnderparEsmDeeplinkRedirectRule();
+void ensureUnderparEsmBridgeDeeplinkRedirectRule();
 void ensureUnderparDegradationDeeplinkRedirectRule();
 void ensureUnderparCmDeeplinkRedirectRule();
 void updateActionBadge();
