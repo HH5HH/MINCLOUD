@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>UP Blondie Time Workspace</title>
+    <link rel="stylesheet" href="underpar-blondie-share-picker.css" />
+    <link id="workspace-style-link" rel="stylesheet" href="blondie-time-workspace.css" />
+  </head>
+  <body class="spectrum spectrum--medium spectrum--light">
+    <main id="bt-workspace-root" class="bt-app-shell">
+      <section class="workspace-header bt-controller-bar" aria-label="Blondie Time controls">
+        <div class="workspace-title-wrap">
+          <div class="bt-title-row">
+            <div class="bt-timer-stack bt-timer-stack--master">
+              <button
+                id="workspace-blondie-time"
+                class="workspace-blondie-time-btn"
+                type="button"
+                title="Click to open the Blondie Time interval picker."
+                aria-label="Click to open the Blondie Time interval picker."
+                aria-haspopup="dialog"
+                aria-expanded="false"
+                aria-controls="workspace-blondie-time-picker"
+                data-blondie-time-state="settime"
+              >
+                <span class="workspace-blondie-time-plate workspace-blondie-time-plate--base" aria-hidden="true"></span>
+                <span class="workspace-blondie-time-plate workspace-blondie-time-plate--overlay" aria-hidden="true"></span>
+              </button>
+              <button
+                id="workspace-blondie-time-stop"
+                class="workspace-blondie-time-stop"
+                type="button"
+                title="Stop Blondie Time monitoring"
+                aria-label="Stop Blondie Time monitoring"
+                hidden
+              >
+                <span aria-hidden="true">X</span>
+              </button>
+              <div
+                id="workspace-blondie-time-picker"
+                class="workspace-blondie-time-picker"
+                role="dialog"
+                aria-modal="false"
+                aria-label="Set Blondie Time repeat interval"
+                hidden
+              >
+                <p class="workspace-blondie-time-picker-title">Choose a monitoring interval</p>
+                <p class="workspace-blondie-time-picker-subtitle">
+                  Click uses your Slack DM. Shift-click seeds pass-transition delivery before GO.
+                </p>
+                <div class="workspace-blondie-time-chip-row" role="group" aria-label="Repeat interval">
+                  <button type="button" class="workspace-blondie-time-chip" data-minutes="2" aria-label="Repeat every 2 minutes">2m</button>
+                  <button type="button" class="workspace-blondie-time-chip" data-minutes="5" aria-label="Repeat every 5 minutes">5m</button>
+                  <button type="button" class="workspace-blondie-time-chip" data-minutes="10" aria-label="Repeat every 10 minutes">10m</button>
+                  <button type="button" class="workspace-blondie-time-chip" data-minutes="15" aria-label="Repeat every 15 minutes">15m</button>
+                </div>
+              </div>
+            </div>
+            <div class="workspace-title-copy">
+              <p id="workspace-controller-state" class="workspace-controller-state">
+                Blondie Time Workspace is waiting for the UnderPAR side panel controller...
+              </p>
+              <p id="workspace-filter-state" class="workspace-filter-state"></p>
+              <div class="bt-controller-meta">
+                <span id="page-env-badge" class="page-env-badge" aria-label="Data Environment" title="Data Environment">
+                  <span class="page-env-badge-prefix">ENV</span>
+                  <span class="page-env-badge-sep">|</span>
+                  <span id="page-env-badge-value" class="page-env-badge-value"></span>
+                </span>
+                <p id="bt-monitor-title" class="bt-monitor-title">BT_WS idle</p>
+              </div>
+              <p id="bt-monitor-subtitle" class="bt-monitor-subtitle">
+                Launch Blondie Time from the ESM Workspace to begin live threshold monitoring.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="bt-controller-controls">
+          <div class="bt-threshold-grid" role="group" aria-label="Threshold setters">
+            <label class="spectrum-Field bt-threshold-field">
+              <span class="spectrum-FieldLabel bt-field-label">Min AuthN</span>
+              <input
+                id="bt-threshold-min-authn"
+                class="spectrum-Textfield bt-textfield"
+                type="number"
+                min="0"
+                step="1"
+                inputmode="numeric"
+              />
+            </label>
+            <label class="spectrum-Field bt-threshold-field">
+              <span class="spectrum-FieldLabel bt-field-label">AuthN Floor %</span>
+              <input
+                id="bt-threshold-authn"
+                class="spectrum-Textfield bt-textfield"
+                type="number"
+                min="0"
+                step="0.1"
+                inputmode="decimal"
+              />
+            </label>
+            <label class="spectrum-Field bt-threshold-field">
+              <span class="spectrum-FieldLabel bt-field-label">AuthZ Floor %</span>
+              <input
+                id="bt-threshold-authz"
+                class="spectrum-Textfield bt-textfield"
+                type="number"
+                min="0"
+                step="0.1"
+                inputmode="decimal"
+              />
+            </label>
+            <label class="spectrum-Field bt-threshold-field">
+              <span class="spectrum-FieldLabel bt-field-label">Latency ms</span>
+              <input
+                id="bt-threshold-latency"
+                class="spectrum-Textfield bt-textfield"
+                type="number"
+                min="0"
+                step="1"
+                inputmode="numeric"
+              />
+            </label>
+          </div>
+
+          <div class="bt-toolbar-actions">
+            <button
+              id="bt-refresh-now"
+              class="spectrum-Button spectrum-Button--secondary bt-action-btn"
+              type="button"
+              title="Re-run all BT analysis tables without sending Slack output"
+              aria-label="Re-run all BT analysis tables without sending Slack output"
+            >
+              <span class="spectrum-Button-label">Refresh</span>
+            </button>
+            <button
+              id="bt-session-report-toggle"
+              class="spectrum-Button spectrum-Button--primary bt-action-btn bt-action-btn--hero"
+              type="button"
+              title="Open the BT monitoring session summary"
+              aria-label="Open the BT monitoring session summary"
+            >
+              <span class="spectrum-Button-label">Monitoring Session</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section id="bt-summary-strip" class="bt-summary-strip" aria-label="BT monitoring summary"></section>
+      <p id="workspace-status" class="workspace-status" aria-live="polite"></p>
+      <section id="workspace-cards" class="workspace-cards bt-cards"></section>
+      <section id="bt-monitoring-stop-zone" class="bt-monitoring-stop-zone" hidden>
+        <button
+          id="bt-monitoring-stop-button"
+          class="spectrum-Button spectrum-Button--negative bt-monitoring-stop-button"
+          type="button"
+          title="Stop Blondie Time and end this monitoring shift"
+          aria-label="Stop Blondie Time and end this monitoring shift"
+        >
+          <span class="spectrum-Button-label">STOP Monitoring Shift</span>
+        </button>
+        <aside id="bt-session-panel" class="bt-session-panel" hidden>
+          <div class="bt-session-panel-head">
+            <div>
+              <p class="bt-session-panel-kicker">Monitoring Session</p>
+              <h2 class="bt-session-panel-title">BT monitoring session summary</h2>
+            </div>
+          </div>
+          <div id="bt-session-panel-body" class="bt-session-panel-body"></div>
+          <div class="bt-export-actions" role="group" aria-label="Monitoring session export">
+            <button class="spectrum-Button spectrum-Button--primary bt-export-btn" type="button" data-export-format="report">
+              <span class="spectrum-Button-label">Export Report</span>
+            </button>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="underpar-environment.js"></script>
+    <script src="underpar-blondie-share-picker.js"></script>
+    <script src="blondie-time-logic.js"></script>
+    <script src="blondie-time-workspace.js"></script>
+  </body>
+</html>

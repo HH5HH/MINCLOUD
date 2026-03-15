@@ -75,6 +75,7 @@ const UNDERPAR_ESM_DEEPLINK_CONTROLLER_PATH = "sidepanel.html";
 const UNDERPAR_ESM_NODE_PATH_PREFIX = "/esm/v3/media-company";
 const UNDERPAR_ESM_DEEPLINK_MARKER_PARAM = "underpar_deeplink";
 const UNDERPAR_ESM_DEEPLINK_MARKER_VALUE = "esm";
+const UNDERPAR_BT_DEEPLINK_MARKER_VALUE = "bt";
 const UNDERPAR_CM_DEEPLINK_MARKER_VALUE = "cm";
 const UNDERPAR_DEGRADATION_DEEPLINK_MARKER_VALUE = "degradation";
 const UNDERPAR_BLONDIE_ZIP_TOOL_BETA_ARTICLE_URL = "https://tve.zendesk.com/hc/en-us/articles/46503360732436-ZIP-TOOL-beta";
@@ -3247,10 +3248,11 @@ function normalizeUnderparBlondieExportPayload(input = null) {
         .filter((row) => Array.isArray(row) && row.length > 0)
     : [];
   const reportItems = normalizeReportItems(source.reportItems);
-  const messageOnly = source.messageOnly === true || source.skipCsvAttachment === true || reportItems.length > 0;
-  if ((columns.length === 0 || rows.length === 0) && !messageOnly) {
+  const hasTabularData = columns.length > 0 && rows.length > 0;
+  if (!hasTabularData && reportItems.length === 0) {
     return null;
   }
+  const messageOnly = source.messageOnly === true || source.skipCsvAttachment === true || !hasTabularData;
   const workspaceKey = String(source.workspaceKey || "").trim().toLowerCase() || "workspace";
   const requestUrl = String(source.requestUrl || "").trim();
   return {
@@ -3352,6 +3354,10 @@ function getUnderparBlondieHeaderContextLabel(payload = null) {
 function buildUnderparBlondieHeaderLine(payload = null) {
   const workspaceLabel = String(payload?.workspaceLabel || payload?.workspaceKey || "Workspace").trim() || "Workspace";
   const contextLabel = getUnderparBlondieHeaderContextLabel(payload);
+  if (String(payload?.workspaceKey || "").trim().toLowerCase() === "bt") {
+    const heading = contextLabel ? `${workspaceLabel} Results: ${contextLabel}` : `${workspaceLabel} Results`;
+    return `*${escapeUnderparSlackMrkdwn(heading)}*`;
+  }
   const contextKind = underparBlondiePayloadHasMessageContent(payload) ? "Results" : "Query";
   const heading = contextLabel
     ? `${workspaceLabel} ${contextKind} "${contextLabel}"`
@@ -3678,6 +3684,22 @@ function buildUnderparCmBlondieDeeplinkUrl(exportPayload = null) {
   return url.toString();
 }
 
+function buildUnderparBtBlondieDeeplinkUrl(exportPayload = null) {
+  const payload = normalizeUnderparBlondieExportPayload(exportPayload);
+  if (!payload || payload.workspaceKey !== "bt") {
+    return "";
+  }
+  const url = buildUnderparWorkspaceBlondieDeeplinkBaseUrl(UNDERPAR_BT_DEEPLINK_MARKER_VALUE);
+  if (!url) {
+    return "";
+  }
+  const params = new URLSearchParams(url.search);
+  params.set("source", "blondie-time");
+  params.set("createdAt", String(Date.now()));
+  url.search = params.toString();
+  return url.toString();
+}
+
 function escapeUnderparSlackMrkdwn(value = "") {
   return String(value == null ? "" : value)
     .replaceAll("&", "&amp;")
@@ -3853,6 +3875,9 @@ function buildUnderparBlondieWorkspaceDeeplinkUrl(exportPayload = null) {
   if (!payload) {
     return "";
   }
+  if (payload.workspaceKey === "bt") {
+    return buildUnderparBtBlondieDeeplinkUrl(payload);
+  }
   if (payload.workspaceKey === "esm") {
     return buildUnderparEsmBlondieDeeplinkUrl(payload);
   }
@@ -3932,22 +3957,7 @@ function buildUnderparDegradationBlondieMarkdown(payload = null) {
     headerLines.push(`Request: ${escapeUnderparSlackMrkdwn(requestLineValue)}`);
   }
 
-  const reportLines = normalizedPayload.reportItems
-    .map((item) => {
-      const title = escapeUnderparSlackMrkdwn(String(item?.title || "").trim());
-      const summary = escapeUnderparSlackMrkdwn(String(item?.summary || "").trim());
-      if (!title && !summary) {
-        return "";
-      }
-      if (!summary) {
-        return `• ${title}`;
-      }
-      if (!title) {
-        return `• ${summary}`;
-      }
-      return `• ${title}: ${summary}`;
-    })
-    .filter(Boolean);
+  const reportLines = buildUnderparBlondieReportLines(normalizedPayload.reportItems);
   const resultsCountLine = `Results :  ${Math.max(0, Number(normalizedPayload.reportCount || normalizedPayload.reportItems.length || 0))}`;
   const responseReceivedLabel = formatUnderparDegradationReceiptTimestamp(normalizedPayload.responseReceivedAt);
   const receiptTimestampLine = responseReceivedLabel ? `Response Received: ${escapeUnderparSlackMrkdwn(responseReceivedLabel)}` : "";
@@ -3974,13 +3984,39 @@ function buildUnderparBlondieMarkdown(exportPayload = null) {
   const requestLineValue = formatUnderparBlondieHeaderRequestValue(payload);
   const workspaceDeeplinkUrl = buildUnderparBlondieWorkspaceDeeplinkUrl(payload);
   const headerLines = [buildUnderparBlondieHeaderLine(payload)];
-  if (requestLineValue) {
+  if (payload.workspaceKey !== "bt" && requestLineValue) {
     headerLines.push(`• Request: ${escapeUnderparSlackMrkdwn(requestLineValue)}`);
   }
   headerLines.push(`• Rows: ${Math.max(0, Number(payload.rowCount || 0))}`);
+  const reportLines = buildUnderparBlondieReportLines(payload.reportItems);
 
   const signatureLine = buildUnderparBlondieSignatureLine(payload, workspaceDeeplinkUrl);
-  return headerLines.concat(["", signatureLine]).join("\n").trim().slice(0, UNDERPAR_BLONDIE_EXPORT_MAX_MESSAGE_CHARS);
+  return headerLines
+    .concat(reportLines.length > 0 ? ["", ...reportLines] : [])
+    .concat(["", signatureLine])
+    .join("\n")
+    .trim()
+    .slice(0, UNDERPAR_BLONDIE_EXPORT_MAX_MESSAGE_CHARS);
+}
+
+function buildUnderparBlondieReportLines(reportItems = []) {
+  return (Array.isArray(reportItems) ? reportItems : []).flatMap((item) => {
+    const title = escapeUnderparSlackMrkdwn(String(item?.title || "").trim());
+    const summaryLines = String(item?.summary || "")
+      .split(/\r?\n/g)
+      .map((line) => escapeUnderparSlackMrkdwn(String(line || "").trim()))
+      .filter(Boolean);
+    if (!title && summaryLines.length === 0) {
+      return [];
+    }
+    if (!title) {
+      return summaryLines.map((line) => `• ${line}`);
+    }
+    if (summaryLines.length === 0) {
+      return [`*${title}:*`];
+    }
+    return [`*${title}:*`].concat(summaryLines.map((line) => `• ${line}`));
+  });
 }
 
 function applyUnderparBlondieDeliveryEnvelope(markdownText = "", record = null, deliveryTarget = null, noteText = "") {
@@ -9086,6 +9122,8 @@ const ESM_WORKSPACE_LOCAL_FILTER_DIMENSION_KEYS = new Set([
 const ESM_WORKSPACE_WORKSPACE_PATH = "esm-workspace.html";
 const ESM_WORKSPACE_MESSAGE_TYPE = "underpar:esm-workspace";
 const LEGACY_ESM_WORKSPACE_MESSAGE_TYPE = "mincloud:esm-workspace";
+const BLONDIE_TIME_WORKSPACE_PATH = "blondie-time-workspace.html";
+const BLONDIE_TIME_WORKSPACE_MESSAGE_TYPE = "underpar:blondie-time-workspace";
 const MEG_WORKSPACE_PATH = "meg-workspace.html";
 const MEG_WORKSPACE_STYLESHEET_PATH = "meg-workspace.css";
 const MEG_WORKSPACE_RUNTIME_PATH = "meg-workspace.js";
@@ -9111,6 +9149,7 @@ const BOBTOOLS_WORKSPACE_MESSAGE_TYPE = "underpar:bobtools-workspace";
 const LEGACY_BOBTOOLS_WORKSPACE_MESSAGE_TYPE = "mincloud:bobtools-workspace";
 const UNDERPAR_WORKSPACE_PATHS = Object.freeze([
   ESM_WORKSPACE_WORKSPACE_PATH,
+  BLONDIE_TIME_WORKSPACE_PATH,
   MEG_WORKSPACE_PATH,
   CM_WORKSPACE_PATH,
   MVPD_WORKSPACE_PATH,
@@ -9137,6 +9176,7 @@ const REST_V2_SPLUNK_INLINE_MAX_ROWS = 80;
 const REST_V2_SPLUNK_INLINE_MAX_COLUMNS = 14;
 const ESM_SOURCE_UTC_OFFSET_MINUTES = -8 * 60;
 const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+const BLONDIE_TIME_LOGIC = globalThis.UnderParBlondieTimeLogic || null;
 const CM_CONFIG_BASE_URL = "https://config.adobeprimetime.com";
 const CM_REPORTS_BASE_URL = "https://cm-reports.adobeprimetime.com";
 const CM_DEFAULT_TENANT_ORG_HINT = "adobe";
@@ -9724,6 +9764,7 @@ const LOGIN_HELPER_RESULT_MESSAGE_TYPES = new Set([
   LEGACY_LOGIN_HELPER_RESULT_MESSAGE_TYPE,
 ]);
 const ESM_WORKSPACE_MESSAGE_TYPES = new Set([ESM_WORKSPACE_MESSAGE_TYPE, LEGACY_ESM_WORKSPACE_MESSAGE_TYPE]);
+const BLONDIE_TIME_WORKSPACE_MESSAGE_TYPES = new Set([BLONDIE_TIME_WORKSPACE_MESSAGE_TYPE]);
 const MEG_WORKSPACE_MESSAGE_TYPES = new Set([MEG_WORKSPACE_MESSAGE_TYPE, LEGACY_MEG_WORKSPACE_MESSAGE_TYPE]);
 const MVPD_WORKSPACE_MESSAGE_TYPES = new Set([MVPD_WORKSPACE_MESSAGE_TYPE, LEGACY_MVPD_WORKSPACE_MESSAGE_TYPE]);
 const REST_WORKSPACE_MESSAGE_TYPES = new Set([REST_WORKSPACE_MESSAGE_TYPE, LEGACY_REST_WORKSPACE_MESSAGE_TYPE]);
@@ -9903,6 +9944,11 @@ const state = {
   esmWorkspaceControllerStateVersion: 0,
   esmWorkspaceRuntimeListenerBound: false,
   esmWorkspaceWorkspaceTabWatcherBound: false,
+  blondieTimeWorkspaceTabId: 0,
+  blondieTimeWorkspaceWindowId: 0,
+  blondieTimeWorkspaceTabIdByWindowId: new Map(),
+  blondieTimeWorkspaceRuntimeListenerBound: false,
+  blondieTimeWorkspaceTabWatcherBound: false,
   megWorkspaceTabId: 0,
   megWorkspaceWindowId: 0,
   megWorkspaceTabIdByWindowId: new Map(),
@@ -26827,6 +26873,54 @@ function esmWorkspaceGetBoundWorkspaceTabId(windowId) {
   return Number(state.esmWorkspaceWorkspaceTabId || 0);
 }
 
+function blondieTimeWorkspaceGetWorkspaceUrl() {
+  return chrome.runtime.getURL(BLONDIE_TIME_WORKSPACE_PATH);
+}
+
+function blondieTimeWorkspaceIsWorkspaceTab(tabLike) {
+  return String(tabLike?.url || "").startsWith(blondieTimeWorkspaceGetWorkspaceUrl());
+}
+
+function blondieTimeWorkspaceBindWorkspaceTab(windowId, tabId) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId > 0 && normalizedTabId > 0) {
+    state.blondieTimeWorkspaceTabIdByWindowId.set(normalizedWindowId, normalizedTabId);
+  }
+  if (normalizedWindowId > 0) {
+    state.blondieTimeWorkspaceWindowId = normalizedWindowId;
+  }
+  if (normalizedTabId > 0) {
+    state.blondieTimeWorkspaceTabId = normalizedTabId;
+  }
+}
+
+function blondieTimeWorkspaceUnbindWorkspaceTab(tabId) {
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedTabId > 0) {
+    for (const [windowId, mappedTabId] of state.blondieTimeWorkspaceTabIdByWindowId.entries()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        state.blondieTimeWorkspaceTabIdByWindowId.delete(windowId);
+      }
+    }
+  }
+  if (!normalizedTabId || Number(state.blondieTimeWorkspaceTabId || 0) === normalizedTabId) {
+    state.blondieTimeWorkspaceTabId = 0;
+    state.blondieTimeWorkspaceWindowId = 0;
+  }
+}
+
+function blondieTimeWorkspaceGetBoundWorkspaceTabId(windowId) {
+  const normalizedWindowId = Number(windowId || 0);
+  if (normalizedWindowId > 0) {
+    const mapped = Number(state.blondieTimeWorkspaceTabIdByWindowId.get(normalizedWindowId) || 0);
+    if (mapped > 0) {
+      return mapped;
+    }
+  }
+  return Number(state.blondieTimeWorkspaceTabId || 0);
+}
+
 function megWorkspaceGetWorkspaceUrl() {
   return chrome.runtime.getURL(MEG_WORKSPACE_PATH);
 }
@@ -27449,6 +27543,7 @@ function esmWorkspaceBroadcastSelectedControllerState(programmer = null, service
   void esmWorkspaceSendWorkspaceMessage("controller-state", payload, {
     targetWindowId: resolvedWindowId,
   });
+  blondieTimeWorkspaceBroadcastSelectedControllerState(programmer, services, 0, options);
   megWorkspaceBroadcastSelectedControllerState(programmer, services, 0, options);
 }
 
@@ -27546,6 +27641,7 @@ function esmWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId 
   void esmWorkspaceSendWorkspaceMessage("controller-state", payload, {
     targetWindowId: resolvedWindowId,
   });
+  blondieTimeWorkspaceBroadcastControllerState(esmWorkspaceState);
   megWorkspaceBroadcastControllerState(esmWorkspaceState);
 }
 
@@ -27596,6 +27692,110 @@ async function esmWorkspaceEnsureWorkspaceTab(options = {}) {
   }
 
   esmWorkspaceBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+  return workspaceTab;
+}
+
+async function blondieTimeWorkspaceSendWorkspaceMessage(event, payload = {}, options = {}) {
+  const targetWindowId = Number(options.targetWindowId || 0);
+  try {
+    const message = {
+      type: BLONDIE_TIME_WORKSPACE_MESSAGE_TYPE,
+      channel: "workspace-event",
+      event: String(event || ""),
+      payload,
+    };
+    if (targetWindowId > 0) {
+      message.targetWindowId = targetWindowId;
+    }
+    await chrome.runtime.sendMessage(message);
+  } catch {
+    // Ignore when no workspace listener is active.
+  }
+}
+
+function blondieTimeWorkspaceBroadcastSelectedControllerState(programmer = null, services = null, targetWindowId = 0, options = {}) {
+  const targetWindowIds = targetWindowId > 0
+    ? [Number(targetWindowId)]
+    : collectBoundWorkspaceWindowIds(state.blondieTimeWorkspaceWindowId, state.blondieTimeWorkspaceTabIdByWindowId);
+  if (targetWindowIds.length === 0) {
+    return;
+  }
+  const payload = esmWorkspaceGetSelectedControllerStatePayload(programmer, services, options);
+  for (const resolvedWindowId of targetWindowIds) {
+    void blondieTimeWorkspaceSendWorkspaceMessage("controller-state", payload, {
+      targetWindowId: resolvedWindowId,
+    });
+  }
+}
+
+function blondieTimeWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId = 0) {
+  if (!esmWorkspaceState) {
+    return;
+  }
+  const targetWindowIds = targetWindowId > 0
+    ? [Number(targetWindowId)]
+    : collectBoundWorkspaceWindowIds(state.blondieTimeWorkspaceWindowId, state.blondieTimeWorkspaceTabIdByWindowId);
+  if (targetWindowIds.length === 0) {
+    return;
+  }
+  const payload = esmWorkspaceGetControllerStatePayload(esmWorkspaceState);
+  for (const resolvedWindowId of targetWindowIds) {
+    void blondieTimeWorkspaceSendWorkspaceMessage("controller-state", payload, {
+      targetWindowId: resolvedWindowId,
+    });
+  }
+}
+
+async function blondieTimeWorkspaceEnsureWorkspaceTab(options = {}) {
+  const shouldActivate = options.activate !== false;
+  const requestedWindowId = Number(options.windowId || 0);
+  const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await esmWorkspaceGetCurrentWindowId();
+  const useWindowFilter = targetWindowId > 0;
+  let workspaceTab = null;
+
+  const boundTabId = blondieTimeWorkspaceGetBoundWorkspaceTabId(targetWindowId);
+  if (boundTabId > 0) {
+    try {
+      const existing = await chrome.tabs.get(boundTabId);
+      if (
+        blondieTimeWorkspaceIsWorkspaceTab(existing) &&
+        (!useWindowFilter || Number(existing.windowId || 0) === targetWindowId)
+      ) {
+        workspaceTab = existing;
+      }
+    } catch {
+      blondieTimeWorkspaceUnbindWorkspaceTab(boundTabId);
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    try {
+      const allTabs = await chrome.tabs.query(useWindowFilter ? { windowId: targetWindowId } : { currentWindow: true });
+      workspaceTab = allTabs.find((tab) => blondieTimeWorkspaceIsWorkspaceTab(tab)) || null;
+    } catch {
+      workspaceTab = null;
+    }
+  }
+
+  if (!workspaceTab) {
+    workspaceTab = await chrome.tabs.create({
+      url: blondieTimeWorkspaceGetWorkspaceUrl(),
+      active: shouldActivate,
+      ...(useWindowFilter ? { windowId: targetWindowId } : {}),
+    });
+  } else if (shouldActivate && workspaceTab.id) {
+    try {
+      workspaceTab = await chrome.tabs.update(workspaceTab.id, { active: true });
+      if (Number(workspaceTab?.windowId || 0) > 0) {
+        await chrome.windows.update(Number(workspaceTab.windowId), { focused: true });
+      }
+    } catch {
+      // Ignore activation failures; workspace may still be available.
+    }
+  }
+
+  blondieTimeWorkspaceBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
   return workspaceTab;
 }
 
@@ -28491,6 +28691,60 @@ function esmWorkspaceNormalizeRunRequestUrlOverride(endpointUrl, requestUrlOverr
   }
 }
 
+function buildBlondieTimeEsmRequestUrlOverride(card = null, intervalMinutes = 0, options = {}) {
+  const normalizedIntervalMinutes = Math.max(0, Number(intervalMinutes || 0));
+  if (normalizedIntervalMinutes <= 0 || !BLONDIE_TIME_LOGIC?.buildLegacyEsmIntervalRequestUrl) {
+    return "";
+  }
+  const sourceCard = card && typeof card === "object" ? card : {};
+  const sourceRequestUrl = firstNonEmptyString([
+    String(sourceCard.seedRequestUrl || "").trim(),
+    String(sourceCard.seedEndpointUrl || "").trim(),
+    String(sourceCard.requestUrl || "").trim(),
+    String(sourceCard.endpointUrl || "").trim(),
+  ]);
+  if (!sourceRequestUrl) {
+    return "";
+  }
+  const overriddenUrl = BLONDIE_TIME_LOGIC.buildLegacyEsmIntervalRequestUrl(sourceRequestUrl, normalizedIntervalMinutes, {
+    nowMs: Number(options?.nowMs || Date.now()),
+    format: "json",
+    limitCap: Number(BLONDIE_TIME_LOGIC.DEFAULT_ESM_QUERY_LIMIT || 1000),
+  });
+  return esmWorkspaceNormalizeRunRequestUrlOverride(
+    String(sourceCard.endpointUrl || sourceRequestUrl).trim(),
+    overriddenUrl
+  );
+}
+
+function buildBlondieTimeEsmSessionRequestUrlOverride(card = null, sessionWindow = null, options = {}) {
+  if (!BLONDIE_TIME_LOGIC?.buildLegacyEsmWindowRequestUrl) {
+    return "";
+  }
+  const sourceCard = card && typeof card === "object" ? card : {};
+  const sourceRequestUrl = firstNonEmptyString([
+    String(sourceCard.seedRequestUrl || "").trim(),
+    String(sourceCard.seedEndpointUrl || "").trim(),
+    String(sourceCard.requestUrl || "").trim(),
+    String(sourceCard.endpointUrl || "").trim(),
+  ]);
+  if (!sourceRequestUrl) {
+    return "";
+  }
+  const overriddenUrl = BLONDIE_TIME_LOGIC.buildLegacyEsmWindowRequestUrl(
+    sourceRequestUrl,
+    sessionWindow && typeof sessionWindow === "object" ? sessionWindow : {},
+    {
+      format: "json",
+      limitCap: Number(options?.limitCap || BLONDIE_TIME_LOGIC.DEFAULT_ESM_QUERY_LIMIT || 1000),
+    }
+  );
+  return esmWorkspaceNormalizeRunRequestUrlOverride(
+    String(sourceCard.endpointUrl || sourceRequestUrl).trim(),
+    overriddenUrl
+  );
+}
+
 function esmWorkspaceNormalizeLocalColumnFilters(rawFilters) {
   const output = {};
   const appendValues = (columnName, values) => {
@@ -28877,10 +29131,13 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
   const runId = generateRequestId();
   const requestSource = String(options.requestSource || "").trim().toLowerCase();
   const requestUrlOverride = esmWorkspaceNormalizeRunRequestUrlOverride(normalizedEndpoint.url, options.requestUrlOverride);
+  const workspaceMessageSender =
+    typeof options.workspaceMessageSender === "function" ? options.workspaceMessageSender : esmWorkspaceSendWorkspaceMessage;
+  const defaultWorkspaceWindowId = Number(options.defaultWorkspaceWindowId || 0) || Number(state.esmWorkspaceWorkspaceWindowId || 0);
   const targetWindowId =
     Number(options.targetWindowId || 0) ||
     Number(esmWorkspaceState?.controllerWindowId || 0) ||
-    Number(state.esmWorkspaceWorkspaceWindowId || 0);
+    defaultWorkspaceWindowId;
   const sanitizedSeedEndpointUrl = stripMegWorkspaceMediaCompanyQueryParam(String(options.seedEndpointUrl || "").trim());
   const sanitizedSeedRequestUrl = stripMegWorkspaceMediaCompanyQueryParam(String(options.seedRequestUrl || "").trim());
   const originCardKey = esmWorkspaceBuildOriginCardKey(normalizedEndpoint, {
@@ -29010,7 +29267,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
       requestUrl,
       requestSource: String(requestSource || "tree"),
     });
-    await esmWorkspaceSendWorkspaceMessage("report-start", {
+    await workspaceMessageSender("report-start", {
       ...reportMeta,
       requestSource: String(requestSource || "tree"),
       startedAt: Date.now(),
@@ -29020,7 +29277,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
   }
 
   if (!isEsmServiceRequestActive(esmWorkspaceState.section, requestToken, esmWorkspaceState.programmer?.programmerId)) {
-    void esmWorkspaceSendWorkspaceMessage(
+    void workspaceMessageSender(
       "report-result",
       {
         ...reportMeta,
@@ -29056,7 +29313,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
       endpointUrl: normalizedEndpoint.url,
       error: error instanceof Error ? error.message : String(error),
     });
-    void esmWorkspaceSendWorkspaceMessage("report-result", {
+    void workspaceMessageSender("report-result", {
       ...reportMeta,
       ok: false,
       error: error instanceof Error ? error.message : String(error),
@@ -29069,7 +29326,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
   }
 
   if (!isEsmServiceRequestActive(esmWorkspaceState.section, requestToken, esmWorkspaceState.programmer?.programmerId)) {
-    void esmWorkspaceSendWorkspaceMessage(
+    void workspaceMessageSender(
       "report-result",
       {
         ...reportMeta,
@@ -29096,7 +29353,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
       statusText: String(response.statusText || ""),
       responsePreview: truncateDebugText(bodyText, 2000),
     });
-    void esmWorkspaceSendWorkspaceMessage("report-result", {
+    void workspaceMessageSender("report-result", {
       ...reportMeta,
       ok: false,
       error: `HTTP ${response.status} ${normalizeHttpErrorMessage(bodyText) || response.statusText || "Request failed"}`,
@@ -29127,7 +29384,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
       error: "Response was not valid JSON.",
       responsePreview: truncateDebugText(bodyText, 2000),
     });
-    void esmWorkspaceSendWorkspaceMessage("report-result", {
+    void workspaceMessageSender("report-result", {
       ...reportMeta,
       ok: false,
       error: bodyText.trim(),
@@ -29149,7 +29406,7 @@ async function esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, c
     noData: filteredRows.length === 0,
     lastModified: response.headers.get("Last-Modified") || response.headers.get("Date") || "",
   });
-  void esmWorkspaceSendWorkspaceMessage("report-result", {
+  void workspaceMessageSender("report-result", {
     ...reportMeta,
     ok: true,
     rows: filteredRows,
@@ -30765,6 +31022,302 @@ async function handleEsmWorkspaceWorkspaceAction(message, sender = null) {
   return { ok: false, error: `Unsupported workspace action: ${action}` };
 }
 
+async function handleBlondieTimeWorkspaceAction(message, sender = null) {
+  const action = String(message?.action || "").trim().toLowerCase();
+  let esmWorkspaceState = getActiveEsmWorkspaceState();
+  const senderWindowId = Number(sender?.tab?.windowId || 0);
+  const senderTabId = Number(sender?.tab?.id || 0);
+  const controllerWindowId = esmWorkspaceState
+    ? Number(esmWorkspaceState.controllerWindowId || state.blondieTimeWorkspaceWindowId || 0)
+    : Number(state.blondieTimeWorkspaceWindowId || 0);
+  const mappedSenderTabId =
+    senderWindowId > 0 ? Number(state.blondieTimeWorkspaceTabIdByWindowId.get(senderWindowId) || 0) : 0;
+
+  if (senderWindowId > 0 && controllerWindowId > 0 && senderWindowId !== controllerWindowId) {
+    return { ok: false, error: "BT_WS controller is attached to a different window." };
+  }
+  if (senderWindowId > 0 && senderTabId > 0 && mappedSenderTabId > 0 && senderTabId !== mappedSenderTabId) {
+    return { ok: false, error: "This is not the bound Blondie Time Workspace tab for the window." };
+  }
+  if (senderWindowId > 0 && senderTabId > 0 && (!mappedSenderTabId || mappedSenderTabId <= 0)) {
+    blondieTimeWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
+  }
+  if (action === "workspace-ready") {
+    if (!esmWorkspaceState) {
+      esmWorkspaceState = await resolveEsmStateForWorkspaceAction({
+        controllerWindowId: senderWindowId || Number(state.blondieTimeWorkspaceWindowId || 0),
+        reason: "bt-workspace-ready",
+      }).catch(() => null);
+    }
+    if (esmWorkspaceState) {
+      if (senderWindowId > 0) {
+        blondieTimeWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
+      }
+      blondieTimeWorkspaceBroadcastControllerState(esmWorkspaceState, senderWindowId);
+    } else {
+      const selectedProgrammer = resolveSelectedProgrammer();
+      const selectedServices = selectedProgrammer?.programmerId
+        ? getCurrentPremiumAppsSnapshot(selectedProgrammer.programmerId)
+        : null;
+      blondieTimeWorkspaceBroadcastSelectedControllerState(selectedProgrammer, selectedServices, senderWindowId);
+    }
+    return { ok: true, controllerOnline: Boolean(esmWorkspaceState) };
+  }
+
+  if (!esmWorkspaceState) {
+    esmWorkspaceState = await resolveEsmStateForWorkspaceAction({
+      controllerWindowId: senderWindowId || Number(state.blondieTimeWorkspaceWindowId || 0),
+      reason: action || "bt-workspace-action",
+    }).catch(() => null);
+  }
+
+  if (!esmWorkspaceState) {
+    return { ok: false, error: "Select a media company with ESM access to run BT_WS analysis." };
+  }
+
+  const requestToken = Number(state.premiumPanelRequestToken || 0);
+  if (!isEsmServiceRequestActive(esmWorkspaceState.section, requestToken, esmWorkspaceState.programmer?.programmerId)) {
+    return { ok: false, error: "ESM controller is no longer active for the selected media company." };
+  }
+
+  if (action === "rerun-all") {
+    const cards = Array.isArray(message?.cards) ? message.cards : [];
+    const reason = String(message?.reason || "").trim();
+    const intervalMinutes = Math.max(0, Number(message?.intervalMinutes || 0));
+    const requestedAt = Math.max(0, Number(message?.requestedAt || Date.now())) || Date.now();
+    const targetWindowId = senderWindowId || Number(esmWorkspaceState.controllerWindowId || state.blondieTimeWorkspaceWindowId || 0);
+    void blondieTimeWorkspaceSendWorkspaceMessage(
+      "batch-start",
+      {
+        total: cards.length,
+        reason,
+        startedAt: Date.now(),
+      },
+      { targetWindowId }
+    );
+    try {
+      for (const card of cards) {
+        const endpoint = esmWorkspaceFindEndpointByUrl(esmWorkspaceState, card?.endpointUrl, card || {});
+        if (!endpoint) {
+          continue;
+        }
+        const requestUrlOverride = buildBlondieTimeEsmRequestUrlOverride(card, intervalMinutes, {
+          nowMs: requestedAt,
+        });
+        await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, String(card?.cardId || generateRequestId()), requestToken, {
+          emitStart: true,
+          requestSource: "workspace",
+          targetWindowId,
+          defaultWorkspaceWindowId: state.blondieTimeWorkspaceWindowId,
+          workspaceMessageSender: blondieTimeWorkspaceSendWorkspaceMessage,
+          requestUrlOverride,
+          skipOriginLookup: true,
+          originCardKey: card?.originCardKey,
+          presetLocalFilterBootstrapPending: card?.presetLocalFilterBootstrapPending === true,
+          seedEndpointUrl: card?.seedEndpointUrl,
+          seedRequestUrl: card?.seedRequestUrl,
+          seedLocalColumnFilters: card?.seedLocalColumnFilters,
+          seedLocalColumnExclusions: card?.seedLocalColumnExclusions,
+          seedPresetLocalFilterBootstrapPending: card?.seedPresetLocalFilterBootstrapPending === true,
+          localColumnFilters: card?.localColumnFilters,
+          localColumnExclusions: card?.localColumnExclusions,
+          displayNodeLabel: String(card?.displayNodeLabel || "").trim(),
+        });
+      }
+    } finally {
+      void blondieTimeWorkspaceSendWorkspaceMessage(
+        "batch-end",
+        {
+          total: cards.length,
+          reason,
+          completedAt: Date.now(),
+        },
+        { targetWindowId }
+      );
+    }
+    return { ok: true };
+  }
+
+  if (action === "send-to-esm-workspace") {
+    const card = message?.card && typeof message.card === "object" ? message.card : {};
+    const endpoint = esmWorkspaceFindEndpointByUrl(esmWorkspaceState, card?.endpointUrl, card);
+    if (!endpoint) {
+      return { ok: false, error: "Endpoint URL is required." };
+    }
+    const workspaceTab = await esmWorkspaceEnsureWorkspaceTab({
+      activate: true,
+      windowId: senderWindowId || Number(esmWorkspaceState.controllerWindowId || 0),
+    });
+    const targetWindowId = Number(workspaceTab?.windowId || senderWindowId || esmWorkspaceState.controllerWindowId || state.esmWorkspaceWorkspaceWindowId || 0);
+    esmWorkspaceBroadcastControllerState(esmWorkspaceState, targetWindowId);
+    await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, String(card?.cardId || generateRequestId()), requestToken, {
+      emitStart: true,
+      requestSource: "workspace",
+      targetWindowId,
+      originCardKey: card?.originCardKey,
+      presetLocalFilterBootstrapPending: card?.presetLocalFilterBootstrapPending === true,
+      seedEndpointUrl: card?.seedEndpointUrl,
+      seedRequestUrl: card?.seedRequestUrl,
+      seedLocalColumnFilters: card?.seedLocalColumnFilters,
+      seedLocalColumnExclusions: card?.seedLocalColumnExclusions,
+      seedPresetLocalFilterBootstrapPending: card?.seedPresetLocalFilterBootstrapPending === true,
+      localColumnFilters: card?.localColumnFilters,
+      localColumnExclusions: card?.localColumnExclusions,
+      displayNodeLabel: String(card?.displayNodeLabel || "").trim(),
+    });
+    return { ok: true };
+  }
+
+  if (action === "export-session-csv") {
+    const cards = Array.isArray(message?.cards) ? message.cards : [];
+    const sessionWindow = message?.sessionWindow && typeof message.sessionWindow === "object" ? message.sessionWindow : {};
+    const requestWindowStart = String(sessionWindow.start || "").trim();
+    const requestWindowEnd = String(sessionWindow.end || "").trim();
+    if (!requestWindowStart || !requestWindowEnd) {
+      return { ok: false, error: "A BT monitoring session window is required for full CSV export." };
+    }
+    if (cards.length === 0) {
+      return { ok: false, error: "No BT analysis tables were available for full CSV export." };
+    }
+
+    const combinedColumns = ["Analysis Table"];
+    const columnSeen = new Set(combinedColumns);
+    const rowMaps = [];
+
+    for (const card of cards) {
+      const endpoint = esmWorkspaceFindEndpointByUrl(esmWorkspaceState, card?.endpointUrl, card || {});
+      if (!endpoint) {
+        return { ok: false, error: "A BT analysis table no longer maps to an active ESM endpoint." };
+      }
+      let capturedResult = null;
+      await esmWorkspaceRunEndpointToWorkspace(esmWorkspaceState, endpoint, String(card?.cardId || generateRequestId()), requestToken, {
+        emitStart: false,
+        requestSource: "workspace",
+        targetWindowId: senderWindowId || Number(esmWorkspaceState.controllerWindowId || state.blondieTimeWorkspaceWindowId || 0),
+        defaultWorkspaceWindowId: state.blondieTimeWorkspaceWindowId,
+        workspaceMessageSender(eventName, payload) {
+          if (String(eventName || "").trim().toLowerCase() === "report-result") {
+            capturedResult = payload && typeof payload === "object" ? payload : null;
+          }
+          return undefined;
+        },
+        requestUrlOverride: buildBlondieTimeEsmSessionRequestUrlOverride(card, sessionWindow),
+        skipOriginLookup: true,
+        originCardKey: card?.originCardKey,
+        presetLocalFilterBootstrapPending: card?.presetLocalFilterBootstrapPending === true,
+        seedEndpointUrl: card?.seedEndpointUrl,
+        seedRequestUrl: card?.seedRequestUrl,
+        seedLocalColumnFilters: card?.seedLocalColumnFilters,
+        seedLocalColumnExclusions: card?.seedLocalColumnExclusions,
+        seedPresetLocalFilterBootstrapPending: card?.seedPresetLocalFilterBootstrapPending === true,
+        localColumnFilters: card?.localColumnFilters,
+        localColumnExclusions: card?.localColumnExclusions,
+        displayNodeLabel: String(card?.displayNodeLabel || "").trim(),
+      });
+      if (!capturedResult?.ok) {
+        return {
+          ok: false,
+          error: capturedResult?.error || "Unable to fetch the full BT monitoring session CSV from ESM.",
+        };
+      }
+
+      const analysisTableLabel = firstNonEmptyString([
+        capturedResult?.displayNodeLabel,
+        card?.displayNodeLabel,
+        card?.endpointUrl,
+        card?.cardId,
+        "Analysis Table",
+      ]);
+      const cardColumns = [];
+      const cardColumnSeen = new Set();
+      (Array.isArray(capturedResult?.columns) ? capturedResult.columns : []).forEach((columnName) => {
+        const normalizedColumn = String(columnName || "").trim();
+        if (!normalizedColumn || cardColumnSeen.has(normalizedColumn)) {
+          return;
+        }
+        cardColumnSeen.add(normalizedColumn);
+        cardColumns.push(normalizedColumn);
+      });
+      (Array.isArray(capturedResult?.rows) ? capturedResult.rows : []).forEach((row) => {
+        Object.keys(row && typeof row === "object" ? row : {}).forEach((columnName) => {
+          const normalizedColumn = String(columnName || "").trim();
+          if (!normalizedColumn || cardColumnSeen.has(normalizedColumn)) {
+            return;
+          }
+          cardColumnSeen.add(normalizedColumn);
+          cardColumns.push(normalizedColumn);
+        });
+      });
+      cardColumns.forEach((columnName) => {
+        if (columnSeen.has(columnName)) {
+          return;
+        }
+        columnSeen.add(columnName);
+        combinedColumns.push(columnName);
+      });
+      (Array.isArray(capturedResult?.rows) ? capturedResult.rows : []).forEach((row) => {
+        rowMaps.push({
+          "Analysis Table": analysisTableLabel,
+          ...(row && typeof row === "object" ? row : {}),
+        });
+      });
+    }
+
+    const csvText = [combinedColumns]
+      .concat(rowMaps.map((rowMap) => combinedColumns.map((columnName) => (rowMap?.[columnName] == null ? "" : String(rowMap[columnName])))))
+      .map((row) => row.map((value) => escapeUnderparCsvValue(value)).join(","))
+      .join("\r\n");
+    const programmerSegment = sanitizeDownloadFileSegment(
+      esmWorkspaceState?.programmer?.programmerId || esmWorkspaceState?.programmer?.displayName || "media-company",
+      "media-company"
+    ).slice(0, 40);
+    const startSegment = sanitizeDownloadFileSegment(requestWindowStart, "start").slice(0, 32);
+    const endSegment = sanitizeDownloadFileSegment(requestWindowEnd, "end").slice(0, 32);
+    return {
+      ok: true,
+      csvText,
+      rowCount: rowMaps.length,
+      tableCount: cards.length,
+      requestWindowStart,
+      requestWindowEnd,
+      fileName: [
+        "underpar",
+        "bt_ws",
+        "session",
+        programmerSegment || "media-company",
+        startSegment || "start",
+        endSegment || "end",
+      ]
+        .filter(Boolean)
+        .join("_")
+        .concat(".csv"),
+    };
+  }
+
+  if (action === "blondie-export-all") {
+    if (message?.exportPayload) {
+      return await sendUnderparBlondieExportToSlack(message.exportPayload, {
+        interactive: true,
+        deliveryTarget: message?.deliveryTarget || null,
+        noteText: message?.noteText || "",
+      });
+    }
+    const exportPayloads = Array.isArray(message?.exportPayloads) ? message.exportPayloads : [];
+    if (exportPayloads.length > 0) {
+      return await sendUnderparBlondieExportBatchToSlack(exportPayloads, {
+        interactive: true,
+        deliveryTarget: message?.deliveryTarget || null,
+        noteText: message?.noteText || "",
+        emptyError: "No BT_WS report data was available for :blondiebtn:.",
+        genericError: "Unable to deliver Blondie Time Results with :blondiebtn:.",
+      });
+    }
+    return { ok: false, error: "No BT_WS report data was provided for :blondiebtn:." };
+  }
+
+  return { ok: false, error: `Unsupported Blondie Time Workspace action: ${action}` };
+}
+
 async function handleMegWorkspaceWorkspaceAction(message, sender = null) {
   const action = String(message?.action || "").trim().toLowerCase();
   const esmWorkspaceState = getActiveEsmWorkspaceState();
@@ -30981,6 +31534,26 @@ function ensureEsmWorkspaceRuntimeListener() {
   state.esmWorkspaceRuntimeListenerBound = true;
 }
 
+function ensureBlondieTimeWorkspaceRuntimeListener() {
+  if (state.blondieTimeWorkspaceRuntimeListenerBound) {
+    return;
+  }
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!BLONDIE_TIME_WORKSPACE_MESSAGE_TYPES.has(String(message?.type || "")) || message?.channel !== "workspace-action") {
+      return false;
+    }
+    void handleBlondieTimeWorkspaceAction(message, sender)
+      .then((result) => {
+        sendResponse(result && typeof result === "object" ? result : { ok: true });
+      })
+      .catch((error) => {
+        sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) });
+      });
+    return true;
+  });
+  state.blondieTimeWorkspaceRuntimeListenerBound = true;
+}
+
 function ensureMegWorkspaceRuntimeListener() {
   if (state.megWorkspaceRuntimeListenerBound) {
     return;
@@ -31096,6 +31669,37 @@ function ensureEsmWorkspaceWorkspaceTabWatcher() {
     }
   });
   state.esmWorkspaceWorkspaceTabWatcherBound = true;
+}
+
+function ensureBlondieTimeWorkspaceTabWatcher() {
+  if (state.blondieTimeWorkspaceTabWatcherBound) {
+    return;
+  }
+  chrome.tabs.onRemoved.addListener((tabId) => {
+    blondieTimeWorkspaceUnbindWorkspaceTab(tabId);
+  });
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const normalizedTabId = Number(tabId || 0);
+    if (!normalizedTabId || !changeInfo?.url) {
+      return;
+    }
+    if (blondieTimeWorkspaceIsWorkspaceTab(tab)) {
+      blondieTimeWorkspaceBindWorkspaceTab(tab?.windowId, normalizedTabId);
+      return;
+    }
+    const boundTabId = Number(state.blondieTimeWorkspaceTabId || 0);
+    let isMappedTab = false;
+    for (const mappedTabId of state.blondieTimeWorkspaceTabIdByWindowId.values()) {
+      if (Number(mappedTabId || 0) === normalizedTabId) {
+        isMappedTab = true;
+        break;
+      }
+    }
+    if (isMappedTab || normalizedTabId === boundTabId) {
+      blondieTimeWorkspaceUnbindWorkspaceTab(normalizedTabId);
+    }
+  });
+  state.blondieTimeWorkspaceTabWatcherBound = true;
 }
 
 function ensureMegWorkspaceWorkspaceTabWatcher() {
@@ -44059,8 +44663,25 @@ function resetWorkflowForLoggedOut() {
   state.esmWorkspaceWorkspaceWindowId = 0;
   state.esmWorkspaceWorkspaceTabIdByWindowId.clear();
   state.esmWorkspaceControllerStateVersion = 0;
+  state.blondieTimeWorkspaceTabId = 0;
+  state.blondieTimeWorkspaceWindowId = 0;
+  state.blondieTimeWorkspaceTabIdByWindowId.clear();
 
   void esmWorkspaceSendWorkspaceMessage("controller-state", {
+    controllerOnline: false,
+    slack: getUnderparWorkspaceSlackStatePayload(),
+    esmAvailable: null,
+    esmAvailabilityResolved: false,
+    esmContainerVisible: null,
+    programmerId: "",
+    programmerName: "",
+    requestorIds: [],
+    mvpdIds: [],
+    profileHarvest: null,
+    profileHarvestList: [],
+    updatedAt: Date.now(),
+  });
+  void blondieTimeWorkspaceSendWorkspaceMessage("controller-state", {
     controllerOnline: false,
     slack: getUnderparWorkspaceSlackStatePayload(),
     esmAvailable: null,
@@ -62658,6 +63279,8 @@ async function init() {
   });
   ensureEsmWorkspaceRuntimeListener();
   ensureEsmWorkspaceWorkspaceTabWatcher();
+  ensureBlondieTimeWorkspaceRuntimeListener();
+  ensureBlondieTimeWorkspaceTabWatcher();
   ensureMegWorkspaceRuntimeListener();
   ensureMegWorkspaceWorkspaceTabWatcher();
   ensureUpDevtoolsVaultActionListener();

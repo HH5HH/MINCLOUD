@@ -86,3 +86,19 @@ test("UnderPAR Blondie deeplink base falls back to the UnderPAR runtime id when 
   assert.equal(url.origin, "https://underpar-fallback.chromiumapp.org");
   assert.equal(url.searchParams.get("underpar_deeplink"), "cm");
 });
+
+test("UnderPAR Blondie deeplink base supports the BT workspace marker", () => {
+  const helpers = loadBlondieDeeplinkHelpers({
+    chrome: {
+      runtime: {
+        id: "underpar-bt"
+      }
+    }
+  });
+
+  const url = helpers.buildUnderparWorkspaceBlondieDeeplinkBaseUrl("bt");
+
+  assert.ok(url instanceof URL);
+  assert.equal(url.origin, "https://underpar-bt.chromiumapp.org");
+  assert.equal(url.searchParams.get("underpar_deeplink"), "bt");
+});

@@ -110,6 +110,14 @@ const BLONDIE_TIME_MESSAGE_TYPE = "underpar:blondie-time";
 const BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES = Object.freeze([2, 5, 10, 15]);
 const BLONDIE_TIME_PREFS_STORAGE_KEY = "underpar_blondie_time_esm_prefs";
 const BLONDIE_TIME_RUNTIME_STORAGE_KEY = "underpar_blondie_time_esm_state";
+const BLONDIE_TIME_WORKSPACE_PATH = "blondie-time-workspace.html";
+const BLONDIE_TIME_WORKSPACE_LAUNCH_STORAGE_KEY = "underpar_blondie_time_bt_launch";
+const BLONDIE_TIME_WORKSPACE_DEFAULT_THRESHOLDS = Object.freeze({
+  minAuthnAttempts: 100,
+  authnSuccessMin: 40,
+  authzSuccessMin: 10,
+  latencyMaxMs: 10000,
+});
 const BLONDIE_BUTTON_ICON_URLS = (() => {
   const resolveIconUrl = (path) =>
     typeof chrome !== "undefined" && chrome?.runtime?.getURL ? chrome.runtime.getURL(path) : path;
@@ -1576,13 +1584,6 @@ function shouldShowNonEsmMode() {
 
 function clearWorkspaceCards(options = {}) {
   const preserveReplayContext = options?.preserveReplayContext === true;
-  if (!preserveReplayContext && isBlondieTimeActiveForCurrentWorkspace()) {
-    void stopBlondieTime({
-      reason: "Workspace cards were cleared. Blondie Time stopped.",
-      silent: true,
-      restoreFocus: false,
-    });
-  }
   if (!preserveReplayContext) {
     state.workspaceReplayCards = [];
     state.pendingAutoRerunCards = [];
@@ -2378,7 +2379,7 @@ function normalizeBlondieTimeRuntimeState(value = null) {
   const intervalMs =
     Number.isFinite(rawIntervalMs) && rawIntervalMs > 0 ? Math.max(intervalMinutes * 60 * 1000, rawIntervalMs) : intervalMinutes * 60 * 1000;
   return {
-    workspace: "esm",
+    workspace: String(value?.workspace || "esm").trim().toLowerCase() || "esm",
     runId: String(value?.runId || "").trim(),
     running: value?.running === true,
     intervalMinutes,
@@ -2419,6 +2420,9 @@ function isBlondieTimeOwnedByCurrentWorkspace(runtimeState = null) {
   if (!normalizedState) {
     return false;
   }
+  if (String(normalizedState.workspace || "").trim().toLowerCase() !== "esm") {
+    return false;
+  }
   const targetWindowId = Number(normalizedState.targetWindowId || 0);
   if (!targetWindowId || !Number(state.windowId || 0)) {
     return true;
@@ -2449,24 +2453,8 @@ function isBlondieTimeActiveForCurrentWorkspace(runtimeState = null) {
 }
 
 function getBlondieTimeStartDisabledReason() {
-  const runtimeState = getCurrentBlondieTimeRuntimeState();
-  if (runtimeState?.running && !isBlondieTimeOwnedByCurrentWorkspace(runtimeState)) {
-    return "Blondie Time is already armed in another ESM workspace window.";
-  }
-  if (state.workspaceLocked) {
-    return getWorkspaceLockMessage();
-  }
-  if (state.batchRunning) {
-    return "Wait for the current workspace batch to finish before arming Blondie Time.";
-  }
-  if (!state.controllerOnline) {
-    return "Open the UnderPAR side panel to arm Blondie Time.";
-  }
-  if (!state.slackReady) {
-    return BLONDIE_BUTTON_INACTIVE_MESSAGE;
-  }
   if (!hasWorkspaceCardContext()) {
-    return "Open at least one ESM report card to arm Blondie Time.";
+    return "Open at least one ESM report card to launch Blondie Time in BT_WS.";
   }
   return "";
 }
@@ -2497,27 +2485,11 @@ function formatBlondieTimeRemaining(ms = 0) {
 function getBlondieTimeButtonTitle() {
   const runtimeState = getCurrentBlondieTimeRuntimeState();
   const currentWarning = String(state.blondieTimeLocalWarning || "").trim();
-  if (isBlondieTimeActiveForCurrentWorkspace(runtimeState)) {
-    const remainingLabel = formatBlondieTimeRemaining(getBlondieTimeRemainingMs(runtimeState));
-    const cadenceLabel = `${runtimeState.intervalMinutes} minute${runtimeState.intervalMinutes === 1 ? "" : "s"}`;
-    if (state.blondieTimeLapRunning) {
-      if (runtimeState.triggerMode === "teammate" && runtimeState.deliveryTarget?.userName) {
-        return `Blondie Time is firing the ${cadenceLabel} lap for ${runtimeState.deliveryTarget.userName}.`;
-      }
-      return `Blondie Time is firing the ${cadenceLabel} lap to your Slack DM.`;
-    }
+  if (runtimeState?.running && String(runtimeState.workspace || "").trim().toLowerCase() === "bt") {
     if (runtimeState.triggerMode === "teammate" && runtimeState.deliveryTarget?.userName) {
-      return `Blondie Time repeats every ${cadenceLabel} to ${runtimeState.deliveryTarget.userName}. ${remainingLabel} until the next lap.`;
+      return `Blondie Time is live in BT_WS for ${runtimeState.deliveryTarget.userName}. Click to open the active workspace.`;
     }
-    return `Blondie Time repeats every ${cadenceLabel} to your Slack DM. ${remainingLabel} until the next lap.`;
-  }
-  if (runtimeState?.running && !isBlondieTimeOwnedByCurrentWorkspace(runtimeState)) {
-    return "Blondie Time is already armed in another ESM workspace window.";
-  }
-  if (state.blondieTimePickerOpen) {
-    return getBlondieTimePendingMode() === "teammate"
-      ? "Choose a repeat interval for pass-transition delivery. Escape cancels."
-      : "Choose a repeat interval for your Slack DM. Escape cancels.";
+    return "Blondie Time is live in BT_WS. Click to open the active workspace.";
   }
   if (currentWarning) {
     return currentWarning;
@@ -2526,21 +2498,18 @@ function getBlondieTimeButtonTitle() {
   if (disabledReason) {
     return disabledReason;
   }
-  return "Click arms Blondie Time for your Slack DM. Shift-click arms pass-transition delivery for every open Blondie button.";
+  return "Click launches BT_WS with the current ESM context. Shift-click opens BT_WS in pass-transition mode.";
 }
 
 function getBlondieTimeVisualState() {
   const runtimeState = getCurrentBlondieTimeRuntimeState();
-  if (isBlondieTimeActiveForCurrentWorkspace(runtimeState)) {
-    return state.blondieTimeLapRunning ? "settime" : "active";
-  }
-  if (state.blondieTimePickerOpen) {
-    return "settime";
+  if (runtimeState?.running && String(runtimeState.workspace || "").trim().toLowerCase() === "bt") {
+    return "active";
   }
   if (String(state.blondieTimeLocalWarning || "").trim()) {
     return "warn";
   }
-  return state.slackReady ? "slacktivated" : "notslacktivated";
+  return hasWorkspaceCardContext() ? "slacktivated" : "notslacktivated";
 }
 
 function getBlondieTimePickerButtons() {
@@ -2675,26 +2644,21 @@ function renderBlondieTimeControl() {
   if (!(els.blondieTimeButton instanceof HTMLButtonElement)) {
     return;
   }
-  const runtimeState = getCurrentBlondieTimeRuntimeState();
   const visualState = getBlondieTimeVisualState();
   const title = getBlondieTimeButtonTitle();
-  const runningHere = isBlondieTimeActiveForCurrentWorkspace(runtimeState);
   const startDisabledReason = getBlondieTimeStartDisabledReason();
   els.blondieTimeButton.dataset.blondieTimeState = visualState;
   els.blondieTimeButton.dataset.blondieTimeMode = getBlondieTimePendingMode();
-  els.blondieTimeButton.disabled = runningHere || (!state.blondieTimePickerOpen && Boolean(startDisabledReason) && visualState !== "warn");
+  els.blondieTimeButton.disabled = Boolean(startDisabledReason);
   els.blondieTimeButton.title = title;
   els.blondieTimeButton.setAttribute("aria-label", title);
-  els.blondieTimeButton.setAttribute("aria-expanded", state.blondieTimePickerOpen ? "true" : "false");
-  if (els.blondieTimePicker) {
-    els.blondieTimePicker.hidden = !state.blondieTimePickerOpen;
-  }
   if (els.blondieTimeStopButton) {
-    els.blondieTimeStopButton.hidden = !runningHere;
-    els.blondieTimeStopButton.disabled = state.blondieTimeLapRunning;
+    els.blondieTimeStopButton.hidden = true;
   }
-  syncBlondieTimeChipSelection();
-  syncBlondieTimeCountdownAnimation();
+  if (els.blondieTimePicker) {
+    els.blondieTimePicker.hidden = true;
+  }
+  stopBlondieTimeCountdownAnimation();
 }
 
 function applyBlondieTimeRuntimeState(nextState = null, options = {}) {
@@ -3025,7 +2989,113 @@ async function stopBlondieTime(options = {}) {
   return result;
 }
 
+function buildBlondieTimeWorkspaceUrl() {
+  return chrome.runtime.getURL(BLONDIE_TIME_WORKSPACE_PATH);
+}
+
+function buildBlondieTimeWorkspaceLaunchPayload(options = {}) {
+  const cards = getOrderedCardStates().map((cardState) => ({
+    ...getCardPayload(cardState),
+    rows: cloneWorkspaceRows(cardState?.rows),
+    lastModified: String(cardState?.lastModified || ""),
+  }));
+  return {
+    createdAt: Date.now(),
+    targetWindowId: Number(state.windowId || 0),
+    intervalMinutes: Math.max(0, Number(options?.intervalMinutes || 0)),
+    triggerMode: normalizeBlondieTimeTriggerMode(options?.triggerMode || "self"),
+    deliveryTarget: cloneBlondieTimeDeliveryTarget(options?.deliveryTarget || null),
+    noteText: String(options?.noteText || ""),
+    workspaceContextKey: String(state.workspaceContextKey || "").trim(),
+    programmerId: String(state.programmerId || "").trim(),
+    programmerName: String(state.programmerName || "").trim(),
+    adobePassEnvironment:
+      state.adobePassEnvironment && typeof state.adobePassEnvironment === "object"
+        ? { ...state.adobePassEnvironment }
+        : { ...DEFAULT_ADOBEPASS_ENVIRONMENT },
+    requestorIds: Array.isArray(state.requestorIds) ? state.requestorIds.slice(0, 24) : [],
+    mvpdIds: Array.isArray(state.mvpdIds) ? state.mvpdIds.slice(0, 24) : [],
+    thresholds: { ...BLONDIE_TIME_WORKSPACE_DEFAULT_THRESHOLDS },
+    cards,
+  };
+}
+
+async function ensureBlondieTimeWorkspaceTab(options = {}) {
+  const shouldActivate = options?.activate !== false;
+  const targetWindowId = Number(options?.windowId || state.windowId || 0);
+  const workspaceUrl = buildBlondieTimeWorkspaceUrl();
+  let workspaceTab = null;
+  try {
+    const allTabs = await chrome.tabs.query(targetWindowId > 0 ? { windowId: targetWindowId } : { currentWindow: true });
+    workspaceTab = allTabs.find((tab) => String(tab?.url || "").startsWith(workspaceUrl)) || null;
+  } catch {
+    workspaceTab = null;
+  }
+  if (!workspaceTab) {
+    workspaceTab = await chrome.tabs.create({
+      url: workspaceUrl,
+      active: shouldActivate,
+      ...(targetWindowId > 0 ? { windowId: targetWindowId } : {}),
+    });
+  } else if (shouldActivate && workspaceTab?.id) {
+    try {
+      workspaceTab = await chrome.tabs.update(workspaceTab.id, { active: true });
+      if (Number(workspaceTab?.windowId || 0) > 0) {
+        await chrome.windows.update(Number(workspaceTab.windowId), { focused: true });
+      }
+    } catch {
+      // Ignore activation failures; the workspace is still available.
+    }
+  }
+  return workspaceTab;
+}
+
+async function launchBlondieTimeWorkspaceSession(intervalMinutes = 0, options = {}) {
+  const launchPayload = buildBlondieTimeWorkspaceLaunchPayload({
+    intervalMinutes,
+    triggerMode: options?.triggerMode,
+    deliveryTarget: options?.deliveryTarget,
+    noteText: options?.noteText,
+  });
+  try {
+    await chrome.storage.local.set({
+      [BLONDIE_TIME_WORKSPACE_LAUNCH_STORAGE_KEY]: launchPayload,
+    });
+  } catch {
+    // Ignore storage failures; the workspace can still open and read the latest snapshot if storage succeeds later.
+  }
+  await ensureBlondieTimeWorkspaceTab({
+    activate: true,
+    windowId: Number(state.windowId || 0),
+  });
+  setStatus("BT_WS opened with the current ESM context. Choose an interval there to start Blondie Time.", "success");
+  return {
+    ok: true,
+    launchPayload,
+  };
+}
+
 async function armBlondieTime(intervalMinutes = 0, options = {}) {
+  const disabledReason = getBlondieTimeStartDisabledReason();
+  if (disabledReason) {
+    setStatus(disabledReason, "error");
+    return {
+      ok: false,
+      error: disabledReason,
+    };
+  }
+  const runtimeState = getCurrentBlondieTimeRuntimeState();
+  if (runtimeState?.running && String(runtimeState.workspace || "").trim().toLowerCase() === "bt") {
+    await ensureBlondieTimeWorkspaceTab({
+      activate: true,
+      windowId: Number(state.windowId || 0),
+    });
+    setStatus("Blondie Time is already active in BT_WS.", "success");
+    return {
+      ok: true,
+      opened: true,
+    };
+  }
   const normalizedInterval = BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES.includes(Number(intervalMinutes))
     ? Number(intervalMinutes)
     : Number(state.blondieTimePrefs?.lastIntervalMinutes || BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0]);
@@ -3038,25 +3108,17 @@ async function armBlondieTime(intervalMinutes = 0, options = {}) {
     lastIntervalMinutes: normalizedInterval,
     lastTriggerMode: triggerMode,
   });
-  closeBlondieTimePicker({ restoreFocus: false });
-
-  const lapResult = await executeWorkspaceBlondieTimeLap({
-    triggerMode,
-    deliveryTarget,
-    noteText,
-  });
-  if (!lapResult?.ok) {
-    return lapResult;
-  }
-
-  const scheduleResult = await sendBlondieTimeRuntimeAction("start", {
-    intervalMinutes: normalizedInterval,
-    triggerMode,
-    deliveryTarget,
-    noteText,
-  });
-  if (!scheduleResult?.ok) {
-    const errorMessage = scheduleResult?.error || "The first Blondie Time lap ran, but repeat scheduling failed.";
+  try {
+    const launchResult = await launchBlondieTimeWorkspaceSession(normalizedInterval, {
+      triggerMode,
+      deliveryTarget,
+      noteText,
+    });
+    if (!launchResult?.ok) {
+      return launchResult;
+    }
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : "Unable to open Blondie Time Workspace.";
     state.blondieTimeLocalWarning = errorMessage;
     renderBlondieTimeControl();
     setStatus(errorMessage, "error");
@@ -3065,12 +3127,9 @@ async function armBlondieTime(intervalMinutes = 0, options = {}) {
       error: errorMessage,
     };
   }
-
-  applyBlondieTimeRuntimeState(scheduleResult?.state || null);
   return {
     ok: true,
-    ...lapResult,
-    state: scheduleResult?.state || null,
+    launched: true,
   };
 }
 
@@ -5730,12 +5789,11 @@ function registerEventHandlers() {
   }
 
   if (els.blondieTimeButton) {
-    els.blondieTimeButton.addEventListener("click", (event) => {
+    els.blondieTimeButton.addEventListener("click", async (event) => {
       event.preventDefault();
-      if (isBlondieTimeActiveForCurrentWorkspace()) {
-        return;
-      }
-      openBlondieTimePicker(event.shiftKey ? "teammate" : "self");
+      await armBlondieTime(state.blondieTimePrefs?.lastIntervalMinutes || BLONDIE_TIME_INTERVAL_OPTIONS_MINUTES[0], {
+        triggerMode: event.shiftKey ? "teammate" : "self",
+      });
     });
   }
 
@@ -5837,6 +5895,10 @@ function registerEventHandlers() {
     }
     const action = String(message?.action || "").trim().toLowerCase();
     if (action !== "fire-lap") {
+      return false;
+    }
+    const runtimeState = normalizeBlondieTimeRuntimeState(message?.state || null);
+    if (runtimeState && String(runtimeState.workspace || "").trim().toLowerCase() !== "esm") {
       return false;
     }
     void handleBlondieTimeAlarmLap(message)

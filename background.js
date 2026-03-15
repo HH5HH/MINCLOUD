@@ -10,11 +10,15 @@ const IMS_LOGIN_REDIRECT_RULE_ID = 164001;
 const UNDERPAR_ESM_DEEPLINK_REDIRECT_RULE_ID = 164002;
 const UNDERPAR_DEGRADATION_DEEPLINK_REDIRECT_RULE_ID = 164003;
 const UNDERPAR_CM_DEEPLINK_REDIRECT_RULE_ID = 164004;
+const UNDERPAR_BT_DEEPLINK_REDIRECT_RULE_ID = 164005;
 const UNDERPAR_ESM_DEEPLINK_MARKER_PARAM = "underpar_deeplink";
 const UNDERPAR_ESM_DEEPLINK_MARKER_VALUE = "esm";
+const UNDERPAR_BT_DEEPLINK_MARKER_VALUE = "bt";
 const UNDERPAR_DEGRADATION_DEEPLINK_MARKER_VALUE = "degradation";
 const UNDERPAR_CM_DEEPLINK_MARKER_VALUE = "cm";
 const UNDERPAR_ESM_WORKSPACE_PATH = "esm-workspace.html";
+const UNDERPAR_BLONDIE_TIME_WORKSPACE_PATH = "blondie-time-workspace.html";
+const UNDERPAR_BLONDIE_TIME_DEEPLINK_BRIDGE_PATH = "blondie-time-deeplink-bridge.html";
 const UNDERPAR_DEGRADATION_WORKSPACE_PATH = "degradation-workspace.html";
 const UNDERPAR_CM_WORKSPACE_PATH = "cm-workspace.html";
 const AVATAR_SIZE_PREFERENCES = [128, 64, 256, 32];
@@ -58,6 +62,7 @@ const REDIRECT_IGNORE_MATCHER_MODE = "origin_except_pass";
 const WEB_REQUEST_FILTER = { urls: ["<all_urls>"] };
 const UNDERPAR_WORKSPACE_PATHS = Object.freeze([
   "esm-workspace.html",
+  "blondie-time-workspace.html",
   "meg-workspace.html",
   "cm-workspace.html",
   "mvpd-workspace.html",
@@ -66,6 +71,7 @@ const UNDERPAR_WORKSPACE_PATHS = Object.freeze([
   "bobtools-workspace.html",
 ]);
 const UNDERPAR_BLONDIE_TIME_MESSAGE_TYPE = "underpar:blondie-time";
+const UNDERPAR_BLONDIE_TIME_DEEPLINK_REQUEST_TYPE = "underpar:openBlondieTimeWorkspaceFromDeeplink";
 const UNDERPAR_BLONDIE_TIME_STORAGE_KEY = "underpar_blondie_time_esm_state";
 const UNDERPAR_BLONDIE_TIME_ALARM_NAME = "underpar:blondie-time:esm";
 const UNDERPAR_BLONDIE_TIME_NOTIFICATION_ID = "underpar:blondie-time:esm";
@@ -81,6 +87,12 @@ const BUILD_FINGERPRINT_FILES = [
   "esm-workspace.html",
   "esm-workspace.css",
   "esm-workspace.js",
+  "blondie-time-workspace.html",
+  "blondie-time-workspace.css",
+  "blondie-time-workspace.js",
+  "blondie-time-deeplink-bridge.html",
+  "blondie-time-deeplink-bridge.js",
+  "blondie-time-logic.js",
   "meg-workspace.html",
   "meg-workspace.css",
   "meg-workspace.js",
@@ -177,7 +189,7 @@ function normalizeBlondieTimeState(value = null) {
   const intervalMs =
     Number.isFinite(rawIntervalMs) && rawIntervalMs > 0 ? Math.max(intervalMinutes * 60 * 1000, rawIntervalMs) : intervalMinutes * 60 * 1000;
   return {
-    workspace: "esm",
+    workspace: String(value?.workspace || "bt").trim().toLowerCase() || "bt",
     runId: String(value?.runId || "").trim(),
     running: value?.running === true,
     intervalMinutes,
@@ -236,10 +248,11 @@ async function ensureBlondieTimeAlarmScheduled(timerState = null) {
 }
 
 async function findBlondieTimeWorkspaceTab(targetWindowId = 0) {
-  const urlPrefix = chrome.runtime.getURL(UNDERPAR_ESM_WORKSPACE_PATH);
+  const btUrlPrefix = chrome.runtime.getURL(UNDERPAR_BLONDIE_TIME_WORKSPACE_PATH);
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
-    if (!String(tab?.url || "").startsWith(urlPrefix)) {
+    const tabUrl = String(tab?.url || "");
+    if (!tabUrl.startsWith(btUrlPrefix)) {
       continue;
     }
     if (targetWindowId > 0 && Number(tab?.windowId || 0) !== targetWindowId) {
@@ -268,7 +281,7 @@ async function focusBlondieTimeWorkspace(targetWindowId = 0) {
     return existingTab;
   }
   const createOptions = {
-    url: chrome.runtime.getURL(UNDERPAR_ESM_WORKSPACE_PATH),
+    url: chrome.runtime.getURL(UNDERPAR_BLONDIE_TIME_WORKSPACE_PATH),
     active: true,
   };
   if (targetWindowId > 0) {
@@ -297,7 +310,7 @@ async function notifyBlondieTimeIssue(message = "", timerState = null) {
       title: "Blondie Time",
       message: String(message || "Blondie Time needs your attention.").trim(),
       priority: 1,
-      buttons: [{ title: "Open ESM Workspace" }],
+      buttons: [{ title: "Open BT Workspace" }],
     });
   } catch {
     return normalizedState;
@@ -335,7 +348,7 @@ async function startBlondieTime(message = {}) {
   const intervalMinutes = normalizeBlondieTimeIntervalMinutes(message?.intervalMinutes || 2);
   const nextFireAt = Date.now() + intervalMinutes * 60 * 1000;
   const nextState = {
-    workspace: "esm",
+    workspace: "bt",
     runId: createBlondieTimeRunId(),
     running: true,
     intervalMinutes,
@@ -378,7 +391,7 @@ async function handleBlondieTimeAlarm() {
   }
   const workspaceTab = await findBlondieTimeWorkspaceTab(timerState.targetWindowId);
   if (!workspaceTab) {
-    await stopBlondieTime("Blondie Time could not find its ESM workspace tab.", {
+    await stopBlondieTime("Blondie Time could not find its BT workspace tab.", {
       state: timerState,
       notify: true,
     });
@@ -771,6 +784,14 @@ async function ensureUnderparCmDeeplinkRedirectRule() {
     UNDERPAR_CM_DEEPLINK_REDIRECT_RULE_ID,
     UNDERPAR_CM_DEEPLINK_MARKER_VALUE,
     UNDERPAR_CM_WORKSPACE_PATH
+  );
+}
+
+async function ensureUnderparBtDeeplinkRedirectRule() {
+  return ensureUnderparWorkspaceDeeplinkRedirectRule(
+    UNDERPAR_BT_DEEPLINK_REDIRECT_RULE_ID,
+    UNDERPAR_BT_DEEPLINK_MARKER_VALUE,
+    UNDERPAR_BLONDIE_TIME_DEEPLINK_BRIDGE_PATH
   );
 }
 
@@ -3112,6 +3133,7 @@ chrome.runtime.onInstalled.addListener((details) => {
   void ensureBlondieTimeRuntimeConsistency();
   void ensureImsLoginRedirectRule();
   void ensureUnderparEsmDeeplinkRedirectRule();
+  void ensureUnderparBtDeeplinkRedirectRule();
   void ensureUnderparDegradationDeeplinkRedirectRule();
   void ensureUnderparCmDeeplinkRedirectRule();
   void updateActionBadge();
@@ -3123,6 +3145,7 @@ chrome.runtime.onStartup.addListener(() => {
   void ensureBlondieTimeRuntimeConsistency();
   void ensureImsLoginRedirectRule();
   void ensureUnderparEsmDeeplinkRedirectRule();
+  void ensureUnderparBtDeeplinkRedirectRule();
   void ensureUnderparDegradationDeeplinkRedirectRule();
   void ensureUnderparCmDeeplinkRedirectRule();
   void updateActionBadge();
@@ -3130,6 +3153,25 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === UNDERPAR_BLONDIE_TIME_DEEPLINK_REQUEST_TYPE) {
+    void readBlondieTimeState()
+      .then((timerState) => focusBlondieTimeWorkspace(Number(timerState?.targetWindowId || 0)))
+      .then((workspaceTab) => {
+        sendResponse({
+          ok: Boolean(workspaceTab?.id),
+          tabId: Number(workspaceTab?.id || 0),
+          windowId: Number(workspaceTab?.windowId || 0),
+        });
+      })
+      .catch((error) => {
+        sendResponse({
+          ok: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    return true;
+  }
+
   if (message?.type === UNDERPAR_BLONDIE_TIME_MESSAGE_TYPE && message?.channel === "runtime-command") {
     void (async () => {
       const action = String(message?.action || "").trim().toLowerCase();
