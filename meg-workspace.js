@@ -26,6 +26,13 @@ const MEG_WORKSPACE_PAYLOAD_NODE_ID = "meg-workspace-payload";
 const MEG_SAVED_QUERY_BRIDGE_MESSAGE_TYPE = "underpar:meg-saved-query-bridge";
 const MEG_SAVED_QUERY_BRIDGE_RESPONSE_TYPE = `${MEG_SAVED_QUERY_BRIDGE_MESSAGE_TYPE}:response`;
 const MEG_SAVED_QUERY_BRIDGE_TIMEOUT_MS = 4000;
+const UNDERPAR_ESM_DEEPLINK_WORKSPACE_PATH = "esm-workspace.html";
+const UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH = "esm-deeplink-bridge.html";
+const UNDERPAR_ESM_DEEPLINK_MARKER_PARAM = "underpar_deeplink";
+const UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE = "esm-bridge";
+const UNDERPAR_ESM_HTML_EXPORT_TARGET_NAME = "UnderPAR_ESM_Bridge";
+const UNDERPAR_ESM_HTML_EXPORT_BRIDGE_FRAME_ID = "underpar-esm-export-bridge-frame";
+const UNDERPAR_ESM_NODE_PATH_PREFIX = "/esm/v3/media-company";
 const UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE = "underpar:networkActivity";
 const MEG_RETRO_NUMBER_FORMATTER = new Intl.NumberFormat("en-US");
 const DEFAULT_MEG_URLS = Object.freeze([
@@ -66,6 +73,8 @@ const state = {
   esmContainerVisible: null,
   programmerId: "",
   programmerName: "",
+  requestorIds: [],
+  mvpdIds: [],
   adobePassEnvironment: { ...DEFAULT_ADOBEPASS_ENVIRONMENT },
   controllerStateVersion: 0,
   controllerStateUpdatedAt: 0,
@@ -490,6 +499,292 @@ function stripMegScopedQueryParams(rawUrl = "") {
 
 function stripMegMediaCompanyQueryParam(rawUrl = "") {
   return stripMegScopedQueryParams(rawUrl);
+}
+
+function buildMegStandaloneUnderparEsmRequestPath(pathname = "", search = "", options = {}) {
+  const allowBarePath = options?.allowBarePath === true;
+  let normalizedPath = String(pathname || "").trim().replace(/\/+$/g, "");
+  if (!normalizedPath) {
+    return "";
+  }
+  if (/^\/?esm\/v3\/media-company(?:\/|$)/i.test(normalizedPath)) {
+    if (!normalizedPath.startsWith("/")) {
+      normalizedPath = `/${normalizedPath}`;
+    }
+    return `${normalizedPath}${String(search || "")}`;
+  }
+  if (!allowBarePath) {
+    return "";
+  }
+  normalizedPath = normalizedPath.replace(/^\/+/, "");
+  if (!normalizedPath) {
+    return "";
+  }
+  return `${UNDERPAR_ESM_NODE_PATH_PREFIX}/${normalizedPath}${String(search || "")}`;
+}
+
+function normalizeMegStandaloneUnderparEsmRequestPath(rawValue = "") {
+  const normalized = stripMegMediaCompanyQueryParam(String(rawValue || "").trim());
+  if (!normalized) {
+    return "";
+  }
+  const hasAbsoluteScheme = /^[a-z][a-z\d+.-]*:/i.test(normalized);
+  try {
+    const environment =
+      state.adobePassEnvironment && typeof state.adobePassEnvironment === "object"
+        ? state.adobePassEnvironment
+        : buildFallbackEnvironmentFromInputs();
+    const base = String(
+      environment?.esmBase || `${environment?.mgmtBase || DEFAULT_ADOBEPASS_ENVIRONMENT.mgmtBase}${UNDERPAR_ESM_NODE_PATH_PREFIX}/`
+    ).trim();
+    const parsed = hasAbsoluteScheme ? new URL(normalized) : new URL(normalized, base || DEFAULT_ADOBEPASS_ENVIRONMENT.mgmtBase);
+    return buildMegStandaloneUnderparEsmRequestPath(String(parsed.pathname || ""), String(parsed.search || ""), {
+      allowBarePath: !hasAbsoluteScheme,
+    });
+  } catch (_error) {
+    const withoutHash = normalized.split("#")[0] || "";
+    const [pathPart, queryPart = ""] = withoutHash.split("?");
+    return buildMegStandaloneUnderparEsmRequestPath(pathPart, queryPart ? `?${queryPart}` : "", {
+      allowBarePath: !hasAbsoluteScheme,
+    });
+  }
+}
+
+function getMegStandaloneUnderparEsmBridgeUrl() {
+  const payload = getMegWorkspacePayload();
+  const embeddedBridgeUrl = String(payload?.underparEsmBridgeUrl || "").trim();
+  if (embeddedBridgeUrl) {
+    try {
+      const derivedUrl = new URL(embeddedBridgeUrl);
+      derivedUrl.pathname = `/${UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH}`;
+      derivedUrl.search = "";
+      derivedUrl.hash = "";
+      return derivedUrl.toString();
+    } catch (_error) {
+      return embeddedBridgeUrl;
+    }
+  }
+  const savedQueryBridgeUrl = String(payload?.savedQueryBridgeUrl || "").trim();
+  if (savedQueryBridgeUrl) {
+    try {
+      const derivedUrl = new URL(savedQueryBridgeUrl);
+      derivedUrl.pathname = `/${UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH}`;
+      derivedUrl.search = "";
+      derivedUrl.hash = "";
+      return derivedUrl.toString();
+    } catch (_error) {
+      // Fall through to runtime-based resolution.
+    }
+  }
+  try {
+    return String(chrome?.runtime?.getURL?.(UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH) || "").trim();
+  } catch (_error) {
+    return "";
+  }
+}
+
+function getMegStandaloneUnderparWorkspaceBlondieDeeplinkRuntimeBaseUrl() {
+  const candidates = [
+    getMegStandaloneUnderparEsmBridgeUrl(),
+    String(getMegWorkspacePayload()?.savedQueryBridgeUrl || "").trim(),
+    String(getMegWorkspacePayload()?.underparEsmBridgeUrl || "").trim(),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    try {
+      const parsed = new URL(candidate);
+      if (parsed.protocol === "https:" && String(parsed.hostname || "").toLowerCase().endsWith(".chromiumapp.org")) {
+        return `${parsed.origin}${String(parsed.pathname || "").trim() || "/"}`;
+      }
+      if (parsed.protocol === "chrome-extension:" && parsed.host) {
+        return `https://${parsed.host}.chromiumapp.org/`;
+      }
+    } catch (_error) {
+      // Ignore malformed embedded URLs and continue to the next candidate.
+    }
+  }
+  try {
+    const runtimeId = String(chrome?.runtime?.id || "").trim();
+    return runtimeId ? `https://${runtimeId}.chromiumapp.org/` : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function buildMegStandaloneWorkspaceBlondieDeeplinkBaseUrl(markerValue = "") {
+  const normalizedMarkerValue = String(markerValue || "").trim();
+  if (!normalizedMarkerValue) {
+    return null;
+  }
+  const baseUrl = getMegStandaloneUnderparWorkspaceBlondieDeeplinkRuntimeBaseUrl();
+  if (!baseUrl) {
+    return null;
+  }
+  let url;
+  try {
+    url = new URL(baseUrl);
+  } catch (_error) {
+    return null;
+  }
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set(UNDERPAR_ESM_DEEPLINK_MARKER_PARAM, normalizedMarkerValue);
+  return url;
+}
+
+function buildMegStandaloneWorkspaceBlondieDeeplinkBaseUrlFromBridgeUrl(rawBridgeUrl = "", markerValue = "") {
+  const normalizedMarkerValue = String(markerValue || "").trim();
+  const normalizedBridgeUrl = String(rawBridgeUrl || "").trim();
+  if (!normalizedMarkerValue || !normalizedBridgeUrl) {
+    return null;
+  }
+  let parsed;
+  try {
+    parsed = new URL(normalizedBridgeUrl);
+  } catch (_error) {
+    return null;
+  }
+  let url;
+  if (parsed.protocol === "https:" && String(parsed.hostname || "").toLowerCase().endsWith(".chromiumapp.org")) {
+    url = new URL(`${parsed.origin}${String(parsed.pathname || "").trim() || "/"}`);
+  } else if (parsed.protocol === "chrome-extension:" && parsed.host) {
+    url = new URL(`https://${parsed.host}.chromiumapp.org/`);
+  } else {
+    return null;
+  }
+  url.search = "";
+  url.hash = "";
+  url.searchParams.set(UNDERPAR_ESM_DEEPLINK_MARKER_PARAM, normalizedMarkerValue);
+  return url;
+}
+
+function buildMegStandaloneUnderparDirectEsmBridgeUrl(rawRequestValue = "", options = {}) {
+  const requestPath = normalizeMegStandaloneUnderparEsmRequestPath(rawRequestValue);
+  if (!requestPath) {
+    return "";
+  }
+  const bridgeUrl = String(options.bridgeUrl || getMegStandaloneUnderparEsmBridgeUrl()).trim();
+  let url;
+  const deeplinkBaseUrl = buildMegStandaloneWorkspaceBlondieDeeplinkBaseUrl(UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE);
+  const derivedBridgeBaseUrl = buildMegStandaloneWorkspaceBlondieDeeplinkBaseUrlFromBridgeUrl(
+    bridgeUrl,
+    UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE
+  );
+  if (deeplinkBaseUrl) {
+    url = deeplinkBaseUrl;
+  } else if (derivedBridgeBaseUrl) {
+    url = derivedBridgeBaseUrl;
+  } else {
+    return "";
+  }
+  url.hash = "";
+  const params = new URLSearchParams(url.search);
+  params.set("requestPath", requestPath);
+  const displayNodeLabel = String(options.displayNodeLabel || "").trim();
+  const programmerId = String(options.programmerId || "").trim();
+  const programmerName = String(options.programmerName || "").trim();
+  const environmentKey =
+    String(options.environmentKey || state.adobePassEnvironment?.key || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+    DEFAULT_ADOBEPASS_ENVIRONMENT.key;
+  const environmentLabel =
+    String(options.environmentLabel || state.adobePassEnvironment?.label || DEFAULT_ADOBEPASS_ENVIRONMENT.label).trim() ||
+    DEFAULT_ADOBEPASS_ENVIRONMENT.label;
+  const source = String(options.source || "megspace-html-export").trim() || "megspace-html-export";
+  const createdAt = Math.max(0, Number(options.createdAt || Date.now() || 0)) || Date.now();
+  if (displayNodeLabel) {
+    params.set("displayNodeLabel", displayNodeLabel);
+  }
+  if (programmerId) {
+    params.set("programmerId", programmerId);
+  }
+  if (programmerName) {
+    params.set("programmerName", programmerName);
+  }
+  if (environmentKey) {
+    params.set("environmentKey", environmentKey);
+  }
+  if (environmentLabel) {
+    params.set("environmentLabel", environmentLabel);
+  }
+  params.set("source", source);
+  params.set("createdAt", String(createdAt));
+  url.search = params.toString();
+  return url.toString();
+}
+
+function rewriteMegStandaloneHtmlExportLinks(htmlText, context = {}) {
+  const sourceHtml = String(htmlText || "");
+  const bridgeUrl = String(context?.bridgeUrl || getMegStandaloneUnderparEsmBridgeUrl()).trim();
+  if (!sourceHtml.trim() || !bridgeUrl || typeof DOMParser !== "function") {
+    return sourceHtml;
+  }
+
+  let documentNode = null;
+  try {
+    documentNode = new DOMParser().parseFromString(sourceHtml, "text/html");
+  } catch (_error) {
+    return sourceHtml;
+  }
+  if (!documentNode?.querySelectorAll) {
+    return sourceHtml;
+  }
+
+  const environment =
+    state.adobePassEnvironment && typeof state.adobePassEnvironment === "object"
+      ? state.adobePassEnvironment
+      : buildFallbackEnvironmentFromInputs();
+  const programmerId = String(context?.programmerId || state.programmerId || "").trim();
+  const programmerName = String(context?.programmerName || state.programmerName || "").trim();
+  const environmentKey = String(context?.environmentKey || environment?.key || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+    DEFAULT_ADOBEPASS_ENVIRONMENT.key;
+  const environmentLabel =
+    String(context?.environmentLabel || environment?.label || DEFAULT_ADOBEPASS_ENVIRONMENT.label).trim() ||
+    DEFAULT_ADOBEPASS_ENVIRONMENT.label;
+  const source = String(context?.source || "megspace-html-export").trim() || "megspace-html-export";
+  let rewriteCount = 0;
+
+  documentNode.querySelectorAll("a[href]").forEach((anchor) => {
+    const rawHref = String(anchor.getAttribute("href") || "").trim();
+    const requestPath = normalizeMegStandaloneUnderparEsmRequestPath(rawHref);
+    if (!requestPath) {
+      return;
+    }
+    const displayNodeLabel = firstNonEmptyString([
+      String(anchor.textContent || "").trim(),
+      String(anchor.getAttribute("title") || "").trim(),
+      requestPath,
+    ]);
+    const deeplinkUrl = buildMegStandaloneUnderparDirectEsmBridgeUrl(requestPath, {
+      bridgeUrl,
+      displayNodeLabel,
+      programmerId,
+      programmerName,
+      environmentKey,
+      environmentLabel,
+      source,
+    });
+    if (!deeplinkUrl) {
+      return;
+    }
+    anchor.setAttribute("href", deeplinkUrl);
+    anchor.setAttribute("target", UNDERPAR_ESM_HTML_EXPORT_TARGET_NAME);
+    anchor.setAttribute("rel", "noopener noreferrer");
+    anchor.setAttribute("data-underpar-esm-request-path", requestPath);
+    const existingTitle = String(anchor.getAttribute("title") || "").trim();
+    const underparTitle = displayNodeLabel
+      ? `Open ${displayNodeLabel} in UnderPAR ESM Workspace`
+      : "Open in UnderPAR ESM Workspace";
+    anchor.setAttribute("title", existingTitle ? `${existingTitle} | ${underparTitle}` : underparTitle);
+    rewriteCount += 1;
+  });
+
+  if (!rewriteCount || !documentNode.documentElement) {
+    return sourceHtml;
+  }
+  const existingBridgeFrame = documentNode.getElementById(UNDERPAR_ESM_HTML_EXPORT_BRIDGE_FRAME_ID);
+  if (existingBridgeFrame?.parentNode) {
+    existingBridgeFrame.parentNode.removeChild(existingBridgeFrame);
+  }
+  return `<!doctype html>\n${documentNode.documentElement.outerHTML}`;
 }
 
 function logMegConsoleUrl(label = "URL", urlValue = "") {
@@ -1138,6 +1433,12 @@ function applyControllerState(payload = {}) {
   }
   state.programmerId = String(payload?.programmerId || "").trim();
   state.programmerName = String(payload?.programmerName || "").trim();
+  state.requestorIds = Array.isArray(payload?.requestorIds)
+    ? payload.requestorIds.map((value) => String(value || "").trim()).filter(Boolean).slice(0, 24)
+    : [];
+  state.mvpdIds = Array.isArray(payload?.mvpdIds)
+    ? payload.mvpdIds.map((value) => String(value || "").trim()).filter(Boolean).slice(0, 24)
+    : [];
   if (incomingEnvironment) {
     state.adobePassEnvironment = {
       ...DEFAULT_ADOBEPASS_ENVIRONMENT,
@@ -1331,6 +1632,9 @@ async function sendWorkspaceAction(action, payload = {}) {
         ...response,
       };
     }
+    if (normalizedAction === "download-export" && normalizeMegExportFormat(String(payload?.format || ""), "csv") === "html") {
+      return downloadMegStandaloneHtmlExport(String(payload?.url || ""));
+    }
     if (normalizedAction === "download-csv" || normalizedAction === "download-export") {
       const format =
         normalizedAction === "download-csv"
@@ -1350,7 +1654,6 @@ async function sendWorkspaceAction(action, payload = {}) {
           csv: "text/csv;charset=utf-8",
           json: "application/json;charset=utf-8",
           xml: "application/xml;charset=utf-8",
-          html: "text/html;charset=utf-8",
         }[format] ||
         "application/octet-stream";
       megWorkspaceDownloadFile(response.bodyText, fileName, mimeType);
@@ -1379,6 +1682,32 @@ async function sendWorkspaceAction(action, payload = {}) {
       error: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+async function downloadMegStandaloneHtmlExport(rawUrl = "") {
+  const response = await megStandaloneFetchResponse(String(rawUrl || ""), "html");
+  if (!response?.responseOk) {
+    return {
+      ok: false,
+      error: String(response?.bodyText || `HTML request failed (${response?.status || 0})`),
+    };
+  }
+
+  const fileName = `esm_${sanitizeMegDownloadSegment(getProgrammerLabel())}_${Date.now()}.html`;
+  const payloadText = rewriteMegStandaloneHtmlExportLinks(response.bodyText, {
+    bridgeUrl: getMegStandaloneUnderparEsmBridgeUrl(),
+    programmerId: String(state.programmerId || "").trim(),
+    programmerName: String(state.programmerName || "").trim(),
+    environmentKey: String(state.adobePassEnvironment?.key || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim(),
+    environmentLabel: String(state.adobePassEnvironment?.label || DEFAULT_ADOBEPASS_ENVIRONMENT.label).trim(),
+    source: "megspace-html-export",
+  });
+  megWorkspaceDownloadFile(payloadText, fileName, response?.contentType || "text/html;charset=utf-8");
+  return {
+    ok: true,
+    fileName,
+    format: "html",
+  };
 }
 
 function sanitizeMegDownloadSegment(value = "") {
@@ -1846,6 +2175,10 @@ function buildMegExportPack(variant = "modern") {
     exportButton.title = `Export query as ${normalizedFormat.toUpperCase()}`;
     exportButton.setAttribute("aria-label", `Export query as ${normalizedFormat.toUpperCase()}`);
     exportButton.addEventListener("click", () => {
+      if (normalizedFormat === "html") {
+        void exportMegHtml();
+        return;
+      }
       void exportMeg(normalizedFormat);
     });
     exportPack.appendChild(exportButton);
@@ -2135,6 +2468,9 @@ async function runMeg(source = "manual") {
 
 async function exportMeg(format = "csv") {
   const normalizedFormat = normalizeMegExportFormat(format);
+  if (normalizedFormat === "html") {
+    return exportMegHtml();
+  }
   if (!ensureMegWorkspaceAccess(`export ${normalizedFormat.toUpperCase()} from MEGSPACE`)) {
     return;
   }
@@ -2148,6 +2484,31 @@ async function exportMeg(format = "csv") {
     }
     setStatus(`${normalizedFormat.toUpperCase()} download started.`);
     ack(`${normalizedFormat.toUpperCase()} download started: ${String(result.fileName || `esm-export.${normalizedFormat}`)}`);
+  } catch (error) {
+    bonk(`[0x35] ${error.message}`, {
+      url: fldEsmUrl.value,
+    });
+  }
+}
+
+async function exportMegHtml() {
+  const normalizedFormat = "html";
+  if (!ensureMegWorkspaceAccess("export HTML from MEGSPACE")) {
+    return;
+  }
+  try {
+    const result = isMegStandaloneMode()
+      ? await downloadMegStandaloneHtmlExport(String(fldEsmUrl?.value || ""))
+      : await sendWorkspaceAction("download-export", {
+          url: fldEsmUrl.value,
+          format: normalizedFormat,
+        });
+    if (!result?.ok) {
+      throw new Error(result?.error || "Unable to export HTML through UnderPar.");
+    }
+    setStatus("HTML download started.");
+    ack(`HTML download started: ${String(result.fileName || "esm-export.html")}`);
+    return result;
   } catch (error) {
     bonk(`[0x35] ${error.message}`, {
       url: fldEsmUrl.value,

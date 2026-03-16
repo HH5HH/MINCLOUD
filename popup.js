@@ -68,6 +68,7 @@ const UNDERPAR_VAULT_STORAGE_KEY = "underpar_vault_v1";
 const UNDERPAR_VAULT_SCHEMA_VERSION = 1;
 const UNDERPAR_SLACKTIVATION_SCHEMA_VERSION = 1;
 const UNDERPAR_ESM_DEEPLINK_STORAGE_KEY = "underpar_pending_esm_deeplink_v1";
+const UNDERPAR_ESM_WORKSPACE_BINDING_STORAGE_KEY = "underpar_esm_workspace_binding_v1";
 const UNDERPAR_ESM_DEEPLINK_MAX_AGE_MS = 30 * 60 * 1000;
 const UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH = "esm-deeplink-bridge.html";
 const UNDERPAR_ESM_DEEPLINK_WORKSPACE_PATH = "esm-workspace.html";
@@ -3508,10 +3509,28 @@ function buildUnderparEsmBridgeDeeplinkUrl(rawRequestValue = "", options = {}) {
   let url = buildUnderparWorkspaceBlondieDeeplinkBaseUrl(UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE);
   if (!url) {
     try {
-      url = new URL(chrome.runtime.getURL(UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH));
+      const bridgeUrl = String(chrome.runtime.getURL(UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH) || "").trim();
+      let parsed = null;
+      try {
+        parsed = new URL(bridgeUrl);
+      } catch {
+        parsed = null;
+      }
+      if (parsed?.protocol === "chrome-extension:" && parsed.host) {
+        url = new URL(`https://${parsed.host}.chromiumapp.org/`);
+        url.searchParams.set(UNDERPAR_ESM_DEEPLINK_MARKER_PARAM, UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE);
+      } else if (parsed?.protocol === "https:" && String(parsed.hostname || "").toLowerCase().endsWith(".chromiumapp.org")) {
+        url = new URL(`${parsed.origin}${String(parsed.pathname || "").trim() || "/"}`);
+        url.searchParams.set(UNDERPAR_ESM_DEEPLINK_MARKER_PARAM, UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE);
+      } else {
+        url = null;
+      }
     } catch {
       return buildUnderparEsmRequestDeeplinkUrl(requestPath, options);
     }
+  }
+  if (!url) {
+    return buildUnderparEsmRequestDeeplinkUrl(requestPath, options);
   }
   url.hash = "";
   const params = new URLSearchParams(url.search);
@@ -3547,46 +3566,7 @@ function buildUnderparEsmBridgeDeeplinkUrl(rawRequestValue = "", options = {}) {
 }
 
 function buildUnderparDirectEsmBridgeUrl(rawRequestValue = "", options = {}) {
-  const requestPath = normalizeUnderparEsmRequestPath(rawRequestValue);
-  if (!requestPath) {
-    return "";
-  }
-  let url;
-  try {
-    url = new URL(chrome.runtime.getURL(UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH));
-  } catch {
-    return buildUnderparEsmBridgeDeeplinkUrl(requestPath, options);
-  }
-  url.search = "";
-  url.hash = "";
-  url.searchParams.set("requestPath", requestPath);
-  const displayNodeLabel = String(options.displayNodeLabel || "").trim();
-  const programmerId = String(options.programmerId || "").trim();
-  const programmerName = String(options.programmerName || "").trim();
-  const environmentKey =
-    String(options.environmentKey || getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
-    DEFAULT_ADOBEPASS_ENVIRONMENT.key;
-  const environmentLabel = String(options.environmentLabel || "").trim();
-  const source = String(options.source || "blondie-button").trim() || "blondie-button";
-  const createdAt = Math.max(0, Number(options.createdAt || Date.now() || 0)) || Date.now();
-  if (displayNodeLabel) {
-    url.searchParams.set("displayNodeLabel", displayNodeLabel);
-  }
-  if (programmerId) {
-    url.searchParams.set("programmerId", programmerId);
-  }
-  if (programmerName) {
-    url.searchParams.set("programmerName", programmerName);
-  }
-  if (environmentKey) {
-    url.searchParams.set("environmentKey", environmentKey);
-  }
-  if (environmentLabel) {
-    url.searchParams.set("environmentLabel", environmentLabel);
-  }
-  url.searchParams.set("source", source);
-  url.searchParams.set("createdAt", String(createdAt));
-  return url.toString();
+  return buildUnderparEsmBridgeDeeplinkUrl(rawRequestValue, options);
 }
 
 function buildUnderparEsmBlondieDeeplinkPayload(exportPayload = null) {
@@ -3617,7 +3597,7 @@ function buildUnderparEsmBlondieDeeplinkUrl(exportPayload = null) {
   if (!payload) {
     return "";
   }
-  return buildUnderparEsmRequestDeeplinkUrl(payload.requestPath, payload);
+  return buildUnderparEsmBridgeDeeplinkUrl(payload.requestPath, payload);
 }
 
 function buildUnderparDegradationBlondieDeeplinkPayload(exportPayload = null) {
@@ -23960,6 +23940,7 @@ function buildMegWorkspaceTearsheetSnapshot(context = {}, options = {}) {
     standalone: true,
     title: `${firstNonEmptyString([programmerName, programmerId, "ESM Scope"])} MEGTOOL`,
     savedQueryBridgeUrl: chrome.runtime.getURL("saved-query-bridge.html"),
+    underparEsmBridgeUrl: chrome.runtime.getURL("esm-deeplink-bridge.html"),
     adobePassEnvironment: {
       ...getActiveAdobePassEnvironment(),
     },
@@ -24001,6 +23982,419 @@ function buildMegWorkspaceTearsheetFileName(snapshot = {}) {
   return `${scopeLabel}_MEG_${envTag}_${Date.now()}.html`;
 }
 
+function buildMegWorkspaceTearsheetHtmlPatchScript() {
+  return `
+(function installMegTearsheetHtmlExportPatch() {
+  if (globalThis.__underparMegTearsheetHtmlExportPatchInstalled) {
+    return;
+  }
+  globalThis.__underparMegTearsheetHtmlExportPatchInstalled = true;
+
+  const UNDERPAR_ESM_DEEPLINK_MARKER_PARAM = "underpar_deeplink";
+  const UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE = "esm-bridge";
+  const UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH = "esm-deeplink-bridge.html";
+  const UNDERPAR_ESM_HTML_EXPORT_TARGET_NAME = "UnderPAR_ESM_Bridge";
+  const UNDERPAR_ESM_HTML_EXPORT_BRIDGE_FRAME_ID = "underpar-esm-export-bridge-frame";
+  const UNDERPAR_ESM_NODE_PATH_PREFIX = "/esm/v3/media-company";
+  const DEFAULT_ADOBEPASS_ENVIRONMENT = {
+    key: "release-production",
+    label: "Production",
+    mgmtBase: "https://mgmt.auth.adobe.com",
+    esmBase: "https://mgmt.auth.adobe.com/esm/v3/media-company/",
+  };
+
+  function firstNonEmptyString(values = []) {
+    for (const value of Array.isArray(values) ? values : []) {
+      const text = String(value ?? "").trim();
+      if (text) {
+        return text;
+      }
+    }
+    return "";
+  }
+
+  function getMegPatchPayload() {
+    try {
+      if (typeof getMegWorkspacePayload === "function") {
+        return getMegWorkspacePayload() || {};
+      }
+    } catch (_error) {
+      // Ignore payload access failures and fall back to an empty object.
+    }
+    return {};
+  }
+
+  function stripMegPatchMediaCompanyQueryParam(rawUrl = "") {
+    if (typeof stripMegMediaCompanyQueryParam === "function") {
+      return stripMegMediaCompanyQueryParam(rawUrl);
+    }
+    return String(rawUrl || "").trim();
+  }
+
+  function buildMegPatchRequestPath(pathname = "", search = "", options = {}) {
+    const allowBarePath = options?.allowBarePath === true;
+    let normalizedPath = String(pathname || "").trim().replace(/\\/+$/g, "");
+    if (!normalizedPath) {
+      return "";
+    }
+    if (/^\\/?esm\\/v3\\/media-company(?:\\/|$)/i.test(normalizedPath)) {
+      if (!normalizedPath.startsWith("/")) {
+        normalizedPath = \`/\${normalizedPath}\`;
+      }
+      return \`\${normalizedPath}\${String(search || "")}\`;
+    }
+    if (!allowBarePath) {
+      return "";
+    }
+    normalizedPath = normalizedPath.replace(/^\\/+/, "");
+    if (!normalizedPath) {
+      return "";
+    }
+    return \`\${UNDERPAR_ESM_NODE_PATH_PREFIX}/\${normalizedPath}\${String(search || "")}\`;
+  }
+
+  function normalizeMegPatchRequestPath(rawValue = "") {
+    const normalized = stripMegPatchMediaCompanyQueryParam(String(rawValue || "").trim());
+    if (!normalized) {
+      return "";
+    }
+    const hasAbsoluteScheme = /^[a-z][a-z\\d+.-]*:/i.test(normalized);
+    const environment =
+      typeof state === "object" && state?.adobePassEnvironment && typeof state.adobePassEnvironment === "object"
+        ? state.adobePassEnvironment
+        : DEFAULT_ADOBEPASS_ENVIRONMENT;
+    try {
+      const base = String(
+        environment?.esmBase || \`\${environment?.mgmtBase || DEFAULT_ADOBEPASS_ENVIRONMENT.mgmtBase}\${UNDERPAR_ESM_NODE_PATH_PREFIX}/\`
+      ).trim();
+      const parsed = hasAbsoluteScheme ? new URL(normalized) : new URL(normalized, base || DEFAULT_ADOBEPASS_ENVIRONMENT.mgmtBase);
+      return buildMegPatchRequestPath(String(parsed.pathname || ""), String(parsed.search || ""), {
+        allowBarePath: !hasAbsoluteScheme,
+      });
+    } catch (_error) {
+      const withoutHash = normalized.split("#")[0] || "";
+      const [pathPart, queryPart = ""] = withoutHash.split("?");
+      return buildMegPatchRequestPath(pathPart, queryPart ? \`?\${queryPart}\` : "", {
+        allowBarePath: !hasAbsoluteScheme,
+      });
+    }
+  }
+
+  function getMegPatchBridgeUrl() {
+    const payload = getMegPatchPayload();
+    const candidates = [
+      String(payload?.underparEsmBridgeUrl || "").trim(),
+      String(payload?.savedQueryBridgeUrl || "").trim(),
+    ].filter(Boolean);
+    for (const candidate of candidates) {
+      try {
+        const parsed = new URL(candidate);
+        parsed.pathname = \`/\${UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH}\`;
+        parsed.search = "";
+        parsed.hash = "";
+        return parsed.toString();
+      } catch (_error) {
+        // Ignore malformed embedded bridge URLs and continue searching.
+      }
+    }
+    return "";
+  }
+
+  function getMegPatchChromiumappBaseUrl() {
+    const payload = getMegPatchPayload();
+    const candidates = [
+      getMegPatchBridgeUrl(),
+      String(payload?.savedQueryBridgeUrl || "").trim(),
+      String(payload?.underparEsmBridgeUrl || "").trim(),
+    ].filter(Boolean);
+    for (const candidate of candidates) {
+      try {
+        const parsed = new URL(candidate);
+        if (parsed.protocol === "https:" && String(parsed.hostname || "").toLowerCase().endsWith(".chromiumapp.org")) {
+          return \`\${parsed.origin}\${String(parsed.pathname || "").trim() || "/"}\`;
+        }
+        if (parsed.protocol === "chrome-extension:" && parsed.host) {
+          return \`https://\${parsed.host}.chromiumapp.org/\`;
+        }
+      } catch (_error) {
+        // Ignore malformed candidates and continue searching.
+      }
+    }
+    return "";
+  }
+
+  function buildMegPatchBridgeUrl(rawRequestValue = "", options = {}) {
+    const requestPath = normalizeMegPatchRequestPath(rawRequestValue);
+    if (!requestPath) {
+      return "";
+    }
+    const baseUrl = getMegPatchChromiumappBaseUrl();
+    let url;
+    if (baseUrl) {
+      url = new URL(baseUrl);
+      url.search = "";
+      url.hash = "";
+      url.searchParams.set(UNDERPAR_ESM_DEEPLINK_MARKER_PARAM, UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE);
+    } else {
+      const bridgeUrl = String(options.bridgeUrl || getMegPatchBridgeUrl()).trim();
+      if (!bridgeUrl) {
+        return "";
+      }
+      const parsedBridgeUrl = new URL(bridgeUrl);
+      if (parsedBridgeUrl.protocol === "chrome-extension:" && parsedBridgeUrl.host) {
+        url = new URL(\`https://\${parsedBridgeUrl.host}.chromiumapp.org/\`);
+        url.searchParams.set(UNDERPAR_ESM_DEEPLINK_MARKER_PARAM, UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE);
+      } else if (
+        parsedBridgeUrl.protocol === "https:" &&
+        String(parsedBridgeUrl.hostname || "").toLowerCase().endsWith(".chromiumapp.org")
+      ) {
+        url = new URL(\`\${parsedBridgeUrl.origin}\${String(parsedBridgeUrl.pathname || "").trim() || "/"}\`);
+        url.searchParams.set(UNDERPAR_ESM_DEEPLINK_MARKER_PARAM, UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE);
+      } else {
+        return "";
+      }
+      url.hash = "";
+    }
+    const params = new URLSearchParams(url.search);
+    params.set("requestPath", requestPath);
+    const displayNodeLabel = String(options.displayNodeLabel || "").trim();
+    const programmerId = String(options.programmerId || "").trim();
+    const programmerName = String(options.programmerName || "").trim();
+    const environment =
+      typeof state === "object" && state?.adobePassEnvironment && typeof state.adobePassEnvironment === "object"
+        ? state.adobePassEnvironment
+        : DEFAULT_ADOBEPASS_ENVIRONMENT;
+    const environmentKey =
+      String(options.environmentKey || environment?.key || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+      DEFAULT_ADOBEPASS_ENVIRONMENT.key;
+    const environmentLabel =
+      String(options.environmentLabel || environment?.label || DEFAULT_ADOBEPASS_ENVIRONMENT.label).trim() ||
+      DEFAULT_ADOBEPASS_ENVIRONMENT.label;
+    const source = String(options.source || "megspace-html-export").trim() || "megspace-html-export";
+    const createdAt = Math.max(0, Number(options.createdAt || Date.now() || 0)) || Date.now();
+    if (displayNodeLabel) {
+      params.set("displayNodeLabel", displayNodeLabel);
+    }
+    if (programmerId) {
+      params.set("programmerId", programmerId);
+    }
+    if (programmerName) {
+      params.set("programmerName", programmerName);
+    }
+    if (environmentKey) {
+      params.set("environmentKey", environmentKey);
+    }
+    if (environmentLabel) {
+      params.set("environmentLabel", environmentLabel);
+    }
+    params.set("source", source);
+    params.set("createdAt", String(createdAt));
+    url.search = params.toString();
+    return url.toString();
+  }
+
+  function rewriteMegPatchHtmlExportLinks(htmlText, context = {}) {
+    const sourceHtml = String(htmlText || "");
+    if (!sourceHtml.trim() || typeof DOMParser !== "function") {
+      return sourceHtml;
+    }
+
+    let documentNode = null;
+    try {
+      documentNode = new DOMParser().parseFromString(sourceHtml, "text/html");
+    } catch (_error) {
+      return sourceHtml;
+    }
+    if (!documentNode?.querySelectorAll) {
+      return sourceHtml;
+    }
+
+    const environment =
+      typeof state === "object" && state?.adobePassEnvironment && typeof state.adobePassEnvironment === "object"
+        ? state.adobePassEnvironment
+        : DEFAULT_ADOBEPASS_ENVIRONMENT;
+    const programmerId = String(context?.programmerId || state?.programmerId || "").trim();
+    const programmerName = String(context?.programmerName || state?.programmerName || "").trim();
+    const environmentKey =
+      String(context?.environmentKey || environment?.key || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+      DEFAULT_ADOBEPASS_ENVIRONMENT.key;
+    const environmentLabel =
+      String(context?.environmentLabel || environment?.label || DEFAULT_ADOBEPASS_ENVIRONMENT.label).trim() ||
+      DEFAULT_ADOBEPASS_ENVIRONMENT.label;
+    const source = String(context?.source || "megspace-html-export").trim() || "megspace-html-export";
+    const bridgeUrl = String(context?.bridgeUrl || getMegPatchBridgeUrl()).trim();
+    let rewriteCount = 0;
+
+    documentNode.querySelectorAll("a[href]").forEach((anchor) => {
+      const rawHref = String(anchor.getAttribute("href") || "").trim();
+      const requestPath = normalizeMegPatchRequestPath(rawHref);
+      if (!requestPath) {
+        return;
+      }
+      const displayNodeLabel = firstNonEmptyString([
+        String(anchor.textContent || "").trim(),
+        String(anchor.getAttribute("title") || "").trim(),
+        requestPath,
+      ]);
+      const deeplinkUrl = buildMegPatchBridgeUrl(requestPath, {
+        bridgeUrl,
+        displayNodeLabel,
+        programmerId,
+        programmerName,
+        environmentKey,
+        environmentLabel,
+        source,
+      });
+      if (!deeplinkUrl) {
+        return;
+      }
+      anchor.setAttribute("href", deeplinkUrl);
+      anchor.setAttribute("target", UNDERPAR_ESM_HTML_EXPORT_TARGET_NAME);
+      anchor.setAttribute("rel", "noopener noreferrer");
+      anchor.setAttribute("data-underpar-esm-request-path", requestPath);
+      const existingTitle = String(anchor.getAttribute("title") || "").trim();
+      const underparTitle = displayNodeLabel
+        ? \`Open \${displayNodeLabel} in UnderPAR ESM Workspace\`
+        : "Open in UnderPAR ESM Workspace";
+      anchor.setAttribute("title", existingTitle ? \`\${existingTitle} | \${underparTitle}\` : underparTitle);
+      rewriteCount += 1;
+    });
+
+    if (!rewriteCount || !documentNode.documentElement) {
+      return sourceHtml;
+    }
+    const existingBridgeFrame = documentNode.getElementById(UNDERPAR_ESM_HTML_EXPORT_BRIDGE_FRAME_ID);
+    if (existingBridgeFrame?.parentNode) {
+      existingBridgeFrame.parentNode.removeChild(existingBridgeFrame);
+    }
+    return \`<!doctype html>\\n\${documentNode.documentElement.outerHTML}\`;
+  }
+
+  globalThis.rewriteMegStandaloneHtmlExportLinks = rewriteMegPatchHtmlExportLinks;
+  globalThis.buildMegStandaloneUnderparDirectEsmBridgeUrl = buildMegPatchBridgeUrl;
+  globalThis.getMegStandaloneUnderparEsmBridgeUrl = getMegPatchBridgeUrl;
+
+  async function downloadMegPatchStandaloneHtmlExport(rawUrl = "") {
+    if (typeof megStandaloneFetchResponse !== "function" || typeof megWorkspaceDownloadFile !== "function") {
+      return {
+        ok: false,
+        error: "Standalone MEGTOOL HTML export helpers are unavailable.",
+      };
+    }
+    const response = await megStandaloneFetchResponse(String(rawUrl || ""), "html");
+    if (!response?.responseOk) {
+      return {
+        ok: false,
+        error: String(response?.bodyText || \`HTML request failed (\${response?.status || 0})\`),
+      };
+    }
+    const programmerLabel =
+      typeof getProgrammerLabel === "function" ? getProgrammerLabel() : firstNonEmptyString([state?.programmerName, state?.programmerId, "EsmScope"]);
+    const fileName = \`esm_\${
+      typeof sanitizeMegDownloadSegment === "function"
+        ? sanitizeMegDownloadSegment(programmerLabel)
+        : String(programmerLabel || "EsmScope").replace(/[^a-z0-9._-]+/gi, "_")
+    }_\${Date.now()}.html\`;
+    const payloadText = rewriteMegPatchHtmlExportLinks(response.bodyText, {
+      bridgeUrl: getMegPatchBridgeUrl(),
+      programmerId: String(state?.programmerId || "").trim(),
+      programmerName: String(state?.programmerName || "").trim(),
+      environmentKey: String(state?.adobePassEnvironment?.key || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim(),
+      environmentLabel: String(state?.adobePassEnvironment?.label || DEFAULT_ADOBEPASS_ENVIRONMENT.label).trim(),
+      source: "megspace-html-export",
+    });
+    megWorkspaceDownloadFile(payloadText, fileName, response?.contentType || "text/html;charset=utf-8");
+    return {
+      ok: true,
+      fileName,
+      format: "html",
+    };
+  }
+
+  async function patchedMegTearsheetExportMegHtml() {
+    if (typeof ensureMegWorkspaceAccess === "function" && !ensureMegWorkspaceAccess("export HTML from MEGSPACE")) {
+      return;
+    }
+    try {
+      const result = await downloadMegPatchStandaloneHtmlExport(String(fldEsmUrl?.value || ""));
+      if (!result?.ok) {
+        throw new Error(result?.error || "Unable to export HTML through UnderPar.");
+      }
+      if (typeof setStatus === "function") {
+        setStatus("HTML download started.");
+      }
+      if (typeof ack === "function") {
+        ack("HTML download started: " + String(result.fileName || "esm-export.html"));
+      }
+      return result;
+    } catch (error) {
+      if (typeof bonk === "function") {
+        bonk("[0x35] " + (error instanceof Error ? error.message : String(error)), {
+          url: String(fldEsmUrl?.value || ""),
+        });
+        return;
+      }
+      throw error;
+    }
+  }
+
+  if (typeof exportMegHtml === "function") {
+    exportMegHtml = patchedMegTearsheetExportMegHtml;
+  }
+
+  if (typeof exportMeg === "function") {
+    const originalExportMeg = exportMeg;
+    exportMeg = async function patchedMegTearsheetExportMeg(format = "csv") {
+      const normalizedFormat =
+        typeof normalizeMegExportFormat === "function"
+          ? normalizeMegExportFormat(String(format || ""), "csv")
+          : String(format || "csv").trim().toLowerCase() || "csv";
+      const standaloneMode =
+        typeof isMegStandaloneMode === "function"
+          ? isMegStandaloneMode()
+          : !(globalThis.chrome && globalThis.chrome.runtime && typeof globalThis.chrome.runtime.sendMessage === "function");
+      if (!standaloneMode || normalizedFormat !== "html") {
+        return originalExportMeg.apply(this, arguments);
+      }
+      if (typeof exportMegHtml === "function") {
+        return exportMegHtml();
+      }
+      return patchedMegTearsheetExportMegHtml();
+    };
+  }
+
+  if (typeof sendWorkspaceAction !== "function") {
+    return;
+  }
+
+  const originalSendWorkspaceAction = sendWorkspaceAction;
+  sendWorkspaceAction = async function patchedMegTearsheetSendWorkspaceAction(action, payload = {}) {
+    const normalizedAction = String(action || "").trim().toLowerCase();
+    const normalizedFormat =
+      normalizedAction === "download-csv"
+        ? "csv"
+        : typeof normalizeMegExportFormat === "function"
+          ? normalizeMegExportFormat(String(payload?.format || ""), "csv")
+          : String(payload?.format || "csv").trim().toLowerCase() || "csv";
+    const standaloneMode =
+      typeof isMegStandaloneMode === "function"
+        ? isMegStandaloneMode()
+        : !(globalThis.chrome && globalThis.chrome.runtime && typeof globalThis.chrome.runtime.sendMessage === "function");
+    if (
+      standaloneMode &&
+      normalizedAction === "download-export" &&
+      normalizedFormat === "html" &&
+      typeof megStandaloneFetchResponse === "function" &&
+      typeof megWorkspaceDownloadFile === "function"
+    ) {
+      return downloadMegPatchStandaloneHtmlExport(String(payload?.url || ""));
+    }
+    return originalSendWorkspaceAction.apply(this, arguments);
+  };
+})();
+  `;
+}
+
 function buildMegWorkspaceTearsheetHtml(snapshot, templateHtml, stylesheetText, runtimeScriptText, authContext = {}) {
   const templateText = String(templateHtml || "");
   if (!templateText.trim()) {
@@ -24008,12 +24402,16 @@ function buildMegWorkspaceTearsheetHtml(snapshot, templateHtml, stylesheetText, 
   }
   const safeStyles = String(stylesheetText || "").replace(/<\/style/gi, "<\\/style");
   const runtimeScript = String(runtimeScriptText || "").replace(/<\/script/gi, "<\\/script");
+  const patchScript = String(buildMegWorkspaceTearsheetHtmlPatchScript() || "").replace(/<\/script/gi, "<\\/script");
   const payloadJson = JSON.stringify(snapshot || {}).replace(/</g, "\\u003c");
   if (!safeStyles.trim()) {
     throw new Error("MEG workspace stylesheet is empty.");
   }
   if (!runtimeScript.trim()) {
     throw new Error("MEG workspace runtime is empty.");
+  }
+  if (!patchScript.trim()) {
+    throw new Error("MEG workspace tearsheet patch is empty.");
   }
 
   const doc = new DOMParser().parseFromString(templateText, "text/html");
@@ -24058,6 +24456,10 @@ function buildMegWorkspaceTearsheetHtml(snapshot, templateHtml, stylesheetText, 
   const runtimeNode = doc.createElement("script");
   runtimeNode.textContent = runtimeScript;
   doc.body.append(runtimeNode);
+
+  const patchNode = doc.createElement("script");
+  patchNode.textContent = patchScript;
+  doc.body.append(patchNode);
 
   return `<!doctype html>\n${doc.documentElement.outerHTML}`;
 }
@@ -27418,6 +27820,39 @@ async function esmWorkspaceGetCurrentWindowId() {
   }
 }
 
+function buildPersistedEsmWorkspaceBindingSnapshot() {
+  const tabIdsByWindowId = [];
+  for (const [windowId, tabId] of state.esmWorkspaceWorkspaceTabIdByWindowId.entries()) {
+    const normalizedWindowId = Number(windowId || 0);
+    const normalizedTabId = Number(tabId || 0);
+    if (normalizedWindowId > 0 && normalizedTabId > 0) {
+      tabIdsByWindowId.push([normalizedWindowId, normalizedTabId]);
+    }
+  }
+  const windowId = Number(state.esmWorkspaceWorkspaceWindowId || 0);
+  const tabId = Number(state.esmWorkspaceWorkspaceTabId || 0);
+  if (windowId <= 0 && tabId <= 0 && tabIdsByWindowId.length === 0) {
+    return null;
+  }
+  return {
+    windowId: windowId > 0 ? windowId : 0,
+    tabId: tabId > 0 ? tabId : 0,
+    tabIdsByWindowId,
+    updatedAt: Date.now(),
+  };
+}
+
+async function persistEsmWorkspaceBindingSnapshot() {
+  try {
+    const snapshot = buildPersistedEsmWorkspaceBindingSnapshot();
+    await chrome.storage.local.set({
+      [UNDERPAR_ESM_WORKSPACE_BINDING_STORAGE_KEY]: snapshot,
+    });
+  } catch {
+    // Ignore storage failures; workspace routing can still fall back to tab scans.
+  }
+}
+
 function esmWorkspaceBindWorkspaceTab(windowId, tabId) {
   const normalizedWindowId = Number(windowId || 0);
   const normalizedTabId = Number(tabId || 0);
@@ -27430,6 +27865,7 @@ function esmWorkspaceBindWorkspaceTab(windowId, tabId) {
   if (normalizedTabId > 0) {
     state.esmWorkspaceWorkspaceTabId = normalizedTabId;
   }
+  void persistEsmWorkspaceBindingSnapshot();
 }
 
 function esmWorkspaceUnbindWorkspaceTab(tabId) {
@@ -27444,8 +27880,10 @@ function esmWorkspaceUnbindWorkspaceTab(tabId) {
 
   if (!normalizedTabId || Number(state.esmWorkspaceWorkspaceTabId || 0) === normalizedTabId) {
     state.esmWorkspaceWorkspaceTabId = 0;
-    state.esmWorkspaceWorkspaceWindowId = 0;
+    const fallbackEntry = state.esmWorkspaceWorkspaceTabIdByWindowId.entries().next().value || [];
+    state.esmWorkspaceWorkspaceWindowId = Number(fallbackEntry[0] || 0);
   }
+  void persistEsmWorkspaceBindingSnapshot();
 }
 
 function esmWorkspaceGetBoundWorkspaceTabId(windowId) {
@@ -27930,7 +28368,7 @@ function rewriteMegWorkspaceHtmlExportLinks(htmlText, context = {}) {
     }
     anchor.setAttribute("href", deeplinkUrl);
     anchor.setAttribute("target", UNDERPAR_ESM_HTML_EXPORT_TARGET_NAME);
-    anchor.removeAttribute("rel");
+    anchor.setAttribute("rel", "noopener noreferrer");
     anchor.setAttribute("data-underpar-esm-request-path", requestPath);
     const existingTitle = String(anchor.getAttribute("title") || "").trim();
     const underparTitle = displayNodeLabel
@@ -27944,21 +28382,8 @@ function rewriteMegWorkspaceHtmlExportLinks(htmlText, context = {}) {
     return sourceHtml;
   }
   const existingBridgeFrame = documentNode.getElementById(UNDERPAR_ESM_HTML_EXPORT_BRIDGE_FRAME_ID);
-  if (!existingBridgeFrame) {
-    const bridgeFrame = documentNode.createElement("iframe");
-    bridgeFrame.id = UNDERPAR_ESM_HTML_EXPORT_BRIDGE_FRAME_ID;
-    bridgeFrame.name = UNDERPAR_ESM_HTML_EXPORT_TARGET_NAME;
-    bridgeFrame.hidden = true;
-    bridgeFrame.setAttribute("aria-hidden", "true");
-    bridgeFrame.setAttribute("tabindex", "-1");
-    bridgeFrame.setAttribute("title", "UnderPAR ESM bridge");
-    bridgeFrame.setAttribute("src", "about:blank");
-    bridgeFrame.setAttribute("style", "display:none !important;width:0 !important;height:0 !important;border:0 !important;");
-    if (documentNode.body) {
-      documentNode.body.appendChild(bridgeFrame);
-    } else {
-      documentNode.documentElement.appendChild(bridgeFrame);
-    }
+  if (existingBridgeFrame?.parentNode) {
+    existingBridgeFrame.parentNode.removeChild(existingBridgeFrame);
   }
   return `<!doctype html>\n${documentNode.documentElement.outerHTML}`;
 }
@@ -45296,6 +45721,7 @@ function resetWorkflowForLoggedOut() {
   state.esmWorkspaceWorkspaceTabId = 0;
   state.esmWorkspaceWorkspaceWindowId = 0;
   state.esmWorkspaceWorkspaceTabIdByWindowId.clear();
+  void persistEsmWorkspaceBindingSnapshot();
   state.esmWorkspaceControllerStateVersion = 0;
   state.blondieTimeWorkspaceTabId = 0;
   state.blondieTimeWorkspaceWindowId = 0;

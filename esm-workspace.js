@@ -297,7 +297,9 @@ function parseWorkspaceDeeplinkPayloadFromLocation() {
     return null;
   }
   const params = new URLSearchParams(query);
-  const requestPath = normalizeWorkspaceDeeplinkRequestPath(params.get("requestPath") || params.get("requestUrl") || "");
+  const requestPath = normalizeWorkspaceDeeplinkRequestPath(
+    params.get("deeplink") || params.get("requestPath") || params.get("requestUrl") || ""
+  );
   if (!requestPath) {
     return null;
   }
@@ -314,6 +316,7 @@ function clearWorkspaceDeeplinkFromLocation() {
     const nextUrl = new URL(window.location.href);
     nextUrl.hash = "";
     [
+      "deeplink",
       "requestPath",
       "requestUrl",
       "displayNodeLabel",

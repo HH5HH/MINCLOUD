@@ -13,6 +13,7 @@ const UNDERPAR_CM_DEEPLINK_REDIRECT_RULE_ID = 164004;
 const UNDERPAR_BT_DEEPLINK_REDIRECT_RULE_ID = 164005;
 const UNDERPAR_ESM_BRIDGE_DEEPLINK_REDIRECT_RULE_ID = 164006;
 const UNDERPAR_ESM_DEEPLINK_STORAGE_KEY = "underpar_pending_esm_deeplink_v1";
+const UNDERPAR_ESM_WORKSPACE_BINDING_STORAGE_KEY = "underpar_esm_workspace_binding_v1";
 const UNDERPAR_ESM_DEEPLINK_MARKER_PARAM = "underpar_deeplink";
 const UNDERPAR_ESM_DEEPLINK_MARKER_VALUE = "esm";
 const UNDERPAR_ESM_DEEPLINK_BRIDGE_MARKER_VALUE = "esm-bridge";
@@ -263,15 +264,114 @@ function isEsmWorkspaceTab(tabLike = null) {
   return String(tabLike?.url || "").startsWith(esmUrlPrefix);
 }
 
+function pickBestEsmWorkspaceTab(tabLikes = [], preferredTabId = 0) {
+  const tabs = Array.isArray(tabLikes) ? tabLikes.filter((tab) => isEsmWorkspaceTab(tab)) : [];
+  if (tabs.length === 0) {
+    return null;
+  }
+  const normalizedPreferredTabId = Math.max(0, Number(preferredTabId || 0));
+  if (normalizedPreferredTabId > 0) {
+    const exactTab = tabs.find((tab) => Number(tab?.id || 0) === normalizedPreferredTabId);
+    if (exactTab) {
+      return exactTab;
+    }
+  }
+  const activeTabs = tabs.filter((tab) => tab?.active === true);
+  const rankedTabs = activeTabs.length > 0 ? activeTabs : tabs;
+  rankedTabs.sort((left, right) => Number(right?.lastAccessed || 0) - Number(left?.lastAccessed || 0));
+  return rankedTabs[0] || null;
+}
+
+function normalizePersistedEsmWorkspaceBindingRecord(value = null) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  if (!source) {
+    return null;
+  }
+  const windowId = normalizeWindowId(source.windowId);
+  const tabId = Math.max(0, Number(source.tabId || 0));
+  const tabIdsByWindowId = new Map();
+  const rawEntries = Array.isArray(source.tabIdsByWindowId) ? source.tabIdsByWindowId : [];
+  for (const entry of rawEntries) {
+    if (!Array.isArray(entry) || entry.length < 2) {
+      continue;
+    }
+    const entryWindowId = normalizeWindowId(entry[0]);
+    const entryTabId = Math.max(0, Number(entry[1] || 0));
+    if (entryWindowId > 0 && entryTabId > 0) {
+      tabIdsByWindowId.set(entryWindowId, entryTabId);
+    }
+  }
+  if (windowId <= 0 && tabId <= 0 && tabIdsByWindowId.size === 0) {
+    return null;
+  }
+  return {
+    windowId,
+    tabId,
+    tabIdsByWindowId,
+  };
+}
+
+async function getPersistedEsmWorkspaceBindingRecord() {
+  try {
+    const payload = await chrome.storage.local.get(UNDERPAR_ESM_WORKSPACE_BINDING_STORAGE_KEY);
+    return normalizePersistedEsmWorkspaceBindingRecord(payload?.[UNDERPAR_ESM_WORKSPACE_BINDING_STORAGE_KEY] || null);
+  } catch {
+    return null;
+  }
+}
+
+async function findPersistedBoundEsmWorkspaceTab(targetWindowId = 0, options = {}) {
+  const binding = await getPersistedEsmWorkspaceBindingRecord();
+  if (!binding) {
+    return null;
+  }
+  const normalizedWindowId = normalizeWindowId(targetWindowId);
+  const candidateTabIds = [];
+  const mappedTabId = normalizedWindowId > 0 ? Math.max(0, Number(binding.tabIdsByWindowId.get(normalizedWindowId) || 0)) : 0;
+  if (mappedTabId > 0) {
+    candidateTabIds.push(mappedTabId);
+  }
+  if (options.strictWindow !== true) {
+    const globalTabId = Math.max(0, Number(binding.tabId || 0));
+    if (globalTabId > 0 && !candidateTabIds.includes(globalTabId)) {
+      candidateTabIds.push(globalTabId);
+    }
+  }
+  for (const tabId of candidateTabIds) {
+    try {
+      const tab = await chrome.tabs.get(tabId);
+      if (!isEsmWorkspaceTab(tab)) {
+        continue;
+      }
+      if (options.strictWindow === true && normalizedWindowId > 0 && normalizeWindowId(tab?.windowId) !== normalizedWindowId) {
+        continue;
+      }
+      return tab;
+    } catch {
+      // Ignore stale persisted bindings and fall back to live tab scans.
+    }
+  }
+  return null;
+}
+
 async function findEsmWorkspaceTab(targetWindowId = 0) {
   const normalizedWindowId = normalizeWindowId(targetWindowId);
+  const boundWorkspaceTab = await findPersistedBoundEsmWorkspaceTab(normalizedWindowId, { strictWindow: true });
+  if (boundWorkspaceTab) {
+    return boundWorkspaceTab;
+  }
+
+  const globalBoundWorkspaceTab = await findPersistedBoundEsmWorkspaceTab(0);
+  if (globalBoundWorkspaceTab) {
+    return globalBoundWorkspaceTab;
+  }
+
   if (normalizedWindowId > 0) {
     try {
       const tabs = await chrome.tabs.query({ windowId: normalizedWindowId });
-      for (const tab of tabs) {
-        if (isEsmWorkspaceTab(tab)) {
-          return tab;
-        }
+      const workspaceTab = pickBestEsmWorkspaceTab(tabs);
+      if (workspaceTab) {
+        return workspaceTab;
       }
     } catch {
       // Ignore stale preferred windows and fall back to any UnderPAR ESM workspace.
@@ -280,15 +380,10 @@ async function findEsmWorkspaceTab(targetWindowId = 0) {
 
   try {
     const tabs = await chrome.tabs.query({});
-    for (const tab of tabs) {
-      if (isEsmWorkspaceTab(tab)) {
-        return tab;
-      }
-    }
+    return pickBestEsmWorkspaceTab(tabs);
   } catch {
     return null;
   }
-  return null;
 }
 
 function getPreferredUnderparControllerWindowId(fallbackWindowId = 0) {
@@ -322,7 +417,7 @@ function getPreferredUnderparControllerWindowId(fallbackWindowId = 0) {
   return explicitWindowId;
 }
 
-async function focusEsmWorkspace(targetWindowId = 0) {
+async function focusEsmWorkspace(targetWindowId = 0, options = {}) {
   const preferredWindowId = getPreferredUnderparControllerWindowId(targetWindowId);
   const existingTab = await findEsmWorkspaceTab(preferredWindowId);
   if (existingTab?.id) {
@@ -340,6 +435,9 @@ async function focusEsmWorkspace(targetWindowId = 0) {
     }
     return existingTab;
   }
+  if (options?.createIfMissing === false) {
+    return null;
+  }
   const createOptions = {
     url: chrome.runtime.getURL(UNDERPAR_ESM_WORKSPACE_PATH),
     active: true,
@@ -355,6 +453,36 @@ async function focusEsmWorkspace(targetWindowId = 0) {
     }
   }
   return await chrome.tabs.create(createOptions);
+}
+
+async function handoffEsmDeeplinkToWorkspace(targetWindowId = 0) {
+  const preferredWindowId = getPreferredUnderparControllerWindowId(targetWindowId);
+  const existingTab = await focusEsmWorkspace(preferredWindowId, { createIfMissing: false });
+  if (existingTab?.id) {
+    return {
+      tabId: Number(existingTab.id || 0),
+      windowId: Number(existingTab.windowId || 0),
+      reusedExistingWorkspace: true,
+    };
+  }
+  if (preferredWindowId > 0) {
+    try {
+      await chrome.windows.update(preferredWindowId, { focused: true });
+      return {
+        tabId: 0,
+        windowId: preferredWindowId,
+        reusedExistingWorkspace: false,
+      };
+    } catch {
+      // Fall through to workspace creation if the preferred controller window no longer exists.
+    }
+  }
+  const createdTab = await focusEsmWorkspace(targetWindowId, { createIfMissing: true });
+  return {
+    tabId: Number(createdTab?.id || 0),
+    windowId: Number(createdTab?.windowId || 0),
+    reusedExistingWorkspace: false,
+  };
 }
 
 async function enqueuePendingUnderparEsmDeeplink(payload = null) {
@@ -940,7 +1068,7 @@ async function ensureUnderparEsmDeeplinkRedirectRule() {
   return ensureUnderparWorkspaceDeeplinkRedirectRule(
     UNDERPAR_ESM_DEEPLINK_REDIRECT_RULE_ID,
     UNDERPAR_ESM_DEEPLINK_MARKER_VALUE,
-    UNDERPAR_ESM_WORKSPACE_PATH
+    UNDERPAR_ESM_DEEPLINK_BRIDGE_PATH
   );
 }
 
@@ -3343,13 +3471,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const senderWindowId = Number(_sender?.tab?.windowId || 0);
       const closeSenderTab = message?.closeSenderTab === true;
       await enqueuePendingUnderparEsmDeeplink(payload);
-      const workspaceTab = await focusEsmWorkspace(senderWindowId);
+      const handoff = await handoffEsmDeeplinkToWorkspace(senderWindowId);
       sendResponse({
         ok: true,
-        tabId: Number(workspaceTab?.id || 0),
-        windowId: Number(workspaceTab?.windowId || 0),
+        tabId: Number(handoff?.tabId || 0),
+        windowId: Number(handoff?.windowId || 0),
       });
-      if (closeSenderTab && senderTabId > 0 && senderTabId !== Number(workspaceTab?.id || 0)) {
+      if (closeSenderTab && senderTabId > 0 && senderTabId !== Number(handoff?.tabId || 0)) {
         globalThis.setTimeout(() => {
           void chrome.tabs.remove(senderTabId).catch(() => {});
         }, 75);

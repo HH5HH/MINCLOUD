@@ -47,6 +47,27 @@ function loadBlondieDeeplinkHelpers(seed) {
   return context.module.exports;
 }
 
+function loadBlondieEsmDeeplinkUrlBuilder(seed) {
+  const source = fs.readFileSync(POPUP_JS_PATH, "utf8");
+  const script = [
+    extractFunctionSource(source, "buildUnderparEsmBlondieDeeplinkUrl"),
+    "module.exports = { buildUnderparEsmBlondieDeeplinkUrl };"
+  ].join("\n\n");
+  const context = {
+    module: { exports: {} },
+    exports: {},
+    __seed: seed,
+    buildUnderparEsmBlondieDeeplinkPayload(exportPayload) {
+      return seed.buildUnderparEsmBlondieDeeplinkPayload(exportPayload);
+    },
+    buildUnderparEsmBridgeDeeplinkUrl(requestPath, payload) {
+      return seed.buildUnderparEsmBridgeDeeplinkUrl(requestPath, payload);
+    }
+  };
+  vm.runInNewContext(script, context, { filename: POPUP_JS_PATH });
+  return context.module.exports;
+}
+
 test("UnderPAR Blondie deeplink base follows the active UnderPAR runtime redirect origin", () => {
   const helpers = loadBlondieDeeplinkHelpers({
     chrome: {
@@ -101,4 +122,28 @@ test("UnderPAR Blondie deeplink base supports the BT workspace marker", () => {
   assert.ok(url instanceof URL);
   assert.equal(url.origin, "https://underpar-bt.chromiumapp.org");
   assert.equal(url.searchParams.get("underpar_deeplink"), "bt");
+});
+
+test("UnderPAR Blondie ESM deeplink URLs now route through the ESM bridge handler", () => {
+  const payload = {
+    requestPath: "/esm/v3/media-company/year/month/day/event",
+    source: "blondie-button",
+  };
+  const helpers = loadBlondieEsmDeeplinkUrlBuilder({
+    buildUnderparEsmBlondieDeeplinkPayload() {
+      return payload;
+    },
+    buildUnderparEsmBridgeDeeplinkUrl(requestPath, receivedPayload) {
+      assert.equal(requestPath, payload.requestPath);
+      assert.equal(receivedPayload, payload);
+      return "https://underpar-runtime.chromiumapp.org/?underpar_deeplink=esm-bridge&requestPath=%2Fesm%2Fv3%2Fmedia-company%2Fyear%2Fmonth%2Fday%2Fevent";
+    }
+  });
+
+  const url = helpers.buildUnderparEsmBlondieDeeplinkUrl({ workspaceKey: "esm" });
+
+  assert.equal(
+    url,
+    "https://underpar-runtime.chromiumapp.org/?underpar_deeplink=esm-bridge&requestPath=%2Fesm%2Fv3%2Fmedia-company%2Fyear%2Fmonth%2Fday%2Fevent"
+  );
 });
