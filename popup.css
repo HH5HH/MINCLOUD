@@ -431,8 +431,14 @@ body[aria-busy="true"] .auth-btn::before {
   color: rgba(236, 243, 255, 0.84);
 }
 
+.sign-in-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
 .sign-in-hero-btn {
-  align-self: flex-start;
   min-width: 132px;
   height: 42px;
   padding: 0 18px;
@@ -463,6 +469,53 @@ body[aria-busy="true"] .auth-btn::before {
 .sign-in-hero-btn:disabled {
   opacity: 0.78;
   cursor: default;
+}
+
+.sign-in-update-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 42px;
+  padding: 0 14px 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(255, 255, 255, 0.1);
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.02em;
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease;
+}
+
+.sign-in-update-indicator:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 18px 30px rgba(0, 0, 0, 0.26);
+}
+
+.sign-in-update-indicator:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(255, 235, 183, 0.84), 0 0 0 5px rgba(255, 166, 0, 0.18);
+}
+
+.sign-in-update-indicator:disabled {
+  opacity: 0.74;
+  cursor: default;
+}
+
+.sign-in-update-indicator img {
+  display: block;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  box-shadow: 0 8px 14px rgba(0, 0, 0, 0.2);
+}
+
+.sign-in-update-indicator-label {
+  white-space: nowrap;
 }
 
 .avatar-menu {
@@ -1591,8 +1644,8 @@ select:disabled {
     max-width: 34ch;
   }
 
-  .sign-in-hero-btn {
-    align-self: center;
+  .sign-in-hero-actions {
+    justify-content: center;
   }
 }
 

@@ -33,7 +33,20 @@
             <p class="sign-in-copy">
               Premium workspaces, tearsheets, and diagnostics from one control surface.
             </p>
-            <button id="sign-in-hero-btn" type="button" class="sign-in-hero-btn">Sign In</button>
+            <div class="sign-in-hero-actions">
+              <button id="sign-in-hero-btn" type="button" class="sign-in-hero-btn">Sign In</button>
+              <button
+                id="sign-in-update-indicator"
+                type="button"
+                class="sign-in-update-indicator"
+                hidden
+                title="A newer version of UnderPAR is now available for download."
+                aria-label="A newer version of UnderPAR is now available for download."
+              >
+                <img src="icons/medium.png" alt="" aria-hidden="true" loading="eager" decoding="async" />
+                <span class="sign-in-update-indicator-label">New Version Available</span>
+              </button>
+            </div>
           </div>
         </div>
       </section>

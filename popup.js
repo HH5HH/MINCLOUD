@@ -22,6 +22,7 @@ const UP_DEVTOOLS_VAULT_ACTION_REQUEST_TYPE = "underpar:upDevtoolsVaultAction";
 const CONSOLE_LOG_RELAY_REQUEST_TYPE = "underpar:consoleLog";
 const UNDERPAR_GET_UPDATE_STATE_REQUEST_TYPE = "underpar:getUpdateState";
 const UNDERPAR_GET_LATEST_REQUEST_TYPE = "underpar:getLatest";
+const UNDERPAR_UPDATE_AVAILABLE_HOVER_TEXT = "A newer version of UnderPAR is now available for download.";
 const UNDERPAR_NETWORK_ACTIVITY_MESSAGE_TYPE = "underpar:networkActivity";
 const GLOBAL_NETWORK_RELAY_MESSAGE_TYPES = new Set([
   IMS_FETCH_REQUEST_TYPE,
@@ -10250,6 +10251,7 @@ const els = {
   pageEnvBadgeValue: document.getElementById("page-env-badge-value"),
   signInView: document.getElementById("sign-in-view"),
   signInHeroBtn: document.getElementById("sign-in-hero-btn"),
+  signInUpdateIndicator: document.getElementById("sign-in-update-indicator"),
   restrictedView: document.getElementById("restricted-view"),
   restrictedOrgSelect: document.getElementById("restricted-org-select"),
   restrictedOrgHint: document.getElementById("restricted-org-hint"),
@@ -50517,6 +50519,28 @@ function syncAvatarMenuUpdateAction() {
   button.setAttribute("aria-label", title);
 }
 
+function syncSignInUpdateIndicator() {
+  const button = els.signInUpdateIndicator;
+  if (!button) {
+    return;
+  }
+  const updateAvailable = state.updateAvailable === true;
+  const latestVersion = String(state.latestVersion || "").trim();
+  const currentVersion = String(chrome.runtime.getManifest()?.version || "").trim();
+  const titleParts = [UNDERPAR_UPDATE_AVAILABLE_HOVER_TEXT];
+  if (latestVersion) {
+    titleParts.push(`Latest: v${latestVersion}.`);
+  }
+  if (currentVersion) {
+    titleParts.push(`Current: v${currentVersion}.`);
+  }
+  const title = titleParts.join(" ");
+  button.hidden = !updateAvailable;
+  button.disabled = state.updateCheckPending === true;
+  button.title = title;
+  button.setAttribute("aria-label", title);
+}
+
 function applyAvatarMenuUpdateState(updateInfo = null) {
   const info = updateInfo && typeof updateInfo === "object" ? updateInfo : null;
   state.updateAvailable = info?.updateAvailable === true;
@@ -50524,6 +50548,7 @@ function applyAvatarMenuUpdateState(updateInfo = null) {
   state.latestCommitSha = String(info?.latestCommitSha || "").trim();
   state.updateCheckError = String(info?.checkError || "").trim();
   syncAvatarMenuUpdateAction();
+  syncSignInUpdateIndicator();
 }
 
 async function loadAvatarMenuUpdateState(force = false) {
@@ -50542,9 +50567,35 @@ async function loadAvatarMenuUpdateState(force = false) {
   } finally {
     state.updateCheckPending = false;
     syncAvatarMenuUpdateAction();
+    syncSignInUpdateIndicator();
     if (state.avatarMenuOpen) {
       renderAvatarMenu();
     }
+  }
+}
+
+async function triggerGetLatestWorkflow() {
+  if (state.updateCheckPending) {
+    return;
+  }
+  closeAvatarMenu();
+  setStatus("Opening latest UnderPAR package and chrome://extensions...", "info");
+  try {
+    const response = await sendRuntimeMessageSafe({
+      type: UNDERPAR_GET_LATEST_REQUEST_TYPE,
+    });
+    if (response?.ok === false) {
+      setStatus(`Get Latest failed: ${response.error || "Unknown error"}`, "error");
+      return;
+    }
+    state.latestCommitSha = String(response?.latestCommitSha || state.latestCommitSha || "").trim();
+    state.latestVersion = String(response?.latestVersion || state.latestVersion || "").trim();
+    state.updateAvailable = Boolean(state.updateAvailable || response?.latestVersion);
+    syncAvatarMenuUpdateAction();
+    syncSignInUpdateIndicator();
+    setStatus("Opening latest UnderPAR package and chrome://extensions...", "info");
+  } catch (error) {
+    setStatus(`Get Latest failed: ${error instanceof Error ? error.message : String(error)}`, "error");
   }
 }
 
@@ -64185,6 +64236,12 @@ function registerEventHandlers() {
     });
   }
 
+  if (els.signInUpdateIndicator) {
+    els.signInUpdateIndicator.addEventListener("click", () => {
+      void triggerGetLatestWorkflow();
+    });
+  }
+
   if (els.restrictedOrgSelect) {
     els.restrictedOrgSelect.addEventListener("change", (event) => {
       state.selectedRestrictedOrgKey = String(event.target.value || "");
@@ -64221,27 +64278,8 @@ function registerEventHandlers() {
   }
 
   if (els.getLatestBtn) {
-    els.getLatestBtn.addEventListener("click", async () => {
-      if (state.updateCheckPending) {
-        return;
-      }
-      closeAvatarMenu();
-      setStatus("Opening latest UnderPAR package and chrome://extensions...", "info");
-      try {
-        const response = await sendRuntimeMessageSafe({
-          type: UNDERPAR_GET_LATEST_REQUEST_TYPE,
-        });
-        if (response?.ok === false) {
-          setStatus(`Get Latest failed: ${response.error || "Unknown error"}`, "error");
-          return;
-        }
-        state.latestCommitSha = String(response?.latestCommitSha || state.latestCommitSha || "").trim();
-        state.latestVersion = String(response?.latestVersion || state.latestVersion || "").trim();
-        state.updateAvailable = Boolean(state.updateAvailable || response?.latestVersion);
-        setStatus("Opening latest UnderPAR package and chrome://extensions...", "info");
-      } catch (error) {
-        setStatus(`Get Latest failed: ${error instanceof Error ? error.message : String(error)}`, "error");
-      }
+    els.getLatestBtn.addEventListener("click", () => {
+      void triggerGetLatestWorkflow();
     });
   }
 
@@ -64521,6 +64559,7 @@ async function init() {
   resetWorkflowForLoggedOut();
   registerEventHandlers();
   render();
+  void loadAvatarMenuUpdateState(false);
 }
 
 void init();
