@@ -50663,12 +50663,12 @@ function syncAvatarMenuUpdateAction() {
   const updateAvailable = state.updateAvailable === true;
   const currentVersion = String(chrome.runtime.getManifest()?.version || "").trim();
   const latestVersion = String(state.latestVersion || "").trim();
-  button.hidden = !updateAvailable;
+  button.hidden = false;
   button.disabled = state.updateCheckPending === true;
   button.textContent = "Get Latest";
   const title = updateAvailable
     ? `Open UnderPAR ${latestVersion ? `v${latestVersion}` : "latest"} from GitHub and chrome://extensions${currentVersion ? ` (current v${currentVersion})` : ""}`
-    : "Get Latest";
+    : `Download the latest UnderPAR package and open chrome://extensions${currentVersion ? ` (current v${currentVersion})` : ""}`;
   button.title = title;
   button.setAttribute("aria-label", title);
 }
@@ -50697,10 +50697,12 @@ function syncSignInUpdateIndicator() {
 
 function applyAvatarMenuUpdateState(updateInfo = null) {
   const info = updateInfo && typeof updateInfo === "object" ? updateInfo : null;
-  state.updateAvailable = info?.updateAvailable === true;
-  state.latestVersion = String(info?.latestVersion || "").trim();
-  state.latestCommitSha = String(info?.latestCommitSha || "").trim();
-  state.updateCheckError = String(info?.checkError || "").trim();
+  if (info) {
+    state.updateAvailable = info?.updateAvailable === true;
+    state.latestVersion = String(info?.latestVersion || "").trim();
+    state.latestCommitSha = String(info?.latestCommitSha || "").trim();
+    state.updateCheckError = String(info?.checkError || "").trim();
+  }
   syncAvatarMenuUpdateAction();
   syncSignInUpdateIndicator();
 }
@@ -50716,7 +50718,6 @@ async function loadAvatarMenuUpdateState(force = false) {
     applyAvatarMenuUpdateState(response || null);
     return response || null;
   } catch {
-    applyAvatarMenuUpdateState(null);
     return null;
   } finally {
     state.updateCheckPending = false;
@@ -50733,7 +50734,7 @@ async function triggerGetLatestWorkflow() {
     return;
   }
   closeAvatarMenu();
-  setStatus("Opening latest UnderPAR package and chrome://extensions...", "info");
+  setStatus("Starting latest UnderPAR download and opening chrome://extensions...", "info");
   try {
     const response = await sendRuntimeMessageSafe({
       type: UNDERPAR_GET_LATEST_REQUEST_TYPE,
@@ -50750,19 +50751,28 @@ async function triggerGetLatestWorkflow() {
     }
     syncAvatarMenuUpdateAction();
     syncSignInUpdateIndicator();
-    if (response?.downloadOpened === true && response?.extensionsOpened === true) {
-      setStatus("Opened latest UnderPAR package and chrome://extensions.", "success");
+    const downloadLabel = String(response?.downloadFileName || "").trim() || "latest UnderPAR package";
+    if (response?.downloadStarted === true && response?.extensionsOpened === true) {
+      setStatus(`Started ${downloadLabel} download and opened chrome://extensions.`, "success");
       return;
     }
-    if (response?.downloadOpened === true) {
-      setStatus("Opened latest UnderPAR package. Open chrome://extensions to finish the update.", "info");
+    if (response?.downloadStarted === true) {
+      setStatus(`Started ${downloadLabel} download. Open chrome://extensions to finish the update.`, "info");
+      return;
+    }
+    if (response?.downloadTabOpened === true && response?.extensionsOpened === true) {
+      setStatus("Opened latest UnderPAR package tab and chrome://extensions.", "success");
+      return;
+    }
+    if (response?.downloadTabOpened === true) {
+      setStatus("Opened latest UnderPAR package tab. Open chrome://extensions to finish the update.", "info");
       return;
     }
     if (response?.extensionsOpened === true) {
-      setStatus("Opened chrome://extensions. Open the latest UnderPAR package to finish the update.", "info");
+      setStatus("Opened chrome://extensions. Start the latest UnderPAR download to finish the update.", "info");
       return;
     }
-    setStatus("Opening latest UnderPAR package and chrome://extensions...", "info");
+    setStatus("Starting latest UnderPAR download and opening chrome://extensions...", "info");
   } catch (error) {
     setStatus(`Get Latest failed: ${error instanceof Error ? error.message : String(error)}`, "error");
   }

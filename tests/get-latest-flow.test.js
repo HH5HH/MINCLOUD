@@ -77,6 +77,9 @@ function loadGetLatestHelpers(seed = {}) {
     extractFunctionSource(source, "fetchLatestUnderparCommitSha"),
     extractFunctionSource(source, "withCacheBust"),
     extractFunctionSource(source, "buildLatestUnderparPackageUrl"),
+    extractFunctionSource(source, "sanitizeLatestPackageFileSegment"),
+    extractFunctionSource(source, "buildLatestUnderparPackageFileName"),
+    extractFunctionSource(source, "startLatestPackageDownload"),
     extractFunctionSource(source, "getUpdateStatePayload"),
     extractFunctionSource(source, "refreshUpdateState"),
     extractFunctionSource(source, "openUnderparGetLatestFlow"),
@@ -95,6 +98,7 @@ function loadGetLatestHelpers(seed = {}) {
 function createSeed(options = {}) {
   const calls = {
     fetch: [],
+    downloadsDownload: [],
     tabsCreate: [],
   };
   const responseByUrl = new Map(Object.entries(options.responseByUrl || {}));
@@ -104,6 +108,15 @@ function createSeed(options = {}) {
       runtime: {
         getManifest() {
           return { version: String(options.currentVersion || "1.0.0") };
+        },
+      },
+      downloads: {
+        async download(info = {}) {
+          calls.downloadsDownload.push({ ...info });
+          if (options.downloadShouldFail === true) {
+            throw new Error("download failed");
+          }
+          return Number(options.downloadId || 91);
         },
       },
       tabs: {
@@ -170,11 +183,14 @@ test("openUnderparGetLatestFlow uses a SHA-pinned underpar_distro.zip when GitHu
 
   assert.equal(response.ok, true);
   assert.equal(String(response.latestCommitSha || ""), latestSha);
-  assert.equal(seed.calls.tabsCreate.length, 2);
-  const downloadUrl = String(seed.calls.tabsCreate[0]?.url || "");
+  assert.equal(response.downloadStarted, true);
+  assert.equal(seed.calls.downloadsDownload.length, 1);
+  assert.equal(seed.calls.tabsCreate.length, 1);
+  const downloadUrl = String(seed.calls.downloadsDownload[0]?.url || "");
   assert.match(downloadUrl, new RegExp(`/${latestSha}/underpar_distro\\.zip\\?cacheBust=\\d+$`));
   assert.equal(downloadUrl.includes("/main/underpar_distro.zip"), false);
-  assert.equal(String(seed.calls.tabsCreate[1]?.url || ""), "chrome://extensions");
+  assert.match(String(seed.calls.downloadsDownload[0]?.filename || ""), /^UnderPAR-v9\.9\.9-0123456\.zip$/);
+  assert.equal(String(seed.calls.tabsCreate[0]?.url || ""), "chrome://extensions");
 });
 
 test("openUnderparGetLatestFlow falls back to main underpar_distro.zip with cache bust when SHA lookup fails", async () => {
@@ -196,9 +212,47 @@ test("openUnderparGetLatestFlow falls back to main underpar_distro.zip with cach
 
   assert.equal(response.ok, true);
   assert.equal(String(response.latestCommitSha || ""), "");
-  assert.equal(seed.calls.tabsCreate.length, 2);
-  const downloadUrl = String(seed.calls.tabsCreate[0]?.url || "");
+  assert.equal(response.downloadStarted, true);
+  assert.equal(seed.calls.downloadsDownload.length, 1);
+  assert.equal(seed.calls.tabsCreate.length, 1);
+  const downloadUrl = String(seed.calls.downloadsDownload[0]?.url || "");
   assert.match(downloadUrl, /\/main\/underpar_distro\.zip\?cacheBust=\d+$/);
+  assert.match(String(seed.calls.downloadsDownload[0]?.filename || ""), /^UnderPAR-v9\.9\.9\.zip$/);
+  assert.equal(String(seed.calls.tabsCreate[0]?.url || ""), "chrome://extensions");
+});
+
+test("openUnderparGetLatestFlow falls back to opening the package tab when downloads API fails", async () => {
+  const latestSha = "fedcba9876543210fedcba9876543210fedcba98";
+  const seed = createSeed({
+    currentVersion: "1.0.0",
+    downloadShouldFail: true,
+    responseByUrl: {
+      "https://raw.githubusercontent.com/HH5HH/UNDERPAR/main/manifest.json": {
+        ok: true,
+        status: 200,
+        async json() {
+          return { version: "8.8.8" };
+        },
+      },
+      "https://api.github.com/repos/HH5HH/UNDERPAR/git/ref/heads/main": {
+        ok: true,
+        status: 200,
+        async json() {
+          return { object: { sha: latestSha } };
+        },
+      },
+    },
+  });
+
+  const helpers = loadGetLatestHelpers(seed);
+  const response = await helpers.openUnderparGetLatestFlow();
+
+  assert.equal(response.ok, true);
+  assert.equal(response.downloadStarted, false);
+  assert.equal(response.downloadTabOpened, true);
+  assert.equal(seed.calls.downloadsDownload.length, 1);
+  assert.equal(seed.calls.tabsCreate.length, 2);
+  assert.match(String(seed.calls.tabsCreate[0]?.url || ""), new RegExp(`/${latestSha}/underpar_distro\\.zip\\?cacheBust=\\d+$`));
   assert.equal(String(seed.calls.tabsCreate[1]?.url || ""), "chrome://extensions");
 });
 
@@ -208,5 +262,5 @@ test("UnderPAR avatar menu exposes a Get Latest action wired to the background f
 
   assert.match(sidepanelHtml, /id="get-latest-btn"/);
   assert.match(popupSource, /UNDERPAR_GET_LATEST_REQUEST_TYPE/);
-  assert.match(popupSource, /Opening latest UnderPAR package and chrome:\/\/extensions\.\.\./);
+  assert.match(popupSource, /Starting latest UnderPAR download and opening chrome:\/\/extensions\.\.\./);
 });
