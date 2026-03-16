@@ -68,7 +68,7 @@ function loadHrVisibilityHelpers(seed = {}) {
   return context.module.exports;
 }
 
-test("HR context stays hidden until the selected environment x media company is hydration-ready", () => {
+test("HR context stays hidden without a selected or hydrated media company", () => {
   const state = {
     programmerWorkspaceHydrationReadyByKey: new Map([["production|fox", true], ["staging|fox", false]]),
   };
@@ -77,10 +77,24 @@ test("HR context stays hidden until the selected environment x media company is 
     environmentKey: "production",
   });
 
-  assert.equal(shouldRevealHrContextSections(null), false);
-  assert.equal(shouldRevealHrContextSections({ programmerId: "" }), false);
-  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }), true);
-  assert.equal(shouldRevealHrContextSections({ programmerId: "nflx" }), false);
+  assert.equal(shouldRevealHrContextSections(null, null), false);
+  assert.equal(shouldRevealHrContextSections({ programmerId: "" }, null), false);
+  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, null), true);
+  assert.equal(shouldRevealHrContextSections({ programmerId: "nflx" }, null), false);
+});
+
+test("HR context reveals as soon as the selected media company has renderable services", () => {
+  const state = {
+    programmerWorkspaceHydrationReadyByKey: new Map(),
+  };
+  const { shouldRevealHrContextSections } = loadHrVisibilityHelpers({
+    state,
+    environmentKey: "production",
+  });
+
+  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, { restV2: { appName: "REST V2" } }), true);
+  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, {}), true);
+  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, []), false);
 });
 
 test("sidepanel seeds the HR context container hidden and popup runtime uses unlabeled top and bottom separators", () => {

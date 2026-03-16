@@ -45668,9 +45668,15 @@ function getHrContextSummary(programmer = null) {
   };
 }
 
-function shouldRevealHrContextSections(programmer = null) {
+function shouldRevealHrContextSections(programmer = null, services = null) {
   const programmerId = String(programmer?.programmerId || "").trim();
-  return Boolean(programmerId) && isProgrammerWorkspaceHydrationReady(programmerId);
+  if (!programmerId) {
+    return false;
+  }
+  if (services && typeof services === "object" && !Array.isArray(services)) {
+    return true;
+  }
+  return isProgrammerWorkspaceHydrationReady(programmerId);
 }
 
 function setHrContextSectionsVisibility(visible = false) {
@@ -45777,7 +45783,7 @@ function renderHrSections(services, programmer = null, options = {}) {
     return;
   }
 
-  if (!shouldRevealHrContextSections(programmer)) {
+  if (!shouldRevealHrContextSections(programmer, services)) {
     setHrContextSectionsVisibility(false);
     return;
   }
