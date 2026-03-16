@@ -45670,13 +45670,7 @@ function getHrContextSummary(programmer = null) {
 
 function shouldRevealHrContextSections(programmer = null, services = null) {
   const programmerId = String(programmer?.programmerId || "").trim();
-  if (!programmerId) {
-    return false;
-  }
-  if (services && typeof services === "object" && !Array.isArray(services)) {
-    return true;
-  }
-  return isProgrammerWorkspaceHydrationReady(programmerId);
+  return Boolean(programmerId) && getDetectedPremiumServiceKeys(services).length > 0;
 }
 
 function setHrContextSectionsVisibility(visible = false) {

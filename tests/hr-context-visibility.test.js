@@ -51,11 +51,15 @@ function loadHrVisibilityHelpers(seed = {}) {
   const source = fs.readFileSync(filePath, "utf8");
   const script = [
     'const DEFAULT_ADOBEPASS_ENVIRONMENT = { key: "production" };',
+    'const PREMIUM_SERVICE_DISPLAY_ORDER = ["restV2", "esmWorkspace", "degradation", "cm", "cmMvpd"];',
     "const state = globalThis.__seed.state || { programmerWorkspaceHydrationReadyByKey: new Map() };",
     "function getActiveAdobePassEnvironmentKey() { return globalThis.__seed.environmentKey || DEFAULT_ADOBEPASS_ENVIRONMENT.key; }",
     extractFunctionSource(source, "getEnvironmentScopedProgrammerKey"),
     extractFunctionSource(source, "getProgrammerWorkspaceHydrationReadyKey"),
     extractFunctionSource(source, "isProgrammerWorkspaceHydrationReady"),
+    extractFunctionSource(source, "hasEsmScopedApp"),
+    extractFunctionSource(source, "shouldShowCmService"),
+    extractFunctionSource(source, "getDetectedPremiumServiceKeys"),
     extractFunctionSource(source, "shouldRevealHrContextSections"),
     "module.exports = { shouldRevealHrContextSections };",
   ].join("\n\n");
@@ -68,7 +72,7 @@ function loadHrVisibilityHelpers(seed = {}) {
   return context.module.exports;
 }
 
-test("HR context stays hidden without a selected or hydrated media company", () => {
+test("HR context stays hidden without a selected media company or detected premium services", () => {
   const state = {
     programmerWorkspaceHydrationReadyByKey: new Map([["production|fox", true], ["staging|fox", false]]),
   };
@@ -79,11 +83,11 @@ test("HR context stays hidden without a selected or hydrated media company", () 
 
   assert.equal(shouldRevealHrContextSections(null, null), false);
   assert.equal(shouldRevealHrContextSections({ programmerId: "" }, null), false);
-  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, null), true);
+  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, null), false);
   assert.equal(shouldRevealHrContextSections({ programmerId: "nflx" }, null), false);
 });
 
-test("HR context reveals as soon as the selected media company has renderable services", () => {
+test("HR context reveals only when the selected media company has detected premium services", () => {
   const state = {
     programmerWorkspaceHydrationReadyByKey: new Map(),
   };
@@ -93,7 +97,10 @@ test("HR context reveals as soon as the selected media company has renderable se
   });
 
   assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, { restV2: { appName: "REST V2" } }), true);
-  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, {}), true);
+  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, { esm: { guid: "esm-guid" } }), true);
+  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, { cm: { matchedTenants: [{ id: "cm-tenant" }] } }), true);
+  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, {}), false);
+  assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, { cm: { matchedTenants: [] } }), false);
   assert.equal(shouldRevealHrContextSections({ programmerId: "fox" }, []), false);
 });
 
