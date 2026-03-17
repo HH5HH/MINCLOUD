@@ -39,6 +39,38 @@
       .replace(/'/g, "&#039;");
   }
 
+  function firstNonEmptyString(values) {
+    for (const value of Array.isArray(values) ? values : []) {
+      const normalized = String(value || "").trim();
+      if (normalized) {
+        return normalized;
+      }
+    }
+    return "";
+  }
+
+  function sanitizeDownloadFileSegment(value, fallback = "download") {
+    const normalized = String(value || "")
+      .trim()
+      .replace(/[^\w.-]+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    return normalized || fallback;
+  }
+
+  function truncateDownloadFileSegment(value, maxLength = 48) {
+    const normalized = String(value || "").trim();
+    if (!normalized) {
+      return "";
+    }
+    if (!Number.isFinite(maxLength) || maxLength <= 0) {
+      return normalized;
+    }
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return normalized.slice(0, maxLength);
+  }
+
   function normalizeQueryPairs(value) {
     return (Array.isArray(value) ? value : [])
       .map((pair) => {
@@ -112,6 +144,98 @@
     const pathSegments = Array.isArray(snapshot?.headerContext?.pathSegments) ? snapshot.headerContext.pathSegments : [];
     const terminal = String(pathSegments[pathSegments.length - 1] || "").trim();
     return terminal || "node";
+  }
+
+  function getPrimarySnapshotCard(snapshot = null) {
+    const cards = Array.isArray(snapshot?.cards) ? snapshot.cards.filter((card) => card && typeof card === "object") : [];
+    if (cards.length > 0) {
+      return cards[0];
+    }
+    return snapshot && typeof snapshot === "object" ? snapshot : {};
+  }
+
+  function buildUpspaceReportLabel(snapshot = null) {
+    const primaryCard = getPrimarySnapshotCard(snapshot);
+    return firstNonEmptyString([
+      snapshot?.displayNodeLabel,
+      snapshot?.datasetLabel,
+      primaryCard?.displayNodeLabel,
+      primaryCard?.datasetLabel,
+      getTerminalPathSegment(primaryCard),
+      snapshot?.workspaceLabel,
+      primaryCard?.workspaceLabel,
+      "report",
+    ]);
+  }
+
+  function buildUpspacePrintStamp(snapshot = null) {
+    const primaryCard = getPrimarySnapshotCard(snapshot);
+    const sourceTimestamp = Number(snapshot?.createdAt || primaryCard?.createdAt || Date.now() || 0);
+    const resolvedTimestamp = Number.isFinite(sourceTimestamp) && sourceTimestamp > 0 ? sourceTimestamp : Date.now();
+    return new Date(resolvedTimestamp).toISOString().replace(/[:.]/g, "-");
+  }
+
+  function buildUpspacePrintDocumentTitle(snapshot = null) {
+    const primaryCard = getPrimarySnapshotCard(snapshot);
+    const workspaceKey = truncateDownloadFileSegment(
+      sanitizeDownloadFileSegment(firstNonEmptyString([snapshot?.workspaceKey, primaryCard?.workspaceKey, "workspace"]), "workspace").toLowerCase(),
+      24
+    );
+    const programmerSegment = truncateDownloadFileSegment(
+      sanitizeDownloadFileSegment(
+        firstNonEmptyString([
+          snapshot?.programmerId,
+          primaryCard?.programmerId,
+          snapshot?.programmerName,
+          primaryCard?.programmerName,
+          "",
+        ]),
+        ""
+      ),
+      32
+    );
+    const datasetSegment = truncateDownloadFileSegment(
+      sanitizeDownloadFileSegment(buildUpspaceReportLabel(snapshot), "report"),
+      72
+    );
+    const envSegment = truncateDownloadFileSegment(
+      sanitizeDownloadFileSegment(
+        firstNonEmptyString([
+          snapshot?.adobePassEnvironmentKey,
+          primaryCard?.adobePassEnvironmentKey,
+          snapshot?.adobePassEnvironmentLabel,
+          primaryCard?.adobePassEnvironmentLabel,
+          "",
+        ]),
+        ""
+      ),
+      16
+    );
+    return [
+      "underpar",
+      workspaceKey,
+      programmerSegment,
+      datasetSegment || "report",
+      envSegment,
+      buildUpspacePrintStamp(snapshot),
+    ]
+      .filter(Boolean)
+      .join("_");
+  }
+
+  function buildUpspacePrintActionLabel(snapshot = null) {
+    return `Print ${buildUpspaceReportLabel(snapshot)} from UPSpace`;
+  }
+
+  function syncDocumentTitle(snapshot = null, targetDocument = document) {
+    if (!targetDocument || typeof targetDocument !== "object") {
+      return;
+    }
+    const nextTitle = buildUpspacePrintDocumentTitle(snapshot);
+    if (!nextTitle) {
+      return;
+    }
+    targetDocument.title = nextTitle;
   }
 
   function buildCardColumnsMarkup(snapshot) {
@@ -290,12 +414,13 @@
     `;
   }
 
-  function buildUtilityBarMarkup() {
+  function buildUtilityBarMarkup(snapshot) {
+    const printActionLabel = escapeHtml(buildUpspacePrintActionLabel(snapshot));
     return `
       <header class="ups-utility-bar" aria-label="UPS actions">
         <span class="ups-utility-prefix" aria-hidden="true">//</span>
         <a href="${escapeHtml(ZIP_ZAP_URL)}" target="_blank" rel="noopener noreferrer" class="ups-utility-link ups-utility-link-zipzap">zip-zap</a>
-        <a href="#" class="ups-utility-link ups-print-link">print</a>
+        <a href="#" class="ups-utility-link ups-print-link" title="${printActionLabel}" aria-label="${printActionLabel}">print</a>
       </header>
     `;
   }
@@ -359,13 +484,15 @@
     }
     const cards = normalizeCards(snapshot);
     if (cards.length === 0) {
+      document.title = "UPSpace";
       root.innerHTML = '<section class="ibeta-stage" aria-hidden="true"></section>';
       return;
     }
+    syncDocumentTitle(snapshot);
     root.innerHTML = `
       <section class="ibeta-stage">
         <div class="ups-shell">
-          ${buildUtilityBarMarkup()}
+          ${buildUtilityBarMarkup(snapshot)}
           <div class="workspace-cards ibeta-cards">
           ${cards.map((card) => buildCardMarkup(card)).join("")}
           </div>

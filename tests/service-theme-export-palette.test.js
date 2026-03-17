@@ -128,11 +128,12 @@ test("Degradation workspace surfaces stay on the red palette", () => {
   );
 });
 
-test("UPSpace launch labels stay plain text", () => {
+test("UPSpace launch labels stay ASCII badges", () => {
   const popupSource = read("popup.js");
   const upsViewSource = read("ups/view.js");
 
-  assert.match(popupSource, /const UNDERPAR_UPSPACE_SLACK_LINK_LABEL = "in UPSpace";/);
+  assert.match(popupSource, /const UNDERPAR_UPSPACE_SLACK_LINK_LABEL = "\[ \^ \]";/);
+  assert.doesNotMatch(popupSource, /const UNDERPAR_UPSPACE_SLACK_LINK_LABEL = "in UPSpace";/);
   assert.doesNotMatch(popupSource, /const UNDERPAR_UPSPACE_SLACK_LINK_LABEL = "↗";/);
   assert.match(upsViewSource, />zip-zap<\/a>/);
   assert.match(upsViewSource, />print<\/a>/);

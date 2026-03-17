@@ -62,7 +62,7 @@ $debugComment = underpar_ibeta_html_comment($debugMeta);
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Report</title>
+    <title>UPSpace</title>
     <link rel="stylesheet" href="./esm-workspace.css" />
     <link rel="stylesheet" href="./view.css" />
   </head>
