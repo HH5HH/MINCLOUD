@@ -181,6 +181,172 @@ body {
   }
 }
 
+/* UPSpace should expand to the full report width and let the browser own horizontal scrolling. */
+html,
+body {
+  width: max-content;
+  min-width: 100%;
+}
+
+body {
+  min-width: 100vw;
+}
+
+.ibeta-app,
+.ibeta-stage,
+.ups-shell,
+.ibeta-cards,
+.ibeta-report-card,
+.ibeta-report-card .card-head,
+.ibeta-report-card .card-body,
+.ibeta-report-card .card-col-list,
+.ibeta-report-card .esm-table-wrapper,
+.ibeta-report-card .esm-table {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+}
+
+.ibeta-stage {
+  display: block;
+  overflow: visible;
+}
+
+.ups-shell {
+  gap: 18px;
+}
+
+.ups-utility-bar {
+  position: sticky;
+  top: 0;
+  z-index: 18;
+  align-self: flex-start;
+  min-height: 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, rgb(var(--zip-accent-800)) 18%, var(--legacy-border));
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, rgb(var(--zip-accent-1000)) 12%, var(--legacy-panel)),
+    color-mix(in srgb, rgb(var(--zip-accent-900)) 8%, var(--legacy-bg))
+  );
+  box-shadow:
+    0 10px 22px rgba(0, 0, 0, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.84);
+  color: color-mix(in srgb, rgb(var(--workspace-link-rgb)) 58%, var(--legacy-muted) 42%);
+  backdrop-filter: blur(8px);
+}
+
+.ups-utility-prefix {
+  color: color-mix(in srgb, rgb(var(--workspace-link-rgb)) 34%, var(--legacy-muted) 66%);
+}
+
+.ups-utility-link {
+  color: var(--fg-primary, rgb(224, 100, 0));
+}
+
+.ups-utility-link:hover {
+  color: var(--spectrum-accent-content-color-hover, rgb(243, 117, 0));
+}
+
+.ibeta-cards {
+  gap: 20px;
+}
+
+.ibeta-report-card {
+  overflow: visible !important;
+}
+
+.ibeta-report-card .card-head,
+.ibeta-report-card .card-body,
+.ibeta-report-card .card-col-list {
+  min-width: 100%;
+}
+
+.ibeta-report-card .card-url-context,
+.ibeta-report-card .card-url-path,
+.ibeta-report-card .card-url-query-cloud,
+.ibeta-report-card .card-col-columns,
+.ibeta-report-card .card-col-columns-wrap,
+.ibeta-report-card .col-chip-cloud {
+  justify-content: flex-start;
+  align-items: flex-start;
+  text-align: left;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.ibeta-report-card .card-url-path-segment,
+.ibeta-report-card .card-url-query-chip,
+.ibeta-report-card .card-url-query-key,
+.ibeta-report-card .card-url-query-value,
+.ibeta-report-card .card-url-query-value-btn,
+.ibeta-report-card .col-chip-label,
+.ibeta-report-card .col-chip-trigger,
+.ibeta-report-card .card-col-parent-url {
+  max-width: none !important;
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ibeta-report-card .esm-table-wrapper {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+}
+
+.ibeta-report-card .esm-table {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  table-layout: auto;
+}
+
+.ibeta-report-card .esm-table th,
+.ibeta-report-card .esm-table td {
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.ups-affirmation-footer {
+  width: 100%;
+  min-width: 100%;
+}
+
+@media (max-width: 900px) {
+  .ibeta-app,
+  .ibeta-stage,
+  .ups-shell,
+  .ibeta-cards,
+  .ibeta-report-card,
+  .ibeta-report-card .card-head,
+  .ibeta-report-card .card-body,
+  .ibeta-report-card .card-col-list,
+  .ibeta-report-card .esm-table-wrapper,
+  .ibeta-report-card .esm-table {
+    width: max-content;
+    min-width: 100%;
+    max-width: none;
+  }
+
+  .ups-utility-bar {
+    position: static;
+    align-self: stretch;
+    border-radius: 16px;
+  }
+
+  .ibeta-report-card .card-url-context {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+}
+
 @page {
   size: 17in 11in;
   margin: 8mm;
@@ -212,7 +378,8 @@ body {
   .ibeta-cards,
   .ibeta-report-card,
   .ibeta-report-card .card-body {
-    width: 100%;
+    width: max-content !important;
+    min-width: 100% !important;
     max-width: none !important;
     min-height: 0;
     overflow: visible !important;

@@ -22,8 +22,10 @@ test("ESM export surfaces use the orange service palette", () => {
 
   assert.match(esmWorkspaceCss, /color-scheme:\s*dark;/i);
   assert.match(esmWorkspaceCss, /--zip-accent-800:\s*199,\s*82,\s*0;/);
-  assert.match(upsWorkspaceCss, /color-scheme:\s*dark;/i);
+  assert.match(upsWorkspaceCss, /color-scheme:\s*light;/i);
   assert.match(upsWorkspaceCss, /--zip-accent-1000:\s*243,\s*117,\s*0;/);
+  assert.match(upsWorkspaceCss, /--spectrum-gray-25-rgb:\s*255,\s*255,\s*255;/);
+  assert.match(upsWorkspaceCss, /--legacy-bg:\s*var\(--spectrum-gray-25\);/);
   assert.match(clickEsmTemplate, /<body data-theme="dark">/i);
   assert.match(clickEsmTemplate, /function __normalizeTheme\(theme\)\s*\{\s*return theme === 'light' \? 'light' : 'dark';/);
   assert.match(clickEsmTemplate, /--zip-accent-900:224,\s*100,\s*0;/);
@@ -33,6 +35,7 @@ test("ESM export surfaces use the orange service palette", () => {
   assert.match(mirroredClickEsmTemplate, /--zip-accent-900:224,\s*100,\s*0;/);
   assert.match(mirroredClickEsmTemplate, /--fg-primary:var\(--spectrum-text-color-link\);/);
   assert.match(upsViewCss, /\.ups-utility-link\s*\{[\s\S]*?color:\s*var\(--fg-primary,\s*rgb\(243,\s*117,\s*0\)\);/);
+  assert.match(upsViewCss, /\.ibeta-app,[\s\S]*\.ibeta-stage,[\s\S]*\.ups-shell,[\s\S]*width:\s*max-content;/i);
   assert.match(megWorkspaceCss, /--meg-focus:\s*rgb\(224,\s*100,\s*0\);/i);
   assert.match(megWorkspaceCss, /--meg-saved-query-accent:\s*rgb\(243,\s*117,\s*0\);/i);
   assert.match(megWorkspaceCss, /a:hover\s*\{[\s\S]*?text-decoration:\s*underline;/i);
@@ -46,7 +49,7 @@ test("ESM export surfaces use the orange service palette", () => {
   assert.match(popupCss, /--s2-action-bg-accent:\s*var\(--underpar-gold-base\);/);
   assert.match(popupCss, /--service-esm-zip-800:\s*199,\s*82,\s*0;/);
   assert.match(esmWorkspaceCss, /--workspace-link-rgb:\s*var\(--zip-accent-1000\);/);
-  assert.match(upsWorkspaceCss, /--workspace-link-rgb:\s*var\(--zip-accent-1000\);/);
+  assert.match(upsWorkspaceCss, /--workspace-link-rgb:\s*var\(--zip-accent-900\);/);
   assert.match(popupCss, /--service-link-rgb:\s*var\(--service-zip-1000\);/);
 
   [

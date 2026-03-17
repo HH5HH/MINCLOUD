@@ -22,17 +22,20 @@ test("UPSpace print stylesheet keeps wide reports overflow-safe in PDF", () => {
   assert.match(source, /@media print[\s\S]*\.ibeta-report-card \.esm-table th,[\s\S]*white-space:\s*nowrap !important;/i);
   assert.match(runtimeSource, /const UPS_PRINT_PAGE_STYLE_ID = "underpar-ups-print-page-style";/);
   assert.match(runtimeSource, /function prepareUpspacePrintLayout\(/);
-  assert.match(runtimeSource, /measurementRoot\.querySelectorAll\("\.ibeta-report-card, \.ibeta-report-card \.esm-table-wrapper, \.ibeta-report-card \.esm-table"\)/);
+  assert.match(
+    runtimeSource,
+    /measurementRoot\.querySelectorAll\(\s*"\.ibeta-report-card, \.ibeta-report-card \.card-head, \.ibeta-report-card \.card-col-list, \.ibeta-report-card \.esm-table-wrapper, \.ibeta-report-card \.esm-table"\s*\)/
+  );
   assert.match(runtimeSource, /buildUpspacePrintPageCss\(pxToMm\(widestMeasuredPx \+ 64\)\)/);
 });
 
-test("UPSpace narrow-screen layout keeps the report readable with horizontal table scrolling", () => {
+test("UPSpace live layout expands to report width without truncating mobile data", () => {
   const source = read("ups/view.css");
+  const workspaceSource = read("ups/esm-workspace.css");
 
-  assert.match(source, /html,[\s\S]*body\s*\{[\s\S]*overflow-x:\s*auto;/i);
-  assert.match(source, /\.ibeta-stage\s*\{[\s\S]*overflow-x:\s*auto;/i);
-  assert.match(source, /@media \(max-width:\s*900px\)[\s\S]*\.ups-utility-bar\s*\{[\s\S]*flex-wrap:\s*wrap;/i);
-  assert.match(source, /@media \(max-width:\s*900px\)[\s\S]*\.ibeta-report-card \.esm-table-wrapper\s*\{[\s\S]*overflow-x:\s*auto;/i);
-  assert.match(source, /@media \(max-width:\s*900px\)[\s\S]*\.ibeta-report-card \.esm-table-wrapper\s*\{[\s\S]*touch-action:\s*pan-x pan-y;/i);
-  assert.match(source, /@media \(max-width:\s*900px\)[\s\S]*\.ibeta-report-card \.esm-table\s*\{[\s\S]*min-width:\s*max-content;/i);
+  assert.match(source, /html,[\s\S]*body\s*\{[\s\S]*width:\s*max-content;/i);
+  assert.match(source, /\.ibeta-stage\s*\{[\s\S]*width:\s*max-content;[\s\S]*overflow:\s*visible;/i);
+  assert.match(source, /\.ibeta-report-card \.esm-table-wrapper\s*\{[\s\S]*width:\s*max-content;[\s\S]*overflow:\s*visible;/i);
+  assert.match(source, /\.ibeta-report-card \.esm-table\s*\{[\s\S]*width:\s*max-content;[\s\S]*min-width:\s*100%;/i);
+  assert.match(workspaceSource, /\.esm-table th,[\s\S]*\.esm-table td \{[\s\S]*overflow:\s*visible;[\s\S]*text-overflow:\s*clip;/i);
 });

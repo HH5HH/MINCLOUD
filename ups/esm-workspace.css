@@ -1903,3 +1903,429 @@ body.workspace-locked .workspace-status {
 .workspace-status.error {
   color: rgb(var(--danger-strong-rgb));
 }
+
+/* UPSpace is readability-first: use ZIP's light x orange shell and never clamp report width to the viewport. */
+:root {
+  color-scheme: light;
+  --spectrum-gray-25-rgb: 255, 255, 255;
+  --spectrum-gray-50-rgb: 248, 248, 248;
+  --spectrum-gray-75-rgb: 243, 243, 243;
+  --spectrum-gray-100-rgb: 233, 233, 233;
+  --spectrum-gray-200-rgb: 225, 225, 225;
+  --spectrum-gray-300-rgb: 218, 218, 218;
+  --spectrum-gray-400-rgb: 198, 198, 198;
+  --spectrum-gray-500-rgb: 143, 143, 143;
+  --spectrum-gray-600-rgb: 113, 113, 113;
+  --spectrum-gray-700-rgb: 80, 80, 80;
+  --spectrum-gray-800-rgb: 41, 41, 41;
+  --spectrum-gray-900-rgb: 19, 19, 19;
+  --spectrum-gray-1000-rgb: 0, 0, 0;
+  --spectrum-gray-25: rgb(var(--spectrum-gray-25-rgb));
+  --spectrum-gray-50: rgb(var(--spectrum-gray-50-rgb));
+  --spectrum-gray-75: rgb(var(--spectrum-gray-75-rgb));
+  --spectrum-gray-100: rgb(var(--spectrum-gray-100-rgb));
+  --spectrum-gray-200: rgb(var(--spectrum-gray-200-rgb));
+  --spectrum-gray-300: rgb(var(--spectrum-gray-300-rgb));
+  --spectrum-gray-400: rgb(var(--spectrum-gray-400-rgb));
+  --spectrum-gray-500: rgb(var(--spectrum-gray-500-rgb));
+  --spectrum-gray-600: rgb(var(--spectrum-gray-600-rgb));
+  --spectrum-gray-700: rgb(var(--spectrum-gray-700-rgb));
+  --spectrum-gray-800: rgb(var(--spectrum-gray-800-rgb));
+  --spectrum-gray-900: rgb(var(--spectrum-gray-900-rgb));
+  --spectrum-gray-1000: rgb(var(--spectrum-gray-1000-rgb));
+  --legacy-bg: var(--spectrum-gray-25);
+  --legacy-panel: color-mix(in srgb, var(--spectrum-gray-25) 92%, rgb(var(--zip-accent-1000)) 8%);
+  --legacy-accent: rgb(var(--zip-accent-900));
+  --legacy-accent-hover: rgb(var(--zip-accent-1000));
+  --legacy-table-head: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 72%, rgb(var(--zip-accent-1100)) 28%),
+    color-mix(in srgb, var(--spectrum-gray-75) 84%, rgb(var(--zip-accent-1000)) 16%)
+  );
+  --legacy-table-row: color-mix(in srgb, var(--spectrum-gray-25) 93%, rgb(var(--zip-accent-800)) 7%);
+  --legacy-table-alt: color-mix(in srgb, var(--spectrum-gray-50) 91%, rgb(var(--zip-accent-900)) 9%);
+  --legacy-hover: color-mix(in srgb, var(--spectrum-gray-100) 78%, rgb(var(--zip-accent-900)) 22%);
+  --legacy-border: color-mix(in srgb, var(--spectrum-gray-300) 70%, rgb(var(--zip-accent-800)) 30%);
+  --legacy-text: var(--spectrum-gray-800);
+  --legacy-muted: var(--spectrum-gray-700);
+  --table-header-deep-red: rgb(var(--zip-accent-800));
+  --ink: var(--spectrum-gray-800);
+  --ink-muted: var(--spectrum-gray-700);
+  --ink-soft: var(--spectrum-gray-600);
+  --line-soft: color-mix(in srgb, var(--spectrum-gray-300) 78%, rgb(var(--zip-accent-900)) 22%);
+  --line-faint: color-mix(in srgb, var(--spectrum-gray-200) 84%, rgb(var(--zip-accent-800)) 16%);
+  --card-depth: 0 18px 34px rgba(0, 0, 0, 0.08), 0 10px 22px rgba(var(--zip-accent-900), 0.08);
+  --card-band-top: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 86%, rgb(var(--zip-accent-1000)) 14%),
+    color-mix(in srgb, var(--spectrum-gray-50) 88%, rgb(var(--zip-accent-900)) 12%)
+  );
+  --card-band-bottom: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 92%, rgb(var(--zip-accent-900)) 8%),
+    color-mix(in srgb, var(--spectrum-gray-75) 90%, rgb(var(--zip-accent-800)) 10%)
+  );
+  --accent: rgb(var(--zip-accent-900));
+  --accent-hover: rgb(var(--zip-accent-1000));
+  --workspace-link-rgb: var(--zip-accent-900);
+  --workspace-link-hover-rgb: var(--zip-accent-1000);
+  --workspace-link-down-rgb: var(--zip-accent-800);
+  --workspace-link-focus-ring: rgba(var(--zip-accent-800), 0.18);
+  --spectrum-accent-content-color-default: rgb(var(--workspace-link-rgb));
+  --spectrum-accent-content-color-hover: rgb(var(--workspace-link-hover-rgb));
+  --spectrum-accent-content-color-down: rgb(var(--workspace-link-down-rgb));
+  --spectrum-text-color-link: var(--spectrum-accent-content-color-default);
+  --fg-primary: var(--spectrum-text-color-link);
+  --s2-action-bg-default: color-mix(in srgb, var(--spectrum-gray-25) 84%, rgb(var(--zip-accent-1000)) 16%);
+  --s2-action-bg-hover: color-mix(in srgb, var(--spectrum-gray-100) 76%, rgb(var(--zip-accent-1000)) 24%);
+  --s2-action-border-default: color-mix(in srgb, var(--spectrum-gray-300) 64%, rgb(var(--zip-accent-900)) 36%);
+  --s2-action-text-default: rgb(var(--zip-accent-900));
+  --s2-action-bg-accent: rgb(var(--zip-accent-800));
+  --s2-action-bg-accent-hover: rgb(var(--zip-accent-900));
+  --s2-action-border-accent: rgb(var(--zip-accent-900));
+  --s2-action-text-accent: #ffffff;
+  --s2-action-focus-ring: rgba(var(--zip-accent-800), 0.18);
+  --blondie-time-focus-ring: rgba(var(--zip-accent-800), 0.18);
+  --underpar-blondie-share-backdrop: rgba(var(--zip-accent-900), 0.12);
+  --underpar-blondie-share-dialog-border: color-mix(in srgb, var(--spectrum-gray-300) 64%, rgb(var(--zip-accent-1000)) 36%);
+  --underpar-blondie-share-dialog-background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 88%, rgb(var(--zip-accent-1000)) 12%),
+    color-mix(in srgb, var(--spectrum-gray-75) 90%, rgb(var(--zip-accent-900)) 10%)
+  );
+  --underpar-blondie-share-dialog-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 18px 34px rgba(0, 0, 0, 0.12);
+  --underpar-blondie-share-foreground: var(--spectrum-gray-800);
+  --underpar-blondie-share-accent: rgb(var(--zip-accent-900));
+  --underpar-blondie-share-recipient-border: color-mix(in srgb, var(--spectrum-gray-300) 72%, rgb(var(--zip-accent-900)) 28%);
+  --underpar-blondie-share-control-border: color-mix(in srgb, var(--spectrum-gray-300) 76%, rgb(var(--zip-accent-800)) 24%);
+  --underpar-blondie-share-editor-border: color-mix(in srgb, var(--spectrum-gray-300) 70%, rgb(var(--zip-accent-900)) 30%);
+  --underpar-blondie-share-editor-focus-border: rgba(var(--zip-accent-1100), 0.72);
+  --underpar-blondie-share-editor-focus-shadow: 0 0 0 2px rgba(var(--zip-accent-800), 0.14);
+  --underpar-blondie-share-tool-hover-background: rgba(var(--zip-accent-1000), 0.12);
+  --underpar-blondie-share-tool-hover-border: rgba(var(--zip-accent-1000), 0.22);
+  --underpar-blondie-share-send-border: rgba(var(--zip-accent-1000), 0.26);
+  --underpar-blondie-share-send-background: rgba(var(--zip-accent-1000), 0.12);
+  --underpar-blondie-share-placeholder: rgba(var(--spectrum-gray-600-rgb), 0.66);
+  --underpar-blondie-share-muted: rgba(var(--spectrum-gray-700-rgb), 0.82);
+}
+
+body {
+  overflow-x: auto;
+  overflow-y: auto;
+  background:
+    radial-gradient(circle at 8% -12%, rgba(var(--zip-accent-800), 0.12), rgba(var(--zip-accent-800), 0) 46%),
+    radial-gradient(circle at 92% -8%, rgba(var(--zip-accent-1000), 0.1), rgba(var(--zip-accent-1000), 0) 44%),
+    radial-gradient(circle at 50% 120%, rgba(var(--zip-accent-900), 0.08), rgba(var(--zip-accent-900), 0) 50%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--spectrum-gray-25) 88%, rgb(var(--zip-accent-1000)) 12%) 0%,
+      var(--legacy-bg) 58%,
+      var(--spectrum-gray-50) 100%
+    );
+  color: var(--legacy-text);
+}
+
+body::before {
+  top: 72px;
+  right: -104px;
+  width: 320px;
+  height: 320px;
+  background:
+    linear-gradient(90deg, rgba(var(--zip-accent-1000), 0.08) 0%, rgba(var(--zip-accent-1000), 0.02) 24%, rgba(var(--zip-accent-800), 0.04) 74%, rgba(var(--zip-accent-700), 0.06) 100%),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.22) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16) 1px, transparent 1px);
+  background-size: auto, 28px 28px, 28px 28px;
+  opacity: 0.72;
+  filter: none;
+}
+
+body::after {
+  bottom: -136px;
+  left: -110px;
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(var(--zip-accent-900), 0.12) 0%, rgba(var(--zip-accent-900), 0) 74%);
+}
+
+.workspace-app {
+  gap: 18px;
+}
+
+.page-env-badge {
+  max-width: none;
+  border-color: color-mix(in srgb, var(--spectrum-gray-300) 70%, rgb(var(--zip-accent-900)) 30%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 90%, rgb(var(--zip-accent-1000)) 10%),
+    color-mix(in srgb, var(--spectrum-gray-50) 94%, rgb(var(--zip-accent-900)) 6%)
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), 0 6px 14px rgba(0, 0, 0, 0.05);
+  color: color-mix(in srgb, var(--legacy-text) 80%, var(--legacy-muted) 20%);
+  opacity: 1;
+}
+
+.page-env-badge-prefix {
+  border-color: color-mix(in srgb, var(--spectrum-gray-300) 62%, rgb(var(--zip-accent-900)) 38%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 72%, rgb(var(--zip-accent-1100)) 28%),
+    color-mix(in srgb, var(--spectrum-gray-75) 82%, rgb(var(--zip-accent-900)) 18%)
+  );
+  color: rgb(var(--zip-accent-800));
+}
+
+.page-env-badge-value {
+  color: color-mix(in srgb, var(--legacy-text) 86%, rgb(var(--zip-accent-800)) 14%);
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.report-card {
+  border-color: color-mix(in srgb, var(--spectrum-gray-300) 70%, rgb(var(--zip-accent-800)) 30%);
+  background: var(--card-band-top);
+  box-shadow: var(--card-depth);
+  overflow: visible;
+}
+
+.report-card::before {
+  border-color: rgba(255, 255, 255, 0.86);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.92), inset 0 -1px 0 rgba(var(--zip-accent-800), 0.08);
+}
+
+.card-head {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 82%, rgb(var(--zip-accent-1000)) 18%),
+    color-mix(in srgb, var(--spectrum-gray-50) 90%, rgb(var(--zip-accent-900)) 10%)
+  );
+}
+
+.card-title {
+  color: color-mix(in srgb, var(--legacy-text) 62%, rgb(var(--workspace-link-hover-rgb)) 38%);
+}
+
+.card-url-context {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px 12px;
+}
+
+.card-url-path,
+.card-url-query-cloud,
+.card-col-columns,
+.card-col-columns-wrap,
+.col-chip-cloud {
+  justify-content: flex-start;
+  align-items: flex-start;
+  text-align: left;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+.card-url-path-segment,
+.card-url-query-chip,
+.card-url-query-key,
+.card-url-query-value,
+.card-url-query-value-btn,
+.card-col-parent-url,
+.col-chip-label,
+.col-chip-trigger {
+  max-width: none;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.card-url-path-segment {
+  color: color-mix(in srgb, rgb(var(--workspace-link-hover-rgb)) 76%, var(--legacy-text) 24%);
+}
+
+.card-url-path-segment-terminal,
+.card-url-query-key,
+.card-url-query-value-btn,
+.card-col-parent-url {
+  color: var(--fg-primary);
+}
+
+.card-url-path-divider,
+.card-url-query-eq {
+  color: color-mix(in srgb, var(--legacy-muted) 74%, rgb(var(--zip-accent-800)) 26%);
+}
+
+.card-url-query-chip {
+  color: color-mix(in srgb, var(--legacy-text) 74%, rgb(var(--workspace-link-rgb)) 26%);
+}
+
+.card-url-query-value {
+  color: color-mix(in srgb, var(--legacy-text) 86%, rgb(var(--workspace-link-rgb)) 14%);
+}
+
+.card-url-query-editor {
+  border-color: color-mix(in srgb, var(--spectrum-gray-300) 66%, rgb(var(--zip-accent-1000)) 34%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 86%, rgb(var(--zip-accent-1000)) 14%),
+    color-mix(in srgb, var(--spectrum-gray-75) 92%, rgb(var(--zip-accent-900)) 8%)
+  );
+  box-shadow: 0 14px 28px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.88);
+}
+
+.card-url-query-datetime-input {
+  border-color: color-mix(in srgb, var(--spectrum-gray-300) 72%, rgb(var(--zip-accent-900)) 28%);
+  background: var(--spectrum-gray-25);
+  color: var(--legacy-text);
+}
+
+.card-subtitle {
+  color: color-mix(in srgb, var(--legacy-muted) 82%, rgb(var(--zip-accent-800)) 18%);
+}
+
+.card-close,
+.esm-action-btn,
+.esm-clear-filter-rerun,
+.esm-table-close {
+  border-color: color-mix(in srgb, var(--spectrum-gray-300) 64%, rgb(var(--zip-accent-900)) 36%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 88%, rgb(var(--zip-accent-1000)) 12%),
+    color-mix(in srgb, var(--spectrum-gray-75) 94%, rgb(var(--zip-accent-900)) 6%)
+  );
+  color: rgb(var(--workspace-link-rgb));
+  box-shadow: 0 5px 11px rgba(0, 0, 0, 0.08);
+}
+
+.card-close:hover,
+.esm-action-btn:hover,
+.esm-clear-filter-rerun:hover,
+.esm-table-close:hover {
+  border-color: rgba(var(--zip-accent-1100), 0.52);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.12);
+}
+
+.card-close:focus-visible,
+.esm-action-btn:focus-visible,
+.esm-clear-filter-rerun:focus-visible,
+.esm-table-close:focus-visible {
+  box-shadow: 0 0 0 3px var(--s2-action-focus-ring), 0 8px 16px rgba(0, 0, 0, 0.12);
+}
+
+.card-body {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 248, 248, 0.96));
+}
+
+.card-message {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 243, 243, 0.98));
+  color: var(--legacy-muted);
+}
+
+.esm-table-wrapper {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  max-height: none;
+  overflow: visible;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(243, 243, 243, 0.96));
+}
+
+.esm-table {
+  width: max-content;
+  min-width: 100%;
+  color: var(--ink);
+  background: transparent;
+}
+
+.esm-table th,
+.esm-table td {
+  border-bottom: 1px solid color-mix(in srgb, var(--spectrum-gray-300) 80%, rgb(var(--zip-accent-900)) 20%);
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+.esm-table thead th {
+  background: var(--legacy-table-head);
+  color: var(--table-header-deep-red);
+  box-shadow: inset 0 -1px 0 rgba(var(--zip-accent-800), 0.12);
+}
+
+.esm-table tfoot td {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 94%, rgb(var(--zip-accent-900)) 6%),
+    color-mix(in srgb, var(--spectrum-gray-50) 92%, rgb(var(--zip-accent-800)) 8%)
+  );
+}
+
+.esm-table tbody tr:nth-child(odd) {
+  background: var(--legacy-table-row);
+}
+
+.esm-table tbody tr:nth-child(even) {
+  background: var(--legacy-table-alt);
+}
+
+.esm-table tbody tr:hover {
+  background: var(--legacy-hover);
+}
+
+.card-col-list {
+  background: var(--card-band-bottom);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  color: color-mix(in srgb, var(--legacy-muted) 84%, rgb(var(--zip-accent-800)) 16%);
+}
+
+.card-col-parent-url {
+  white-space: normal;
+}
+
+.col-chip-label,
+.col-chip-trigger,
+.local-col-menu {
+  border-color: color-mix(in srgb, var(--spectrum-gray-300) 72%, rgb(var(--zip-accent-900)) 28%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--spectrum-gray-25) 88%, rgb(var(--zip-accent-1000)) 12%),
+    color-mix(in srgb, var(--spectrum-gray-75) 92%, rgb(var(--zip-accent-900)) 8%)
+  );
+  color: color-mix(in srgb, var(--legacy-text) 72%, rgb(var(--workspace-link-rgb)) 28%);
+}
+
+.col-chip-label-static {
+  border-color: color-mix(in srgb, var(--spectrum-gray-300) 82%, rgb(var(--zip-accent-900)) 18%);
+  background: color-mix(in srgb, var(--spectrum-gray-25) 88%, rgb(var(--zip-accent-900)) 12%);
+  color: var(--legacy-muted);
+}
+
+.card-col-empty,
+.card-url-path-segment-empty,
+.card-url-query-empty,
+.card-url-empty {
+  color: color-mix(in srgb, var(--legacy-muted) 88%, rgb(var(--zip-accent-800)) 12%);
+}
+
+@media (max-width: 900px) {
+  .workspace-app {
+    padding: 12px;
+  }
+
+  .card-head {
+    padding: 14px 14px 10px;
+  }
+
+  .card-url-context {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 6px;
+  }
+
+  .card-url-query-cloud {
+    justify-content: flex-start;
+    text-align: left;
+  }
+
+  .card-col-parent-url {
+    font-size: clamp(24px, 7vw, 40px);
+  }
+}

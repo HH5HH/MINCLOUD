@@ -312,7 +312,9 @@
     if (measurementRoot && typeof measurementRoot.querySelectorAll === "function") {
       measuredWidths.push(measureNodeWidth(measurementRoot));
       Array.from(
-        measurementRoot.querySelectorAll(".ibeta-report-card, .ibeta-report-card .esm-table-wrapper, .ibeta-report-card .esm-table")
+        measurementRoot.querySelectorAll(
+          ".ibeta-report-card, .ibeta-report-card .card-head, .ibeta-report-card .card-col-list, .ibeta-report-card .esm-table-wrapper, .ibeta-report-card .esm-table"
+        )
       ).forEach((node) => {
         measuredWidths.push(measureNodeWidth(node));
       });
