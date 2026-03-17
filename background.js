@@ -2245,8 +2245,9 @@ async function refreshUpdateState(options = {}) {
 
 async function openUnderparGetLatestFlow() {
   await refreshUpdateState({ force: true }).catch(() => {});
-  const latestVersion = updateState.latestVersion || "";
-  const latestCommitSha = updateState.latestCommitSha || "";
+  const useFreshLatestMetadata = !updateState.checkError;
+  const latestVersion = useFreshLatestMetadata ? updateState.latestVersion || "" : "";
+  const latestCommitSha = useFreshLatestMetadata ? updateState.latestCommitSha || "" : "";
   const downloadUrl = buildLatestUnderparPackageUrl(latestCommitSha);
   const downloadFileName = buildLatestUnderparPackageFileName(latestVersion, latestCommitSha);
   const result = {

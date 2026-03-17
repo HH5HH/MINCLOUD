@@ -221,6 +221,28 @@ test("openUnderparGetLatestFlow falls back to main underpar_distro.zip with cach
   assert.equal(String(seed.calls.tabsCreate[0]?.url || ""), "chrome://extensions");
 });
 
+test("openUnderparGetLatestFlow ignores stale cached SHA when latest metadata refresh fails", async () => {
+  const staleSha = "53c53c53c53c53c53c53c53c53c53c53c53c53c5";
+  const seed = createSeed({
+    currentVersion: "1.12.53",
+  });
+  seed.updateState.latestVersion = "1.12.53";
+  seed.updateState.latestCommitSha = staleSha;
+  seed.updateState.updateAvailable = false;
+
+  const helpers = loadGetLatestHelpers(seed);
+  const response = await helpers.openUnderparGetLatestFlow();
+
+  assert.equal(response.ok, true);
+  assert.equal(String(response.latestCommitSha || ""), "");
+  assert.notEqual(String(response.checkError || ""), "");
+  assert.equal(seed.calls.downloadsDownload.length, 1);
+  const downloadUrl = String(seed.calls.downloadsDownload[0]?.url || "");
+  assert.match(downloadUrl, /\/main\/underpar_distro\.zip\?cacheBust=\d+$/);
+  assert.doesNotMatch(downloadUrl, new RegExp(`/${staleSha}/underpar_distro\\.zip`));
+  assert.match(String(seed.calls.downloadsDownload[0]?.filename || ""), /^UnderPAR-vlatest\.zip$/);
+});
+
 test("openUnderparGetLatestFlow falls back to opening the package tab when downloads API fails", async () => {
   const latestSha = "fedcba9876543210fedcba9876543210fedcba98";
   const seed = createSeed({
