@@ -93,3 +93,14 @@ test("Degradation workspace surfaces stay on the red palette", () => {
     /rgba\(13,\s*25,\s*45|rgba\(24,\s*54,\s*97|79,\s*138,\s*255|122,\s*174,\s*255|255,\s*78,\s*135|76,\s*174,\s*255/i
   );
 });
+
+test("UPSpace launch labels stay plain text", () => {
+  const popupSource = read("popup.js");
+  const upsViewSource = read("ups/view.js");
+
+  assert.match(popupSource, /const UNDERPAR_UPSPACE_SLACK_LINK_LABEL = "in UPSpace";/);
+  assert.doesNotMatch(popupSource, /const UNDERPAR_UPSPACE_SLACK_LINK_LABEL = "↗";/);
+  assert.match(upsViewSource, />zip-zap<\/a>/);
+  assert.match(upsViewSource, />print<\/a>/);
+  assert.doesNotMatch(upsViewSource, /🛰️|🖨️|↗/);
+});

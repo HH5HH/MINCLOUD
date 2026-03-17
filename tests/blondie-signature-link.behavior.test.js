@@ -31,7 +31,7 @@ function loadBlondieSignatureHelpers() {
   const source = fs.readFileSync(POPUP_JS_PATH, "utf8");
   const script = [
     'const UNDERPAR_BLONDIE_ZIP_TOOL_BETA_ARTICLE_URL = "https://tve.zendesk.com/hc/en-us/articles/46503360732436-ZIP-ZAP";',
-    'const UNDERPAR_UPSPACE_SLACK_LINK_LABEL = "↗";',
+    'const UNDERPAR_UPSPACE_SLACK_LINK_LABEL = "in UPSpace";',
     extractFunctionSource(source, "escapeUnderparSlackMrkdwn"),
     extractFunctionSource(source, "sanitizeUnderparSlackLinkTarget"),
     extractFunctionSource(source, "buildUnderparSlackMrkdwnLink"),
@@ -71,7 +71,7 @@ test("UnderPAR Blondie signature appends the UPSpace launch link for ESM workspa
   );
   assert.equal(
     signature,
-    "// <https://tve.zendesk.com/hc/en-us/articles/46503360732436-ZIP-ZAP|zip-zap> :blondiebtn: <https://underpar-runtime.chromiumapp.org/?underpar_deeplink=esm|in UnderPAR> <https://hh5hh.com/ups/?id=abc123|↗>"
+    "// <https://tve.zendesk.com/hc/en-us/articles/46503360732436-ZIP-ZAP|zip-zap> :blondiebtn: <https://underpar-runtime.chromiumapp.org/?underpar_deeplink=esm|in UnderPAR> <https://hh5hh.com/ups/?id=abc123|in UPSpace>"
   );
 });
 

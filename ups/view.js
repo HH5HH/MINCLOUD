@@ -294,8 +294,8 @@
     return `
       <header class="ups-utility-bar" aria-label="UPS actions">
         <span class="ups-utility-prefix" aria-hidden="true">//</span>
-        <a href="${escapeHtml(ZIP_ZAP_URL)}" target="_blank" rel="noopener noreferrer" class="ups-utility-link ups-utility-link-zipzap">🛰️ zip-zap</a>
-        <a href="#" class="ups-utility-link ups-print-link">🖨️ print</a>
+        <a href="${escapeHtml(ZIP_ZAP_URL)}" target="_blank" rel="noopener noreferrer" class="ups-utility-link ups-utility-link-zipzap">zip-zap</a>
+        <a href="#" class="ups-utility-link ups-print-link">print</a>
       </header>
     `;
   }
