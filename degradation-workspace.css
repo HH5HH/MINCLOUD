@@ -196,24 +196,24 @@ body:has([aria-busy="true"]) * {
 }
 
 .workspace-icon-btn--rerun {
-  border-color: rgba(132, 87, 14, 0.44);
-  background: linear-gradient(180deg, rgba(255, 246, 214, 0.98), rgba(245, 216, 146, 0.98));
-  color: #5f370d;
-  box-shadow: 0 9px 18px rgba(132, 87, 14, 0.24);
+  border-color: rgba(var(--zip-accent-900), 0.38);
+  background: linear-gradient(180deg, rgba(70, 17, 17, 0.98), rgba(52, 12, 12, 0.98));
+  color: rgb(var(--zip-accent-1100));
+  box-shadow: 0 12px 24px rgba(99, 15, 15, 0.24);
 }
 
 .workspace-icon-btn--rerun:hover:not(:disabled) {
-  border-color: rgba(96, 143, 28, 0.78);
-  background: linear-gradient(180deg, rgba(219, 255, 136, 0.99), rgba(165, 214, 58, 0.99));
-  color: #1f3208;
-  box-shadow: 0 12px 22px rgba(96, 143, 28, 0.24);
+  border-color: rgba(var(--zip-accent-1100), 0.58);
+  background: linear-gradient(180deg, rgba(var(--zip-accent-1000), 0.92), rgba(var(--zip-accent-900), 0.96));
+  color: #fff5f2;
+  box-shadow: 0 12px 22px rgba(99, 15, 15, 0.28);
 }
 
 .workspace-icon-btn--rerun:active:not(:disabled) {
-  border-color: rgba(82, 127, 24, 0.84);
-  background: linear-gradient(180deg, rgba(201, 240, 111, 1), rgba(145, 194, 45, 1));
-  color: #182806;
-  box-shadow: 0 8px 16px rgba(82, 127, 24, 0.24);
+  border-color: rgba(var(--zip-accent-1100), 0.68);
+  background: linear-gradient(180deg, rgba(var(--zip-accent-900), 0.98), rgba(var(--zip-accent-800), 0.98));
+  color: #ffffff;
+  box-shadow: 0 8px 16px rgba(99, 15, 15, 0.3);
 }
 
 .workspace-icon-btn--blondie {
@@ -308,8 +308,8 @@ body:has([aria-busy="true"]) * {
 
 .workspace-net-indicator::after {
   inset: 3px;
-  background: radial-gradient(circle, rgba(171, 219, 68, 0.96) 0 58%, rgba(255, 255, 255, 0.88) 72%, rgba(255, 255, 255, 0) 100%);
-  box-shadow: 0 0 12px rgba(171, 219, 68, 0.96);
+  background: radial-gradient(circle, rgba(var(--zip-accent-1100), 0.96) 0 58%, rgba(255, 255, 255, 0.88) 72%, rgba(255, 255, 255, 0) 100%);
+  box-shadow: 0 0 12px rgba(var(--zip-accent-1100), 0.96);
 }
 
 .workspace-icon-btn.net-busy .workspace-icon--rerun-glyph {
@@ -717,11 +717,11 @@ body:has([aria-busy="true"]) * {
 }
 
 .underpar-blondie-btn[data-blondie-state="active"] {
-  box-shadow: 0 0 0 2px rgba(255, 78, 135, 0.24), 0 8px 16px rgba(17, 45, 89, 0.18);
+  box-shadow: 0 0 0 2px rgba(var(--zip-accent-1000), 0.24), 0 8px 16px rgba(99, 15, 15, 0.18);
 }
 
 .underpar-blondie-btn[data-blondie-state="ack"] {
-  box-shadow: 0 0 0 2px rgba(76, 174, 255, 0.26), 0 8px 16px rgba(17, 45, 89, 0.2);
+  box-shadow: 0 0 0 2px rgba(var(--zip-accent-1100), 0.26), 0 8px 16px rgba(99, 15, 15, 0.2);
 }
 
 .underpar-blondie-icon {
@@ -741,17 +741,17 @@ body:has([aria-busy="true"]) * {
 }
 
 :root {
-  --underpar-blondie-share-backdrop: rgba(13, 25, 45, 0.34);
-  --underpar-blondie-share-dialog-border: rgba(24, 54, 97, 0.32);
-  --underpar-blondie-share-dialog-background: linear-gradient(180deg, rgba(29, 42, 64, 0.98), rgba(15, 28, 48, 0.98));
-  --underpar-blondie-share-dialog-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 18px 34px rgba(18, 38, 68, 0.38);
+  --underpar-blondie-share-backdrop: rgba(28, 8, 8, 0.34);
+  --underpar-blondie-share-dialog-border: rgba(var(--zip-accent-1000), 0.32);
+  --underpar-blondie-share-dialog-background: linear-gradient(180deg, rgba(64, 12, 12, 0.98), rgba(32, 8, 8, 0.98));
+  --underpar-blondie-share-dialog-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 18px 34px rgba(99, 15, 15, 0.38);
   --underpar-blondie-share-foreground: #f7f2e6;
-  --underpar-blondie-share-accent: #f5d876;
+  --underpar-blondie-share-accent: rgb(var(--zip-accent-1100));
   --underpar-blondie-share-recipient-border: rgba(255, 214, 92, 0.2);
   --underpar-blondie-share-control-border: rgba(255, 214, 92, 0.16);
-  --underpar-blondie-share-editor-border: rgba(79, 138, 255, 0.42);
-  --underpar-blondie-share-editor-focus-border: rgba(122, 174, 255, 0.82);
-  --underpar-blondie-share-editor-focus-shadow: 0 0 0 2px rgba(122, 174, 255, 0.18);
+  --underpar-blondie-share-editor-border: rgba(var(--zip-accent-1000), 0.42);
+  --underpar-blondie-share-editor-focus-border: rgba(var(--zip-accent-1100), 0.82);
+  --underpar-blondie-share-editor-focus-shadow: 0 0 0 2px rgba(var(--zip-accent-1100), 0.18);
   --underpar-blondie-share-tool-hover-background: rgba(255, 214, 92, 0.14);
   --underpar-blondie-share-tool-hover-border: rgba(255, 214, 92, 0.24);
   --underpar-blondie-share-send-border: rgba(255, 214, 92, 0.3);
@@ -769,11 +769,11 @@ body:has([aria-busy="true"]) * {
 }
 
 .workspace-icon-btn--blondie-master[data-blondie-state="active"] {
-  box-shadow: 0 0 0 2px rgba(255, 78, 135, 0.3), 0 12px 24px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 0 0 2px rgba(var(--zip-accent-1000), 0.3), 0 12px 24px rgba(0, 0, 0, 0.34);
 }
 
 .workspace-icon-btn--blondie-master[data-blondie-state="ack"] {
-  box-shadow: 0 0 0 2px rgba(76, 174, 255, 0.34), 0 12px 24px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 0 0 2px rgba(var(--zip-accent-1100), 0.34), 0 12px 24px rgba(0, 0, 0, 0.34);
 }
 
 .workspace-icon-btn--blondie-group {
@@ -786,11 +786,11 @@ body:has([aria-busy="true"]) * {
 }
 
 .workspace-icon-btn--blondie-group[data-blondie-state="active"] {
-  box-shadow: 0 0 0 2px rgba(255, 78, 135, 0.28), 0 10px 22px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 0 0 2px rgba(var(--zip-accent-1000), 0.28), 0 10px 22px rgba(0, 0, 0, 0.34);
 }
 
 .workspace-icon-btn--blondie-group[data-blondie-state="ack"] {
-  box-shadow: 0 0 0 2px rgba(76, 174, 255, 0.3), 0 10px 22px rgba(0, 0, 0, 0.34);
+  box-shadow: 0 0 0 2px rgba(var(--zip-accent-1100), 0.3), 0 10px 22px rgba(0, 0, 0, 0.34);
 }
 
 .degradation-active-pill {

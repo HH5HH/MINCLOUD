@@ -376,17 +376,17 @@ body::after {
 }
 
 .workspace-icon-btn--rerun:hover:not(:disabled) {
-  background: linear-gradient(180deg, rgba(219, 255, 136, 0.99), rgba(165, 214, 58, 0.99));
-  border-color: rgba(96, 143, 28, 0.78);
-  color: #1f3208;
-  box-shadow: 0 12px 22px rgba(96, 143, 28, 0.24);
+  background: linear-gradient(180deg, rgba(249, 242, 255, 0.99), rgba(232, 218, 250, 0.99));
+  border-color: rgba(154, 71, 226, 0.42);
+  color: #5c1ca9;
+  box-shadow: 0 12px 22px rgba(83, 0, 159, 0.22);
 }
 
 .workspace-icon-btn--rerun:active:not(:disabled) {
-  background: linear-gradient(180deg, rgba(201, 240, 111, 1), rgba(145, 194, 45, 1));
-  border-color: rgba(82, 127, 24, 0.84);
-  color: #182806;
-  box-shadow: 0 8px 16px rgba(82, 127, 24, 0.24);
+  background: linear-gradient(180deg, rgba(232, 218, 250, 1), rgba(208, 167, 243, 1));
+  border-color: rgba(134, 40, 217, 0.46);
+  color: #4e148f;
+  box-shadow: 0 8px 16px rgba(83, 0, 159, 0.24);
 }
 
 .workspace-icon svg {
@@ -1031,7 +1031,7 @@ body.workspace-locked .workspace-cards {
 }
 
 .sort-icon {
-  color: #20498f;
+  color: #8628d9;
 }
 
 .esm-table tfoot td {

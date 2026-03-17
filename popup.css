@@ -20,11 +20,11 @@
   --s2-action-bg-hover: #f8f8f8;
   --s2-action-border-default: #d5d5d5;
   --s2-action-text-default: #2c2c2c;
-  --s2-action-bg-accent: #0265dc;
-  --s2-action-bg-accent-hover: #0353b4;
-  --s2-action-border-accent: #0265dc;
+  --s2-action-bg-accent: var(--underpar-gold-base);
+  --s2-action-bg-accent-hover: var(--underpar-gold-shadow);
+  --s2-action-border-accent: var(--underpar-gold-base);
   --s2-action-text-accent: #ffffff;
-  --s2-action-focus-ring: rgba(2, 101, 220, 0.24);
+  --s2-action-focus-ring: rgba(242, 167, 12, 0.24);
   /* Service chrome follows ZIP's bundled Spectrum 2 token ramps. */
   --service-health-zip-500: 43, 209, 125;
   --service-health-zip-600: 18, 184, 103;
@@ -974,8 +974,8 @@ body[aria-busy="true"] .auth-btn::before {
 
 .selector-quick-launch-btn:focus-visible {
   outline: none;
-  border-color: rgba(2, 101, 220, 0.78);
-  box-shadow: 0 0 0 2px rgba(2, 101, 220, 0.18);
+  border-color: rgba(242, 167, 12, 0.78);
+  box-shadow: 0 0 0 2px rgba(242, 167, 12, 0.18);
 }
 
 .selector-quick-launch-btn:disabled {

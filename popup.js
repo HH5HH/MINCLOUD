@@ -27255,7 +27255,7 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
 
 function buildClickCmuThemeOverrideCss(themePreset = "") {
   const normalizedThemePreset = String(themePreset || "").trim().toLowerCase();
-  if (normalizedThemePreset !== "purple" && normalizedThemePreset !== "sunflower") {
+  if (normalizedThemePreset !== "purple") {
     return "";
   }
   const lightVars = {
@@ -27802,7 +27802,6 @@ const ZIP_THEME_PALETTE_HEX = {
   CARMINE: "#D4433A",
   PUMPKIN: "#D6702A",
   AMBER: "#C68500",
-  SUNFLOWER: "#FFC20E",
   CHARTREUSE: "#8DB600",
   CELERY: "#81E43A",
   EMERALD: "#009B77",

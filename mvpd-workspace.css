@@ -254,24 +254,24 @@ body::after {
 }
 
 .workspace-icon-btn--rerun {
-  border-color: rgba(132, 87, 14, 0.44);
-  background: linear-gradient(180deg, rgba(255, 246, 214, 0.98), rgba(245, 216, 146, 0.98));
-  color: #5f370d;
-  box-shadow: 0 9px 18px rgba(132, 87, 14, 0.24);
+  border-color: rgba(var(--zip-accent-900), 0.38);
+  background: linear-gradient(180deg, rgba(57, 57, 57, 0.98), rgba(var(--zip-accent-1000), 0.18));
+  color: rgb(var(--zip-accent-1100));
+  box-shadow: 0 12px 24px rgba(34, 34, 34, 0.46);
 }
 
 .workspace-icon-btn--rerun:hover:not(:disabled) {
-  background: linear-gradient(180deg, rgba(219, 255, 136, 0.99), rgba(165, 214, 58, 0.99));
-  border-color: rgba(96, 143, 28, 0.78);
-  color: #1f3208;
-  box-shadow: 0 12px 22px rgba(96, 143, 28, 0.24);
+  background: linear-gradient(180deg, rgba(var(--zip-accent-1000), 0.32), rgba(var(--zip-accent-900), 0.4));
+  border-color: rgba(var(--zip-accent-1100), 0.56);
+  color: rgb(var(--zip-accent-on-primary));
+  box-shadow: 0 12px 22px rgba(34, 34, 34, 0.58);
 }
 
 .workspace-icon-btn--rerun:active:not(:disabled) {
-  background: linear-gradient(180deg, rgba(201, 240, 111, 1), rgba(145, 194, 45, 1));
-  border-color: rgba(82, 127, 24, 0.84);
-  color: #182806;
-  box-shadow: 0 8px 16px rgba(82, 127, 24, 0.24);
+  background: linear-gradient(180deg, rgba(var(--zip-accent-900), 0.48), rgba(var(--zip-accent-800), 0.58));
+  border-color: rgba(var(--zip-accent-1100), 0.68);
+  color: rgb(var(--zip-accent-on-primary));
+  box-shadow: 0 8px 16px rgba(34, 34, 34, 0.54);
 }
 
 .workspace-icon--rerun-glyph {
@@ -748,11 +748,11 @@ body::after {
 }
 
 .underpar-blondie-btn[data-blondie-state="active"] {
-  box-shadow: 0 0 0 2px rgba(255, 78, 135, 0.24), 0 8px 16px rgba(20, 52, 102, 0.18);
+  box-shadow: 0 0 0 2px rgba(var(--zip-accent-1000), 0.24), 0 8px 16px rgba(34, 34, 34, 0.26);
 }
 
 .underpar-blondie-btn[data-blondie-state="ack"] {
-  box-shadow: 0 0 0 2px rgba(76, 174, 255, 0.26), 0 8px 16px rgba(20, 52, 102, 0.2);
+  box-shadow: 0 0 0 2px rgba(var(--zip-accent-1100), 0.26), 0 8px 16px rgba(34, 34, 34, 0.28);
 }
 
 .underpar-blondie-icon {

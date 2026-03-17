@@ -266,12 +266,12 @@ body[data-theme="dark"]{
   --highlight:#F97316;
   --highlight-text:#140B05;
   --highlight-border:rgba(251, 146, 60, .62);
-  --parent-highlight:rgba(96, 202, 242, .20);
-  --parent-highlight-border:rgba(96, 202, 242, .62);
-  --parent-highlight-glow:rgba(96, 202, 242, .27);
+  --parent-highlight:rgba(var(--click-url-rgb), .16);
+  --parent-highlight-border:rgba(var(--click-url-rgb), .52);
+  --parent-highlight-glow:rgba(var(--click-url-rgb), .2);
   --match-row-hover:color-mix(in srgb, var(--table-row-hover) 52%, var(--parent-highlight-border) 48%);
-  --chip-highlight-bg:rgba(96, 202, 242, .20);
-  --chip-highlight-border:rgba(96, 202, 242, .64);
+  --chip-highlight-bg:rgba(var(--click-url-rgb), .16);
+  --chip-highlight-border:rgba(var(--click-url-rgb), .56);
   --footer-muted:rgb(var(--zip-gray-600-rgb));
   --spinner-track:rgba(242,242,242,.30);
   --spinner-head:rgba(242,242,242,.84);

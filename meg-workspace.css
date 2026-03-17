@@ -27,18 +27,18 @@
   --meg-button-bg: #ffffff;
   --meg-button-text: #2c2c2c;
   --meg-button-border: #d5d5d5;
-  --meg-rerun-border: rgba(132, 87, 14, 0.44);
-  --meg-rerun-bg: linear-gradient(180deg, rgba(255, 246, 214, 0.98), rgba(245, 216, 146, 0.98));
-  --meg-rerun-text: #5f370d;
-  --meg-rerun-shadow: 0 9px 18px rgba(132, 87, 14, 0.24);
-  --meg-rerun-hover-bg: linear-gradient(180deg, rgba(219, 255, 136, 0.99), rgba(165, 214, 58, 0.99));
-  --meg-rerun-hover-border: rgba(96, 143, 28, 0.78);
-  --meg-rerun-hover-text: #1f3208;
-  --meg-rerun-hover-shadow: 0 12px 22px rgba(96, 143, 28, 0.24);
-  --meg-rerun-active-bg: linear-gradient(180deg, rgba(201, 240, 111, 1), rgba(145, 194, 45, 1));
-  --meg-rerun-active-border: rgba(82, 127, 24, 0.84);
-  --meg-rerun-active-text: #182806;
-  --meg-rerun-active-shadow: 0 8px 16px rgba(82, 127, 24, 0.24);
+  --meg-rerun-border: rgba(194, 78, 0, 0.24);
+  --meg-rerun-bg: linear-gradient(180deg, rgba(255, 242, 229, 0.98), rgba(255, 224, 196, 0.98));
+  --meg-rerun-text: #8c3600;
+  --meg-rerun-shadow: 0 12px 24px rgba(120, 55, 0, 0.12);
+  --meg-rerun-hover-bg: linear-gradient(180deg, rgba(255, 236, 215, 0.98), rgba(255, 213, 169, 0.98));
+  --meg-rerun-hover-border: rgba(194, 78, 0, 0.34);
+  --meg-rerun-hover-text: #7d2f00;
+  --meg-rerun-hover-shadow: 0 14px 28px rgba(120, 55, 0, 0.16);
+  --meg-rerun-active-bg: linear-gradient(180deg, rgba(255, 224, 196, 0.98), rgba(255, 202, 150, 0.98));
+  --meg-rerun-active-border: rgba(167, 62, 0, 0.44);
+  --meg-rerun-active-text: #6d2800;
+  --meg-rerun-active-shadow: 0 10px 20px rgba(120, 55, 0, 0.16);
   --meg-spinner-track: rgba(30, 41, 59, 0.22);
   --meg-spinner-head: rgba(30, 41, 59, 0.88);
   --meg-status-error-bg: #f8f1f1;
@@ -63,7 +63,7 @@
   --meg-danger-border: #8d0000;
   --meg-danger-hover-bg: #8d0000;
   --meg-danger-hover-text: #ffffff;
-  --meg-saved-query-capri: #a73e00;
+  --meg-saved-query-accent: #a73e00;
   --meg-save-query-cue-ring: rgba(194, 78, 0, 0.18);
   --meg-save-query-cue-halo: rgba(194, 78, 0, 0.08);
   --meg-save-query-cue-bg: #fff8f2;
@@ -73,7 +73,7 @@
   --meg-theme-shadow: rgba(120, 55, 0, 0.08);
   --meg-theme-preview-retro: linear-gradient(180deg, #f1f1f1 0%, #bcbcbc 100%);
   --meg-theme-preview-modern: linear-gradient(180deg, #c24e00 0%, #ffa213 100%);
-  --meg-theme-detail-retro: #335055;
+  --meg-theme-detail-retro: #8c3600;
   --meg-theme-detail-modern: #ffffff;
 }
 
@@ -140,7 +140,7 @@ body.meg-standalone-mode[data-theme="retro"] {
   --meg-danger-border: #640000;
   --meg-danger-hover-bg: #c07878;
   --meg-danger-hover-text: #ffffff;
-  --meg-saved-query-capri: #8c3600;
+  --meg-saved-query-accent: #8c3600;
   --meg-save-query-cue-ring: rgba(194, 78, 0, 0.2);
   --meg-save-query-cue-halo: rgba(194, 78, 0, 0.08);
   --meg-save-query-cue-bg: #fff4eb;
@@ -213,7 +213,7 @@ body.meg-standalone-mode[data-theme="modern"] {
   --meg-danger-border: rgba(179, 37, 30, 0.3);
   --meg-danger-hover-bg: #fdd8d6;
   --meg-danger-hover-text: #8e1c17;
-  --meg-saved-query-capri: #c24e00;
+  --meg-saved-query-accent: #c24e00;
   --meg-save-query-cue-ring: rgba(194, 78, 0, 0.18);
   --meg-save-query-cue-halo: rgba(194, 78, 0, 0.08);
   --meg-save-query-cue-bg: #fff6ec;
@@ -821,7 +821,7 @@ body.meg-standalone-mode[data-theme="modern"] .theme-toggle:hover:not(:disabled)
 .meg-retro-nav span {
   font-family: "Courier New", monospace;
   font-size: 12pt;
-  color: #335055;
+  color: var(--meg-theme-detail-retro);
   text-decoration: none;
 }
 
@@ -1086,7 +1086,7 @@ body.meg-standalone-mode[data-theme="modern"] .theme-toggle:hover:not(:disabled)
 }
 
 .meg-retro-sort-button:focus-visible {
-  outline: 1px solid #335055;
+  outline: 1px solid var(--meg-theme-detail-retro);
   outline-offset: -1px;
 }
 
@@ -1245,7 +1245,7 @@ a:focus-visible {
   min-height: 38px;
   display: inline-flex;
   align-items: center;
-  color: var(--meg-saved-query-capri);
+  color: var(--meg-saved-query-accent);
   white-space: nowrap;
   flex: 0 0 auto;
   font-size: 17px;
