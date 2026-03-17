@@ -40712,7 +40712,7 @@ function getUnderparActiveUserLabel() {
   const profile = resolveLoginProfile(state.loginData) || {};
   return firstNonEmptyString([
     getProfileDisplayName(profile),
-    getProfileEmail(profile),
+    getLoginEmail(state.loginData),
     String(state.loginData?.email || "").trim(),
     String(state.loginData?.userId || "").trim(),
     "UnderPAR User",
@@ -48469,7 +48469,7 @@ function getProfileDisplayNameRaw(profile) {
 function updateRestrictedContext(sessionData, options = {}) {
   const profile = resolveLoginProfile(sessionData);
   const displayName = getProfileDisplayNameRaw(profile);
-  const email = getProfileEmail(profile);
+  const email = getLoginEmail(sessionData);
   const loginLabel = firstNonEmptyString([displayName, email])
     ? `Signed in as ${firstNonEmptyString([displayName, email])}${displayName && email ? ` (${email})` : ""}`
     : "Sign-in state is unknown.";
@@ -49369,6 +49369,11 @@ function getProfileEmail(profile) {
     profile?.emailAddress,
     profile?.mail,
     profile?.additional_info?.email,
+    profile?.authId,
+    profile?.aa_id,
+    profile?.adobeID,
+    profile?.additional_info?.authId,
+    profile?.additional_info?.aa_id,
   ]);
 }
 
@@ -49385,6 +49390,29 @@ function getProfileIdentity(profile) {
   ]);
 }
 
+function getLoginEmail(loginData) {
+  const profile = resolveLoginProfile(loginData) || {};
+  return firstNonEmptyString([
+    getProfileEmail(profile),
+    loginData?.imsSession?.authId,
+    loginData?.sessionKeys?.authId,
+    loginData?.cmConsoleImsSession?.authId,
+    loginData?.experienceCloudImsSession?.authId,
+  ]);
+}
+
+function getLoginIdentity(loginData) {
+  const profile = resolveLoginProfile(loginData) || {};
+  return firstNonEmptyString([
+    getProfileIdentity(profile),
+    loginData?.imsSession?.userId,
+    loginData?.sessionKeys?.userId,
+    loginData?.cmConsoleImsSession?.userId,
+    loginData?.experienceCloudImsSession?.userId,
+    loginData?.adobePassOrg?.userId,
+  ]);
+}
+
 function isProfileDisplayNamePlaceholder(displayName = "") {
   const normalized = String(displayName || "")
     .trim()
@@ -49396,8 +49424,8 @@ function getSessionProfileCompleteness(loginData) {
   const profile = resolveLoginProfile(loginData) || {};
   const displayNameRaw = getProfileDisplayNameRaw(profile);
   const displayName = getProfileDisplayName(profile);
-  const email = getProfileEmail(profile);
-  const userId = getProfileIdentity(profile);
+  const email = getLoginEmail(loginData);
+  const userId = getLoginIdentity(loginData);
   const orgId = firstNonEmptyString([loginData?.adobePassOrg?.orgId, loginData?.adobePassOrg?.id]);
   const orgName = firstNonEmptyString([
     loginData?.adobePassOrg?.name,
@@ -49644,7 +49672,7 @@ function buildAvatarMenuEntries(loginData) {
   };
 
   pushEntry("Name", getProfileDisplayName(profile));
-  pushEntry("Email", getProfileEmail(profile));
+  pushEntry("Email", getLoginEmail(loginData));
   pushEntry("Organization", getOrgDisplayName(loginData));
   pushEntry("Organization ID", loginData?.adobePassOrg?.orgId);
   const cmConsoleAccessToken = getPreferredCmAccessTokenCandidate();
@@ -51137,7 +51165,7 @@ function renderAvatarMenu() {
 
   const profile = resolveLoginProfile(state.loginData) || {};
   const name = getProfileDisplayName(profile);
-  const email = getProfileEmail(profile) || "No email available";
+  const email = getLoginEmail(state.loginData) || "No email available";
 
   els.avatarMenuImage.style.backgroundImage = "";
   els.avatarMenuImage.classList.remove("avatar-loading");
@@ -57792,6 +57820,21 @@ function collectCmImsUserIdCandidates(seedToken = "") {
   const primaryClaims = parseJwtPayload(getPreferredPrimaryImsAccessTokenCandidate()) || {};
   const profile = resolveLoginProfile(state.loginData) || {};
   const orderedCandidates = [
+    getLoginEmail(state.loginData),
+    state.loginData?.imsSession?.authId,
+    state.loginData?.sessionKeys?.authId,
+    profile?.authId,
+    profile?.aa_id,
+    profile?.adobeID,
+    profile?.additional_info?.authId,
+    profile?.additional_info?.aa_id,
+    primaryClaims.aa_id,
+    primaryClaims.authId,
+    seedClaims.aa_id,
+    seedClaims.authId,
+    state.loginData?.cmConsoleImsSession?.authId,
+    state.loginData?.experienceCloudImsSession?.authId,
+    getLoginIdentity(state.loginData),
     state.loginData?.imsSession?.userId,
     state.loginData?.sessionKeys?.userId,
     profile?.userId,
@@ -57803,6 +57846,7 @@ function collectCmImsUserIdCandidates(seedToken = "") {
     seedClaims.user_id,
     seedClaims.userId,
     state.loginData?.cmConsoleImsSession?.userId,
+    state.loginData?.experienceCloudImsSession?.userId,
     state.loginData?.adobePassOrg?.userId,
   ];
   const output = [];
@@ -58282,12 +58326,26 @@ async function requestCmTokenViaImsCheck(seedToken = "", options = {}) {
     );
     const profilePayload = await fetchImsSessionProfile(profileToken);
     pushUserIdCandidate(
-      firstNonEmptyString([profilePayload?.userId, profilePayload?.user_id, profilePayload?.sub, profilePayload?.id]),
+      firstNonEmptyString([
+        profilePayload?.authId,
+        profilePayload?.aa_id,
+        profilePayload?.adobeID,
+        profilePayload?.email,
+        profilePayload?.user_email,
+        profilePayload?.emailAddress,
+        profilePayload?.additional_info?.authId,
+        profilePayload?.additional_info?.aa_id,
+        profilePayload?.additional_info?.email,
+      ]),
       true
     );
     pushUserIdCandidate(
+      firstNonEmptyString([profilePayload?.userId, profilePayload?.user_id, profilePayload?.sub, profilePayload?.id]),
+      false
+    );
+    pushUserIdCandidate(
       firstNonEmptyString([profilePayload?.additional_info?.userId, profilePayload?.additional_info?.user_id]),
-      true
+      false
     );
   } catch {
     // Keep existing candidates best-effort.
