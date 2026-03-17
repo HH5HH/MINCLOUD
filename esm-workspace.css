@@ -1,12 +1,12 @@
 :root {
   color-scheme: dark;
-  --zip-accent-500: 168, 73, 0;
-  --zip-accent-600: 199, 87, 0;
-  --zip-accent-700: 227, 99, 0;
-  --zip-accent-800: 255, 111, 0;
-  --zip-accent-900: 255, 128, 31;
-  --zip-accent-1000: 255, 146, 61;
-  --zip-accent-1100: 255, 163, 92;
+  --zip-accent-500: 135, 47, 0;
+  --zip-accent-600: 162, 59, 0;
+  --zip-accent-700: 185, 73, 0;
+  --zip-accent-800: 199, 82, 0;
+  --zip-accent-900: 224, 100, 0;
+  --zip-accent-1000: 243, 117, 0;
+  --zip-accent-1100: 255, 137, 0;
   --legacy-bg: #111111;
   --legacy-panel: rgba(34, 34, 34, 0.94);
   --legacy-accent: rgb(var(--zip-accent-900));
@@ -45,7 +45,7 @@
   --s2-action-bg-accent: rgb(var(--zip-accent-800));
   --s2-action-bg-accent-hover: rgb(var(--zip-accent-900));
   --s2-action-border-accent: rgb(var(--zip-accent-900));
-  --s2-action-text-accent: #000000;
+  --s2-action-text-accent: #ffffff;
   --s2-action-focus-ring: rgba(var(--zip-accent-900), 0.28);
   --s2-radius-default: 8px;
   --s2-radius-strong: 10px;
@@ -1317,11 +1317,11 @@ body.workspace-locked .workspace-status {
 }
 
 .underpar-blondie-btn[data-blondie-state="active"] {
-  box-shadow: 0 0 0 2px rgba(252, 125, 0, 0.26), 0 8px 16px rgba(120, 55, 0, 0.18);
+  box-shadow: 0 0 0 2px rgba(var(--zip-accent-1000), 0.26), 0 8px 16px rgba(0, 0, 0, 0.18);
 }
 
 .underpar-blondie-btn[data-blondie-state="ack"] {
-  box-shadow: 0 0 0 2px rgba(232, 106, 0, 0.24), 0 8px 16px rgba(120, 55, 0, 0.2);
+  box-shadow: 0 0 0 2px rgba(var(--zip-accent-900), 0.24), 0 8px 16px rgba(0, 0, 0, 0.2);
 }
 
 .underpar-blondie-icon {
@@ -1334,20 +1334,20 @@ body.workspace-locked .workspace-status {
 
 :root {
   --underpar-blondie-share-backdrop: rgba(60, 28, 8, 0.28);
-  --underpar-blondie-share-dialog-border: rgba(167, 62, 0, 0.3);
+  --underpar-blondie-share-dialog-border: rgba(var(--zip-accent-1000), 0.3);
   --underpar-blondie-share-dialog-background: linear-gradient(180deg, rgba(77, 36, 10, 0.98), rgba(60, 28, 8, 0.98));
   --underpar-blondie-share-dialog-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 18px 34px rgba(120, 55, 0, 0.32);
   --underpar-blondie-share-foreground: #f7f2e6;
-  --underpar-blondie-share-accent: #fc7d00;
-  --underpar-blondie-share-recipient-border: rgba(252, 125, 0, 0.24);
-  --underpar-blondie-share-control-border: rgba(252, 125, 0, 0.2);
-  --underpar-blondie-share-editor-border: rgba(232, 106, 0, 0.42);
-  --underpar-blondie-share-editor-focus-border: rgba(255, 162, 19, 0.82);
-  --underpar-blondie-share-editor-focus-shadow: 0 0 0 2px rgba(255, 162, 19, 0.18);
-  --underpar-blondie-share-tool-hover-background: rgba(252, 125, 0, 0.14);
-  --underpar-blondie-share-tool-hover-border: rgba(252, 125, 0, 0.24);
-  --underpar-blondie-share-send-border: rgba(252, 125, 0, 0.3);
-  --underpar-blondie-share-send-background: rgba(252, 125, 0, 0.16);
+  --underpar-blondie-share-accent: rgb(var(--zip-accent-1000));
+  --underpar-blondie-share-recipient-border: rgba(var(--zip-accent-1000), 0.24);
+  --underpar-blondie-share-control-border: rgba(var(--zip-accent-1000), 0.2);
+  --underpar-blondie-share-editor-border: rgba(var(--zip-accent-700), 0.42);
+  --underpar-blondie-share-editor-focus-border: rgba(var(--zip-accent-1100), 0.82);
+  --underpar-blondie-share-editor-focus-shadow: 0 0 0 2px rgba(var(--zip-accent-1100), 0.18);
+  --underpar-blondie-share-tool-hover-background: rgba(var(--zip-accent-1000), 0.14);
+  --underpar-blondie-share-tool-hover-border: rgba(var(--zip-accent-1000), 0.24);
+  --underpar-blondie-share-send-border: rgba(var(--zip-accent-1000), 0.3);
+  --underpar-blondie-share-send-background: rgba(var(--zip-accent-1000), 0.16);
   --underpar-blondie-share-placeholder: rgba(247, 242, 230, 0.48);
   --underpar-blondie-share-muted: rgba(247, 242, 230, 0.76);
 }

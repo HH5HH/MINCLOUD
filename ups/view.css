@@ -33,7 +33,7 @@ body {
   gap: 12px;
   min-height: 32px;
   padding: 0 4px;
-  color: rgba(255, 163, 92, 0.86);
+  color: rgba(255, 137, 0, 0.86);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -44,13 +44,13 @@ body {
 }
 
 .ups-utility-link {
-  color: var(--fg-primary, rgb(255, 146, 61));
+  color: var(--fg-primary, rgb(243, 117, 0));
   text-decoration: none;
   white-space: nowrap;
 }
 
 .ups-utility-link:hover {
-  color: var(--spectrum-accent-content-color-hover, rgb(255, 163, 92));
+  color: var(--spectrum-accent-content-color-hover, rgb(255, 137, 0));
   text-decoration: underline;
   text-decoration-thickness: 1.5px;
   text-underline-offset: 2px;
@@ -58,7 +58,7 @@ body {
 
 .ups-utility-link:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px var(--workspace-link-focus-ring, rgba(255, 146, 61, 0.24));
+  box-shadow: 0 0 0 3px var(--workspace-link-focus-ring, rgba(243, 117, 0, 0.24));
   border-radius: 6px;
 }
 

@@ -26,20 +26,20 @@
   --s2-action-text-accent: #ffffff;
   --s2-action-focus-ring: rgba(242, 167, 12, 0.24);
   /* Service chrome now mirrors ZIP's dark x color palette families. */
-  --service-health-zip-500: 0, 81, 56;
-  --service-health-zip-600: 0, 95, 66;
-  --service-health-zip-700: 0, 109, 76;
-  --service-health-zip-800: 0, 122, 85;
-  --service-health-zip-900: 31, 138, 105;
-  --service-health-zip-1000: 61, 154, 126;
-  --service-health-zip-1100: 92, 170, 146;
-  --service-learning-zip-500: 0, 73, 95;
-  --service-learning-zip-600: 0, 86, 112;
-  --service-learning-zip-700: 0, 98, 128;
-  --service-learning-zip-800: 0, 110, 144;
-  --service-learning-zip-900: 31, 127, 157;
-  --service-learning-zip-1000: 61, 145, 171;
-  --service-learning-zip-1100: 92, 162, 184;
+  --service-health-zip-500: 2, 87, 58;
+  --service-health-zip-600: 3, 106, 67;
+  --service-health-zip-700: 4, 124, 75;
+  --service-health-zip-800: 6, 136, 80;
+  --service-health-zip-900: 9, 157, 89;
+  --service-health-zip-1000: 14, 175, 98;
+  --service-health-zip-1100: 24, 193, 110;
+  --service-learning-zip-500: 26, 58, 195;
+  --service-learning-zip-600: 37, 73, 229;
+  --service-learning-zip-700: 52, 91, 248;
+  --service-learning-zip-800: 64, 105, 253;
+  --service-learning-zip-900: 86, 129, 255;
+  --service-learning-zip-1000: 105, 149, 254;
+  --service-learning-zip-1100: 124, 169, 252;
   --service-rest-v2-zip-500: 61, 68, 82;
   --service-rest-v2-zip-600: 72, 80, 98;
   --service-rest-v2-zip-700: 82, 92, 111;
@@ -47,20 +47,20 @@
   --service-rest-v2-zip-900: 112, 121, 141;
   --service-rest-v2-zip-1000: 131, 139, 156;
   --service-rest-v2-zip-1100: 151, 158, 172;
-  --service-esm-zip-500: 168, 73, 0;
-  --service-esm-zip-600: 199, 87, 0;
-  --service-esm-zip-700: 227, 99, 0;
-  --service-esm-zip-800: 255, 111, 0;
-  --service-esm-zip-900: 255, 128, 31;
-  --service-esm-zip-1000: 255, 146, 61;
-  --service-esm-zip-1100: 255, 163, 92;
-  --service-cm-zip-500: 49, 0, 86;
-  --service-cm-zip-600: 59, 0, 101;
-  --service-cm-zip-700: 67, 0, 116;
-  --service-cm-zip-800: 75, 0, 130;
-  --service-cm-zip-900: 97, 31, 145;
-  --service-cm-zip-1000: 118, 61, 160;
-  --service-cm-zip-1100: 140, 92, 175;
+  --service-esm-zip-500: 135, 47, 0;
+  --service-esm-zip-600: 162, 59, 0;
+  --service-esm-zip-700: 185, 73, 0;
+  --service-esm-zip-800: 199, 82, 0;
+  --service-esm-zip-900: 224, 100, 0;
+  --service-esm-zip-1000: 243, 117, 0;
+  --service-esm-zip-1100: 255, 137, 0;
+  --service-cm-zip-500: 107, 6, 195;
+  --service-cm-zip-600: 130, 34, 215;
+  --service-cm-zip-700: 148, 62, 224;
+  --service-cm-zip-800: 157, 78, 228;
+  --service-cm-zip-900: 173, 105, 233;
+  --service-cm-zip-1000: 186, 127, 237;
+  --service-cm-zip-1100: 197, 149, 240;
   --service-cm-mvpd-zip-500: var(--service-cm-zip-500);
   --service-cm-mvpd-zip-600: var(--service-cm-zip-600);
   --service-cm-mvpd-zip-700: var(--service-cm-zip-700);
@@ -68,28 +68,28 @@
   --service-cm-mvpd-zip-900: var(--service-cm-zip-900);
   --service-cm-mvpd-zip-1000: var(--service-cm-zip-1000);
   --service-cm-mvpd-zip-1100: var(--service-cm-zip-1100);
-  --service-degradation-zip-500: 142, 25, 40;
-  --service-degradation-zip-600: 168, 30, 48;
-  --service-degradation-zip-700: 191, 34, 54;
-  --service-degradation-zip-800: 215, 38, 61;
-  --service-degradation-zip-900: 220, 64, 84;
-  --service-degradation-zip-1000: 225, 90, 108;
-  --service-degradation-zip-1100: 229, 116, 131;
+  --service-degradation-zip-500: 147, 31, 17;
+  --service-degradation-zip-600: 177, 38, 23;
+  --service-degradation-zip-700: 205, 46, 29;
+  --service-degradation-zip-800: 223, 52, 34;
+  --service-degradation-zip-900: 252, 67, 46;
+  --service-degradation-zip-1000: 255, 103, 86;
+  --service-degradation-zip-1100: 255, 134, 120;
   --underpar-service-dark-panel-rgb: 27, 27, 27;
   --underpar-service-dark-shell-rgb: 34, 34, 34;
   --underpar-service-dark-frame-rgb: 57, 57, 57;
   --underpar-service-ink-rgb: 242, 242, 242;
   --underpar-service-muted-rgb: 175, 175, 175;
-  --underpar-success-700: 0, 109, 76;
-  --underpar-success-800: 0, 122, 85;
-  --underpar-success-900: 31, 138, 105;
-  --underpar-success-1000: 61, 154, 126;
-  --underpar-success-1100: 92, 170, 146;
-  --underpar-danger-700: 191, 34, 54;
-  --underpar-danger-800: 215, 38, 61;
-  --underpar-danger-900: 220, 64, 84;
-  --underpar-danger-1000: 225, 90, 108;
-  --underpar-danger-1100: 229, 116, 131;
+  --underpar-success-700: 4, 124, 75;
+  --underpar-success-800: 6, 136, 80;
+  --underpar-success-900: 9, 157, 89;
+  --underpar-success-1000: 14, 175, 98;
+  --underpar-success-1100: 24, 193, 110;
+  --underpar-danger-700: 205, 46, 29;
+  --underpar-danger-800: 223, 52, 34;
+  --underpar-danger-900: 252, 67, 46;
+  --underpar-danger-1000: 255, 103, 86;
+  --underpar-danger-1100: 255, 134, 120;
   --service-rest-v2-accent: rgb(var(--service-rest-v2-zip-1000));
   --service-rest-v2-ink: rgb(var(--service-rest-v2-zip-1100));
   --service-rest-v2-soft: rgba(var(--service-rest-v2-zip-1000), 0.21);
@@ -4407,6 +4407,11 @@ select:disabled {
 }
 
 /* ZIP dark x color overrides for UnderPAR's collapsible service containers. */
+.premium-service-section,
+.hr-context-section {
+  color-scheme: dark;
+}
+
 .premium-service-section .metadata-header.service-box-header,
 .hr-context-section .metadata-header.service-box-header {
   color: rgb(var(--underpar-service-ink-rgb));
@@ -4573,6 +4578,27 @@ select:disabled {
 .service-esm .esm-workspace-recording-tool,
 .service-esm .esm-workspace-meg-panel {
   background: linear-gradient(180deg, var(--service-card-bg-strong), var(--service-card-bg));
+}
+
+.service-esm :is(.esm-workspace-search, .esm-workspace-zoom-filter, .esm-workspace-meg-select, .esm-workspace-meg-saved-select) {
+  border-color: var(--service-input-border);
+  background: var(--service-input-bg);
+  color: rgb(var(--underpar-service-ink-rgb));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.service-esm :is(.esm-workspace-search, .esm-workspace-zoom-filter, .esm-workspace-meg-select, .esm-workspace-meg-saved-select):hover {
+  border-color: var(--service-input-border-hover);
+  background: var(--service-input-bg-hover);
+}
+
+.service-esm :is(.esm-workspace-search, .esm-workspace-zoom-filter, .esm-workspace-meg-select, .esm-workspace-meg-saved-select):focus,
+.service-esm :is(.esm-workspace-search, .esm-workspace-zoom-filter, .esm-workspace-meg-select, .esm-workspace-meg-saved-select):focus-visible {
+  outline: none;
+  border-color: var(--service-input-border-hover);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 0 0 2px rgba(var(--service-zip-800), var(--service-vibe-focus-alpha));
 }
 
 .service-esm .esm-workspace-meg-toggle:hover {

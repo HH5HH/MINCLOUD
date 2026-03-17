@@ -4,14 +4,14 @@
   color-scheme: dark;
 
   /* ZIP Dark X Purple exact palette ramp (derived from ZIP's bundled Spectrum 2 palette). */
-  --zip-accent-500: 49, 0, 86;
-  --zip-accent-600: 59, 0, 101;
-  --zip-accent-700: 67, 0, 116;
-  --zip-accent-800: 75, 0, 130;
-  --zip-accent-900: 97, 31, 145;
-  --zip-accent-1000: 118, 61, 160;
-  --zip-accent-1100: 140, 92, 175;
-  --zip-accent-focus: 75, 0, 130;
+  --zip-accent-500: 107, 6, 195;
+  --zip-accent-600: 130, 34, 215;
+  --zip-accent-700: 148, 62, 224;
+  --zip-accent-800: 157, 78, 228;
+  --zip-accent-900: 173, 105, 233;
+  --zip-accent-1000: 186, 127, 237;
+  --zip-accent-1100: 197, 149, 240;
+  --zip-accent-focus: 157, 78, 228;
   --zip-accent-on-primary: 255, 255, 255;
 
   /* ZIP dark neutrals used by sidepanel shell/menu surfaces. */

@@ -1,13 +1,13 @@
 :root {
   color-scheme: dark;
-  --zip-accent-500: 92, 0, 0;
-  --zip-accent-600: 108, 0, 0;
-  --zip-accent-700: 124, 0, 0;
-  --zip-accent-800: 139, 0, 0;
-  --zip-accent-900: 153, 31, 31;
-  --zip-accent-1000: 167, 61, 61;
-  --zip-accent-1100: 181, 92, 92;
-  --zip-accent-focus: 139, 0, 0;
+  --zip-accent-500: 147, 31, 17;
+  --zip-accent-600: 177, 38, 23;
+  --zip-accent-700: 205, 46, 29;
+  --zip-accent-800: 223, 52, 34;
+  --zip-accent-900: 252, 67, 46;
+  --zip-accent-1000: 255, 103, 86;
+  --zip-accent-1100: 255, 134, 120;
+  --zip-accent-focus: 223, 52, 34;
   --zip-accent-on-primary: 255, 255, 255;
 
   --legacy-bg: #111111;
