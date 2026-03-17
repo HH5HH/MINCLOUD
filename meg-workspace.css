@@ -14,10 +14,10 @@
   --meg-border: #000000;
   --meg-border-soft: #d5d5d5;
   --meg-border-quiet: rgba(143, 143, 143, 0.34);
-  --meg-shadow-soft: rgba(17, 45, 89, 0.12);
-  --meg-shadow-hover: rgba(20, 52, 102, 0.18);
-  --meg-focus: #0064e0;
-  --meg-focus-ring: rgba(0, 100, 224, 0.22);
+  --meg-shadow-soft: rgba(120, 55, 0, 0.12);
+  --meg-shadow-hover: rgba(120, 55, 0, 0.18);
+  --meg-focus: #c24e00;
+  --meg-focus-ring: rgba(194, 78, 0, 0.22);
   --meg-env-bg: linear-gradient(180deg, rgb(248, 248, 248) 0%, rgb(233, 233, 233) 100%);
   --meg-env-pill-bg: linear-gradient(180deg, rgb(248, 248, 248) 0%, rgb(233, 233, 233) 100%);
   --meg-env-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.4), inset 0 -1px 0 rgba(80, 80, 80, 0.1);
@@ -47,8 +47,8 @@
   --meg-table-head-hover: #f3f3f3;
   --meg-table-head-active-bg: #111111;
   --meg-table-head-active-text: #ffffff;
-  --meg-row-hover-accent: #e0fefe;
-  --meg-progress-accent: #000000;
+  --meg-row-hover-accent: #fff0df;
+  --meg-progress-accent: #c24e00;
   --meg-console-bg: #f0f0f0;
   --meg-console-text: #707070;
   --meg-console-border: #000000;
@@ -63,16 +63,16 @@
   --meg-danger-border: #8d0000;
   --meg-danger-hover-bg: #8d0000;
   --meg-danger-hover-text: #ffffff;
-  --meg-saved-query-capri: #005f84;
-  --meg-save-query-cue-ring: rgba(0, 95, 132, 0.18);
-  --meg-save-query-cue-halo: rgba(0, 95, 132, 0.08);
-  --meg-save-query-cue-bg: #f6fbfe;
-  --meg-theme-preview: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 249, 255, 0.97) 100%);
-  --meg-theme-ring: #0064e0;
-  --meg-theme-halo: rgba(0, 100, 224, 0.12);
-  --meg-theme-shadow: rgba(12, 29, 61, 0.08);
+  --meg-saved-query-capri: #a73e00;
+  --meg-save-query-cue-ring: rgba(194, 78, 0, 0.18);
+  --meg-save-query-cue-halo: rgba(194, 78, 0, 0.08);
+  --meg-save-query-cue-bg: #fff8f2;
+  --meg-theme-preview: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 244, 232, 0.97) 100%);
+  --meg-theme-ring: #c24e00;
+  --meg-theme-halo: rgba(194, 78, 0, 0.12);
+  --meg-theme-shadow: rgba(120, 55, 0, 0.08);
   --meg-theme-preview-retro: linear-gradient(180deg, #f1f1f1 0%, #bcbcbc 100%);
-  --meg-theme-preview-modern: linear-gradient(180deg, #0d66d0 0%, #2fa6ff 100%);
+  --meg-theme-preview-modern: linear-gradient(180deg, #c24e00 0%, #ffa213 100%);
   --meg-theme-detail-retro: #335055;
   --meg-theme-detail-modern: #ffffff;
 }
@@ -83,8 +83,8 @@ body.meg-standalone-mode[data-theme="retro"] {
   --meg-font-mono: "Lucida Console", Monaco, monospace;
   --meg-body-bg: #efefef;
   --meg-body-text: #000000;
-  --meg-link: #335055;
-  --meg-link-hover: #335055;
+  --meg-link: #8c3600;
+  --meg-link-hover: #8c3600;
   --meg-surface: #f7f7f7;
   --meg-surface-alt: #ffffff;
   --meg-surface-hover: #f0f0f0;
@@ -94,8 +94,8 @@ body.meg-standalone-mode[data-theme="retro"] {
   --meg-border-quiet: rgba(0, 0, 0, 0.24);
   --meg-shadow-soft: transparent;
   --meg-shadow-hover: transparent;
-  --meg-focus: #335055;
-  --meg-focus-ring: rgba(51, 80, 85, 0.18);
+  --meg-focus: #8c3600;
+  --meg-focus-ring: rgba(194, 78, 0, 0.18);
   --meg-env-bg: #e0e0e0;
   --meg-env-pill-bg: #d0d0d0;
   --meg-env-shadow: none;
@@ -125,7 +125,7 @@ body.meg-standalone-mode[data-theme="retro"] {
   --meg-table-head-hover: #9c9c9c;
   --meg-table-head-active-bg: #7f7f7f;
   --meg-table-head-active-text: #ffffff;
-  --meg-progress-accent: #335055;
+  --meg-progress-accent: #8c3600;
   --meg-console-bg: #f8f8f8;
   --meg-console-text: #3b3b3b;
   --meg-console-border: #000000;
@@ -140,13 +140,13 @@ body.meg-standalone-mode[data-theme="retro"] {
   --meg-danger-border: #640000;
   --meg-danger-hover-bg: #c07878;
   --meg-danger-hover-text: #ffffff;
-  --meg-saved-query-capri: #335055;
-  --meg-save-query-cue-ring: rgba(51, 80, 85, 0.2);
-  --meg-save-query-cue-halo: rgba(51, 80, 85, 0.08);
-  --meg-save-query-cue-bg: #eef5f5;
+  --meg-saved-query-capri: #8c3600;
+  --meg-save-query-cue-ring: rgba(194, 78, 0, 0.2);
+  --meg-save-query-cue-halo: rgba(194, 78, 0, 0.08);
+  --meg-save-query-cue-bg: #fff4eb;
   --meg-theme-preview: linear-gradient(180deg, #f1f1f1 0%, #bcbcbc 100%);
-  --meg-theme-ring: #5e747a;
-  --meg-theme-halo: rgba(94, 116, 122, 0.14);
+  --meg-theme-ring: #c24e00;
+  --meg-theme-halo: rgba(194, 78, 0, 0.14);
   --meg-theme-shadow: transparent;
 }
 
@@ -154,73 +154,73 @@ body.meg-standalone-mode[data-theme="modern"] {
   color-scheme: light;
   --meg-font-sans: "Adobe Clean", "Source Sans Pro", "Segoe UI", system-ui, sans-serif;
   --meg-font-mono: "Source Code Pro", "SFMono-Regular", ui-monospace, Menlo, Monaco, Consolas, monospace;
-  --meg-body-bg: #eff4fb;
-  --meg-body-text: #1e2833;
-  --meg-link: #0265dc;
-  --meg-link-hover: #0054b6;
+  --meg-body-bg: #fff6ec;
+  --meg-body-text: #4d2400;
+  --meg-link: #c24e00;
+  --meg-link-hover: #a73e00;
   --meg-surface: rgba(255, 255, 255, 0.96);
-  --meg-surface-alt: #f6f9fc;
-  --meg-surface-hover: #edf4ff;
-  --meg-surface-hover-strong: #e7eef8;
-  --meg-border: #d9e1ec;
-  --meg-border-soft: #e4ebf5;
-  --meg-border-quiet: rgba(66, 84, 102, 0.14);
-  --meg-shadow-soft: rgba(15, 23, 42, 0.08);
-  --meg-shadow-hover: rgba(15, 23, 42, 0.14);
-  --meg-focus: #1473e6;
-  --meg-focus-ring: rgba(20, 115, 230, 0.22);
-  --meg-env-bg: linear-gradient(180deg, rgba(242, 247, 255, 0.98) 0%, rgba(230, 239, 252, 0.98) 100%);
-  --meg-env-pill-bg: linear-gradient(180deg, rgba(230, 239, 252, 0.98) 0%, rgba(221, 232, 248, 0.98) 100%);
-  --meg-env-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 8px 20px rgba(15, 23, 42, 0.06);
-  --meg-env-text: #314154;
-  --meg-env-pill-text: #4a5f73;
-  --meg-env-value-text: #314154;
-  --meg-button-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 247, 252, 0.98) 100%);
-  --meg-button-text: #314154;
-  --meg-button-border: #d3dce8;
-  --meg-rerun-border: rgba(20, 115, 230, 0.24);
-  --meg-rerun-bg: linear-gradient(180deg, rgba(225, 247, 239, 0.98), rgba(196, 237, 223, 0.98));
-  --meg-rerun-text: #0f5c45;
-  --meg-rerun-shadow: 0 12px 24px rgba(15, 95, 70, 0.12);
-  --meg-rerun-hover-bg: linear-gradient(180deg, rgba(216, 242, 255, 0.98), rgba(184, 226, 255, 0.98));
-  --meg-rerun-hover-border: rgba(20, 115, 230, 0.34);
-  --meg-rerun-hover-text: #0b4f93;
-  --meg-rerun-hover-shadow: 0 14px 28px rgba(20, 115, 230, 0.16);
-  --meg-rerun-active-bg: linear-gradient(180deg, rgba(190, 231, 255, 0.98), rgba(162, 217, 255, 0.98));
-  --meg-rerun-active-border: rgba(20, 115, 230, 0.44);
-  --meg-rerun-active-text: #083d75;
-  --meg-rerun-active-shadow: 0 10px 20px rgba(20, 115, 230, 0.16);
-  --meg-spinner-track: rgba(20, 115, 230, 0.18);
-  --meg-spinner-head: rgba(20, 115, 230, 0.86);
+  --meg-surface-alt: #fff8f2;
+  --meg-surface-hover: #fff0df;
+  --meg-surface-hover-strong: #ffead2;
+  --meg-border: #ebd4be;
+  --meg-border-soft: #f1dfcf;
+  --meg-border-quiet: rgba(120, 73, 29, 0.14);
+  --meg-shadow-soft: rgba(120, 55, 0, 0.08);
+  --meg-shadow-hover: rgba(120, 55, 0, 0.14);
+  --meg-focus: #c24e00;
+  --meg-focus-ring: rgba(194, 78, 0, 0.22);
+  --meg-env-bg: linear-gradient(180deg, rgba(255, 248, 241, 0.98) 0%, rgba(255, 239, 224, 0.98) 100%);
+  --meg-env-pill-bg: linear-gradient(180deg, rgba(255, 239, 224, 0.98) 0%, rgba(255, 229, 206, 0.98) 100%);
+  --meg-env-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 8px 20px rgba(120, 55, 0, 0.06);
+  --meg-env-text: #7d2f00;
+  --meg-env-pill-text: #9a4f16;
+  --meg-env-value-text: #7d2f00;
+  --meg-button-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 247, 239, 0.98) 100%);
+  --meg-button-text: #7d2f00;
+  --meg-button-border: #e4c9b3;
+  --meg-rerun-border: rgba(194, 78, 0, 0.24);
+  --meg-rerun-bg: linear-gradient(180deg, rgba(255, 242, 229, 0.98), rgba(255, 224, 196, 0.98));
+  --meg-rerun-text: #8c3600;
+  --meg-rerun-shadow: 0 12px 24px rgba(120, 55, 0, 0.12);
+  --meg-rerun-hover-bg: linear-gradient(180deg, rgba(255, 236, 215, 0.98), rgba(255, 213, 169, 0.98));
+  --meg-rerun-hover-border: rgba(194, 78, 0, 0.34);
+  --meg-rerun-hover-text: #7d2f00;
+  --meg-rerun-hover-shadow: 0 14px 28px rgba(120, 55, 0, 0.16);
+  --meg-rerun-active-bg: linear-gradient(180deg, rgba(255, 224, 196, 0.98), rgba(255, 202, 150, 0.98));
+  --meg-rerun-active-border: rgba(167, 62, 0, 0.44);
+  --meg-rerun-active-text: #6d2800;
+  --meg-rerun-active-shadow: 0 10px 20px rgba(120, 55, 0, 0.16);
+  --meg-spinner-track: rgba(194, 78, 0, 0.18);
+  --meg-spinner-head: rgba(194, 78, 0, 0.86);
   --meg-status-error-bg: rgba(255, 236, 235, 0.95);
   --meg-status-error-text: #b3251e;
-  --meg-table-head-bg: #edf5ff;
-  --meg-table-head-hover: #dfeeff;
-  --meg-table-head-active-bg: #1473e6;
+  --meg-table-head-bg: #fff1e3;
+  --meg-table-head-hover: #ffe8cf;
+  --meg-table-head-active-bg: #c24e00;
   --meg-table-head-active-text: #ffffff;
-  --meg-progress-accent: #1473e6;
-  --meg-console-bg: rgba(248, 251, 255, 0.98);
-  --meg-console-text: #435368;
-  --meg-console-border: #d9e1ec;
+  --meg-progress-accent: #c24e00;
+  --meg-console-bg: rgba(255, 250, 245, 0.98);
+  --meg-console-text: #8b5a37;
+  --meg-console-border: #ebd4be;
   --meg-console-error-bg: #fff0ef;
   --meg-console-error-text: #b3251e;
-  --meg-utility-button-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(240, 246, 255, 0.98) 100%);
-  --meg-utility-button-text: #314154;
-  --meg-utility-button-hover-bg: linear-gradient(180deg, rgba(227, 240, 255, 0.98) 0%, rgba(202, 226, 252, 0.98) 100%);
-  --meg-utility-button-hover-text: #0b4f93;
+  --meg-utility-button-bg: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 244, 232, 0.98) 100%);
+  --meg-utility-button-text: #7d2f00;
+  --meg-utility-button-hover-bg: linear-gradient(180deg, rgba(255, 236, 215, 0.98) 0%, rgba(255, 220, 188, 0.98) 100%);
+  --meg-utility-button-hover-text: #8c3600;
   --meg-danger-bg: linear-gradient(180deg, rgba(255, 241, 240, 0.98) 0%, rgba(255, 224, 221, 0.98) 100%);
   --meg-danger-text: #b3251e;
   --meg-danger-border: rgba(179, 37, 30, 0.3);
   --meg-danger-hover-bg: #fdd8d6;
   --meg-danger-hover-text: #8e1c17;
-  --meg-saved-query-capri: #0265dc;
-  --meg-save-query-cue-ring: rgba(20, 115, 230, 0.18);
-  --meg-save-query-cue-halo: rgba(20, 115, 230, 0.08);
-  --meg-save-query-cue-bg: #f1f7ff;
-  --meg-theme-preview: linear-gradient(180deg, rgba(19, 115, 230, 0.98) 0%, rgba(84, 187, 255, 0.98) 100%);
-  --meg-theme-ring: #1473e6;
-  --meg-theme-halo: rgba(20, 115, 230, 0.12);
-  --meg-theme-shadow: rgba(20, 115, 230, 0.16);
+  --meg-saved-query-capri: #c24e00;
+  --meg-save-query-cue-ring: rgba(194, 78, 0, 0.18);
+  --meg-save-query-cue-halo: rgba(194, 78, 0, 0.08);
+  --meg-save-query-cue-bg: #fff6ec;
+  --meg-theme-preview: linear-gradient(180deg, rgba(194, 78, 0, 0.98) 0%, rgba(255, 162, 19, 0.98) 100%);
+  --meg-theme-ring: #c24e00;
+  --meg-theme-halo: rgba(194, 78, 0, 0.12);
+  --meg-theme-shadow: rgba(120, 55, 0, 0.16);
 }
 
 * {
@@ -242,9 +242,9 @@ body {
 
 body.meg-standalone-mode[data-theme="modern"] {
   background-image:
-    radial-gradient(circle at top left, rgba(97, 193, 255, 0.16), transparent 28%),
-    radial-gradient(circle at top right, rgba(255, 196, 92, 0.14), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(239, 244, 251, 0.96) 100%);
+    radial-gradient(circle at top left, rgba(255, 162, 19, 0.16), transparent 28%),
+    radial-gradient(circle at top right, rgba(232, 106, 0, 0.14), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 246, 236, 0.96) 100%);
 }
 
 body.workspace-locked {
@@ -593,14 +593,14 @@ input[type="datetime-local"] {
 body.meg-standalone-mode[data-theme="retro"] .theme-toggle {
   border-width: 1px;
   border-radius: 999px;
-  border-color: rgba(20, 115, 230, 0.46);
+  border-color: rgba(194, 78, 0, 0.46);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(238, 247, 255, 0.98) 48%, rgba(211, 234, 255, 0.98) 100%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 246, 236, 0.98) 48%, rgba(255, 225, 186, 0.98) 100%);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.58),
-    0 10px 22px rgba(20, 115, 230, 0.24),
+    0 10px 22px rgba(194, 78, 0, 0.24),
     inset 0 1px 0 rgba(255, 255, 255, 0.98),
-    inset 0 -8px 16px rgba(20, 115, 230, 0.12);
+    inset 0 -8px 16px rgba(194, 78, 0, 0.12);
 }
 
 body.meg-standalone-mode[data-theme="retro"] .theme-toggle::before {
@@ -608,10 +608,10 @@ body.meg-standalone-mode[data-theme="retro"] .theme-toggle::before {
   border-radius: 999px;
   background:
     radial-gradient(circle at 24% 24%, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.72) 18%, rgba(255, 255, 255, 0) 42%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(223, 239, 255, 0.96) 36%, rgba(198, 231, 255, 0.98) 62%, rgba(208, 255, 249, 0.96) 100%);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(255, 244, 232, 0.96) 36%, rgba(255, 225, 186, 0.98) 62%, rgba(255, 214, 168, 0.96) 100%);
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.78),
-    inset 0 -4px 8px rgba(20, 115, 230, 0.12);
+    inset 0 -4px 8px rgba(194, 78, 0, 0.12);
 }
 
 body.meg-standalone-mode[data-theme="retro"] .theme-toggle::after {
@@ -619,20 +619,20 @@ body.meg-standalone-mode[data-theme="retro"] .theme-toggle::after {
   border-radius: 999px;
   background:
     radial-gradient(circle at 24% 42%, rgba(255, 255, 255, 0.98) 0 16%, rgba(255, 255, 255, 0.32) 22%, rgba(255, 255, 255, 0) 38%),
-    linear-gradient(90deg, rgba(20, 115, 230, 0.28) 0 24%, rgba(255, 255, 255, 0) 24% 72%, rgba(0, 179, 255, 0.3) 72% 100%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.08) 54%, rgba(20, 115, 230, 0.14) 100%);
+    linear-gradient(90deg, rgba(194, 78, 0, 0.28) 0 24%, rgba(255, 255, 255, 0) 24% 72%, rgba(255, 162, 19, 0.3) 72% 100%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0.08) 54%, rgba(194, 78, 0, 0.14) 100%);
   box-shadow:
-    inset 0 0 0 1px rgba(20, 115, 230, 0.16),
-    0 0 18px rgba(20, 115, 230, 0.18);
+    inset 0 0 0 1px rgba(194, 78, 0, 0.16),
+    0 0 18px rgba(194, 78, 0, 0.18);
 }
 
 body.meg-standalone-mode[data-theme="retro"] .theme-toggle:hover:not(:disabled) {
-  border-color: #1473e6;
+  border-color: #c24e00;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.68),
-    0 14px 26px rgba(20, 115, 230, 0.28),
+    0 14px 26px rgba(194, 78, 0, 0.28),
     inset 0 1px 0 rgba(255, 255, 255, 0.98),
-    inset 0 -10px 18px rgba(20, 115, 230, 0.14);
+    inset 0 -10px 18px rgba(194, 78, 0, 0.14);
 }
 
 body.meg-standalone-mode[data-theme="modern"] .theme-toggle {

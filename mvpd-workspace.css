@@ -3,16 +3,16 @@
 :root {
   color-scheme: dark;
 
-  /* ZIP Dark X Sunflower exact palette ramp (derived via ZIP buildTonePalette). */
-  --zip-accent-500: 168, 128, 9;
-  --zip-accent-600: 199, 151, 11;
-  --zip-accent-700: 227, 173, 12;
-  --zip-accent-800: 255, 194, 14;
-  --zip-accent-900: 255, 201, 43;
-  --zip-accent-1000: 255, 209, 72;
-  --zip-accent-1100: 255, 216, 101;
-  --zip-accent-focus: 255, 194, 14;
-  --zip-accent-on-primary: 34, 34, 34;
+  /* ZIP Dark X Purple exact palette ramp (derived from ZIP's bundled Spectrum 2 palette). */
+  --zip-accent-500: 107, 6, 195;
+  --zip-accent-600: 130, 34, 215;
+  --zip-accent-700: 148, 62, 224;
+  --zip-accent-800: 157, 78, 228;
+  --zip-accent-900: 173, 105, 233;
+  --zip-accent-1000: 186, 127, 237;
+  --zip-accent-1100: 197, 149, 240;
+  --zip-accent-focus: 157, 78, 228;
+  --zip-accent-on-primary: 255, 255, 255;
 
   /* ZIP dark neutrals used by sidepanel shell/menu surfaces. */
   --zip-menu-panel-bg: rgb(34, 34, 34);
@@ -23,7 +23,7 @@
   --zip-menu-fg-subtle: rgb(175, 175, 175);
   --zip-menu-border: rgb(57, 57, 57);
 
-  /* ZIP Dark X Sunflower vibe values (exact output from ZIP theme engine). */
+  /* ZIP Dark X Purple vibe values carried through the MVPD workspace shell. */
   --zip-theme-vibe-body-radial-alpha: 0.319;
   --zip-theme-vibe-topbar-a-alpha: 0.289;
   --zip-theme-vibe-topbar-b-alpha: 0.187;
@@ -73,8 +73,8 @@
   --s2-action-border-accent: rgb(var(--zip-accent-800));
   --s2-action-text-accent: rgb(var(--zip-accent-on-primary));
   --s2-action-focus-ring: rgba(var(--zip-accent-focus), var(--zip-theme-vibe-focus-alpha));
-  --workspace-net-indicator-track: rgba(132, 87, 14, 0.34);
-  --workspace-net-indicator-head: rgba(171, 219, 68, 0.96);
+  --workspace-net-indicator-track: rgba(107, 6, 195, 0.34);
+  --workspace-net-indicator-head: rgba(197, 149, 240, 0.96);
 }
 
 body {
@@ -220,24 +220,24 @@ body::after {
 }
 
 .workspace-icon-btn--reference {
-  border-color: #c68500;
-  background: linear-gradient(180deg, #ffd76c 0%, #ffc20e 100%);
-  color: #111111;
-  box-shadow: 0 8px 16px rgba(143, 101, 0, 0.26);
+  border-color: rgba(var(--zip-accent-900), 0.78);
+  background: linear-gradient(180deg, rgba(var(--zip-accent-1000), 0.98), rgba(var(--zip-accent-800), 0.98));
+  color: rgb(var(--zip-accent-on-primary));
+  box-shadow: 0 8px 16px rgba(86, 22, 149, 0.26);
 }
 
 .workspace-icon-btn--reference:hover:not(:disabled) {
-  border-color: #b17700;
-  background: linear-gradient(180deg, #ffe48f 0%, #f2b90c 100%);
-  color: #111111;
-  box-shadow: 0 11px 20px rgba(143, 101, 0, 0.34);
+  border-color: rgba(var(--zip-accent-1000), 0.86);
+  background: linear-gradient(180deg, rgba(var(--zip-accent-1100), 0.98), rgba(var(--zip-accent-900), 0.98));
+  color: rgb(var(--zip-accent-on-primary));
+  box-shadow: 0 11px 20px rgba(86, 22, 149, 0.34);
 }
 
 .workspace-icon-btn--reference:active:not(:disabled) {
-  border-color: #9f6900;
-  background: linear-gradient(180deg, #ffd258 0%, #e4a906 100%);
-  color: #111111;
-  box-shadow: 0 6px 12px rgba(143, 101, 0, 0.28);
+  border-color: rgba(var(--zip-accent-1100), 0.92);
+  background: linear-gradient(180deg, rgba(var(--zip-accent-1000), 0.98), rgba(var(--zip-accent-700), 0.98));
+  color: rgb(var(--zip-accent-on-primary));
+  box-shadow: 0 6px 12px rgba(86, 22, 149, 0.28);
 }
 
 .workspace-icon-btn--accent {
@@ -512,7 +512,7 @@ body::after {
   color: var(--legacy-muted);
 }
 
-/* MVPD Workspace CMU report cards inherit CM classes; force Sunflower readability. */
+/* MVPD Workspace CMU report cards inherit CM classes; force purple readability. */
 .workspace-cards .report-card {
   border-radius: 20px;
   border: 1px solid rgba(var(--zip-accent-900), 0.32);
@@ -538,13 +538,13 @@ body::after {
 }
 
 .workspace-cards .card-subtitle {
-  color: rgba(255, 232, 170, 0.86);
+  color: rgba(228, 213, 245, 0.86);
   text-shadow: none;
   font-size: 11px;
 }
 
 .workspace-cards .card-url-path-segment {
-  color: rgba(255, 229, 157, 0.88);
+  color: rgba(219, 197, 242, 0.88);
 }
 
 .workspace-cards .card-url-path-segment-terminal {
@@ -554,7 +554,7 @@ body::after {
 .workspace-cards .card-url-path-segment-empty,
 .workspace-cards .card-url-query-empty,
 .workspace-cards .card-url-empty {
-  color: rgba(255, 223, 136, 0.65);
+  color: rgba(197, 171, 228, 0.65);
 }
 
 .workspace-cards .card-url-path-divider,
@@ -563,7 +563,7 @@ body::after {
 }
 
 .workspace-cards .card-url-query-chip {
-  color: rgba(255, 229, 162, 0.9);
+  color: rgba(225, 207, 243, 0.9);
 }
 
 .workspace-cards .card-url-query-key {
@@ -571,7 +571,7 @@ body::after {
 }
 
 .workspace-cards .card-url-query-value {
-  color: rgba(255, 236, 182, 0.92);
+  color: rgba(236, 225, 247, 0.92);
 }
 
 .workspace-cards .card-url-path-link:hover {
@@ -583,12 +583,12 @@ body::after {
 }
 
 .workspace-cards .card-close {
-  color: rgba(255, 229, 157, 0.78);
+  color: rgba(219, 197, 242, 0.78);
   text-shadow: none;
 }
 
 .workspace-cards .card-close:hover {
-  color: rgba(255, 239, 197, 0.95);
+  color: rgba(241, 232, 249, 0.95);
 }
 
 .workspace-cards .card-close:focus-visible {
@@ -602,7 +602,7 @@ body::after {
 
 .workspace-cards .card-message {
   background: linear-gradient(180deg, rgba(34, 34, 34, 0.98), rgba(30, 30, 30, 0.98));
-  color: rgba(255, 235, 188, 0.9);
+  color: rgba(237, 226, 247, 0.9);
 }
 
 .workspace-cards .card-message.error {
@@ -622,7 +622,7 @@ body::after {
 
 .workspace-cards .cm-api-intro-sub,
 .workspace-cards .cm-api-help {
-  color: rgba(255, 227, 153, 0.78);
+  color: rgba(214, 190, 241, 0.78);
 }
 
 .workspace-cards .cm-api-label em {
@@ -636,7 +636,7 @@ body::after {
 }
 
 .workspace-cards .cm-api-input::placeholder {
-  color: rgba(255, 220, 132, 0.5);
+  color: rgba(193, 165, 230, 0.5);
 }
 
 .workspace-cards .cm-api-input:focus {
@@ -769,17 +769,17 @@ body::after {
 }
 
 .workspace-cards .esm-close {
-  color: rgba(255, 223, 136, 0.72);
+  color: rgba(197, 171, 228, 0.72);
 }
 
 .workspace-cards .esm-close:hover {
-  color: rgba(255, 236, 182, 0.92);
+  color: rgba(236, 225, 247, 0.92);
 }
 
 .workspace-cards .card-col-list {
   border-top: 1px solid rgba(var(--zip-accent-900), 0.2);
   background: linear-gradient(180deg, rgba(30, 30, 30, 0.98), rgba(23, 23, 23, 0.98));
-  color: rgba(255, 227, 152, 0.86);
+  color: rgba(214, 190, 241, 0.86);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
@@ -789,12 +789,12 @@ body::after {
 }
 
 .workspace-cards .card-col-parent-url:hover {
-  color: rgba(255, 239, 197, 0.95);
+  color: rgba(241, 232, 249, 0.95);
 }
 
 .workspace-cards .card-col-parent-url-empty,
 .workspace-cards .card-col-empty {
-  color: rgba(255, 217, 101, 0.64);
+  color: rgba(188, 158, 226, 0.64);
 }
 
 .workspace-cards .col-chip-trigger,
@@ -802,7 +802,7 @@ body::after {
 .workspace-cards .col-chip-label {
   border-color: rgba(var(--zip-accent-900), 0.4);
   background: linear-gradient(180deg, rgba(45, 45, 45, 0.98), rgba(33, 33, 33, 0.98));
-  color: rgba(255, 240, 201, 0.95);
+  color: rgba(242, 234, 249, 0.95);
 }
 
 .workspace-cards .col-chip[data-filterable="1"]:hover .col-chip-trigger,
@@ -822,7 +822,7 @@ body::after {
 .workspace-cards .local-col-menu {
   border-color: rgba(var(--zip-accent-900), 0.4);
   background: rgba(20, 20, 20, 0.98);
-  color: rgba(255, 240, 201, 0.96);
+  color: rgba(242, 234, 249, 0.96);
 }
 
 .workspace-cards .local-col-menu:focus {
@@ -842,7 +842,7 @@ body::after {
 .workspace-cards .esm-clear-filter-rerun {
   border-color: rgba(var(--zip-accent-900), 0.44);
   background: rgba(40, 40, 40, 0.96);
-  color: rgba(255, 236, 182, 0.9);
+  color: rgba(236, 225, 247, 0.9);
 }
 
 .workspace-cards .esm-action-btn:hover,
@@ -871,7 +871,7 @@ body::after {
 
 .workspace-cards .card-col-chip:nth-child(3n + 1),
 .workspace-cards .card-col-chip:nth-child(3n) {
-  color: rgba(255, 236, 182, 0.9);
+  color: rgba(236, 225, 247, 0.9);
   opacity: 1;
 }
 

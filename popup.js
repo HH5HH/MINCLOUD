@@ -25751,13 +25751,13 @@ function buildClickCmuRuntimePatchSnippet(context = {}) {
   return `
 <style id="underpar-clickcmu-theme-overrides">
 :root{
-  --zip-accent-500:110, 206, 42;
-  --zip-accent-600:93, 180, 31;
-  --zip-accent-700:82, 161, 25;
-  --zip-accent-800:72, 144, 20;
-  --zip-accent-900:64, 129, 17;
-  --zip-accent-1000:52, 109, 12;
-  --zip-accent-1100:44, 92, 9;
+  --zip-accent-500:208, 167, 243;
+  --zip-accent-600:191, 138, 238;
+  --zip-accent-700:178, 114, 235;
+  --zip-accent-800:166, 92, 231;
+  --zip-accent-900:154, 71, 226;
+  --zip-accent-1000:134, 40, 217;
+  --zip-accent-1100:115, 13, 204;
   --zip-theme-vibe-body-radial-alpha:0.191;
   --zip-theme-vibe-body-start-mix:49.54%;
   --zip-theme-vibe-body-end-mix:33.42%;
@@ -25787,74 +25787,74 @@ function buildClickCmuRuntimePatchSnippet(context = {}) {
   --zip-theme-vibe-feedback-border-alpha:0.392;
   --zip-theme-vibe-zebra-contrast:16.49%;
   --zip-theme-vibe-zebra-hover:8.68%;
-  --click-url-rgb:64, 129, 17;
-  --click-url-hover-rgb:52, 109, 12;
-  --reset-bg:#408111;
-  --reset-border:#346D0C;
-  --reset-hover:#489014;
-  --reset-text:#F5F8F2;
-  --bg:#f2f9eb;
+  --click-url-rgb:154, 71, 226;
+  --click-url-hover-rgb:134, 40, 217;
+  --reset-bg:#9A47E2;
+  --reset-border:#8628D9;
+  --reset-hover:#A65CE7;
+  --reset-text:#FFFFFF;
+  --bg:#f5effd;
   --bg-gradient:
-    radial-gradient(circle at 8% -12%, rgba(64, 129, 17, 0.16), rgba(64, 129, 17, 0) 46%),
-    radial-gradient(circle at 92% -8%, rgba(110, 206, 42, 0.14), rgba(110, 206, 42, 0) 44%),
-    radial-gradient(circle at 50% 120%, rgba(52, 109, 12, 0.12), rgba(52, 109, 12, 0) 50%),
-    linear-gradient(180deg, #fbfdf4 0%, #f2f9eb 100%);
+    radial-gradient(circle at 8% -12%, rgba(154, 71, 226, 0.16), rgba(154, 71, 226, 0) 46%),
+    radial-gradient(circle at 92% -8%, rgba(208, 167, 243, 0.14), rgba(208, 167, 243, 0) 44%),
+    radial-gradient(circle at 50% 120%, rgba(134, 40, 217, 0.12), rgba(134, 40, 217, 0) 50%),
+    linear-gradient(180deg, #fcf8ff 0%, #f5effd 100%);
   --panel:rgba(255, 255, 255, 0.92);
-  --text-primary:#1f2229;
-  --text-muted:#346D0C;
-  --col-list-text:#346D0C;
-  --accent:#408111;
-  --accent-strong:#346D0C;
-  --accent-rgb:64, 129, 17;
+  --text-primary:#32124F;
+  --text-muted:#6D4B95;
+  --col-list-text:#6D4B95;
+  --accent:#9A47E2;
+  --accent-strong:#8628D9;
+  --accent-rgb:154, 71, 226;
   --field-bg:rgba(255, 255, 255, 0.96);
-  --field-border:rgba(64, 129, 17, 0.24);
-  --field-border-focus:#408111;
-  --field-focus-ring:rgba(64, 129, 17, 0.22);
+  --field-border:rgba(115, 13, 204, 0.24);
+  --field-border-focus:#9A47E2;
+  --field-focus-ring:rgba(154, 71, 226, 0.22);
   --button-bg:rgba(255, 255, 255, 0.96);
-  --button-hover:#f4faee;
-  --button-border:rgba(64, 129, 17, 0.24);
-  --button-text:#346D0C;
-  --table-head:#eff8e7;
+  --button-hover:#f4edff;
+  --button-border:rgba(115, 13, 204, 0.24);
+  --button-text:#5C1CA9;
+  --table-head:#f6edff;
   --table-row:rgba(255, 255, 255, 0.96);
-  --table-alt:#f7fbf2;
-  --row-hover:#edf6e4;
-  --table-row-hover:#edf6e4;
-  --border:rgba(64, 129, 17, 0.24);
-  --shadow:rgba(52, 109, 12, 0.15);
-  --parent-highlight:rgba(64, 129, 17, .18);
-  --parent-highlight-border:rgba(52, 109, 12, .58);
-  --parent-highlight-glow:rgba(64, 129, 17, .24);
-  --match-row-hover:rgba(231, 244, 221, 0.98);
-  --chip-highlight-bg:rgba(64, 129, 17, .16);
-  --chip-highlight-border:rgba(52, 109, 12, .60);
-  --footer-muted:#346D0C;
-  --spinner-track:rgba(64, 129, 17, 0.22);
-  --spinner-head:rgba(31, 34, 41, 0.45);
-  --theme-preview:linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 250, 238, 0.97) 100%);
-  --theme-ring:#408111;
-  --theme-halo:rgba(64, 129, 17, 0.12);
-  --theme-shadow:rgba(52, 109, 12, 0.08);
-  --page-surface-bg:linear-gradient(180deg, #fbfdf4 0%, #f2f9eb 100%);
+  --table-alt:#faf5ff;
+  --row-hover:#f3e9ff;
+  --table-row-hover:#f3e9ff;
+  --border:rgba(115, 13, 204, 0.24);
+  --shadow:rgba(83, 0, 159, 0.15);
+  --parent-highlight:rgba(154, 71, 226, .18);
+  --parent-highlight-border:rgba(134, 40, 217, .58);
+  --parent-highlight-glow:rgba(154, 71, 226, .24);
+  --match-row-hover:rgba(241, 227, 255, 0.98);
+  --chip-highlight-bg:rgba(154, 71, 226, .16);
+  --chip-highlight-border:rgba(134, 40, 217, .60);
+  --footer-muted:#6D4B95;
+  --spinner-track:rgba(115, 13, 204, 0.22);
+  --spinner-head:rgba(50, 18, 79, 0.45);
+  --theme-preview:linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(246, 237, 255, 0.97) 100%);
+  --theme-ring:#9A47E2;
+  --theme-halo:rgba(154, 71, 226, 0.12);
+  --theme-shadow:rgba(83, 0, 159, 0.08);
+  --page-surface-bg:linear-gradient(180deg, #fcf8ff 0%, #f5effd 100%);
   --card-shell-bg:rgba(255, 255, 255, 0.92);
-  --card-shell-alt-bg:#f7fbf2;
-  --table-shell-bg:linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 250, 238, 0.98));
+  --card-shell-alt-bg:#faf5ff;
+  --table-shell-bg:linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 237, 255, 0.98));
   --local-col-menu-bg:rgba(255, 255, 255, 0.96);
-  --local-col-menu-alt-bg:#f7fbf2;
-  --local-col-menu-hover:#edf6e4;
-  --local-col-menu-border:rgba(64, 129, 17, 0.24);
-  --parent-highlight-shell-bg:rgba(237, 246, 228, 0.98);
-  --parent-highlight-shell-alt-bg:rgba(244, 250, 238, 0.97);
+  --local-col-menu-alt-bg:#faf5ff;
+  --local-col-menu-hover:#f3e9ff;
+  --local-col-menu-border:rgba(115, 13, 204, 0.24);
+  --parent-highlight-shell-bg:rgba(243, 233, 255, 0.98);
+  --parent-highlight-shell-alt-bg:rgba(249, 242, 255, 0.97);
   --search-result-stripe-a:var(--parent-highlight-shell-alt-bg);
   --search-result-stripe-b:var(--parent-highlight-shell-bg);
 }
 body[data-theme="dark"]{
-  --zip-accent-500:85, 150, 38;
-  --zip-accent-600:101, 178, 45;
-  --zip-accent-700:115, 203, 52;
-  --zip-accent-800:129, 228, 58;
-  --zip-accent-900:144, 231, 82;
-  --zip-accent-1000:159, 234, 105;
-  --zip-accent-1100:174, 238, 129;
+  --zip-accent-500:107, 6, 195;
+  --zip-accent-600:130, 34, 215;
+  --zip-accent-700:148, 62, 224;
+  --zip-accent-800:157, 78, 228;
+  --zip-accent-900:173, 105, 233;
+  --zip-accent-1000:186, 127, 237;
+  --zip-accent-1100:197, 149, 240;
   --zip-theme-vibe-body-radial-alpha:0.319;
   --zip-theme-vibe-body-start-mix:62%;
   --zip-theme-vibe-body-end-mix:47.13%;
@@ -25884,17 +25884,17 @@ body[data-theme="dark"]{
   --zip-theme-vibe-feedback-border-alpha:0.459;
   --zip-theme-vibe-zebra-contrast:18.51%;
   --zip-theme-vibe-zebra-hover:9.96%;
-  --click-url-rgb:144, 231, 82;
-  --click-url-hover-rgb:159, 234, 105;
-  --reset-bg:#90E752;
-  --reset-border:#81E43A;
-  --reset-hover:#9FEA69;
-  --reset-text:#111111;
-  --parent-highlight:rgba(144, 231, 82, .20);
-  --parent-highlight-border:rgba(159, 234, 105, .62);
-  --parent-highlight-glow:rgba(144, 231, 82, .27);
-  --chip-highlight-bg:rgba(144, 231, 82, .20);
-  --chip-highlight-border:rgba(159, 234, 105, .64);
+  --click-url-rgb:186, 127, 237;
+  --click-url-hover-rgb:197, 149, 240;
+  --reset-bg:#AD69E9;
+  --reset-border:#BA7FED;
+  --reset-hover:#C595F0;
+  --reset-text:#FFFFFF;
+  --parent-highlight:rgba(186, 127, 237, .20);
+  --parent-highlight-border:rgba(197, 149, 240, .62);
+  --parent-highlight-glow:rgba(186, 127, 237, .27);
+  --chip-highlight-bg:rgba(186, 127, 237, .20);
+  --chip-highlight-border:rgba(197, 149, 240, .64);
 }
 #fltr_requestorid,
 #fltr_mvpdId{
@@ -27254,19 +27254,20 @@ function buildClickCmuHtmlFromTemplate(templateHtml, context = {}) {
 }
 
 function buildClickCmuThemeOverrideCss(themePreset = "") {
-  if (String(themePreset || "").trim().toLowerCase() !== "sunflower") {
+  const normalizedThemePreset = String(themePreset || "").trim().toLowerCase();
+  if (normalizedThemePreset !== "purple" && normalizedThemePreset !== "sunflower") {
     return "";
   }
   const lightVars = {
-    "--zip-accent-500": "255, 215, 96",
-    "--zip-accent-600": "255, 207, 67",
-    "--zip-accent-700": "255, 201, 41",
-    "--zip-accent-800": "255, 194, 14",
-    "--zip-accent-900": "230, 175, 13",
-    "--zip-accent-1000": "199, 151, 11",
-    "--zip-accent-1100": "173, 132, 10",
-    "--zip-accent-focus": "255, 194, 14",
-    "--zip-accent-on-primary": "0, 0, 0",
+    "--zip-accent-500": "208, 167, 243",
+    "--zip-accent-600": "191, 138, 238",
+    "--zip-accent-700": "178, 114, 235",
+    "--zip-accent-800": "166, 92, 231",
+    "--zip-accent-900": "154, 71, 226",
+    "--zip-accent-1000": "134, 40, 217",
+    "--zip-accent-1100": "115, 13, 204",
+    "--zip-accent-focus": "154, 71, 226",
+    "--zip-accent-on-primary": "255, 255, 255",
     "--zip-theme-vibe-body-radial-alpha": "0.191",
     "--zip-theme-vibe-body-start-mix": "50%",
     "--zip-theme-vibe-body-end-mix": "34%",
@@ -27296,29 +27297,29 @@ function buildClickCmuThemeOverrideCss(themePreset = "") {
     "--zip-theme-vibe-feedback-border-alpha": "0.392",
     "--zip-theme-vibe-zebra-contrast": "16.84%",
     "--zip-theme-vibe-zebra-hover": "9.21%",
-    "--click-url-rgb": "230, 175, 13",
-    "--click-url-hover-rgb": "199, 151, 11",
-    "--header-link-rgb": "230, 175, 13",
-    "--reset-bg": "#E6AF0D",
-    "--reset-border": "#C7970B",
-    "--reset-hover": "#FFC20E",
-    "--reset-text": "#111111",
-    "--parent-highlight": "rgba(230, 175, 13, .18)",
-    "--parent-highlight-border": "rgba(199, 151, 11, .58)",
-    "--parent-highlight-glow": "rgba(230, 175, 13, .24)",
-    "--chip-highlight-bg": "rgba(230, 175, 13, .16)",
-    "--chip-highlight-border": "rgba(199, 151, 11, .60)",
+    "--click-url-rgb": "154, 71, 226",
+    "--click-url-hover-rgb": "134, 40, 217",
+    "--header-link-rgb": "154, 71, 226",
+    "--reset-bg": "#9A47E2",
+    "--reset-border": "#8628D9",
+    "--reset-hover": "#A65CE7",
+    "--reset-text": "#FFFFFF",
+    "--parent-highlight": "rgba(154, 71, 226, .18)",
+    "--parent-highlight-border": "rgba(134, 40, 217, .58)",
+    "--parent-highlight-glow": "rgba(154, 71, 226, .24)",
+    "--chip-highlight-bg": "rgba(154, 71, 226, .16)",
+    "--chip-highlight-border": "rgba(134, 40, 217, .60)",
   };
   const darkVars = {
-    "--zip-accent-500": "168, 128, 9",
-    "--zip-accent-600": "199, 151, 11",
-    "--zip-accent-700": "227, 173, 12",
-    "--zip-accent-800": "255, 194, 14",
-    "--zip-accent-900": "255, 201, 43",
-    "--zip-accent-1000": "255, 209, 72",
-    "--zip-accent-1100": "255, 216, 101",
-    "--zip-accent-focus": "255, 194, 14",
-    "--zip-accent-on-primary": "0, 0, 0",
+    "--zip-accent-500": "107, 6, 195",
+    "--zip-accent-600": "130, 34, 215",
+    "--zip-accent-700": "148, 62, 224",
+    "--zip-accent-800": "157, 78, 228",
+    "--zip-accent-900": "173, 105, 233",
+    "--zip-accent-1000": "186, 127, 237",
+    "--zip-accent-1100": "197, 149, 240",
+    "--zip-accent-focus": "157, 78, 228",
+    "--zip-accent-on-primary": "255, 255, 255",
     "--zip-theme-vibe-body-radial-alpha": "0.319",
     "--zip-theme-vibe-body-start-mix": "62%",
     "--zip-theme-vibe-body-end-mix": "50%",
@@ -27348,18 +27349,18 @@ function buildClickCmuThemeOverrideCss(themePreset = "") {
     "--zip-theme-vibe-feedback-border-alpha": "0.459",
     "--zip-theme-vibe-zebra-contrast": "18.82%",
     "--zip-theme-vibe-zebra-hover": "10.5%",
-    "--click-url-rgb": "255, 201, 43",
-    "--click-url-hover-rgb": "255, 209, 72",
-    "--header-link-rgb": "255, 201, 43",
-    "--reset-bg": "#FFC92B",
-    "--reset-border": "#FFC20E",
-    "--reset-hover": "#FFD148",
-    "--reset-text": "#111111",
-    "--parent-highlight": "rgba(255, 201, 43, .20)",
-    "--parent-highlight-border": "rgba(255, 209, 72, .62)",
-    "--parent-highlight-glow": "rgba(255, 201, 43, .27)",
-    "--chip-highlight-bg": "rgba(255, 201, 43, .20)",
-    "--chip-highlight-border": "rgba(255, 209, 72, .64)",
+    "--click-url-rgb": "186, 127, 237",
+    "--click-url-hover-rgb": "197, 149, 240",
+    "--header-link-rgb": "186, 127, 237",
+    "--reset-bg": "#AD69E9",
+    "--reset-border": "#BA7FED",
+    "--reset-hover": "#C595F0",
+    "--reset-text": "#FFFFFF",
+    "--parent-highlight": "rgba(186, 127, 237, .20)",
+    "--parent-highlight-border": "rgba(197, 149, 240, .62)",
+    "--parent-highlight-glow": "rgba(186, 127, 237, .27)",
+    "--chip-highlight-bg": "rgba(186, 127, 237, .20)",
+    "--chip-highlight-border": "rgba(197, 149, 240, .64)",
   };
   const toCssBlock = (vars = {}) => Object.entries(vars).map(([name, value]) => `${name}:${String(value || "").trim()};`).join("");
   return `:root{${toCssBlock(lightVars)}}body[data-theme="dark"]{${toCssBlock(darkVars)}}`;
@@ -38904,7 +38905,7 @@ async function handleMvpdWorkspaceAction(message, sender = null) {
         isMvpdWorkspaceExport: true,
         mvpdId: selectedMvpdId,
         tenantScope: selectedMvpdTenantScope,
-        themePreset: "sunflower",
+        themePreset: "purple",
         themeScope: `mvpd:${selectedMvpdTenantScope}`,
         fileLabel: exportFileScopeLabel,
         programmerLabelOverride: `${selectedMvpdLabel} (${selectedMvpdTenantScope})`,
@@ -38926,7 +38927,7 @@ async function handleMvpdWorkspaceAction(message, sender = null) {
       isMvpdWorkspaceExport: true,
       mvpdId: selectedMvpdId,
       tenantScope: selectedMvpdTenantScope,
-      themePreset: "sunflower",
+      themePreset: "purple",
       themeScope: `mvpd:${selectedMvpdTenantScope}`,
       fileLabel: exportFileScopeLabel,
       programmerLabelOverride: `${selectedMvpdLabel} (${selectedMvpdTenantScope})`,
@@ -42969,7 +42970,7 @@ function renderCmServiceContent(programmer, resolvedCmService, section, contentE
           isMvpdWorkspaceExport: isMvpdService,
           mvpdId: isMvpdService ? selectedMvpdId : undefined,
           tenantScope: isMvpdService ? resolvedMvpdScope : undefined,
-          themePreset: isMvpdService ? "sunflower" : undefined,
+          themePreset: isMvpdService ? "purple" : undefined,
           themeScope: isMvpdService && resolvedMvpdScope ? `mvpd:${resolvedMvpdScope}` : undefined,
           fileLabel: isMvpdService ? exportFileScopeLabel : undefined,
           programmerLabelOverride:
