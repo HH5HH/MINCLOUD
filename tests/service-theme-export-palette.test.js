@@ -119,6 +119,39 @@ test("Popup service containers use ZIP dark service ramps while keeping the gold
   );
 });
 
+test("VCR controls keep universal green-start and red-stop semantics", () => {
+  const popupCss = read("popup.css");
+  const esmWorkspaceCss = read("esm-workspace.css");
+  const upsWorkspaceCss = read("ups/esm-workspace.css");
+  const blondieWorkspaceCss = read("blondie-time-workspace.css");
+
+  assert.match(
+    popupCss,
+    /\.service-esm \.esm-workspace-record-toggle-btn \{[\s\S]*?background:\s*linear-gradient\(160deg,\s*rgb\(var\(--underpar-success-700\)\),\s*rgb\(var\(--underpar-success-900\)\)\);/
+  );
+  assert.match(
+    popupCss,
+    /\.service-esm \.esm-workspace-record-toggle-btn\.is-recording,\s*\.degradation-record-toggle-btn\.is-recording \{[\s\S]*?background:\s*linear-gradient\(160deg,\s*rgb\(var\(--underpar-danger-700\)\),\s*rgb\(var\(--underpar-danger-900\)\)\);/
+  );
+  assert.match(
+    popupCss,
+    /\.service-esm \.esm-workspace-record-btn-icon--record,\s*\.degradation-record-btn-icon--record \{[\s\S]*?background:\s*rgb\(var\(--underpar-danger-1000\)\);/
+  );
+
+  [esmWorkspaceCss, upsWorkspaceCss].forEach((source) => {
+    assert.match(source, /--vcr-stop-600:\s*177,\s*38,\s*23;/);
+    assert.match(source, /\.workspace-blondie-time-stop \{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(var\(--vcr-stop-600\),\s*0\.98\),\s*rgba\(var\(--vcr-stop-300\),\s*0\.98\)\);/);
+    assert.match(source, /\.workspace-blondie-time-stop \{[\s\S]*?color:\s*#fff7f1;/);
+  });
+
+  assert.match(blondieWorkspaceCss, /--bt-vcr-stop-600:\s*177,\s*38,\s*23;/);
+  assert.match(
+    blondieWorkspaceCss,
+    /\.workspace-blondie-time-stop \{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(var\(--bt-vcr-stop-600\),\s*0\.98\),\s*rgba\(var\(--bt-vcr-stop-300\),\s*0\.98\)\);/
+  );
+  assert.match(blondieWorkspaceCss, /\.workspace-blondie-time-stop \{[\s\S]*?color:\s*#fff;/);
+});
+
 test("Degradation workspace surfaces stay on the red palette", () => {
   const degradationWorkspaceCss = read("degradation-workspace.css");
 

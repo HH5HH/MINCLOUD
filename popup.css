@@ -2415,21 +2415,23 @@ select:disabled {
 }
 
 .service-esm .esm-workspace-record-toggle-btn {
-  border-color: var(--service-action-border);
-  background: var(--service-action-bg);
-  box-shadow: 0 8px 18px rgba(var(--service-zip-900), 0.18);
+  border-color: rgba(var(--underpar-success-1100), 0.84);
+  background: linear-gradient(160deg, rgb(var(--underpar-success-700)), rgb(var(--underpar-success-900)));
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.24),
+    0 0 0 1px rgba(var(--underpar-success-1100), 0.14);
 }
 
 .service-esm .esm-workspace-record-toggle-btn:hover:not(:disabled) {
-  background: var(--service-action-bg-hover);
-  border-color: var(--service-action-border-hover);
+  border-color: rgba(var(--underpar-success-1100), 0.92);
+  background: linear-gradient(160deg, rgb(var(--underpar-success-800)), rgb(var(--underpar-success-1000)));
 }
 
 .service-esm .esm-workspace-record-btn-icon--record {
-  background: color-mix(in srgb, white 48%, rgb(var(--service-zip-800)) 52%);
+  background: rgb(var(--underpar-danger-1000));
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.88),
-    0 0 0 4px rgba(var(--service-zip-800), 0.22);
+    0 0 0 4px rgba(var(--underpar-danger-900), 0.24);
 }
 
 .esm-workspace-tree-panel {
@@ -2617,9 +2619,9 @@ select:disabled {
   height: 32px;
   min-width: 88px;
   padding: 0 12px;
-  border: 1px solid rgb(var(--underpar-success-800));
+  border: 1px solid rgba(var(--underpar-success-1100), 0.84);
   border-radius: 999px;
-  background: rgb(var(--underpar-success-800));
+  background: linear-gradient(160deg, rgb(var(--underpar-success-700)), rgb(var(--underpar-success-900)));
   color: #ffffff;
   font-size: 11px;
   font-weight: 700;
@@ -2633,25 +2635,34 @@ select:disabled {
     border-color 0.15s ease,
     box-shadow 0.15s ease;
   white-space: nowrap;
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.24),
+    0 0 0 1px rgba(var(--underpar-success-1100), 0.14);
 }
 
 .esm-workspace-record-toggle-btn:hover:not(:disabled) {
-  background: rgb(var(--underpar-success-700));
-  border-color: rgb(var(--underpar-success-700));
+  border-color: rgba(var(--underpar-success-1100), 0.92);
+  background: linear-gradient(160deg, rgb(var(--underpar-success-800)), rgb(var(--underpar-success-1000)));
 }
 
 .esm-workspace-record-toggle-btn.is-recording {
-  border-color: rgb(var(--underpar-danger-800));
-  background: rgb(var(--underpar-danger-800));
+  border-color: rgba(var(--underpar-danger-1100), 0.88);
+  background: linear-gradient(160deg, rgb(var(--underpar-danger-700)), rgb(var(--underpar-danger-900)));
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(var(--underpar-danger-1100), 0.18);
 }
 
 .esm-workspace-record-toggle-btn.is-recording:hover:not(:disabled) {
-  background: rgb(var(--underpar-danger-700));
-  border-color: rgb(var(--underpar-danger-700));
+  border-color: rgba(var(--underpar-danger-1100), 0.94);
+  background: linear-gradient(160deg, rgb(var(--underpar-danger-800)), rgb(var(--underpar-danger-1000)));
 }
 
 .esm-workspace-record-toggle-btn.is-stopping {
-  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.22);
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(var(--underpar-danger-1100), 0.18),
+    0 0 0 2px rgba(var(--underpar-danger-900), 0.18);
 }
 
 .esm-workspace-record-toggle-btn:disabled {
@@ -4221,9 +4232,9 @@ select:disabled {
   height: 32px;
   min-width: 150px;
   padding: 0 12px;
-  border: 1px solid var(--service-action-border);
+  border: 1px solid rgba(var(--underpar-success-1100), 0.84);
   border-radius: 999px;
-  background: var(--service-action-bg);
+  background: linear-gradient(160deg, rgb(var(--underpar-success-700)), rgb(var(--underpar-success-900)));
   color: #ffffff;
   font-size: 11px;
   font-weight: 700;
@@ -4237,32 +4248,40 @@ select:disabled {
     border-color 0.15s ease,
     box-shadow 0.15s ease;
   white-space: nowrap;
-  box-shadow: var(--service-action-shadow);
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.24),
+    0 0 0 1px rgba(var(--underpar-success-1100), 0.14);
 }
 
 .degradation-record-toggle-btn:hover:not(:disabled) {
-  background: var(--service-action-bg-hover);
-  border-color: var(--service-action-border-hover);
-  box-shadow: var(--service-action-shadow-hover);
+  border-color: rgba(var(--underpar-success-1100), 0.92);
+  background: linear-gradient(160deg, rgb(var(--underpar-success-800)), rgb(var(--underpar-success-1000)));
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.24),
+    0 0 0 1px rgba(var(--underpar-success-1100), 0.2);
 }
 
 .degradation-record-toggle-btn.is-recording {
-  border-color: var(--service-action-border-active);
-  background: var(--service-action-bg-active);
-  box-shadow: var(--service-action-shadow-active);
+  border-color: rgba(var(--underpar-danger-1100), 0.88);
+  background: linear-gradient(160deg, rgb(var(--underpar-danger-700)), rgb(var(--underpar-danger-900)));
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(var(--underpar-danger-1100), 0.18);
 }
 
 .degradation-record-toggle-btn.is-recording:hover:not(:disabled) {
-  background: var(--service-action-bg-active);
-  border-color: var(--service-action-border-active);
-  box-shadow: var(--service-action-shadow-active);
-  filter: saturate(1.06) brightness(0.98);
+  border-color: rgba(var(--underpar-danger-1100), 0.94);
+  background: linear-gradient(160deg, rgb(var(--underpar-danger-800)), rgb(var(--underpar-danger-1000)));
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(var(--underpar-danger-1100), 0.18);
 }
 
 .degradation-record-toggle-btn.is-stopping {
   box-shadow:
-    var(--service-action-shadow-active),
-    0 0 0 2px rgba(var(--service-degradation-zip-900), 0.18);
+    0 10px 20px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(var(--underpar-danger-1100), 0.18),
+    0 0 0 2px rgba(var(--underpar-danger-900), 0.18);
 }
 
 .degradation-record-toggle-btn:disabled {
@@ -4628,12 +4647,28 @@ select:disabled {
     0 0 0 2px rgba(var(--service-zip-900), 0.24);
 }
 
+/* Preserve universal VCR semantics even inside service-colored shells. */
 .service-esm .esm-workspace-record-btn-icon--record,
 .degradation-record-btn-icon--record {
   background: rgb(var(--underpar-danger-1000));
   box-shadow:
     0 0 0 2px rgba(255, 255, 255, 0.88),
     0 0 0 4px rgba(var(--underpar-danger-900), 0.28);
+}
+
+.service-esm .esm-workspace-record-toggle-btn,
+.degradation-record-toggle-btn {
+  border-color: rgba(var(--underpar-success-1100), 0.84);
+  background: linear-gradient(160deg, rgb(var(--underpar-success-700)), rgb(var(--underpar-success-900)));
+  box-shadow:
+    0 10px 20px rgba(0, 0, 0, 0.24),
+    0 0 0 1px rgba(var(--underpar-success-1100), 0.14);
+}
+
+.service-esm .esm-workspace-record-toggle-btn:hover:not(:disabled),
+.degradation-record-toggle-btn:hover:not(:disabled) {
+  border-color: rgba(var(--underpar-success-1100), 0.92);
+  background: linear-gradient(160deg, rgb(var(--underpar-success-800)), rgb(var(--underpar-success-1000)));
 }
 
 .service-esm .esm-workspace-record-btn-icon--stop,
@@ -4644,7 +4679,8 @@ select:disabled {
     0 0 0 4px rgba(var(--underpar-danger-900), 0.34);
 }
 
-.service-esm .esm-workspace-record-toggle-btn.is-recording {
+.service-esm .esm-workspace-record-toggle-btn.is-recording,
+.degradation-record-toggle-btn.is-recording {
   border-color: rgba(var(--underpar-danger-1100), 0.88);
   background: linear-gradient(160deg, rgb(var(--underpar-danger-700)), rgb(var(--underpar-danger-900)));
   color: #ffffff;
@@ -4653,7 +4689,8 @@ select:disabled {
     0 0 0 1px rgba(var(--underpar-danger-1100), 0.18);
 }
 
-.service-esm .esm-workspace-record-toggle-btn.is-recording:hover:not(:disabled) {
+.service-esm .esm-workspace-record-toggle-btn.is-recording:hover:not(:disabled),
+.degradation-record-toggle-btn.is-recording:hover:not(:disabled) {
   border-color: rgba(var(--underpar-danger-1100), 0.94);
   background: linear-gradient(160deg, rgb(var(--underpar-danger-800)), rgb(var(--underpar-danger-1000)));
   color: #ffffff;

@@ -21,6 +21,12 @@
   --bt-accent-soft: rgba(var(--zip-accent-900), 0.16);
   --bt-gold: rgb(var(--zip-accent-1000));
   --bt-gold-soft: rgba(var(--zip-accent-1000), 0.18);
+  --bt-vcr-stop-300: 87, 17, 7;
+  --bt-vcr-stop-500: 147, 31, 17;
+  --bt-vcr-stop-600: 177, 38, 23;
+  --bt-vcr-stop-700: 205, 46, 29;
+  --bt-vcr-stop-900: 252, 67, 46;
+  --bt-vcr-stop-1100: 255, 134, 120;
   --bt-alert: rgb(225, 90, 108);
   --bt-alert-soft: rgba(225, 90, 108, 0.14);
   --bt-good: rgb(var(--zip-accent-1100));
@@ -296,18 +302,25 @@ body::before {
   width: var(--blondie-time-stop-size);
   height: var(--blondie-time-stop-size);
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(var(--bt-vcr-stop-1100), 0.56);
   border-radius: 999px;
-  background: rgba(77, 36, 10, 0.92);
+  background: linear-gradient(180deg, rgba(var(--bt-vcr-stop-600), 0.98), rgba(var(--bt-vcr-stop-300), 0.98));
   color: #fff;
   cursor: pointer;
-  box-shadow: 0 8px 16px rgba(120, 55, 0, 0.22);
+  box-shadow:
+    0 8px 16px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(var(--bt-vcr-stop-900), 0.14);
 }
 
 .workspace-blondie-time-stop:hover:not(:disabled),
 .workspace-blondie-time-stop:focus-visible {
   outline: none;
   transform: translateY(-1px);
+  border-color: rgba(var(--bt-vcr-stop-1100), 0.72);
+  background: linear-gradient(180deg, rgba(var(--bt-vcr-stop-700), 0.98), rgba(var(--bt-vcr-stop-500), 0.98));
+  box-shadow:
+    0 10px 18px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(var(--bt-vcr-stop-900), 0.18);
 }
 
 .workspace-blondie-time-picker {
@@ -1271,10 +1284,12 @@ body::before {
 }
 
 .workspace-blondie-time-stop {
-  border-color: rgba(var(--zip-accent-1100), 0.34);
-  background: linear-gradient(180deg, rgba(54, 37, 24, 0.98), rgba(34, 25, 18, 0.98));
-  color: rgb(var(--zip-accent-1100));
-  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.3);
+  border-color: rgba(var(--bt-vcr-stop-1100), 0.56);
+  background: linear-gradient(180deg, rgba(var(--bt-vcr-stop-600), 0.98), rgba(var(--bt-vcr-stop-300), 0.98));
+  color: #fff;
+  box-shadow:
+    0 8px 16px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(var(--bt-vcr-stop-900), 0.14);
 }
 
 .workspace-blondie-time-picker {
