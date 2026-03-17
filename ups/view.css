@@ -1,10 +1,17 @@
+html,
+body {
+  min-height: 100%;
+  overflow-x: auto;
+  overflow-y: auto;
+}
+
 body {
   min-height: 100vh;
 }
 
 .ibeta-app {
   width: 100%;
-  max-width: 1560px;
+  max-width: none;
   min-height: 100vh;
   justify-content: center;
 }
@@ -15,15 +22,18 @@ body {
   align-items: flex-start;
   min-height: calc(100vh - 36px);
   width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .ups-shell {
   width: 100%;
-  max-width: 1420px;
+  max-width: none;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 14px;
+  overflow: visible;
 }
 
 .ups-utility-bar {
@@ -69,11 +79,13 @@ body {
   align-items: stretch;
   justify-content: flex-start;
   gap: 18px;
+  overflow: visible;
 }
 
 .ibeta-report-card {
   width: 100%;
   margin: 0;
+  overflow: visible !important;
 }
 
 .ibeta-report-card .card-head {
@@ -87,14 +99,23 @@ body {
 
 .ibeta-report-card .card-body {
   padding-bottom: 16px;
-}
-
-.ibeta-report-card .esm-table-wrapper {
-  max-height: none;
   overflow: visible;
 }
 
+.ibeta-report-card .esm-table-wrapper {
+  width: 100%;
+  max-width: 100%;
+  max-height: none;
+  overflow-x: auto;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  touch-action: pan-x pan-y;
+  scrollbar-gutter: stable both-edges;
+}
+
 .ibeta-report-card .esm-table {
+  width: max-content;
   min-width: 100%;
 }
 
@@ -150,8 +171,9 @@ body {
 
   .ibeta-report-card .esm-table-wrapper {
     overflow-x: auto;
-    overflow-y: visible;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
+    touch-action: pan-x pan-y;
   }
 
   .ibeta-report-card .esm-table {
@@ -160,15 +182,16 @@ body {
 }
 
 @page {
-  size: landscape;
-  margin: 10mm;
+  size: 17in 11in;
+  margin: 8mm;
 }
 
 @media print {
   html,
   body {
-    width: 100%;
+    width: auto;
     min-height: 0;
+    overflow: visible !important;
   }
 
   body {
@@ -187,10 +210,12 @@ body {
   .ibeta-stage,
   .ups-shell,
   .ibeta-cards,
-  .ibeta-report-card {
+  .ibeta-report-card,
+  .ibeta-report-card .card-body {
     width: 100%;
     max-width: none !important;
     min-height: 0;
+    overflow: visible !important;
   }
 
   .workspace-app,
@@ -256,14 +281,18 @@ body {
   }
 
   .ibeta-report-card .esm-table-wrapper {
+    width: max-content !important;
+    min-width: 100% !important;
+    max-width: none !important;
     max-height: none !important;
     overflow: visible !important;
   }
 
   .ibeta-report-card .esm-table {
-    width: 100% !important;
-    min-width: 0 !important;
-    table-layout: fixed;
+    width: max-content !important;
+    min-width: 100% !important;
+    max-width: none !important;
+    table-layout: auto !important;
     font-size: 10.5px;
   }
 
@@ -283,12 +312,12 @@ body {
   .ibeta-report-card .esm-table th,
   .ibeta-report-card .esm-table td {
     padding: 6px 8px;
-    white-space: normal !important;
+    white-space: nowrap !important;
     overflow: visible !important;
     text-overflow: clip !important;
-    overflow-wrap: anywhere;
-    word-break: break-word;
-    hyphens: auto;
+    overflow-wrap: normal !important;
+    word-break: normal !important;
+    hyphens: none !important;
     vertical-align: top;
   }
 

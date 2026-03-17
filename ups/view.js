@@ -2,6 +2,11 @@
   const ZIP_ZAP_URL = "https://tve.zendesk.com/hc/en-us/articles/46503360732436-ZIP-ZAP";
   const UPS_AFFIRMATION_TEXT = "You're doing great. Keep it UP!";
   const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const UPS_PRINT_PAGE_STYLE_ID = "underpar-ups-print-page-style";
+  const UPS_PRINT_PAGE_MARGIN_MM = 8;
+  const UPS_PRINT_PAGE_WIDTH_MIN_MM = 431.8;
+  const UPS_PRINT_PAGE_WIDTH_MAX_MM = 1117.6;
+  const UPS_PRINT_PAGE_HEIGHT_MM = 279.4;
   const ESM_CARD_ZOOM_LABEL_BY_KEY = {
     YR: "Year",
     MO: "Month",
@@ -238,6 +243,89 @@
     targetDocument.title = nextTitle;
   }
 
+  function clampNumber(value, min, max) {
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized)) {
+      return Number(min);
+    }
+    return Math.min(Math.max(normalized, Number(min)), Number(max));
+  }
+
+  function pxToMm(value) {
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized) || normalized <= 0) {
+      return 0;
+    }
+    return (normalized * 25.4) / 96;
+  }
+
+  function measureNodeWidth(node) {
+    if (!node || typeof node !== "object") {
+      return 0;
+    }
+    let width = Math.max(Number(node.scrollWidth || 0), Number(node.clientWidth || 0), Number(node.offsetWidth || 0));
+    try {
+      if (typeof node.getBoundingClientRect === "function") {
+        const rect = node.getBoundingClientRect();
+        width = Math.max(width, Number(rect?.width || 0));
+      }
+    } catch {
+      // Ignore layout measurement failures.
+    }
+    return width;
+  }
+
+  function buildUpspacePrintPageCss(pageWidthMm) {
+    const safeWidthMm = clampNumber(pageWidthMm, UPS_PRINT_PAGE_WIDTH_MIN_MM, UPS_PRINT_PAGE_WIDTH_MAX_MM);
+    return `@page { size: ${safeWidthMm.toFixed(2)}mm ${UPS_PRINT_PAGE_HEIGHT_MM.toFixed(2)}mm; margin: ${UPS_PRINT_PAGE_MARGIN_MM}mm; }`;
+  }
+
+  function upsertUpspacePrintPageStyle(cssText, targetDocument = document) {
+    if (!targetDocument || typeof targetDocument !== "object" || typeof targetDocument.createElement !== "function" || !targetDocument.head) {
+      return null;
+    }
+    let styleNode =
+      typeof targetDocument.getElementById === "function" ? targetDocument.getElementById(UPS_PRINT_PAGE_STYLE_ID) : null;
+    if (!styleNode || String(styleNode.tagName || "").toLowerCase() !== "style") {
+      styleNode = targetDocument.createElement("style");
+      styleNode.id = UPS_PRINT_PAGE_STYLE_ID;
+      styleNode.media = "print";
+      targetDocument.head.appendChild(styleNode);
+    }
+    styleNode.textContent = String(cssText || "");
+    return styleNode;
+  }
+
+  function prepareUpspacePrintLayout(root = null, targetDocument = document) {
+    const resolvedDocument = targetDocument && typeof targetDocument === "object" ? targetDocument : document;
+    const measurementRoot =
+      root && typeof root === "object"
+        ? root
+        : typeof resolvedDocument.getElementById === "function"
+          ? resolvedDocument.getElementById("ibeta-root")
+          : null;
+    const measuredWidths = [
+      measureNodeWidth(resolvedDocument?.documentElement),
+      measureNodeWidth(resolvedDocument?.body),
+      Number(globalScope?.innerWidth || 0),
+    ];
+    if (measurementRoot && typeof measurementRoot.querySelectorAll === "function") {
+      measuredWidths.push(measureNodeWidth(measurementRoot));
+      Array.from(
+        measurementRoot.querySelectorAll(".ibeta-report-card, .ibeta-report-card .esm-table-wrapper, .ibeta-report-card .esm-table")
+      ).forEach((node) => {
+        measuredWidths.push(measureNodeWidth(node));
+      });
+    }
+    const widestMeasuredPx = measuredWidths.reduce((widest, value) => Math.max(widest, Number(value || 0)), 0);
+    const cssText = buildUpspacePrintPageCss(pxToMm(widestMeasuredPx + 64));
+    upsertUpspacePrintPageStyle(cssText, resolvedDocument);
+    return {
+      cssText,
+      widestMeasuredPx,
+    };
+  }
+
   function buildCardColumnsMarkup(snapshot) {
     const nodeLabel = String(snapshot?.displayNodeLabel || snapshot?.datasetLabel || "").trim() || getTerminalPathSegment(snapshot);
     const headers = (Array.isArray(snapshot?.table?.headers) ? snapshot.table.headers : [])
@@ -464,11 +552,19 @@
     }
   }
 
-  function wireActions(root) {
+  function wireActions(root, snapshot) {
     root.querySelectorAll(".ups-print-link").forEach((link) => {
       link.addEventListener("click", (event) => {
         event.preventDefault();
         try {
+          syncDocumentTitle(snapshot);
+          prepareUpspacePrintLayout(root, document);
+          if (typeof globalScope.requestAnimationFrame === "function") {
+            globalScope.requestAnimationFrame(() => {
+              window.print();
+            });
+            return;
+          }
           window.print();
         } catch {
           // Ignore print failures.
@@ -500,12 +596,25 @@
         </div>
       </section>
     `;
-    wireActions(root);
+    prepareUpspacePrintLayout(root, document);
+    wireActions(root, snapshot);
   }
 
   const snapshot = readSnapshot();
   renderSnapshot(snapshot);
   scrubVisibleUrl();
+  try {
+    if (typeof globalScope.addEventListener === "function") {
+      globalScope.addEventListener("beforeprint", () => {
+        prepareUpspacePrintLayout(
+          typeof document.getElementById === "function" ? document.getElementById("ibeta-root") : null,
+          document
+        );
+      });
+    }
+  } catch {
+    // Ignore print listener failures.
+  }
   try {
     console.debug("[ups]", globalScope.__UNDERPAR_IBETA_DEBUG__ || {}, snapshot || null);
   } catch {

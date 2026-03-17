@@ -31,6 +31,11 @@ function loadUpsPrintHelpers() {
   const source = fs.readFileSync(UPS_VIEW_JS_PATH, "utf8");
   const script = [
     'const ZIP_ZAP_URL = "https://tve.zendesk.com/hc/en-us/articles/46503360732436-ZIP-ZAP";',
+    'const UPS_PRINT_PAGE_STYLE_ID = "underpar-ups-print-page-style";',
+    "const UPS_PRINT_PAGE_MARGIN_MM = 8;",
+    "const UPS_PRINT_PAGE_WIDTH_MIN_MM = 431.8;",
+    "const UPS_PRINT_PAGE_WIDTH_MAX_MM = 1117.6;",
+    "const UPS_PRINT_PAGE_HEIGHT_MM = 279.4;",
     extractFunctionSource(source, "escapeHtml"),
     extractFunctionSource(source, "firstNonEmptyString"),
     extractFunctionSource(source, "sanitizeDownloadFileSegment"),
@@ -41,9 +46,12 @@ function loadUpsPrintHelpers() {
     extractFunctionSource(source, "buildUpspacePrintStamp"),
     extractFunctionSource(source, "buildUpspacePrintDocumentTitle"),
     extractFunctionSource(source, "buildUpspacePrintActionLabel"),
+    extractFunctionSource(source, "clampNumber"),
+    extractFunctionSource(source, "pxToMm"),
+    extractFunctionSource(source, "buildUpspacePrintPageCss"),
     extractFunctionSource(source, "buildUtilityBarMarkup"),
     extractFunctionSource(source, "syncDocumentTitle"),
-    "module.exports = { buildUpspacePrintDocumentTitle, buildUtilityBarMarkup, syncDocumentTitle };",
+    "module.exports = { buildUpspacePrintDocumentTitle, buildUpspacePrintPageCss, buildUtilityBarMarkup, pxToMm, syncDocumentTitle };",
   ].join("\n\n");
   const context = {
     module: { exports: {} },
@@ -111,4 +119,12 @@ test("UPSpace syncDocumentTitle projects the print filename into the page title"
   helpers.syncDocumentTitle(snapshot, fakeDocument);
 
   assert.equal(fakeDocument.title, "underpar_esm_Turner_Filtered_low-volume_prod_2026-03-16T12-34-56-789Z");
+});
+
+test("UPSpace print page css expands beyond baseline landscape when the report is wider", () => {
+  const helpers = loadUpsPrintHelpers();
+
+  assert.equal(helpers.buildUpspacePrintPageCss(300), "@page { size: 431.80mm 279.40mm; margin: 8mm; }");
+  assert.equal(helpers.buildUpspacePrintPageCss(620), "@page { size: 620.00mm 279.40mm; margin: 8mm; }");
+  assert.equal(helpers.pxToMm(960).toFixed(2), "254.00");
 });
