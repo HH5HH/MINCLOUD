@@ -137,3 +137,16 @@ test("detected service pills are wired to documentation urls for the learning fl
   assert.match(openPremiumServiceDocumentationSource, /chrome\.tabs\.create/);
   assert.doesNotMatch(openPremiumServiceDocumentationSource, /chrome\.tabs\.update/);
 });
+
+test("premium service sections and HR service pills keep their theme class wiring", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+
+  assert.match(popupSource, /const PREMIUM_SERVICE_THEME_CLASS_BY_KEY = \{/);
+  assert.match(popupSource, /cm:\s*"service-cm"/);
+  assert.match(popupSource, /cmMvpd:\s*"service-cm-mvpd"/);
+  assert.match(popupSource, /degradation:\s*"service-degradation"/);
+  assert.match(popupSource, /esmWorkspace:\s*"service-esm"/);
+  assert.match(popupSource, /restV2:\s*"service-rest-v2"/);
+  assert.match(popupSource, /premium-service-section \$\{PREMIUM_SERVICE_THEME_CLASS_BY_KEY\[serviceKey\] \|\| ""\}/);
+  assert.match(popupSource, /hr-context-service-pill--\$\{themeClass\}/);
+});

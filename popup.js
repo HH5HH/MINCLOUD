@@ -127,6 +127,13 @@ const PREMIUM_SERVICE_TITLE_BY_KEY = {
   esmWorkspace: "ESM",
   restV2: "REST V2",
 };
+const PREMIUM_SERVICE_THEME_CLASS_BY_KEY = {
+  cm: "service-cm",
+  cmMvpd: "service-cm-mvpd",
+  degradation: "service-degradation",
+  esmWorkspace: "service-esm",
+  restV2: "service-rest-v2",
+};
 const PREMIUM_SERVICE_DOCUMENTATION_URL_BY_KEY = {
   cm: "https://streams-stage.adobeprimetime.com/swagger-ui/index.html",
   cmMvpd: "https://streams-stage.adobeprimetime.com/swagger-ui/index.html",
@@ -45618,16 +45625,9 @@ function createPremiumServiceSection(programmer, serviceKey, appInfo) {
     : serviceKey === "cmMvpd"
       ? "MVPD Concurrency Monitoring is powered by CM tenant APIs (not a registered application scope)."
       : "Concurrency Monitoring is powered by CM tenant APIs (not a registered application scope).";
-  const serviceClassByKey = {
-    cm: "service-cm",
-    cmMvpd: "service-cm-mvpd",
-    degradation: "service-degradation",
-    esmWorkspace: "service-esm",
-    restV2: "service-rest-v2",
-  };
 
   const section = document.createElement("article");
-  section.className = `metadata-section premium-service-section ${serviceClassByKey[serviceKey] || ""}`;
+  section.className = `metadata-section premium-service-section ${PREMIUM_SERVICE_THEME_CLASS_BY_KEY[serviceKey] || ""}`;
   const restV2LoginToolHtml =
     serviceKey === "restV2"
       ? `
@@ -45951,10 +45951,11 @@ function buildHrServiceListHtml(entries, fallbackText = "") {
               const documentationUrl = String(entry?.documentationUrl || "").trim();
               const pillLabel = label || serviceKey || "Service";
               const actionTitle = `Open ${pillLabel} documentation in main content`;
+              const themeClass = String(PREMIUM_SERVICE_THEME_CLASS_BY_KEY[serviceKey] || "").trim();
               return `<li>
                 <button
                   type="button"
-                  class="hr-context-service-pill"
+                  class="hr-context-service-pill${themeClass ? ` hr-context-service-pill--${themeClass}` : ""}"
                   data-service-doc-key="${escapeHtml(serviceKey)}"
                   data-service-doc-url="${escapeHtml(documentationUrl)}"
                   title="${escapeHtml(actionTitle)}"
