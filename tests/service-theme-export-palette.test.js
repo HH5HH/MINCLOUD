@@ -23,9 +23,27 @@ test("ESM export surfaces use the orange service palette", () => {
   assert.match(esmWorkspaceCss, /color-scheme:\s*dark;/i);
   assert.match(esmWorkspaceCss, /--zip-accent-800:\s*199,\s*82,\s*0;/);
   assert.match(upsWorkspaceCss, /color-scheme:\s*light;/i);
+  assert.match(upsWorkspaceCss, /--underpar-payne-gray:\s*#5C677D;/i);
   assert.match(upsWorkspaceCss, /--zip-accent-1000:\s*243,\s*117,\s*0;/);
   assert.match(upsWorkspaceCss, /--spectrum-gray-25-rgb:\s*255,\s*255,\s*255;/);
   assert.match(upsWorkspaceCss, /--legacy-bg:\s*var\(--spectrum-gray-25\);/);
+  assert.match(upsWorkspaceCss, /--legacy-panel:\s*var\(--spectrum-gray-25\);/);
+  assert.match(
+    upsWorkspaceCss,
+    /body\s*\{[\s\S]*?radial-gradient\(120% 76% at 0% 0%,\s*rgba\(var\(--underpar-payne-gray-rgb\),\s*0\.12\)\s*0%,\s*transparent 46%\)[\s\S]*?linear-gradient\(180deg,\s*var\(--spectrum-gray-25\)\s*0%,\s*var\(--spectrum-gray-50\)\s*58%,\s*var\(--spectrum-gray-75\)\s*100%\);/i
+  );
+  assert.match(
+    upsWorkspaceCss,
+    /\.workspace-header\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(255,\s*255,\s*255,\s*0\.98\)\s*0%,\s*rgba\(243,\s*243,\s*243,\s*0\.98\)\s*100%\);/i
+  );
+  assert.match(
+    upsWorkspaceCss,
+    /\.workspace-blondie-time-picker\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(255,\s*255,\s*255,\s*0\.98\),\s*rgba\(243,\s*243,\s*243,\s*0\.98\)\);/i
+  );
+  assert.match(
+    upsWorkspaceCss,
+    /\.workspace-icon-btn\s*\{[\s\S]*?background:\s*var\(--s2-action-bg-default\);[\s\S]*?box-shadow:\s*0 6px 12px rgba\(17,\s*17,\s*17,\s*0\.08\);/i
+  );
   assert.match(clickEsmTemplate, /<body data-theme="dark">/i);
   assert.match(clickEsmTemplate, /function __normalizeTheme\(theme\)\s*\{\s*return theme === 'light' \? 'light' : 'dark';/);
   assert.match(clickEsmTemplate, /--zip-accent-900:224,\s*100,\s*0;/);
@@ -34,6 +52,7 @@ test("ESM export surfaces use the orange service palette", () => {
   assert.match(mirroredClickEsmTemplate, /<body data-theme="dark">/i);
   assert.match(mirroredClickEsmTemplate, /--zip-accent-900:224,\s*100,\s*0;/);
   assert.match(mirroredClickEsmTemplate, /--fg-primary:var\(--spectrum-text-color-link\);/);
+  assert.match(upsViewCss, /\.ups-utility-bar\s*\{[\s\S]*?color:\s*rgba\(82,\s*82,\s*82,\s*0\.86\);/i);
   assert.match(upsViewCss, /\.ups-utility-link\s*\{[\s\S]*?color:\s*var\(--fg-primary,\s*rgb\(243,\s*117,\s*0\)\);/);
   assert.match(upsViewCss, /\.ibeta-report-scroll-shell\s*\{[\s\S]*overflow-x:\s*auto;[\s\S]*touch-action:\s*pan-x pan-y;/i);
   assert.match(upsViewCss, /\.ibeta-report-card\s*\{[\s\S]*width:\s*max-content;[\s\S]*min-width:\s*100%;/i);
@@ -42,7 +61,7 @@ test("ESM export surfaces use the orange service palette", () => {
   assert.match(megWorkspaceCss, /a:hover\s*\{[\s\S]*?text-decoration:\s*underline;/i);
   assert.match(
     megWorkspaceCss,
-    /--meg-theme-preview-modern:\s*linear-gradient\(180deg,\s*rgb\(199,\s*82,\s*0\)\s*0%,\s*rgb\(243,\s*117,\s*0\)\s*100%\);/i
+    /--meg-theme-preview-modern:\s*linear-gradient\(180deg,\s*rgb\(92,\s*103,\s*125\)\s*0%,\s*rgb\(17,\s*17,\s*17\)\s*100%\);/i
   );
   assert.match(megWorkspaceJs, /applyTheme\(readStoredTheme\(\) \|\| "modern", \{ persist: false \}\);/);
   assert.match(blondieWorkspaceCss, /color-scheme:\s*dark;/i);
@@ -107,7 +126,7 @@ test("CM export surfaces use the purple service palette", () => {
   });
 });
 
-test("Popup service containers use ZIP dark service ramps while keeping the gold shell", () => {
+test("Popup UP tab shifts to light obsidian while the sidepanel keeps the gold shell", () => {
   const popupCss = read("popup.css");
   const popupHtml = read("popup.html");
   const sidepanelHtml = read("sidepanel.html");
@@ -120,11 +139,13 @@ test("Popup service containers use ZIP dark service ramps while keeping the gold
   assert.match(popupCss, /--s2-action-bg-accent:\s*var\(--underpar-gold-base\);/);
   assert.match(popupHtml, /<body class="underpar-up-tab">/i);
   assert.doesNotMatch(sidepanelHtml, /underpar-up-tab/);
+  assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?color-scheme:\s*light;/);
+  assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?--underpar-gray-25-rgb:\s*255,\s*255,\s*255;/);
   assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?--legacy-accent:\s*var\(--underpar-payne-gray\);/);
   assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?--legacy-border:\s*rgb\(var\(--underpar-gray-300-rgb\)\);/);
   assert.match(
     popupCss,
-    /body\.underpar-up-tab \.header\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(44,\s*44,\s*44,\s*0\.96\)\s*0%,\s*rgba\(27,\s*27,\s*27,\s*0\.98\)\s*100%\);/
+    /body\.underpar-up-tab \.header\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(255,\s*255,\s*255,\s*0\.98\)\s*0%,\s*rgba\(243,\s*243,\s*243,\s*0\.98\)\s*100%\);/
   );
   assert.match(
     popupCss,
@@ -133,7 +154,19 @@ test("Popup service containers use ZIP dark service ramps while keeping the gold
   assert.match(popupCss, /\.premium-service-section,\s*\.hr-context-section\s*\{[\s\S]*?color-scheme:\s*dark;/);
   assert.match(
     popupCss,
+    /body\.underpar-up-tab \.premium-service-section,\s*body\.underpar-up-tab \.hr-context-section\s*\{[\s\S]*?color-scheme:\s*light;[\s\S]*?--underpar-service-dark-panel-rgb:\s*255,\s*255,\s*255;/
+  );
+  assert.match(
+    popupCss,
     /\.service-esm :is\(\.esm-workspace-search, \.esm-workspace-zoom-filter, \.esm-workspace-meg-select, \.esm-workspace-meg-saved-select\) \{[\s\S]*?background:\s*var\(--service-input-bg\);/
+  );
+  assert.match(
+    popupCss,
+    /\.service-esm \.esm-workspace-meg-select,\s*\.service-esm \.esm-workspace-meg-saved-select \{[\s\S]*?background:\s*#ffffff;[\s\S]*?color:\s*#000;/
+  );
+  assert.match(
+    popupCss,
+    /\.service-esm \.esm-workspace-meg-open-btn \{[\s\S]*?background:\s*#000;[\s\S]*?color:\s*#ffffff;/
   );
 });
 
@@ -227,9 +260,10 @@ test("UP devtools panel uses ZIP dark obsidian while preserving the Slacktivate 
   assert.match(upDevtoolsCss, /--up-obsidian:\s*#0B0B0B;/);
   assert.match(upDevtoolsCss, /--up-payne-gray:\s*#5C677D;/);
   assert.match(upDevtoolsCss, /--up-gray-300-rgb:\s*57,\s*57,\s*57;/);
+  assert.match(upDevtoolsCss, /--up-bg-deep:\s*#050505;/);
   assert.match(
     upDevtoolsCss,
-    /body\s*\{[\s\S]*?linear-gradient\(180deg,\s*rgb\(var\(--up-gray-25-rgb\)\)\s*0%,\s*rgb\(var\(--up-gray-50-rgb\)\)\s*54%,\s*var\(--up-obsidian\)\s*100%\);/i
+    /body\s*\{[\s\S]*?linear-gradient\(180deg,\s*var\(--up-obsidian\)\s*0%,\s*rgb\(var\(--up-gray-25-rgb\)\)\s*42%,\s*rgb\(var\(--up-gray-50-rgb\)\)\s*78%,\s*var\(--up-bg-deep\)\s*100%\);/i
   );
   assert.match(
     upDevtoolsCss,

@@ -43,14 +43,14 @@ body {
   gap: 12px;
   min-height: 32px;
   padding: 0 4px;
-  color: rgba(255, 137, 0, 0.86);
+  color: rgba(82, 82, 82, 0.86);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
 }
 
 .ups-utility-prefix {
-  color: rgba(175, 175, 175, 0.78);
+  color: rgba(82, 82, 82, 0.68);
 }
 
 .ups-utility-link {
@@ -151,7 +151,7 @@ body {
 .ups-affirmation-footer {
   padding: 2px 6px 0;
   text-align: center;
-  color: rgba(175, 175, 175, 0.84);
+  color: rgba(82, 82, 82, 0.76);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.01em;
@@ -253,7 +253,7 @@ body {
 
   .report-card {
     box-shadow: none !important;
-    border-color: rgba(19, 37, 63, 0.2) !important;
+    border-color: rgba(92, 103, 125, 0.2) !important;
     overflow: visible !important;
     break-inside: avoid;
     page-break-inside: avoid;
