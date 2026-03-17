@@ -66,6 +66,8 @@ function loadGetLatestHelpers(seed = {}) {
     extractFunctionSource(source, "parseVersionPart"),
     extractFunctionSource(source, "compareVersions"),
     extractFunctionSource(source, "extractVersionFromManifestObject"),
+    extractFunctionSource(source, "buildLatestUnderparManifestRawUrl"),
+    extractFunctionSource(source, "buildLatestUnderparManifestApiUrl"),
     extractFunctionSource(source, "fetchLatestUnderparVersionFromRaw"),
     extractFunctionSource(source, "fetchLatestUnderparVersionFromGithubApi"),
     extractFunctionSource(source, "fetchLatestUnderparVersion"),
@@ -161,6 +163,13 @@ test("openUnderparGetLatestFlow uses a SHA-pinned underpar_distro.zip when GitHu
   const seed = createSeed({
     currentVersion: "1.0.0",
     responseByUrl: {
+      [`https://raw.githubusercontent.com/HH5HH/UNDERPAR/${latestSha}/manifest.json`]: {
+        ok: true,
+        status: 200,
+        async json() {
+          return { version: "9.9.9" };
+        },
+      },
       "https://raw.githubusercontent.com/HH5HH/UNDERPAR/main/manifest.json": {
         ok: true,
         status: 200,
@@ -191,6 +200,48 @@ test("openUnderparGetLatestFlow uses a SHA-pinned underpar_distro.zip when GitHu
   assert.equal(downloadUrl.includes("/main/underpar_distro.zip"), false);
   assert.match(String(seed.calls.downloadsDownload[0]?.filename || ""), /^UnderPAR-v9\.9\.9-0123456\.zip$/);
   assert.equal(String(seed.calls.tabsCreate[0]?.url || ""), "chrome://extensions");
+});
+
+test("openUnderparGetLatestFlow uses the commit-pinned manifest version when main lags behind", async () => {
+  const latestSha = "89abcdef0123456789abcdef0123456789abcdef";
+  const seed = createSeed({
+    currentVersion: "1.12.62",
+    responseByUrl: {
+      "https://raw.githubusercontent.com/HH5HH/UNDERPAR/main/manifest.json": {
+        ok: true,
+        status: 200,
+        async json() {
+          return { version: "1.12.62" };
+        },
+      },
+      [`https://raw.githubusercontent.com/HH5HH/UNDERPAR/${latestSha}/manifest.json`]: {
+        ok: true,
+        status: 200,
+        async json() {
+          return { version: "1.12.64" };
+        },
+      },
+      "https://api.github.com/repos/HH5HH/UNDERPAR/git/ref/heads/main": {
+        ok: true,
+        status: 200,
+        async json() {
+          return { object: { sha: latestSha } };
+        },
+      },
+    },
+  });
+
+  const helpers = loadGetLatestHelpers(seed);
+  const response = await helpers.openUnderparGetLatestFlow();
+
+  assert.equal(response.ok, true);
+  assert.equal(String(response.latestVersion || ""), "1.12.64");
+  assert.equal(String(response.latestCommitSha || ""), latestSha);
+  assert.equal(seed.calls.downloadsDownload.length, 1);
+  assert.match(String(seed.calls.downloadsDownload[0]?.filename || ""), /^UnderPAR-v1\.12\.64-89abcde\.zip$/);
+  assert.ok(
+    seed.calls.fetch.includes(`https://raw.githubusercontent.com/HH5HH/UNDERPAR/${latestSha}/manifest.json`)
+  );
 });
 
 test("openUnderparGetLatestFlow falls back to main underpar_distro.zip with cache bust when SHA lookup fails", async () => {

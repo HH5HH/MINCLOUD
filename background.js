@@ -2018,8 +2018,24 @@ function extractVersionFromManifestObject(manifest) {
   return version;
 }
 
-async function fetchLatestUnderparVersionFromRaw() {
-  const response = await fetch(UNDERPAR_LATEST_MANIFEST_URL, { cache: "no-store" });
+function buildLatestUnderparManifestRawUrl(ref = "") {
+  const normalizedRef = String(ref || "").trim().toLowerCase();
+  const manifestRef = /^[a-f0-9]{40}$/.test(normalizedRef) ? normalizedRef : "";
+  return manifestRef
+    ? `https://raw.githubusercontent.com/${UNDERPAR_GITHUB_OWNER}/${UNDERPAR_GITHUB_REPO}/${manifestRef}/manifest.json`
+    : UNDERPAR_LATEST_MANIFEST_URL;
+}
+
+function buildLatestUnderparManifestApiUrl(ref = "") {
+  const normalizedRef = String(ref || "").trim().toLowerCase();
+  const manifestRef = /^[a-f0-9]{40}$/.test(normalizedRef) ? normalizedRef : "";
+  return manifestRef
+    ? `https://api.github.com/repos/${UNDERPAR_GITHUB_OWNER}/${UNDERPAR_GITHUB_REPO}/contents/manifest.json?ref=${manifestRef}`
+    : UNDERPAR_LATEST_MANIFEST_API_URL;
+}
+
+async function fetchLatestUnderparVersionFromRaw(ref = "") {
+  const response = await fetch(buildLatestUnderparManifestRawUrl(ref), { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
@@ -2027,8 +2043,8 @@ async function fetchLatestUnderparVersionFromRaw() {
   return extractVersionFromManifestObject(manifest);
 }
 
-async function fetchLatestUnderparVersionFromGithubApi() {
-  const response = await fetch(UNDERPAR_LATEST_MANIFEST_API_URL, { cache: "no-store" });
+async function fetchLatestUnderparVersionFromGithubApi(ref = "") {
+  const response = await fetch(buildLatestUnderparManifestApiUrl(ref), { cache: "no-store" });
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`);
   }
@@ -2046,9 +2062,18 @@ async function fetchLatestUnderparVersionFromGithubApi() {
   return extractVersionFromManifestObject(JSON.parse(decoded));
 }
 
-async function fetchLatestUnderparVersion() {
+async function fetchLatestUnderparVersion(ref = "") {
+  const normalizedRef = normalizeCommitSha(ref);
+  const resolvers = normalizedRef
+    ? [
+        () => fetchLatestUnderparVersionFromRaw(normalizedRef),
+        () => fetchLatestUnderparVersionFromGithubApi(normalizedRef),
+        () => fetchLatestUnderparVersionFromGithubApi(),
+        () => fetchLatestUnderparVersionFromRaw(),
+      ]
+    : [fetchLatestUnderparVersionFromGithubApi, fetchLatestUnderparVersionFromRaw];
   let lastError = null;
-  for (const resolver of [fetchLatestUnderparVersionFromRaw, fetchLatestUnderparVersionFromGithubApi]) {
+  for (const resolver of resolvers) {
     try {
       return await resolver();
     } catch (error) {
@@ -2214,10 +2239,8 @@ async function refreshUpdateState(options = {}) {
       checkError: updateState.checkError,
     };
     try {
-      const [latestVersion, latestCommitSha] = await Promise.all([
-        fetchLatestUnderparVersion(),
-        fetchLatestUnderparCommitSha().catch(() => ""),
-      ]);
+      const latestCommitSha = await fetchLatestUnderparCommitSha().catch(() => "");
+      const latestVersion = await fetchLatestUnderparVersion(latestCommitSha);
       updateState.latestVersion = latestVersion;
       updateState.latestCommitSha = normalizeCommitSha(latestCommitSha);
       updateState.updateAvailable = compareVersions(currentVersion, latestVersion) < 0;
