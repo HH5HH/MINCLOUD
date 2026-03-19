@@ -199,11 +199,15 @@ body {
 }
 
 @page {
-  size: 17in 11in;
-  margin: 8mm;
+  size: 279.4mm 215.9mm;
+  margin: 4mm;
 }
 
 @media print {
+  :root {
+    --ups-print-scale: 1;
+  }
+
   html,
   body {
     width: auto;
@@ -251,13 +255,25 @@ body {
   .ups-shell,
   .ibeta-cards,
   .ibeta-report-scroll-shell,
-  .ibeta-report-card,
   .ibeta-report-card .card-body {
-    width: max-content !important;
-    min-width: 100% !important;
+    width: 100% !important;
+    min-width: 0 !important;
     max-width: none !important;
     min-height: 0;
     overflow: visible !important;
+  }
+
+  .ups-shell {
+    zoom: var(--ups-print-scale, 1);
+    transform-origin: top left;
+  }
+
+  @supports not (zoom: 1) {
+    .ups-shell {
+      transform: scale(var(--ups-print-scale, 1));
+      transform-origin: top left;
+      width: calc(100% / var(--ups-print-scale, 1)) !important;
+    }
   }
 
   .workspace-app,
@@ -276,10 +292,15 @@ body {
   }
 
   .ibeta-report-scroll-shell {
+    width: 100% !important;
+    min-width: 0 !important;
     overflow: visible !important;
   }
 
   .report-card {
+    width: max-content !important;
+    min-width: 0 !important;
+    max-width: none !important;
     box-shadow: none !important;
     border-color: rgba(92, 103, 125, 0.2) !important;
     overflow: visible !important;
@@ -333,7 +354,7 @@ body {
 
   .ibeta-report-card .esm-table-wrapper {
     width: max-content !important;
-    min-width: 100% !important;
+    min-width: 0 !important;
     max-width: none !important;
     max-height: none !important;
     overflow: visible !important;
@@ -341,7 +362,7 @@ body {
 
   .ibeta-report-card .esm-table {
     width: max-content !important;
-    min-width: 100% !important;
+    min-width: 0 !important;
     max-width: none !important;
     table-layout: auto !important;
     font-size: 10.5px;

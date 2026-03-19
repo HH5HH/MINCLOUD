@@ -3,10 +3,10 @@
   const UPS_AFFIRMATION_TEXT = "You're doing great. Keep it UP!";
   const CLIENT_TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const UPS_PRINT_PAGE_STYLE_ID = "underpar-ups-print-page-style";
-  const UPS_PRINT_PAGE_MARGIN_MM = 8;
-  const UPS_PRINT_PAGE_WIDTH_MIN_MM = 431.8;
-  const UPS_PRINT_PAGE_WIDTH_MAX_MM = 1117.6;
-  const UPS_PRINT_PAGE_HEIGHT_MM = 279.4;
+  const UPS_PRINT_PAGE_MARGIN_MM = 4;
+  const UPS_PRINT_PAGE_WIDTH_MM = 279.4;
+  const UPS_PRINT_PAGE_HEIGHT_MM = 215.9;
+  const UPS_PRINT_SCALE_MIN = 0.42;
 
   function readSnapshot() {
     const node = document.getElementById("underpar-ibeta-snapshot");
@@ -179,6 +179,14 @@
     return (normalized * 25.4) / 96;
   }
 
+  function mmToPx(value) {
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized) || normalized <= 0) {
+      return 0;
+    }
+    return (normalized * 96) / 25.4;
+  }
+
   function measureNodeWidth(node) {
     if (!node || typeof node !== "object") {
       return 0;
@@ -195,9 +203,21 @@
     return width;
   }
 
-  function buildUpspacePrintPageCss(pageWidthMm) {
-    const safeWidthMm = clampNumber(pageWidthMm, UPS_PRINT_PAGE_WIDTH_MIN_MM, UPS_PRINT_PAGE_WIDTH_MAX_MM);
-    return `@page { size: ${safeWidthMm.toFixed(2)}mm ${UPS_PRINT_PAGE_HEIGHT_MM.toFixed(2)}mm; margin: ${UPS_PRINT_PAGE_MARGIN_MM}mm; }`;
+  function buildUpspacePrintScale(widestMeasuredPx) {
+    const printableWidthPx = mmToPx(UPS_PRINT_PAGE_WIDTH_MM - UPS_PRINT_PAGE_MARGIN_MM * 2);
+    const measuredWidthPx = Number(widestMeasuredPx || 0);
+    if (!Number.isFinite(measuredWidthPx) || measuredWidthPx <= 0 || printableWidthPx <= 0) {
+      return 1;
+    }
+    return clampNumber(printableWidthPx / measuredWidthPx, UPS_PRINT_SCALE_MIN, 1);
+  }
+
+  function buildUpspacePrintPageCss(widestMeasuredPx) {
+    const scale = buildUpspacePrintScale(widestMeasuredPx);
+    return [
+      `@page { size: ${UPS_PRINT_PAGE_WIDTH_MM.toFixed(2)}mm ${UPS_PRINT_PAGE_HEIGHT_MM.toFixed(2)}mm; margin: ${UPS_PRINT_PAGE_MARGIN_MM}mm; }`,
+      `:root { --ups-print-scale: ${scale.toFixed(4)}; }`,
+    ].join("\n");
   }
 
   function upsertUpspacePrintPageStyle(cssText, targetDocument = document) {
@@ -240,7 +260,8 @@
       });
     }
     const widestMeasuredPx = measuredWidths.reduce((widest, value) => Math.max(widest, Number(value || 0)), 0);
-    const cssText = buildUpspacePrintPageCss(pxToMm(widestMeasuredPx + 64));
+    // Fit to a standard landscape PDF/printable page even when the browser ignores large custom @page sizes.
+    const cssText = buildUpspacePrintPageCss(widestMeasuredPx + 32);
     upsertUpspacePrintPageStyle(cssText, resolvedDocument);
     return {
       cssText,

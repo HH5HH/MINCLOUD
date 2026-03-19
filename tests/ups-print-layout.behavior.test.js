@@ -13,12 +13,16 @@ test("UPSpace print stylesheet keeps wide reports overflow-safe in PDF", () => {
   const source = read("ups/view.css");
   const runtimeSource = read("ups/view.js");
 
-  assert.match(source, /@page\s*\{[\s\S]*size:\s*17in\s+11in;/i);
+  assert.match(source, /@page\s*\{[\s\S]*size:\s*279\.4mm\s+215\.9mm;/i);
+  assert.match(source, /@page\s*\{[\s\S]*margin:\s*4mm;/i);
   assert.match(source, /@media print[\s\S]*print-color-adjust:\s*exact;/i);
+  assert.match(source, /@media print[\s\S]*:root\s*\{[\s\S]*--ups-print-scale:\s*1;/i);
   assert.match(
     source,
     /@media print[\s\S]*\.workspace-app \*,[\s\S]*\.ibeta-app \*::after\s*\{[\s\S]*background-image:\s*none !important;/i
   );
+  assert.match(source, /@media print[\s\S]*\.ups-shell\s*\{[\s\S]*zoom:\s*var\(--ups-print-scale,\s*1\);/i);
+  assert.match(source, /@supports not \(zoom:\s*1\)\s*\{[\s\S]*\.ups-shell\s*\{[\s\S]*transform:\s*scale\(var\(--ups-print-scale,\s*1\)\);/i);
   assert.match(source, /@media print[\s\S]*\.report-card\s*\{[\s\S]*background:\s*#fff !important;/i);
   assert.match(source, /@media print[\s\S]*\.ups-report-title-wrap\s*\{[\s\S]*background:\s*#f3f4f6 !important;/i);
   assert.match(source, /@media print[\s\S]*\.ibeta-report-card \.esm-table thead th\s*\{[\s\S]*background:\s*#e7eaee !important;/i);
@@ -30,12 +34,14 @@ test("UPSpace print stylesheet keeps wide reports overflow-safe in PDF", () => {
   assert.match(source, /@media print[\s\S]*\.ibeta-report-card \.esm-table th,[\s\S]*white-space:\s*nowrap !important;/i);
   assert.match(runtimeSource, /const UPS_PRINT_PAGE_STYLE_ID = "underpar-ups-print-page-style";/);
   assert.match(runtimeSource, /function prepareUpspacePrintLayout\(/);
+  assert.match(runtimeSource, /const UPS_PRINT_SCALE_MIN = 0\.42;/);
+  assert.match(runtimeSource, /function buildUpspacePrintScale\(/);
   assert.match(runtimeSource, /sanitizeDownloadFileSegment\(buildUpspaceReportLabel\(snapshot\), "report"\),\s*40/);
   assert.match(
     runtimeSource,
     /measurementRoot\.querySelectorAll\(\s*"\.ibeta-report-scroll-shell, \.ibeta-report-card, \.ibeta-report-card \.ups-report-title-wrap, \.ibeta-report-card \.esm-table-wrapper, \.ibeta-report-card \.esm-table"\s*\)/
   );
-  assert.match(runtimeSource, /buildUpspacePrintPageCss\(pxToMm\(widestMeasuredPx \+ 64\)\)/);
+  assert.match(runtimeSource, /buildUpspacePrintPageCss\(widestMeasuredPx \+ 32\)/);
 });
 
 test("UPSpace live layout expands to report width without truncating mobile data", () => {
