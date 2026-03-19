@@ -46,9 +46,10 @@ function buildHarness(relativePath) {
     extractConstDeclaration(source, "ESM_SUPPRESSED_COLUMNS"),
     extractFunctionSource(source, "__normalizeColumnName"),
     extractFunctionSource(source, "__isSuppressedEsmColumn"),
+    extractFunctionSource(source, "getVisibleSystemRequestUrl"),
     extractFunctionSource(source, "getVisibleSystemQueryString"),
     extractFunctionSource(source, "getCompactCmuLabel"),
-    "module.exports = { appendFilterParams, __isSuppressedEsmColumn, getVisibleSystemQueryString, getCompactCmuLabel };",
+    "module.exports = { appendFilterParams, __isSuppressedEsmColumn, getVisibleSystemRequestUrl, getVisibleSystemQueryString, getCompactCmuLabel };",
   ].join("\n\n");
   const context = {
     module: { exports: {} },
@@ -106,11 +107,20 @@ function buildHarness(relativePath) {
       source,
       /const headers = Object\.keys\(sorted\[0\]\)\.filter\(\(columnName\) => !__isSuppressedEsmColumn\(columnName\)\);/
     );
+    assert.match(source, /anchor\.href = visibleHref \|\| resolvedHref;/);
 
     const visibleQuery = api.getVisibleSystemQueryString(
       "https://mgmt.auth.adobe.com/esm/v3/media-company/year/month/day?media-company=Turner&requestor-id=MML&mvpd=ATT&metrics=count&format=json"
     );
     assert.equal(visibleQuery, "?requestor-id=MML&mvpd=ATT");
+
+    const visibleUrl = api.getVisibleSystemRequestUrl(
+      "https://mgmt.auth.adobe.com/esm/v3/media-company/year/month/day?requestor-id=MML&mvpd=ATT&metrics=count&limit=500&format=json#frag"
+    );
+    assert.equal(
+      visibleUrl,
+      "https://mgmt.auth.adobe.com/esm/v3/media-company/year/month/day?requestor-id=MML&mvpd=ATT"
+    );
 
     const compactLabel = api.getCompactCmuLabel(
       "https://mgmt.auth.adobe.com/esm/v3/media-company/year/month/day?media-company=Turner&requestor-id=MML&mvpd=ATT&limit=500&format=json"

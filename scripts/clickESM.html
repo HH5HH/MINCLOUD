@@ -6622,14 +6622,17 @@ function __setEndpointActiveHref(dl, nextHref = '') {
   const compactLabel = (typeof getCompactCmuLabel === 'function')
     ? String(getCompactCmuLabel(resolvedHref) || '').trim()
     : String(resolvedHref).replace(/^https?:\/\/[^?#]+\/esm\/v3\/(?:media-company\/)?/i, '');
+  const visibleHref = (typeof getVisibleSystemRequestUrl === 'function')
+    ? String(getVisibleSystemRequestUrl(resolvedHref) || '').trim()
+    : resolvedHref;
   const envBase = (typeof deriveCmuEnvBase === 'function')
     ? String(deriveCmuEnvBase(resolvedHref) || '').trim()
     : '';
 
   anchor.dataset.activeHref = resolvedHref;
-  anchor.dataset.fullUrl = resolvedHref;
-  anchor.href = resolvedHref;
-  anchor.textContent = compactLabel || resolvedHref;
+  anchor.dataset.fullUrl = visibleHref || resolvedHref;
+  anchor.href = visibleHref || resolvedHref;
+  anchor.textContent = compactLabel || visibleHref || resolvedHref;
 
   if (envBase) {
     const envDisplay = document.getElementById('envBaseDisplay');
@@ -8672,6 +8675,20 @@ function deriveCmuEnvBase(value = "") {
 }
 
 function getVisibleSystemQueryString(value = "") {
+  const visibleUrl = getVisibleSystemRequestUrl(value);
+  if (!visibleUrl) {
+    return "";
+  }
+  try {
+    const parsed = new URL(visibleUrl, window.location.href);
+    return parsed.search ? String(parsed.search) : "";
+  } catch {
+    const queryIndex = visibleUrl.indexOf("?");
+    return queryIndex >= 0 ? visibleUrl.slice(queryIndex) : "";
+  }
+}
+
+function getVisibleSystemRequestUrl(value = "") {
   const raw = String(value || "").trim();
   if (!raw) {
     return "";
@@ -8680,18 +8697,21 @@ function getVisibleSystemQueryString(value = "") {
     const parsed = new URL(raw, window.location.href);
     const searchParams = new URLSearchParams(parsed.search);
     ["format", "limit", "metrics", "media-company"].forEach((key) => searchParams.delete(key));
-    const nextQuery = searchParams.toString();
-    return nextQuery ? `?${nextQuery}` : "";
+    parsed.search = searchParams.toString() ? `?${searchParams.toString()}` : "";
+    parsed.hash = "";
+    return parsed.toString();
   } catch {
-    const queryIndex = raw.indexOf("?");
+    const [withoutHash] = raw.split("#");
+    const queryIndex = withoutHash.indexOf("?");
     if (queryIndex < 0) {
-      return "";
+      return withoutHash;
     }
-    const queryText = raw.slice(queryIndex + 1).trim();
+    const path = withoutHash.slice(0, queryIndex);
+    const queryText = withoutHash.slice(queryIndex + 1).trim();
     const searchParams = new URLSearchParams(queryText);
     ["format", "limit", "metrics", "media-company"].forEach((key) => searchParams.delete(key));
     const nextQuery = searchParams.toString();
-    return nextQuery ? `?${nextQuery}` : "";
+    return nextQuery ? `${path}?${nextQuery}` : path;
   }
 }
 
@@ -8744,10 +8764,12 @@ function initCmuEnvDisplayAndLabels() {
       return;
     }
     const compactLabel = getCompactCmuLabel(fullHref);
+    const visibleHref = getVisibleSystemRequestUrl(fullHref);
     if (!compactLabel) {
       return;
     }
-    anchor.dataset.fullUrl = fullHref;
+    anchor.dataset.fullUrl = visibleHref || fullHref;
+    anchor.href = visibleHref || fullHref;
     anchor.textContent = compactLabel;
   });
 }
