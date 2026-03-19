@@ -37,6 +37,7 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   );
   assert.match(popupSource, /degradationWorkspaceStoreCheatSheet\(/);
   assert.match(popupSource, /function degradationWorkspaceGetCheatSheets\(/);
+  assert.match(popupSource, /function degradationWorkspaceFlushReportsToTarget\(/);
   assert.match(popupSource, /degradationWorkspacePendingCheatSheetByWindowId:\s*new Map\(\)/);
   assert.match(popupSource, /function degradationWorkspaceSetPendingCheatSheet\(/);
   assert.match(popupSource, /function degradationWorkspaceClearPendingCheatSheet\(/);
@@ -54,6 +55,9 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
     popupSource,
     /const reports = degradationWorkspaceGetReports\(resolvedSelectionKey\);\s*const cheatSheets = degradationWorkspaceGetCheatSheets\(resolvedSelectionKey\);/
   );
+  assert.match(popupSource, /await degradationWorkspaceWaitForReady\(/);
+  assert.match(popupSource, /degradationWorkspaceBroadcastReports\(resolvedSelectionKey, resolvedWindowId\);/);
+  assert.match(popupSource, /void degradationWorkspaceSendWorkspaceMessage\("report-result", reportPayload, \{ targetWindowId: resolvedWindowId \}\);/);
   assert.doesNotMatch(popupSource, /const reports = degradationWorkspaceGetAllReports\(\);\s*const cheatSheets = degradationWorkspaceGetAllCheatSheets\(\);/);
   assert.match(popupSource, /cheatSheetPending:\s*Boolean\(pendingCheatSheet\)/);
   assert.match(popupSource, /cheatSheetLoadingMessage:\s*String\(pendingCheatSheet\?\.message \|\| ""\)\.trim\(\)/);
@@ -102,6 +106,8 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(workspaceSource, /function buildWorkspaceFeedMarkup\(/);
   assert.match(workspaceSource, /function workspacePayloadMatchesSelection\(/);
   assert.match(workspaceSource, /function resetWorkspaceCardsForSelection\(/);
+  assert.match(workspaceSource, /const incomingSelectionKey = String\(payload\?\.selectionKey \|\| ""\)\.trim\(\);/);
+  assert.match(workspaceSource, /const nextSelectionKey = incomingSelectionKey \|\| previousSelectionKey;/);
   assert.match(workspaceSource, /function handleCheatSheetResult\(/);
   assert.match(workspaceSource, /function handleCheatSheetStart\(/);
   assert.match(workspaceSource, /function handleCheatSheetError\(/);

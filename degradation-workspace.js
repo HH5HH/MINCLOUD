@@ -1388,7 +1388,8 @@ async function maybeConsumePendingWorkspaceDeeplink() {
 
 function applyControllerState(payload = {}) {
   const previousSelectionKey = String(state.selectionKey || "").trim();
-  const nextSelectionKey = String(payload?.selectionKey || "").trim();
+  const incomingSelectionKey = String(payload?.selectionKey || "").trim();
+  const nextSelectionKey = incomingSelectionKey || previousSelectionKey;
   const nextEnvironment =
     payload?.adobePassEnvironment && typeof payload.adobePassEnvironment === "object"
       ? {
@@ -1415,11 +1416,11 @@ function applyControllerState(payload = {}) {
   state.selectionKey = nextSelectionKey;
   state.appGuid = String(payload?.appGuid || "");
   state.appName = String(payload?.appName || "");
-  if (nextSelectionKey !== previousSelectionKey) {
+  if (incomingSelectionKey && nextSelectionKey !== previousSelectionKey) {
     resetWorkspaceCardsForSelection(nextSelectionKey);
   }
   updateControllerBanner();
-  if (nextSelectionKey !== previousSelectionKey) {
+  if (incomingSelectionKey && nextSelectionKey !== previousSelectionKey) {
     renderWorkspaceCards();
   }
   syncBlondieButtons();

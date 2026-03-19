@@ -41220,6 +41220,26 @@ function degradationWorkspaceBroadcastReports(selectionKey = "", targetWindowId 
   );
 }
 
+async function degradationWorkspaceFlushReportsToTarget(selectionKey = "", targetWindowId = 0, options = {}) {
+  const resolvedWindowId = Number(targetWindowId || 0) || Number(state.degradationWorkspaceWindowId || 0);
+  if (resolvedWindowId <= 0) {
+    return false;
+  }
+  const resolvedSelectionKey = firstNonEmptyString([selectionKey, state.degradationWorkspaceLastSelectionKey]);
+  const targetTabId = Number(options?.targetTabId || degradationWorkspaceGetBoundWorkspaceTabId(resolvedWindowId) || 0);
+  await degradationWorkspaceWaitForReady(
+    resolvedWindowId,
+    targetTabId,
+    Math.max(750, Number(options?.timeoutMs || 0) || 2000)
+  ).catch(() => false);
+  degradationWorkspaceBroadcastReports(resolvedSelectionKey, resolvedWindowId);
+  const reportPayload = options?.reportPayload && typeof options.reportPayload === "object" ? options.reportPayload : null;
+  if (reportPayload) {
+    void degradationWorkspaceSendWorkspaceMessage("report-result", reportPayload, { targetWindowId: resolvedWindowId });
+  }
+  return true;
+}
+
 function degradationWorkspaceBuildCardQuery(card = null) {
   const selectionParts = parseDegradationWorkspaceSelectionKey(card?.selectionKey);
   const endpointKey = firstNonEmptyString([
@@ -48333,7 +48353,9 @@ async function degradationRunStatusEndpointFromPanel(panelState, endpointKey, op
       workspaceOrigin: "DEGRADATION Workspace",
     });
     if (targetWindowId > 0) {
-      void degradationWorkspaceSendWorkspaceMessage("report-result", report, { targetWindowId });
+      void degradationWorkspaceFlushReportsToTarget(selectionKey, targetWindowId, {
+        reportPayload: report,
+      });
     }
     const scopeLabel = report.mvpdScopeLabel || degradationBuildScopeLabel(queryValues);
     if (report.ok) {
@@ -48378,7 +48400,9 @@ async function degradationRunStatusEndpointFromPanel(panelState, endpointKey, op
       workspaceOrigin: "DEGRADATION Workspace",
     });
     if (targetWindowId > 0) {
-      void degradationWorkspaceSendWorkspaceMessage("report-result", errorReport, { targetWindowId });
+      void degradationWorkspaceFlushReportsToTarget(String(errorReport.selectionKey || selectionContext.selectionKey || "").trim(), targetWindowId, {
+        reportPayload: errorReport,
+      });
     }
     degradationSetControllerStatus(panelState, `${endpointSpec.title}: ${message}`, "error");
     return errorReport;
@@ -48550,7 +48574,9 @@ async function degradationRunMegaProgrammerSweepFromPanel(panelState, options = 
     });
 
     if (targetWindowId > 0) {
-      void degradationWorkspaceSendWorkspaceMessage("report-result", report, { targetWindowId });
+      void degradationWorkspaceFlushReportsToTarget(String(report.selectionKey || selectionContext.selectionKey || "").trim(), targetWindowId, {
+        reportPayload: report,
+      });
     }
 
     if (report.ok) {
@@ -48578,7 +48604,9 @@ async function degradationRunMegaProgrammerSweepFromPanel(panelState, options = 
     });
     degradationWorkspaceStoreReport(errorReport, queryValues);
     if (targetWindowId > 0) {
-      void degradationWorkspaceSendWorkspaceMessage("report-result", errorReport, { targetWindowId });
+      void degradationWorkspaceFlushReportsToTarget(String(errorReport.selectionKey || selectionContext.selectionKey || "").trim(), targetWindowId, {
+        reportPayload: errorReport,
+      });
     }
     degradationSetControllerStatus(panelState, `${endpointSpec.title}: ${message}`, "error");
     return [errorReport];
