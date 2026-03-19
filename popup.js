@@ -45114,13 +45114,17 @@ function degradationBuildCheatSheetCommands(panelState, context = {}) {
   const accessToken = String(context.accessToken || "").trim();
   const buildCommandLines = (requestUrl, callSpec, options = {}) => {
     const useFreshTokenEnv = options.useFreshTokenEnv === true;
+    const useManualTokenPlaceholder = options.useManualTokenPlaceholder === true;
+    const authHeaderLine = useManualTokenPlaceholder
+      ? `--header ${quoteShellArgument("Authorization: Bearer <PASTE_FRESH_ACCESS_TOKEN_HERE>")}`
+      : useFreshTokenEnv
+        ? '--header "Authorization: Bearer $DGR_ACCESS_TOKEN"'
+        : `--header ${quoteShellArgument(`Authorization: Bearer ${accessToken}`)}`;
     return [
       "curl --silent --show-error --location",
       `--request ${String(callSpec?.method || "GET").trim().toUpperCase() || "GET"}`,
       `--url ${quoteShellArgument(requestUrl)}`,
-      useFreshTokenEnv
-        ? '--header "Authorization: Bearer $DGR_ACCESS_TOKEN"'
-        : `--header ${quoteShellArgument(`Authorization: Bearer ${accessToken}`)}`,
+      authHeaderLine,
       `--header ${quoteShellArgument("Accept: application/json")}`,
       `--header ${quoteShellArgument(`api_version: ${DEGRADATION_API_VERSION}`)}`,
     ];
@@ -45135,6 +45139,7 @@ function degradationBuildCheatSheetCommands(panelState, context = {}) {
       requestUrl,
       command: buildCommandLines(requestUrl, callSpec).join(" \\\n  "),
       freshTokenCommand: buildCommandLines(requestUrl, callSpec, { useFreshTokenEnv: true }).join(" \\\n  "),
+      manualTokenCommand: buildCommandLines(requestUrl, callSpec, { useManualTokenPlaceholder: true }).join(" \\\n  "),
       mutation: String(callSpec?.method || "GET").trim().toUpperCase() !== "GET",
     };
   });
@@ -45153,31 +45158,30 @@ function buildDegradationCheatSheetTokenBootstrap(context = {}) {
   }
 
   const tokenSetupScript = [
-    `export DGR_CLIENT_ID=${quoteShellArgument(clientId)}`,
-    `export DGR_CLIENT_SECRET=${quoteShellArgument(clientSecret)}`,
-    `export DGR_TOKEN_URL=${quoteShellArgument(tokenUrl)}`,
-    `export DGR_TOKEN_SCOPE=${quoteShellArgument(tokenScope)}`,
-    "",
-    "export DGR_TOKEN_JSON=$(curl --silent --show-error --location \\",
-    '  --request POST \\',
-    '  --url "$DGR_TOKEN_URL" \\',
+    "Step 1. Mint a fresh bearer token with the hydrated client credentials:",
+    "curl --silent --show-error --location \\",
+    "  --request POST \\",
+    `  --url ${quoteShellArgument(tokenUrl)} \\`,
     "  --header 'Content-Type: application/x-www-form-urlencoded' \\",
     "  --header 'Accept: application/json' \\",
     "  --data-urlencode 'grant_type=client_credentials' \\",
-    '  --data-urlencode "client_id=$DGR_CLIENT_ID" \\',
-    '  --data-urlencode "client_secret=$DGR_CLIENT_SECRET" \\',
-    '  --data-urlencode "scope=$DGR_TOKEN_SCOPE")',
-    `export DGR_ACCESS_TOKEN=$(printf '%s' "$DGR_TOKEN_JSON" | tr -d '\\n' | sed -E 's/.*"access_token"[[:space:]]*:[[:space:]]*"([^"]+)".*/\\1/')`,
-    `[ -n "$DGR_ACCESS_TOKEN" ] || { echo "Failed to mint DEGRADATION access token."; printf '%s\\n' "$DGR_TOKEN_JSON"; exit 1; }`,
+    `  --data-urlencode ${quoteShellArgument(`client_id=${clientId}`)} \\`,
+    `  --data-urlencode ${quoteShellArgument(`client_secret=${clientSecret}`)} \\`,
+    `  --data-urlencode ${quoteShellArgument(`scope=${tokenScope}`)}`,
+    "",
+    "Step 2. From the JSON response, copy only the access_token value.",
+    "Do not include quotes and do not include the word Bearer.",
+    "",
+    "Step 3. Paste that fresh token anywhere you see <PASTE_FRESH_ACCESS_TOKEN_HERE> in the calls below.",
   ].join("\n");
 
-  const freshTokenCommands = (Array.isArray(context.calls) ? context.calls : [])
-    .map((call) => String(call?.freshTokenCommand || "").trim())
+  const manualTokenCommands = (Array.isArray(context.calls) ? context.calls : [])
+    .map((call) => String(call?.manualTokenCommand || "").trim())
     .filter(Boolean);
 
   return {
     tokenSetupScript,
-    masterCopyText: [tokenSetupScript, ...freshTokenCommands].filter(Boolean).join("\n\n"),
+    masterCopyText: [tokenSetupScript, ...manualTokenCommands].filter(Boolean).join("\n\n"),
   };
 }
 
