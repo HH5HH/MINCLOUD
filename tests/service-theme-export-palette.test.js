@@ -22,27 +22,40 @@ test("ESM export surfaces use the orange service palette", () => {
 
   assert.match(esmWorkspaceCss, /color-scheme:\s*dark;/i);
   assert.match(esmWorkspaceCss, /--zip-accent-800:\s*199,\s*82,\s*0;/);
-  assert.match(upsWorkspaceCss, /color-scheme:\s*light;/i);
-  assert.match(upsWorkspaceCss, /--underpar-payne-gray:\s*#5C677D;/i);
+  assert.match(esmWorkspaceCss, /--workspace-header-action-size:\s*var\(--blondie-time-size\);/i);
+  assert.match(upsWorkspaceCss, /color-scheme:\s*dark;/i);
+  assert.match(upsWorkspaceCss, /--underpar-gold-base:\s*#f4ac10;/i);
   assert.match(upsWorkspaceCss, /--zip-accent-1000:\s*243,\s*117,\s*0;/);
-  assert.match(upsWorkspaceCss, /--spectrum-gray-25-rgb:\s*255,\s*255,\s*255;/);
+  assert.match(upsWorkspaceCss, /--spectrum-gray-25-rgb:\s*11,\s*13,\s*16;/);
   assert.match(upsWorkspaceCss, /--legacy-bg:\s*var\(--spectrum-gray-25\);/);
-  assert.match(upsWorkspaceCss, /--legacy-panel:\s*var\(--spectrum-gray-25\);/);
+  assert.match(upsWorkspaceCss, /--legacy-panel:\s*var\(--spectrum-gray-50\);/);
   assert.match(
     upsWorkspaceCss,
-    /body\s*\{[\s\S]*?radial-gradient\(120% 76% at 0% 0%,\s*rgba\(var\(--underpar-payne-gray-rgb\),\s*0\.12\)\s*0%,\s*transparent 46%\)[\s\S]*?linear-gradient\(180deg,\s*var\(--spectrum-gray-25\)\s*0%,\s*var\(--spectrum-gray-50\)\s*58%,\s*var\(--spectrum-gray-75\)\s*100%\);/i
+    /body\s*\{[\s\S]*?radial-gradient\(circle at 18% 8%,\s*rgba\(255,\s*193,\s*67,\s*0\.18\)\s*0%,\s*transparent 24%\)[\s\S]*?linear-gradient\(145deg,\s*#0f1319\s*0%,\s*#171c24\s*48%,\s*#202630\s*100%\);/i
+  );
+  assert.match(
+    esmWorkspaceCss,
+    /\.workspace-actions\s*>\s*\.workspace-icon-btn\s*\{[\s\S]*?width:\s*var\(--workspace-header-action-size\);[\s\S]*?height:\s*var\(--workspace-header-action-size\);/i
+  );
+  assert.match(
+    esmWorkspaceCss,
+    /\.workspace-actions\s*>\s*\.workspace-icon-btn\s*\.workspace-icon--rerun-glyph\s*\{[\s\S]*?font-size:\s*var\(--workspace-header-action-rerun-glyph-size\);/i
   );
   assert.match(
     upsWorkspaceCss,
-    /\.workspace-header\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(255,\s*255,\s*255,\s*0\.98\)\s*0%,\s*rgba\(243,\s*243,\s*243,\s*0\.98\)\s*100%\);/i
+    /\.workspace-header\s*\{[\s\S]*?background:[\s\S]*?linear-gradient\(145deg,\s*rgba\(25,\s*29,\s*37,\s*0\.98\),\s*rgba\(16,\s*19,\s*24,\s*0\.96\)\);/i
   );
   assert.match(
     upsWorkspaceCss,
-    /\.workspace-blondie-time-picker\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(255,\s*255,\s*255,\s*0\.98\),\s*rgba\(243,\s*243,\s*243,\s*0\.98\)\);/i
+    /\.workspace-blondie-time-picker\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(26,\s*31,\s*39,\s*0\.98\),\s*rgba\(14,\s*17,\s*22,\s*0\.98\)\);/i
   );
   assert.match(
     upsWorkspaceCss,
-    /\.workspace-icon-btn\s*\{[\s\S]*?background:\s*var\(--s2-action-bg-default\);[\s\S]*?box-shadow:\s*0 6px 12px rgba\(17,\s*17,\s*17,\s*0\.08\);/i
+    /\.workspace-icon-btn\s*\{[\s\S]*?background:\s*var\(--s2-action-bg-default\);[\s\S]*?box-shadow:\s*0 18px 30px rgba\(0,\s*0,\s*0,\s*0\.28\),\s*inset 0 1px 0 rgba\(255,\s*255,\s*255,\s*0\.08\);/i
+  );
+  assert.match(
+    upsWorkspaceCss,
+    /\.workspace-icon-btn--rerun\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*#ffd257\s*0%,\s*#f4ac10\s*100%\);[\s\S]*?color:\s*#231300;/i
   );
   assert.match(clickEsmTemplate, /<body data-theme="dark">/i);
   assert.match(clickEsmTemplate, /function __normalizeTheme\(theme\)\s*\{\s*return theme === 'light' \? 'light' : 'dark';/);
@@ -52,29 +65,59 @@ test("ESM export surfaces use the orange service palette", () => {
   assert.match(mirroredClickEsmTemplate, /<body data-theme="dark">/i);
   assert.match(mirroredClickEsmTemplate, /--zip-accent-900:224,\s*100,\s*0;/);
   assert.match(mirroredClickEsmTemplate, /--fg-primary:var\(--spectrum-text-color-link\);/);
-  assert.match(upsViewCss, /\.ups-utility-bar\s*\{[\s\S]*?color:\s*rgba\(82,\s*82,\s*82,\s*0\.86\);/i);
+  assert.match(
+    upsViewCss,
+    /\.ups-utility-bar\s*\{[\s\S]*?border:\s*1px solid rgba\(255,\s*198,\s*78,\s*0\.14\);[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(27,\s*31,\s*39,\s*0\.98\)\s*0%,\s*rgba\(18,\s*22,\s*28,\s*0\.98\)\s*100%\);[\s\S]*?color:\s*rgba\(255,\s*210,\s*96,\s*0\.9\);/i
+  );
   assert.match(upsViewCss, /\.ups-utility-link\s*\{[\s\S]*?color:\s*var\(--fg-primary,\s*rgb\(243,\s*117,\s*0\)\);/);
   assert.match(upsViewCss, /\.ibeta-report-scroll-shell\s*\{[\s\S]*overflow-x:\s*auto;[\s\S]*touch-action:\s*pan-x pan-y;/i);
   assert.match(upsViewCss, /\.ibeta-report-card\s*\{[\s\S]*width:\s*max-content;[\s\S]*min-width:\s*100%;/i);
-  assert.match(megWorkspaceCss, /--meg-focus:\s*rgb\(0,\s*0,\s*0\);/i);
-  assert.match(megWorkspaceCss, /--meg-saved-query-accent:\s*rgb\(0,\s*0,\s*0\);/i);
+  assert.match(megWorkspaceCss, /body\.meg-standalone-mode\[data-theme="modern"\]\s*\{[\s\S]*?color-scheme:\s*dark;/i);
+  assert.match(megWorkspaceCss, /body\.meg-standalone-mode\[data-theme="modern"\]\s*\{[\s\S]*?--meg-link:\s*rgb\(255,\s*210,\s*87\);/i);
+  assert.match(megWorkspaceCss, /body\.meg-standalone-mode\[data-theme="modern"\]\s*\{[\s\S]*?--meg-rerun-bg:\s*linear-gradient\(180deg,\s*#ffd257\s*0%,\s*#f4ac10\s*100%\);[\s\S]*?--meg-rerun-text:\s*#231300;/i);
   assert.match(megWorkspaceCss, /a:hover\s*\{[\s\S]*?text-decoration:\s*underline;/i);
   assert.match(
     megWorkspaceCss,
-    /--meg-theme-preview-modern:\s*linear-gradient\(180deg,\s*(?:#111111|rgb\(17,\s*17,\s*17\))\s*0%,\s*(?:#f4f4f4|rgb\(244,\s*244,\s*244\))\s*100%\);/i
+    /--meg-theme-preview-modern:\s*linear-gradient\(180deg,\s*(?:#171c24|rgb\(23,\s*28,\s*36\))\s*0%,\s*(?:#f4ac10|rgb\(244,\s*172,\s*16\))\s*100%\);/i
   );
   assert.match(
     megWorkspaceCss,
-    /body\.meg-standalone-mode\[data-theme="modern"\]\s*\{[\s\S]*?--meg-button-border:\s*#000000;[\s\S]*?--meg-rerun-bg:\s*linear-gradient\(180deg,\s*#f4f4f4\s*0%,\s*#c7c7c7\s*100%\);[\s\S]*?--meg-rerun-text:\s*#000000;/i
+    /body\.meg-standalone-mode\[data-theme="modern"\] #btnSaveQuery,\s*body\.meg-standalone-mode\[data-theme="modern"\] \.meg-export-pack-button--modern\.meg-export-pack-button--icon\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*#ffd257\s*0%,\s*#f4ac10\s*100%\);[\s\S]*?color:\s*#231300;/i
+  );
+  assert.match(
+    megWorkspaceCss,
+    /body\.meg-standalone-mode\[data-theme="retro"\]\s*\{[\s\S]*?--meg-button-border:\s*#000000;[\s\S]*?--meg-rerun-bg:\s*#efefef;[\s\S]*?--meg-rerun-text:\s*#000000;/i
   );
   assert.match(megWorkspaceJs, /applyTheme\(readStoredTheme\(\) \|\| "modern", \{ persist: false \}\);/);
   assert.match(blondieWorkspaceCss, /color-scheme:\s*dark;/i);
   assert.match(blondieWorkspaceCss, /--zip-accent-900:\s*224,\s*100,\s*0;/);
   assert.match(popupCss, /--s2-action-bg-accent:\s*var\(--underpar-gold-base\);/);
   assert.match(popupCss, /--service-esm-zip-800:\s*199,\s*82,\s*0;/);
+  assert.match(popupCss, /\/\* MEGSPACE stays classic monochrome inside the embedded UnderPAR service launcher\. \*\//);
+  assert.match(
+    popupCss,
+    /\.service-esm \.esm-workspace-meg-panel,\s*\.service-esm \.esm-workspace-meg-body\s*\{[\s\S]*?background:\s*#ffffff;[\s\S]*?box-shadow:\s*none;/i
+  );
+  assert.match(
+    popupCss,
+    /\.service-esm \.esm-workspace-meg-open-btn\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*#f4f4f4\s*0%,\s*#c7c7c7\s*100%\);[\s\S]*?color:\s*#000000;/i
+  );
   assert.match(esmWorkspaceCss, /--workspace-link-rgb:\s*var\(--zip-accent-1000\);/);
-  assert.match(upsWorkspaceCss, /--workspace-link-rgb:\s*var\(--zip-accent-900\);/);
+  assert.match(upsWorkspaceCss, /--workspace-link-rgb:\s*var\(--zip-accent-1000\);/);
   assert.match(popupCss, /--service-link-rgb:\s*var\(--service-zip-1000\);/);
+  assert.doesNotMatch(upsWorkspaceCss, /color-scheme:\s*light;/i);
+  assert.doesNotMatch(
+    upsWorkspaceCss,
+    /\.workspace-header\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(255,\s*255,\s*255,\s*0\.98\)\s*0%,\s*rgba\(243,\s*243,\s*243,\s*0\.98\)\s*100%\);/i
+  );
+  assert.doesNotMatch(
+    megWorkspaceCss,
+    /body\.meg-standalone-mode\[data-theme="modern"\]\s*\{[\s\S]*?--meg-button-border:\s*#000000;[\s\S]*?--meg-rerun-bg:\s*linear-gradient\(180deg,\s*#f4f4f4\s*0%,\s*#c7c7c7\s*100%\);[\s\S]*?--meg-rerun-text:\s*#000000;/i
+  );
+  assert.doesNotMatch(
+    megWorkspaceCss,
+    /--meg-theme-preview-modern:\s*linear-gradient\(180deg,\s*(?:#111111|rgb\(17,\s*17,\s*17\))\s*0%,\s*(?:#f4f4f4|rgb\(244,\s*244,\s*244\))\s*100%\);/i
+  );
 
   [
     esmWorkspaceCss,
@@ -130,7 +173,7 @@ test("CM export surfaces use the purple service palette", () => {
   });
 });
 
-test("Popup UP tab shifts to light obsidian while the sidepanel keeps the gold shell", () => {
+test("Popup and sidepanel share the gold-and-onyx shell while service palettes stay as accents", () => {
   const popupCss = read("popup.css");
   const popupHtml = read("popup.html");
   const sidepanelHtml = read("sidepanel.html");
@@ -142,23 +185,54 @@ test("Popup UP tab shifts to light obsidian while the sidepanel keeps the gold s
   assert.match(popupCss, /--service-degradation-zip-800:\s*223,\s*52,\s*34;/);
   assert.match(popupCss, /--s2-action-bg-accent:\s*var\(--underpar-gold-base\);/);
   assert.match(popupHtml, /<body class="underpar-up-tab">/i);
-  assert.doesNotMatch(sidepanelHtml, /underpar-up-tab/);
-  assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?color-scheme:\s*light;/);
-  assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?--underpar-gray-25-rgb:\s*255,\s*255,\s*255;/);
-  assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?--legacy-accent:\s*var\(--underpar-payne-gray\);/);
-  assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?--legacy-border:\s*rgb\(var\(--underpar-gray-300-rgb\)\);/);
+  assert.match(sidepanelHtml, /<body class="underpar-up-tab underpar-sidepanel">/i);
+  assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?color-scheme:\s*dark;/);
+  assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?--underpar-gray-25-rgb:\s*11,\s*13,\s*16;/);
+  assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?--legacy-accent:\s*var\(--underpar-gold-base\);/);
+  assert.match(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?--legacy-border:\s*rgba\(255,\s*198,\s*78,\s*0\.16\);/);
   assert.match(
     popupCss,
-    /body\.underpar-up-tab \.header\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(255,\s*255,\s*255,\s*0\.98\)\s*0%,\s*rgba\(243,\s*243,\s*243,\s*0\.98\)\s*100%\);/
+    /body\.underpar-up-tab \.header\s*\{[\s\S]*?background:[\s\S]*?linear-gradient\(145deg,\s*rgba\(25,\s*29,\s*37,\s*0\.98\),\s*rgba\(16,\s*19,\s*24,\s*0\.96\)\);/
   );
   assert.match(
     popupCss,
-    /body\.underpar-up-tab \.sign-in-hero-btn\s*\{[\s\S]*?background:\s*var\(--s2-action-bg-accent\);/
+    /body\.underpar-up-tab \.app-shell-card\s*\{[\s\S]*?linear-gradient\(145deg,\s*rgba\(18,\s*22,\s*28,\s*0\.98\),\s*rgba\(32,\s*38,\s*48,\s*0\.96\)\);/
+  );
+  assert.match(
+    popupCss,
+    /body\.underpar-up-tab \.sign-in-hero-btn\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*#ffd257\s*0%,\s*#f4ac10\s*100%\);/
+  );
+  assert.match(
+    popupCss,
+    /\.sign-in-view\s*\{[\s\S]*?display:\s*flex;[\s\S]*?justify-content:\s*flex-start;[\s\S]*?padding-top:\s*4px;/
+  );
+  assert.doesNotMatch(popupCss, /\.sign-in-view-card\s*\{/);
+  assert.match(
+    popupCss,
+    /body\.underpar-sidepanel \.surface--debug\s*\{[\s\S]*?position:\s*fixed;[\s\S]*?inset-inline-end:\s*16px;[\s\S]*?inset-block-end:\s*16px;/
+  );
+  assert.match(popupCss, /\.surface--debug\.is-collapsed \.debug-body\s*\{\s*display:\s*none;\s*\}/);
+  assert.match(
+    popupCss,
+    /body\.underpar-up-tab \.workflow > \.field\s*\{[\s\S]*?background:\s*linear-gradient\(180deg,\s*rgba\(24,\s*28,\s*35,\s*0\.98\),\s*rgba\(15,\s*18,\s*24,\s*0\.98\)\);/
   );
   assert.match(popupCss, /\.premium-service-section,\s*\.hr-context-section\s*\{[\s\S]*?color-scheme:\s*dark;/);
   assert.match(
     popupCss,
-    /body\.underpar-up-tab \.premium-service-section,\s*body\.underpar-up-tab \.hr-context-section\s*\{[\s\S]*?color-scheme:\s*light;[\s\S]*?--underpar-service-dark-panel-rgb:\s*255,\s*255,\s*255;/
+    /body\.underpar-up-tab \.premium-service-section,\s*body\.underpar-up-tab \.hr-context-section\s*\{[\s\S]*?color-scheme:\s*dark;[\s\S]*?--underpar-service-dark-panel-rgb:\s*13,\s*16,\s*20;/
+  );
+  assert.match(
+    popupCss,
+    /body\.underpar-up-tab \.premium-service-section::after,\s*body\.underpar-up-tab \.hr-context-section::after\s*\{[\s\S]*?repeating-linear-gradient/
+  );
+  assert.match(
+    popupCss,
+    /body\.underpar-up-tab \.premium-service-section \.metadata-header\.service-box-header::before,\s*body\.underpar-up-tab \.hr-context-section \.metadata-header\.service-box-header::before\s*\{[\s\S]*?width:\s*6px;[\s\S]*?box-shadow:\s*10px 0 0 rgba\(var\(--service-zip-1100\),\s*0\.14\);/
+  );
+  assert.doesNotMatch(popupCss, /body\.underpar-up-tab\s*\{[\s\S]*?color-scheme:\s*light;/);
+  assert.doesNotMatch(
+    popupCss,
+    /body\.underpar-up-tab \.header\s*\{[\s\S]*?linear-gradient\(180deg,\s*rgba\(255,\s*255,\s*255,\s*0\.98\)\s*0%,\s*rgba\(243,\s*243,\s*243,\s*0\.98\)\s*100%\);/
   );
   assert.match(
     popupCss,
@@ -183,6 +257,39 @@ test("Popup UP tab shifts to light obsidian while the sidepanel keeps the gold s
   assert.match(
     popupCss,
     /\.service-esm \.esm-workspace-meg-toggle:focus-visible,\s*\.service-esm \.esm-workspace-meg-select:focus-visible,\s*\.service-esm \.esm-workspace-meg-saved-select:focus-visible,\s*\.service-esm \.esm-workspace-meg-open-btn:focus-visible \{[\s\S]*?outline:\s*2px solid #000000;[\s\S]*?outline-offset:\s*2px;/
+  );
+});
+
+test("ESM and CMU JellyBeans use vibrant onyx pills with shared service racing stripes", () => {
+  const popupCss = read("popup.css");
+
+  assert.match(
+    popupCss,
+    /\.esm-workspace-label\s*\{[\s\S]*?--esm-workspace-chip-service-rgb:\s*255,\s*198,\s*78;[\s\S]*?background:\s*linear-gradient\(165deg,\s*rgba\(31,\s*36,\s*44,\s*0\.98\),\s*rgba\(14,\s*17,\s*22,\s*0\.98\)\s*62%,\s*rgba\(9,\s*11,\s*14,\s*0\.98\)\s*100%\);[\s\S]*?inset 3px 0 0 rgba\(var\(--esm-workspace-chip-service-rgb\),\s*0\.12\)/i
+  );
+  assert.match(
+    popupCss,
+    /\.esm-workspace-chip\s*\{[\s\S]*?--esm-workspace-seg-fill-rgb:\s*124,\s*136,\s*153;[\s\S]*?--esm-workspace-seg-border-rgb:\s*190,\s*199,\s*211;[\s\S]*?background:\s*linear-gradient\(\s*140deg,\s*rgba\(var\(--esm-workspace-seg-fill-rgb\),\s*0\.42\),[\s\S]*?rgba\(16,\s*19,\s*24,\s*0\.98\)\s*100%\s*\);[\s\S]*?rgba\(var\(--esm-workspace-chip-service-rgb\),\s*0\.1\);/i
+  );
+  assert.match(
+    popupCss,
+    /\.esm-workspace-chip::before\s*\{[\s\S]*?width:\s*3px;[\s\S]*?rgba\(var\(--esm-workspace-chip-service-rgb\),\s*0\.9\),\s*rgba\(var\(--esm-workspace-chip-service-rgb\),\s*0\.18\)/i
+  );
+  assert.match(
+    popupCss,
+    /:is\(\.service-esm,\s*\.service-cm,\s*\.service-cm-mvpd\)\s+\.esm-workspace-tree-scroll\s*\{[\s\S]*?border-color:\s*rgba\(var\(--service-zip-1100\),\s*0\.2\);[\s\S]*?rgb\(var\(--underpar-service-dark-panel-rgb\)\)\s*92%,\s*rgb\(var\(--service-zip-1000\)\)\s*8%/i
+  );
+  assert.match(
+    popupCss,
+    /:is\(\.service-esm,\s*\.service-cm,\s*\.service-cm-mvpd\)\s+\.esm-workspace-chip\s*\{[\s\S]*?--esm-workspace-chip-service-rgb:\s*var\(--service-zip-1000\);/i
+  );
+  assert.match(
+    popupCss,
+    /:is\(\.service-esm,\s*\.service-cm,\s*\.service-cm-mvpd\)\s+\.esm-workspace-chip mark\s*\{[\s\S]*?color-mix\(in srgb,\s*rgb\(var\(--service-zip-1000\)\)\s*34%,\s*var\(--underpar-gold-base\)\s*66%\)/i
+  );
+  assert.match(
+    popupCss,
+    /:is\(\.service-esm,\s*\.service-cm,\s*\.service-cm-mvpd\)\s+\.esm-workspace-label\.esm-workspace-col-match\s*\{[\s\S]*?inset 4px 0 0 rgba\(var\(--service-zip-1000\),\s*0\.32\)/i
   );
 });
 

@@ -237,6 +237,16 @@ test("logout revocation targets the active UnderPAR client id before falling bac
   );
 });
 
+test("activation reuses cached organization payloads from the PKCE login handoff", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const buildSessionSource = extractFunctionSource(popupSource, "buildLoginSessionPayloadFromAuth");
+  const enforceAccessSource = extractFunctionSource(popupSource, "enforceAdobePassAccess");
+
+  assert.match(buildSessionSource, /organizations:/);
+  assert.match(enforceAccessSource, /resolveCachedOrganizationsFromLoginData\(loginData\)/);
+  assert.doesNotMatch(enforceAccessSource, /let organizations = \[\];/);
+});
+
 test("sign out path revokes Adobe tokens before clearing session state", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   assert.match(popupSource, /revokeUnderparLoginTokensForLogout\(state\.loginData\)/);
@@ -253,20 +263,52 @@ test("interactive Adobe auth popup no longer attaches the debugger or retains th
   assert.equal(/keepAuthWindowOpenForBootstrap/.test(signInSource), false);
 });
 
-test("interactive login activations prime AdobePass and CM console context during CM hydration", () => {
+test("interactive login and org switching no longer block on a temporary CM bootstrap tab", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const signInSource = extractFunctionSource(popupSource, "signInInteractive");
   const refreshSource = extractFunctionSource(popupSource, "refreshSessionManual");
   const restrictedSwitchSource = extractFunctionSource(popupSource, "onRestrictedOrgSwitch");
   const recoverySource = extractFunctionSource(popupSource, "attemptInteractiveAdobePassRecovery");
 
-  assert.match(popupSource, /async function openTemporaryCmConsoleBootstrapTab/);
-  assert.match(popupSource, /getAdobePassConsoleAuthPrimeUrl/);
-  assert.match(popupSource, /getCmConsoleAuthPrimeUrl/);
-  assert.match(signInSource, /withTemporaryCmConsoleBootstrapContext/);
-  assert.match(refreshSource, /withTemporaryCmConsoleBootstrapContext/);
-  assert.match(restrictedSwitchSource, /withTemporaryCmConsoleBootstrapContext/);
-  assert.match(recoverySource, /withTemporaryCmConsoleBootstrapContext/);
+  assert.match(signInSource, /activateSession\(/);
+  assert.match(refreshSource, /activateSession\(/);
+  assert.match(restrictedSwitchSource, /activateSession\(/);
+  assert.match(recoverySource, /activateSession\(/);
+  assert.doesNotMatch(signInSource, /withTemporaryCmConsoleBootstrapContext/);
+  assert.doesNotMatch(refreshSource, /withTemporaryCmConsoleBootstrapContext/);
+  assert.doesNotMatch(restrictedSwitchSource, /withTemporaryCmConsoleBootstrapContext/);
+  assert.doesNotMatch(recoverySource, /withTemporaryCmConsoleBootstrapContext/);
+});
+
+test("session activation defers CM tenant hydration and unlocks Media Company selection immediately", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const activateSource = extractFunctionSource(popupSource, "activateSession");
+  const mediaCompanyLockSource = extractFunctionSource(popupSource, "isMediaCompanySelectionLockedByCmPrecheck");
+  const mediaCompanyLabelSource = extractFunctionSource(popupSource, "getMediaCompanySelectDefaultLabel");
+  const prefetchSource = extractFunctionSource(popupSource, "prefetchCmTenantsCatalogInBackground");
+
+  assert.match(activateSource, /prefetchCmTenantsCatalogInBackground/);
+  assert.match(activateSource, /prefetchCmConsoleBootstrapSummaryInBackground/);
+  assert.doesNotMatch(activateSource, /await ensureCmTenantsPrecheckForActiveSession/);
+  assert.match(mediaCompanyLockSource, /return false;/);
+  assert.match(mediaCompanyLabelSource, /-- Choose a Media Company --/);
+  assert.match(prefetchSource, /ensureCmTenantsPrecheckForActiveSession/);
+});
+
+test("environment restore lets the premium panel path own PassVault hydration", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const applySelectionSource = extractFunctionSource(popupSource, "applyGlobalSelectionSnapshot");
+
+  assert.match(applySelectionSource, /refreshProgrammerPanels\(/);
+  assert.doesNotMatch(applySelectionSource, /hydrateProgrammerFromPassVault\(/);
+});
+
+test("PassVault storage changes re-seed runtime without force-overwriting active service snapshots", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const storageListenerSource = extractFunctionSource(popupSource, "registerPassVaultStorageListener");
+
+  assert.match(storageListenerSource, /seedCurrentProgrammersFromPassVault/);
+  assert.match(storageListenerSource, /forceOverwrite: false/);
 });
 
 test("active auth and bootstrap flows no longer fall back to cookie-session activation", () => {
@@ -280,6 +322,17 @@ test("active auth and bootstrap flows no longer fall back to cookie-session acti
   assert.equal(/tryActivateCookieSession/.test(refreshSource), false);
   assert.equal(/tryActivateCookieSession/.test(restrictedSwitchSource), false);
   assert.equal(/tryActivateCookieSession/.test(bootstrapSource), false);
+});
+
+test("legacy cookie-session helper auth paths are no longer shipped", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+
+  assert.doesNotMatch(popupSource, /function tryActivateCookieSession/);
+  assert.doesNotMatch(popupSource, /function hydrateCookieSessionWithProfile/);
+  assert.doesNotMatch(popupSource, /createCookieSessionLoginData/);
+  assert.doesNotMatch(popupSource, /allowCookieProfile/);
+  assert.doesNotMatch(popupSource, /function createSessionSeedLoginData/);
+  assert.match(popupSource, /function createCmBootstrapSeedLoginData/);
 });
 
 test("IMS profile hydration uses token-backed profile and userinfo only", () => {
@@ -301,17 +354,23 @@ test("session monitor is token-driven and no longer probes cookie or page sessio
   assert.match(shouldRunSource, /state\.sessionReady && state\.loginData\?\.accessToken && !state\.restricted/);
   assert.equal(/probeExperienceCloudSessionState/.test(tickSource), false);
   assert.equal(/attemptSessionAutoBootstrap/.test(tickSource), false);
+  assert.doesNotMatch(popupSource, /function attemptSessionAutoBootstrap/);
 });
 
 test("console configuration version is sourced dynamically from console bootstrap state", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const loadProgrammersSource = extractFunctionSource(popupSource, "loadProgrammersData");
   const fetchProgrammersSource = extractFunctionSource(popupSource, "fetchProgrammersFromApi");
+  const configVersionSource = extractFunctionSource(popupSource, "getKnownAdobeConsoleConfigurationVersion");
 
   assert.equal(/configurationVersion=3522/.test(popupSource), false);
   assert.match(popupSource, /function appendAdobeConsoleConfigurationVersion/);
   assert.match(popupSource, /consoleBootstrapState/);
-  assert.match(loadProgrammersSource, /ensureConsoleBootstrapState/);
+  assert.match(popupSource, /let underparStateRef = null;/);
+  assert.match(popupSource, /underparStateRef = state;/);
+  assert.doesNotMatch(configVersionSource, /typeof state/);
+  assert.match(loadProgrammersSource, /const consoleBootstrapPromise = ensureConsoleBootstrapState/);
+  assert.match(loadProgrammersSource, /settlePromiseWithin\(consoleBootstrapPromise, 900, null\)/);
   assert.match(fetchProgrammersSource, /Authorization: `Bearer \$\{accessToken\}`/);
 });
 
@@ -330,6 +389,21 @@ test("active CM bootstrap uses UnderPAR bearer-derived qualification instead of 
   assert.equal(/requestExperienceCloudConsoleToken/.test(ensureCmSource), false);
   assert.equal(/persistExperienceCloudConsoleTokenResult/.test(ensureCmSource), false);
   assert.equal(/ensure-cookie-session/.test(ensureCmSource), false);
+});
+
+test("CM direct fetch and tenant catalog paths no longer issue unauthenticated cookie-style fallbacks", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const fetchSource = extractFunctionSource(popupSource, "fetchCmJsonWithAuthVariants");
+  const tenantCatalogSource = extractFunctionSource(popupSource, "fetchCmTenantCatalogWithAuth");
+
+  assert.doesNotMatch(popupSource, /function fetchCmTenantCatalogWithSession/);
+  assert.match(fetchSource, /const requiresAdobeConsoleAuth = isCmReportsRequestUrl\(url\) \|\| isCmConfigRequestUrl\(url\);/);
+  assert.doesNotMatch(fetchSource, /allowCookieFallback/);
+  assert.doesNotMatch(tenantCatalogSource, /headerVariants\.push\(baseHeaders\)/);
+  assert.match(
+    tenantCatalogSource,
+    /UnderPAR could not auto-hydrate a cm-console-ui bearer from the current Adobe IMS session/
+  );
 });
 
 test("PKCE authorization URL uses code response mode and the configured client ID", () => {
@@ -399,6 +473,9 @@ test("logged-out popup and sidepanel surfaces expose ZIP.KEY import controls", (
     assert.match(htmlSource, /id="zip-key-dropzone"/);
     assert.match(htmlSource, /id="zip-key-file-input"/);
     assert.match(htmlSource, /id="zip-key-browse-btn"/);
+    assert.match(htmlSource, />LOAD KEY</);
+    assert.match(htmlSource, />CHOOSE KEY</);
+    assert.match(htmlSource, />Drop key\.</);
   }
 
   assert.match(popupSource, /promptForZipKeyImport/);
@@ -441,16 +518,54 @@ test("build label renders immediately from the manifest version with a placehold
   assert.match(initSource, /renderBuildInfo\(\);/);
 });
 
-test("sidepanel ships the same logged-out sign-in hero after ZIP.KEY import", () => {
+test("popup and sidepanel ship the same sparse logged-out sign-in surface after ZIP.KEY import", () => {
   const sidepanelHtml = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
   const popupHtml = fs.readFileSync(path.join(ROOT, "popup.html"), "utf8");
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
 
   assert.match(sidepanelHtml, /id="sign-in-view"/);
+  assert.match(popupHtml, /id="sign-in-view"/);
   assert.match(sidepanelHtml, /id="sign-in-hero-btn"/);
-  assert.match(sidepanelHtml, /id="sign-in-zip-key-btn"/);
-  assert.match(popupHtml, /id="sign-in-zip-key-btn"/);
-  assert.match(popupSource, /function openZipKeyImportGate\(/);
-  assert.match(popupSource, /manualZipKeyImportGate: false/);
+  assert.match(popupHtml, /id="sign-in-hero-btn"/);
+  assert.match(sidepanelHtml, />SIGN IN</);
+  assert.match(popupHtml, />SIGN IN</);
+  assert.doesNotMatch(sidepanelHtml, /id="sign-in-zip-key-btn"/);
+  assert.doesNotMatch(popupHtml, /id="sign-in-zip-key-btn"/);
+  assert.doesNotMatch(sidepanelHtml, /class="sign-in-view-card"/);
+  assert.doesNotMatch(popupHtml, /class="sign-in-view-card"/);
   assert.ok(sidepanelHtml.indexOf('id="zip-key-import-view"') < sidepanelHtml.indexOf('id="sign-in-view"'));
+});
+
+test("sidepanel exposes LoginButton-style DEBUG INFO controls backed by popup runtime state", () => {
+  const sidepanelHtml = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const renderDebugConsoleSource = extractFunctionSource(popupSource, "renderDebugConsole");
+  const copyDebugConsoleSource = extractFunctionSource(popupSource, "copyDebugConsoleToClipboard");
+  const composeDebugSource = extractFunctionSource(popupSource, "composeUnderparDebugConsoleOutput");
+
+  assert.match(sidepanelHtml, /id="debugConsole"/);
+  assert.match(sidepanelHtml, /id="debugToggleButton"/);
+  assert.match(sidepanelHtml, /<body class="underpar-up-tab underpar-sidepanel">/);
+  assert.match(
+    sidepanelHtml,
+    /id="debugToggleButtonLabel" class="spectrum-Detail spectrum-Detail--sizeL debug-toggleTitle">DEBUG INFO</
+  );
+  assert.match(
+    sidepanelHtml,
+    /id="debugToggleStatus" class="spectrum-Detail spectrum-Detail--sizeS debug-toggleStatus" hidden>Copied to clipboard</
+  );
+  assert.match(sidepanelHtml, /id="debugConsoleBody" class="debug-body" hidden/);
+  assert.match(sidepanelHtml, /class="spectrum-Textfield spectrum-Textfield--sizeM spectrum-Textfield--multiline is-readOnly debug-field"/);
+  assert.match(sidepanelHtml, /class="spectrum-Textfield-input debug-field-input"/);
+  assert.match(sidepanelHtml, /Click copies\. Shift\+click toggles details\./);
+  assert.match(sidepanelHtml, /id="logOutput"/);
+  assert.match(popupSource, /const DEFAULT_DEBUG_TOGGLE_LABEL = "DEBUG INFO"/);
+  assert.match(popupSource, /const DEFAULT_DEBUG_TOGGLE_META = "Click copies\. Shift\+click toggles details\.";/);
+  assert.match(popupSource, /const DEFAULT_DEBUG_COPY_STATUS = "Copied to clipboard"/);
+  assert.match(renderDebugConsoleSource, /Shift-click to expand/);
+  assert.match(renderDebugConsoleSource, /Shift-click to collapse/);
+  assert.match(copyDebugConsoleSource, /UnderPAR could not copy the debug console to the clipboard\./);
+  assert.match(composeDebugSource, /UnderPAR DEBUG INFO/);
+  assert.match(composeDebugSource, /"recent_activity"/);
+  assert.match(composeDebugSource, /precheck_pending/);
 });

@@ -1061,6 +1061,9 @@ function ensureVaultGlobalContainers(vaultPayload = null) {
   ) {
     target.underpar.globals.cmImsByEnvironment = {};
   }
+  if (!Object.prototype.hasOwnProperty.call(target.underpar.globals, "adobeIms")) {
+    target.underpar.globals.adobeIms = null;
+  }
   if (!Object.prototype.hasOwnProperty.call(target.underpar.globals, "slack")) {
     target.underpar.globals.slack = null;
   }
@@ -1081,6 +1084,72 @@ function ensureVaultGlobalContainers(vaultPayload = null) {
     target.pass.environments = {};
   }
   return target;
+}
+
+function normalizeVaultImsRuntimeConfigRecord(value = null) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const clientId = String(value?.clientId || value?.client_id || "").trim();
+  const rawScope = String(value?.rawScope || value?.raw_scope || value?.scope || "").trim();
+  const scope = String(value?.scope || rawScope).trim();
+  const droppedScopes = uniqueSorted(
+    Array.isArray(value?.droppedScopes)
+      ? value.droppedScopes
+      : String(value?.droppedScopes || value?.dropped_scopes || "")
+          .split(/[\s,]+/)
+          .map((entry) => String(entry || "").trim())
+          .filter(Boolean)
+  );
+  const source = String(value?.source || "").trim();
+  const importedAt = String(value?.importedAt || value?.imported_at || "").trim();
+  const updatedAt = Math.max(0, Number(value?.updatedAt || value?.updated_at || 0));
+
+  if (!clientId && !scope && !rawScope && droppedScopes.length === 0 && !source && !importedAt && !updatedAt) {
+    return null;
+  }
+
+  return {
+    schemaVersion: 1,
+    clientId,
+    scope,
+    rawScope: rawScope || scope,
+    droppedScopes,
+    source,
+    importedAt,
+    updatedAt: updatedAt || Date.now(),
+  };
+}
+
+function getVaultImsRuntimeConfigInput(vaultPayload = null) {
+  if (!vaultPayload || typeof vaultPayload !== "object") {
+    return null;
+  }
+  if (vaultPayload?.underpar?.globals && Object.prototype.hasOwnProperty.call(vaultPayload.underpar.globals, "adobeIms")) {
+    return vaultPayload.underpar.globals.adobeIms;
+  }
+  if (vaultPayload?.underpar?.globals && Object.prototype.hasOwnProperty.call(vaultPayload.underpar.globals, "ims")) {
+    return vaultPayload.underpar.globals.ims;
+  }
+  if (vaultPayload?.underpar && Object.prototype.hasOwnProperty.call(vaultPayload.underpar, "adobeIms")) {
+    return vaultPayload.underpar.adobeIms;
+  }
+  return null;
+}
+
+function getVaultImsRuntimeConfig(vaultPayload = null) {
+  return normalizeVaultImsRuntimeConfigRecord(getVaultImsRuntimeConfigInput(vaultPayload));
+}
+
+function setVaultImsRuntimeConfig(vaultPayload = null, record = null) {
+  const target = ensureVaultGlobalContainers(vaultPayload);
+  const normalizedRecord = normalizeVaultImsRuntimeConfigRecord(record);
+  target.underpar.globals.adobeIms = normalizedRecord ? cloneJsonLikeValue(normalizedRecord, null) : null;
+  if (Object.prototype.hasOwnProperty.call(target.underpar.globals, "ims")) {
+    delete target.underpar.globals.ims;
+  }
+  return normalizedRecord;
 }
 
 function normalizeVaultCmGlobalRecord(value = null) {
@@ -1243,6 +1312,7 @@ function normalizeVaultPayload(payload = null) {
       globals: {
         savedQueries: {},
         cmImsByEnvironment: {},
+        adobeIms: null,
         slack: null,
       },
       app: {
@@ -1264,6 +1334,7 @@ function normalizeVaultPayload(payload = null) {
   setVaultSavedQueries(normalized, getVaultSavedQueriesInput(payload));
   const cmGlobalsByEnvironment = getVaultCmGlobalsByEnvironment(payload);
   normalized.underpar.globals.cmImsByEnvironment = cloneJsonLikeValue(cmGlobalsByEnvironment, {});
+  setVaultImsRuntimeConfig(normalized, getVaultImsRuntimeConfigInput(payload));
   setVaultSlacktivationRecord(normalized, getVaultSlacktivationInput(payload));
 
   const environmentsInput =
@@ -1970,6 +2041,7 @@ function renderVaultBusyState(message = "Reading UnderPAR storage surfaces...") 
 }
 
 function buildVaultSummaryMarkup(snapshot, namespaceAnchorMap = new Map()) {
+  const imsRuntimeConfig = getVaultImsRuntimeConfig(snapshot?.vaultPayload || null);
   const areaCards = (Array.isArray(snapshot?.areaSnapshots) ? snapshot.areaSnapshots : [])
     .map(
       (area) => `
@@ -1986,6 +2058,15 @@ function buildVaultSummaryMarkup(snapshot, namespaceAnchorMap = new Map()) {
       `
     )
     .join("");
+  const imsCard = imsRuntimeConfig?.clientId
+    ? `
+      <div class="vault-metric-card">
+        <p class="vault-metric-label">Adobe IMS</p>
+        <p class="vault-metric-value">${escapeHtml(String(imsRuntimeConfig.clientId || "").trim())}</p>
+        <p class="vault-metric-meta">${escapeHtml(firstNonEmptyString([imsRuntimeConfig.source, imsRuntimeConfig.scope, "Configured"]))}</p>
+      </div>
+    `
+    : "";
   const namespaceChips = (Array.isArray(snapshot?.namespaceSummary) ? snapshot.namespaceSummary : [])
     .map((entry) => {
       const namespaceTarget = namespaceAnchorMap.get(String(entry?.namespace || "").trim()) || null;
@@ -2025,6 +2106,7 @@ function buildVaultSummaryMarkup(snapshot, namespaceAnchorMap = new Map()) {
         <p class="vault-metric-value">${escapeHtml(formatVaultKeyCount(snapshot?.totalKeyCount || 0))}</p>
         <p class="vault-metric-meta">${escapeHtml(formatBytes(snapshot?.totalByteCount || 0))}</p>
       </a>
+      ${imsCard}
       ${areaCards}
     </div>
     <div class="vault-namespace-strip">
@@ -2355,6 +2437,13 @@ function createVaultExportRowSkeleton() {
     "UnderPAR Vault CSV": UNDERPAR_VAULT_CSV_SCHEMA,
     "Row Type": "",
     "Environment Key": "",
+    "Adobe IMS Client ID": "",
+    "Adobe IMS Scope": "",
+    "Adobe IMS Raw Scope": "",
+    "Adobe IMS Dropped Scopes": "",
+    "Adobe IMS Source": "",
+    "Adobe IMS Imported At": "",
+    "Adobe IMS Updated At": "",
     "Media Company ID": "",
     Service: "",
     "Registered Application GUID": "",
@@ -2418,7 +2507,23 @@ function buildVaultExportRows(vaultPayload = null) {
   const rows = [];
   const savedQueries = normalizeVaultSavedQueries(getVaultSavedQueriesInput(vaultPayload));
   const cmGlobalsByEnvironment = getVaultCmGlobalsByEnvironment(vaultPayload);
+  const imsRuntimeConfig = getVaultImsRuntimeConfig(vaultPayload);
   const slacktivationRecord = getVaultSlacktivationRecord(vaultPayload);
+
+  if (imsRuntimeConfig) {
+    rows.push({
+      ...createVaultExportRowSkeleton(),
+      "Row Type": "underpar-adobe-ims",
+      "Adobe IMS Client ID": String(imsRuntimeConfig.clientId || "").trim(),
+      "Adobe IMS Scope": String(imsRuntimeConfig.scope || "").trim(),
+      "Adobe IMS Raw Scope": String(imsRuntimeConfig.rawScope || "").trim(),
+      "Adobe IMS Dropped Scopes": Array.isArray(imsRuntimeConfig.droppedScopes) ? imsRuntimeConfig.droppedScopes.join(" ") : "",
+      "Adobe IMS Source": String(imsRuntimeConfig.source || "").trim(),
+      "Adobe IMS Imported At": String(imsRuntimeConfig.importedAt || "").trim(),
+      "Adobe IMS Updated At": Number(imsRuntimeConfig.updatedAt || 0) || "",
+    });
+  }
+
   Object.entries(savedQueries)
     .sort((left, right) => String(left[0] || "").localeCompare(String(right[0] || ""), undefined, { sensitivity: "base" }))
     .forEach(([name, url]) => {
@@ -2629,6 +2734,11 @@ function mergeImportedVaultPayload(existingVault = null, importedVault = null) {
     }
     setVaultCmGlobalRecord(nextVault, normalizedEnvironmentKey, record);
   });
+
+  const importedImsRuntimeConfig = getVaultImsRuntimeConfig(normalizedImportedVault);
+  if (importedImsRuntimeConfig) {
+    setVaultImsRuntimeConfig(nextVault, importedImsRuntimeConfig);
+  }
 
   const importedSlacktivationRecord = getVaultSlacktivationRecord(normalizedImportedVault);
   if (importedSlacktivationRecord) {
@@ -2997,6 +3107,7 @@ async function handleVaultImportFile(file) {
     const importedRecords = {};
     const importedSavedQueries = {};
     const importedCmGlobalsByEnvironment = {};
+    let importedImsRuntimeConfig = null;
     let importedSlacktivationRecord = null;
     let importableRowCount = 0;
 
@@ -3043,6 +3154,23 @@ async function handleVaultImportFile(file) {
         });
         if (record) {
           importedCmGlobalsByEnvironment[environmentKey] = record;
+          importableRowCount += 1;
+        }
+        return;
+      }
+
+      if (rowType === "underpar-adobe-ims") {
+        const record = normalizeVaultImsRuntimeConfigRecord({
+          clientId: row?.["Adobe IMS Client ID"],
+          scope: row?.["Adobe IMS Scope"],
+          rawScope: row?.["Adobe IMS Raw Scope"],
+          droppedScopes: row?.["Adobe IMS Dropped Scopes"],
+          source: row?.["Adobe IMS Source"],
+          importedAt: row?.["Adobe IMS Imported At"],
+          updatedAt: row?.["Adobe IMS Updated At"],
+        });
+        if (record?.clientId) {
+          importedImsRuntimeConfig = record;
           importableRowCount += 1;
         }
         return;
@@ -3234,6 +3362,7 @@ async function handleVaultImportFile(file) {
         globals: {
           savedQueries: importedSavedQueries,
           cmImsByEnvironment: importedCmGlobalsByEnvironment,
+          adobeIms: importedImsRuntimeConfig,
           slacktivation: importedSlacktivationRecord,
         },
         app: {
@@ -3594,7 +3723,8 @@ function hasVaultExportableData(vaultPayload = null, snapshot = null) {
   const passRecordCount = Number(snapshot?.passVaultSummary?.mediaCompanyCount || 0);
   const savedQueryCount = Number(snapshot?.savedQueryCount || 0);
   const slacktivationRecord = getVaultSlacktivationRecord(vaultPayload || snapshot?.vaultPayload || null);
-  return passRecordCount > 0 || savedQueryCount > 0 || Boolean(slacktivationRecord);
+  const imsRuntimeConfig = getVaultImsRuntimeConfig(vaultPayload || snapshot?.vaultPayload || null);
+  return passRecordCount > 0 || savedQueryCount > 0 || Boolean(slacktivationRecord) || Boolean(imsRuntimeConfig?.clientId);
 }
 
 function buildVaultSlacktivatePendingMarkup(record = null) {

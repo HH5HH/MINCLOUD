@@ -81,6 +81,7 @@ let REST_V2_BASE = String(DEFAULT_ADOBEPASS_ENVIRONMENT.restV2Base || "");
 let activeAuthPopupBootstrapContext = null;
 let PROGRAMMER_ENDPOINTS = buildProgrammerEndpointsForConsoleBase(ADOBE_CONSOLE_BASE);
 let underparTrackedFetchOriginal = null;
+let underparStateRef = null;
 const DCR_CACHE_PREFIX = "underpar_dcr_cache_v1";
 const LEGACY_DCR_CACHE_PREFIX = "mincloudlogin_dcr_cache_v1";
 const UNDERPAR_VAULT_STORAGE_KEY = "underpar_vault_v1";
@@ -218,6 +219,15 @@ const REST_V2_LOGIN_WINDOW_WIDTH = 980;
 const REST_V2_LOGIN_WINDOW_HEIGHT = 860;
 const REST_V2_LOGOUT_NAVIGATION_TIMEOUT_MS = 35000;
 const REST_V2_LOGOUT_POST_NAV_DELAY_MS = 2200;
+const BUILD_VERSION = String(chrome?.runtime?.getManifest?.()?.version || "").trim();
+const DEFAULT_ZIP_KEY_IMPORT_STATUS_MESSAGE = "Drop key.";
+const READY_ZIP_KEY_IMPORT_STATUS_MESSAGE = "Key loaded.";
+const PENDING_ZIP_KEY_IMPORT_STATUS_MESSAGE = "Loading key...";
+const DEFAULT_DEBUG_TOGGLE_LABEL = "DEBUG INFO";
+const DEFAULT_DEBUG_TOGGLE_META = "Click copies. Shift+click toggles details.";
+const DEFAULT_DEBUG_COPY_STATUS = "Copied to clipboard";
+const COPY_DEBUG_RESET_DELAY_MS = 1600;
+const UNDERPAR_DEBUG_LOG_LIMIT = 200;
 const REST_V2_POST_LOGOUT_PROFILE_CHECK_RETRIES = 3;
 const REST_V2_POST_LOGOUT_PROFILE_CHECK_DELAY_MS = 900;
 const REST_V2_POST_AUTH_PROFILE_CHECK_RETRIES = 7;
@@ -265,7 +275,7 @@ function resolveAdobePassEnvironment(value = null) {
 
 function getKnownAdobeConsoleConfigurationVersion() {
   const bootstrapState =
-    typeof state !== "undefined" && state && typeof state === "object" ? state.consoleBootstrapState : null;
+    underparStateRef && typeof underparStateRef === "object" ? underparStateRef.consoleBootstrapState : null;
   const configurationVersion = mvpdWorkspaceExtractConfigurationVersion(bootstrapState, 0);
   return configurationVersion > 0 ? configurationVersion : 0;
 }
@@ -9341,7 +9351,9 @@ function ensureSidepanelControllerPort() {
         return;
       }
       state.remoteNetworkActivityCount = Math.max(0, Number(message?.activity?.count || 0));
+      state.remoteNetworkActivityContext = String(message?.activity?.context || "").trim();
       syncGlobalNetworkActivityIndicator();
+      renderDebugConsole();
     });
     port.onDisconnect.addListener(() => {
       if (state.sidepanelControllerPort === port) {
@@ -9349,7 +9361,9 @@ function ensureSidepanelControllerPort() {
       }
       state.sidepanelControllerSnapshotKey = "";
       state.remoteNetworkActivityCount = 0;
+      state.remoteNetworkActivityContext = "";
       syncGlobalNetworkActivityIndicator();
+      renderDebugConsole();
       if (!state.sidepanelControllerShutdown) {
         scheduleSidepanelControllerReconnect();
       }
@@ -9446,12 +9460,8 @@ async function applyGlobalSelectionSnapshot(snapshot = null, options = {}) {
     result.requestorRestored = true;
   }
 
-  await hydrateProgrammerFromPassVault(programmer, {
-    forceReload: false,
-    forceOverwrite: true,
-    forceDcrRestore: true,
-  }).catch(() => null);
-
+  // Let refreshProgrammerPanels own VAULT/runtime restore so ENV switching
+  // does not restore the same Media Company twice on the critical path.
   await refreshProgrammerPanels({
     controllerReason: String(options?.controllerReason || "environment-switch"),
   });
@@ -9719,7 +9729,7 @@ function registerPassVaultStorageListener() {
 
     void seedCurrentProgrammersFromPassVault({
       forceReload: false,
-      forceOverwrite: true,
+      forceOverwrite: false,
       forceDcrRestore: true,
     }).then(() => {
       const selectedProgrammer = resolveSelectedProgrammer();
@@ -10605,6 +10615,7 @@ const state = {
   busyContext: "",
   globalNetworkActivityCount: 0,
   remoteNetworkActivityCount: 0,
+  remoteNetworkActivityContext: "",
   globalNetworkActivityContext: "",
   globalNetworkFetchTrackerInstalled: false,
   restricted: false,
@@ -10712,6 +10723,9 @@ const state = {
   passVaultCompilePromiseByProgrammerKey: new Map(),
   passVaultStorageListenerBound: false,
   manualZipKeyImportGate: false,
+  debugConsoleCollapsed: true,
+  debugCopyStatus: "",
+  logs: [],
   underparEsmDeeplinkStorageListenerBound: false,
   upDevtoolsVaultActionListenerBound: false,
   pendingUnderparEsmDeeplinkPromise: null,
@@ -10826,6 +10840,7 @@ const state = {
   restV2LoginTabWatcherBound: false,
   restV2PopupCloseProbeInFlightBySelectionKey: new Set(),
 };
+underparStateRef = state;
 
 const els = {
   authBtn: document.getElementById("auth-btn"),
@@ -10857,6 +10872,13 @@ const els = {
   restrictedLoginState: document.getElementById("restricted-login-state"),
   restrictedOrgState: document.getElementById("restricted-org-state"),
   restrictedRecoveryState: document.getElementById("restricted-recovery-state"),
+  debugConsole: document.getElementById("debugConsole"),
+  debugConsoleBody: document.getElementById("debugConsoleBody"),
+  debugToggleButton: document.getElementById("debugToggleButton"),
+  debugToggleButtonLabel: document.getElementById("debugToggleButtonLabel"),
+  debugToggleButtonMeta: document.getElementById("debugToggleButtonMeta"),
+  debugToggleStatus: document.getElementById("debugToggleStatus"),
+  logOutput: document.getElementById("logOutput"),
   workflow: document.getElementById("workflow"),
   avatarMenu: document.getElementById("avatar-menu"),
   avatarMenuImage: document.getElementById("avatar-menu-image"),
@@ -10890,13 +10912,16 @@ let megWorkspaceStylesheetTextCache = "";
 let megWorkspaceRuntimeTextCache = "";
 let clickDgrTemplateHtml = "";
 let clickDgrTemplatePromise = null;
+let debugCopyResetTimer = 0;
 
 function log(message, details = null) {
+  const normalizedMessage = String(message || "").trim() || "(no message)";
+  appendDebugLogEntry("app", normalizedMessage, details);
   if (details === null) {
-    console.log(`[UnderPAR] ${message}`);
+    console.log(`[UnderPAR] ${normalizedMessage}`);
     return;
   }
-  console.log(`[UnderPAR] ${message}`, details);
+  console.log(`[UnderPAR] ${normalizedMessage}`, details);
 }
 
 function relayDecisionLogToBackground(message, details = null) {
@@ -10915,6 +10940,429 @@ function relayDecisionLogToBackground(message, details = null) {
 function logDecisionPoint(message, details = null) {
   log(message, details);
   relayDecisionLogToBackground(message, details);
+}
+
+function setTextOutput(element, value) {
+  if (!element) {
+    return;
+  }
+  const nextValue = String(value ?? "");
+  if ("value" in element) {
+    element.value = nextValue;
+    element.scrollTop = 0;
+    return;
+  }
+  element.textContent = nextValue;
+}
+
+function sanitizeUnderparDebugInfoValue(value, options = {}) {
+  const depth = Number(options.depth || 0);
+  const keyName = String(options.keyName || "").trim().toLowerCase();
+  const seen = options.seen instanceof WeakSet ? options.seen : new WeakSet();
+  const sensitiveKey =
+    keyName.includes("token") ||
+    keyName.includes("secret") ||
+    keyName.includes("password") ||
+    keyName === "authorization" ||
+    keyName === "cookie" ||
+    keyName === "set-cookie";
+
+  if (value == null) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const redacted = redactSensitiveTokenValues(value);
+    if (sensitiveKey && redacted === value) {
+      return "<redacted>";
+    }
+    return truncateDebugText(redacted, 1000);
+  }
+
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "bigint") {
+    return String(value);
+  }
+
+  if (value instanceof Error) {
+    return {
+      name: String(value.name || "Error"),
+      message: sanitizeUnderparDebugInfoValue(value.message || "", {
+        depth: depth + 1,
+        keyName: "message",
+        seen,
+      }),
+      stack: truncateDebugText(redactSensitiveTokenValues(String(value.stack || "")), 1200),
+    };
+  }
+
+  if (value instanceof Headers) {
+    return sanitizeUnderparDebugInfoValue(toDebugHeadersObject(value), {
+      depth: depth + 1,
+      keyName,
+      seen,
+    });
+  }
+
+  if (typeof value !== "object") {
+    return sanitizeUnderparDebugInfoValue(String(value), {
+      depth: depth + 1,
+      keyName,
+      seen,
+    });
+  }
+
+  if (depth >= 4) {
+    if (Array.isArray(value)) {
+      return `[array:${value.length}]`;
+    }
+    return `[${String(value?.constructor?.name || "object")}]`;
+  }
+
+  if (seen.has(value)) {
+    return "[circular]";
+  }
+  seen.add(value);
+
+  if (Array.isArray(value)) {
+    const output = value.slice(0, 16).map((entry) =>
+      sanitizeUnderparDebugInfoValue(entry, {
+        depth: depth + 1,
+        keyName,
+        seen,
+      })
+    );
+    if (value.length > 16) {
+      output.push(`[+${value.length - 16} more]`);
+    }
+    return output;
+  }
+
+  const output = {};
+  const entries = Object.entries(value);
+  entries.slice(0, 32).forEach(([entryKey, entryValue]) => {
+    output[entryKey] = sanitizeUnderparDebugInfoValue(entryValue, {
+      depth: depth + 1,
+      keyName: entryKey,
+      seen,
+    });
+  });
+  if (entries.length > 32) {
+    output.__truncatedKeys = entries.length - 32;
+  }
+  return output;
+}
+
+function stringifyUnderparDebugInfoValue(value) {
+  if (value == null) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return truncateDebugText(redactSensitiveTokenValues(value), 600);
+  }
+  const sanitized = sanitizeUnderparDebugInfoValue(value);
+  try {
+    return truncateDebugText(JSON.stringify(sanitized), 1200);
+  } catch {
+    return truncateDebugText(String(sanitized), 600);
+  }
+}
+
+function appendDebugLogEntry(channel = "app", message = "", details = null, options = {}) {
+  const normalizedMessage = redactSensitiveTokenValues(String(message || "").trim() || "(no message)");
+  const normalizedChannel = String(channel || "app").trim() || "app";
+  const normalizedLevel = String(options.level || "info").trim().toLowerCase() || "info";
+  const sanitizedDetails =
+    details == null
+      ? null
+      : sanitizeUnderparDebugInfoValue(details, {
+          keyName: normalizedChannel,
+          seen: new WeakSet(),
+        });
+
+  state.logs.unshift({
+    at: Date.now(),
+    channel: normalizedChannel,
+    level: normalizedLevel,
+    message: normalizedMessage,
+    details: sanitizedDetails,
+  });
+  state.logs = state.logs.slice(0, UNDERPAR_DEBUG_LOG_LIMIT);
+  renderDebugConsole();
+}
+
+function compactRecentActivityEntries(entries, limit = 12) {
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return [];
+  }
+
+  return entries.slice(0, limit).map((entry) => {
+    if (typeof entry === "string") {
+      const compact = entry
+        .split(/\r?\n+/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join(" | ");
+      return compact.length > 420 ? `${compact.slice(0, 417)}...` : compact;
+    }
+    const timestamp = Number(entry?.at || 0) > 0 ? new Date(Number(entry.at || 0)).toLocaleTimeString() : "n/a";
+    const parts = [
+      timestamp,
+      String(entry?.channel || "app").trim() || "app",
+      String(entry?.message || "").trim(),
+      stringifyUnderparDebugInfoValue(entry?.details),
+    ].filter(Boolean);
+    const compact = parts.join(" | ");
+    return compact.length > 420 ? `${compact.slice(0, 417)}...` : compact;
+  });
+}
+
+function getUnderparCurrentView() {
+  if (state.restricted === true) {
+    return "restricted";
+  }
+  if (shouldShowZipKeyImportGate()) {
+    return "zip-key-gate";
+  }
+  if (state.sessionReady && state.loginData) {
+    return "authenticated";
+  }
+  return "unauthenticated";
+}
+
+function buildUnderparDebugSummaryLine(context = {}) {
+  const parts = [
+    String(context.currentView || getUnderparCurrentView()),
+    state.busy ? `busy:${String(state.busyContext || "").trim() || "yes"}` : "idle",
+    hasConfiguredUnderparImsClientId() ? "key loaded" : "key missing",
+    state.sessionReady && state.loginData ? "session active" : state.restricted ? "restricted" : "no session",
+  ];
+  if (state.cmTenantsPrecheckComplete === true) {
+    parts.push(String(state.cmTenantsPrecheckLastError || "").trim() ? "cm precheck failed" : "cm precheck ready");
+  } else if (state.cmTenantsPrecheckPending === true) {
+    parts.push("cm precheck pending");
+  }
+  if (state.updateAvailable === true) {
+    parts.push(`update ${String(state.latestVersion || "available").trim() || "available"}`);
+  }
+  return parts.join(" | ");
+}
+
+function pushDebugSection(lines, label, entries) {
+  lines.push(`[${label}]`);
+  lines.push(...entries);
+  lines.push("");
+}
+
+function composeUnderparDebugConsoleOutput() {
+  const lines = [];
+  const loginData = state.loginData && typeof state.loginData === "object" ? state.loginData : null;
+  const authContext = loginData ? buildLoginAuthContext(loginData) : {};
+  const runtimeConfig = getActiveUnderparImsRuntimeConfig();
+  const environment = getActiveAdobePassEnvironment();
+  const selectedProgrammer = resolveSelectedProgrammer();
+  const selectedProgrammerId = String(selectedProgrammer?.programmerId || "").trim();
+  const selectedServices = selectedProgrammerId ? getCurrentPremiumAppsSnapshot(selectedProgrammerId) : null;
+  const globalStatus = String(els.status?.textContent || "").trim();
+  const selectedMvpdLabel = state.selectedMvpdId
+    ? String(getRestV2MvpdPickerLabel(String(state.selectedRequestorId || "").trim(), state.selectedMvpdId) || state.selectedMvpdId).trim()
+    : "";
+  const workspaceState = {
+    esmWindowId: Number(state.esmWorkspaceWorkspaceWindowId || 0),
+    cmWindowId: Number(state.cmWorkspaceWindowId || 0),
+    degradationWindowId: Number(state.degradationWorkspaceWindowId || 0),
+    mvpdWindowId: Number(state.mvpdWorkspaceWindowId || 0),
+    restWindowId: Number(state.restWorkspaceWindowId || 0),
+    megWindowId: Number(state.megWorkspaceWindowId || 0),
+    blondieWindowId: Number(state.blondieTimeWorkspaceWindowId || 0),
+  };
+  const recentActivityEntries = compactRecentActivityEntries(state.logs, 12);
+
+  lines.push("UnderPAR DEBUG INFO");
+  lines.push(`captured_at=${new Date().toISOString()}`);
+  lines.push(`summary=${buildUnderparDebugSummaryLine({ currentView: getUnderparCurrentView() })}`);
+  lines.push("");
+
+  pushDebugSection(lines, "app", [
+    `build=${BUILD_VERSION || "unknown"}`,
+    `view=${getUnderparCurrentView()}`,
+    `url=${String(window.location.href || "").trim() || "n/a"}`,
+    `busy=${state.busy ? "yes" : "no"}`,
+    `busy_context=${String(state.busyContext || "").trim() || "n/a"}`,
+    `session_ready=${state.sessionReady ? "yes" : "no"}`,
+    `restricted=${state.restricted ? "yes" : "no"}`,
+    `zip_key_gate=${shouldShowZipKeyImportGate() ? "visible" : "hidden"}`,
+    `zip_key_status=${String(state.zipKeyImportMessage || DEFAULT_ZIP_KEY_IMPORT_STATUS_MESSAGE).trim() || DEFAULT_ZIP_KEY_IMPORT_STATUS_MESSAGE}`,
+    `global_status=${globalStatus || "n/a"}`,
+    `update_available=${state.updateAvailable ? "yes" : "no"}`,
+    `latest_version=${String(state.latestVersion || "").trim() || "n/a"}`,
+    `latest_commit=${String(state.latestCommitSha || "").trim() || "n/a"}`,
+    `debug_panel=${state.debugConsoleCollapsed ? "collapsed" : "expanded"}`,
+  ]);
+
+  pushDebugSection(lines, "identity", [
+    `display_name=${String(getLoginDisplayName(loginData) || "n/a").trim() || "n/a"}`,
+    `login_email=${String(getLoginEmail(loginData) || "n/a").trim() || "n/a"}`,
+    `principal_id=${String(authContext?.principalId || "n/a").trim() || "n/a"}`,
+    `auth_id=${String(authContext?.authId || "n/a").trim() || "n/a"}`,
+    `user_id=${String(authContext?.userId || "n/a").trim() || "n/a"}`,
+    `org_name=${String(authContext?.orgName || "n/a").trim() || "n/a"}`,
+    `org_id=${String(authContext?.orgId || "n/a").trim() || "n/a"}`,
+  ]);
+
+  pushDebugSection(lines, "session", [
+    `client_id=${String(authContext?.clientId || runtimeConfig?.clientId || "n/a").trim() || "n/a"}`,
+    `scope=${String(authContext?.scope || runtimeConfig?.scope || "n/a").trim() || "n/a"}`,
+    `session_id=${String(authContext?.sessionId || "n/a").trim() || "n/a"}`,
+    `token_id=${String(authContext?.tokenId || "n/a").trim() || "n/a"}`,
+    `access_token_fingerprint=${String(authContext?.accessTokenFingerprint || "n/a").trim() || "n/a"}`,
+    `expires_at=${Number(authContext?.expiresAt || 0) > 0 ? new Date(Number(authContext.expiresAt)).toISOString() : "n/a"}`,
+    `session_monitor_source=${String(state.sessionMonitorLastProbeSource || "n/a").trim() || "n/a"}`,
+    `session_monitor_busy=${state.sessionMonitorBusy ? "yes" : "no"}`,
+    `session_monitor_suppressed=${state.sessionMonitorSuppressed ? "yes" : "no"}`,
+  ]);
+
+  pushDebugSection(lines, "selection", [
+    `environment_key=${String(state.adobePassEnvironmentKey || environment?.key || "n/a").trim() || "n/a"}`,
+    `environment_label=${String(environment?.label || "n/a").trim() || "n/a"}`,
+    `console_base=${String(environment?.consoleBase || "n/a").trim() || "n/a"}`,
+    `mgmt_base=${String(environment?.mgmtBase || "n/a").trim() || "n/a"}`,
+    `sp_base=${String(environment?.spBase || "n/a").trim() || "n/a"}`,
+    `media_company=${String(selectedProgrammer?.programmerName || selectedProgrammer?.mediaCompanyName || "n/a").trim() || "n/a"}`,
+    `programmer_id=${selectedProgrammerId || "n/a"}`,
+    `requestor_id=${String(state.selectedRequestorId || "n/a").trim() || "n/a"}`,
+    `mvpd_id=${String(state.selectedMvpdId || "n/a").trim() || "n/a"}`,
+    `mvpd_label=${selectedMvpdLabel || "n/a"}`,
+    `premium_services=${stringifyUnderparDebugInfoValue({
+      restV2: Boolean(selectedServices?.restV2),
+      esm: Boolean(selectedServices?.esmWorkspace || selectedServices?.esm),
+      degradation: Boolean(selectedServices?.degradation),
+      cm: Boolean(selectedServices?.cm),
+      cmMvpd: Boolean(selectedServices?.cmMvpd),
+    }) || "n/a"}`,
+  ]);
+
+  pushDebugSection(lines, "cm", [
+    `catalog_hydrated=${state.cmTenantsCatalogHydrated ? "yes" : "no"}`,
+    `catalog_runtime_fresh=${state.cmTenantsCatalogRuntimeFresh ? "yes" : "no"}`,
+    `precheck_pending=${state.cmTenantsPrecheckPending ? "yes" : "no"}`,
+    `precheck_complete=${state.cmTenantsPrecheckComplete ? "yes" : "no"}`,
+    `precheck_error=${String(state.cmTenantsPrecheckLastError || "").trim() || "n/a"}`,
+    `bootstrap_qualified=${state.cmConsoleBootstrapQualified ? "yes" : "no"}`,
+    `bootstrap_summary=${stringifyUnderparDebugInfoValue(state.cmConsoleBootstrapSummary) || "n/a"}`,
+  ]);
+
+  pushDebugSection(lines, "network", [
+    `local_activity_count=${getLocalGlobalNetworkActivityCount()}`,
+    `remote_activity_count=${getRemoteGlobalNetworkActivityCount()}`,
+    `local_activity_context=${String(state.globalNetworkActivityContext || "").trim() || "n/a"}`,
+    `remote_activity_context=${String(state.remoteNetworkActivityContext || "").trim() || "n/a"}`,
+    `sidepanel_bridge_window_id=${Number(state.sidepanelControllerWindowId || 0) || "n/a"}`,
+    `sidepanel_bridge_connected=${state.sidepanelControllerPort ? "yes" : "no"}`,
+  ]);
+
+  pushDebugSection(lines, "credential", [
+    `zip_key_loaded=${runtimeConfig?.clientId ? "yes" : "no"}`,
+    `zip_key_client_id=${String(runtimeConfig?.clientId || "n/a").trim() || "n/a"}`,
+    `zip_key_scope=${String(runtimeConfig?.scope || "n/a").trim() || "n/a"}`,
+    `zip_key_raw_scope=${String(runtimeConfig?.rawScope || "n/a").trim() || "n/a"}`,
+    `zip_key_source=${String(runtimeConfig?.source || "n/a").trim() || "n/a"}`,
+    `zip_key_imported_at=${String(runtimeConfig?.importedAt || "n/a").trim() || "n/a"}`,
+    `manual_gate=${state.manualZipKeyImportGate ? "yes" : "no"}`,
+  ]);
+
+  pushDebugSection(lines, "runtime", [
+    `extension_id=${String(chrome?.runtime?.id || "n/a").trim() || "n/a"}`,
+    `browser_language=${String(navigator?.language || "n/a").trim() || "n/a"}`,
+    `browser_timezone=${String(Intl.DateTimeFormat().resolvedOptions().timeZone || "n/a").trim() || "n/a"}`,
+    `workspace_windows=${stringifyUnderparDebugInfoValue(workspaceState) || "n/a"}`,
+  ]);
+
+  pushDebugSection(
+    lines,
+    "recent_activity",
+    recentActivityEntries.length > 0
+      ? recentActivityEntries.map((entry, index) => `event_${String(index + 1).padStart(2, "0")}=${entry}`)
+      : ["event_01=Waiting for activity."]
+  );
+
+  return lines.join("\n");
+}
+
+function renderDebugConsole() {
+  if (!els.debugConsole || !els.debugToggleButton || !els.logOutput) {
+    return;
+  }
+
+  els.debugConsole.classList.toggle("is-collapsed", state.debugConsoleCollapsed === true);
+  if (els.debugConsoleBody) {
+    els.debugConsoleBody.hidden = state.debugConsoleCollapsed === true;
+  }
+  els.debugToggleButton.setAttribute("aria-expanded", state.debugConsoleCollapsed ? "false" : "true");
+  els.debugToggleButton.setAttribute(
+    "aria-label",
+    state.debugConsoleCollapsed
+      ? "DEBUG INFO. Click to copy debug info. Shift-click to expand."
+      : "DEBUG INFO. Click to copy debug info. Shift-click to collapse."
+  );
+  els.debugToggleButton.title = state.debugConsoleCollapsed
+    ? "Click to copy debug info. Shift+click to expand."
+    : "Click to copy debug info. Shift+click to collapse.";
+  if (els.debugToggleButtonLabel) {
+    els.debugToggleButtonLabel.textContent = DEFAULT_DEBUG_TOGGLE_LABEL;
+  }
+  if (els.debugToggleButtonMeta) {
+    els.debugToggleButtonMeta.textContent = DEFAULT_DEBUG_TOGGLE_META;
+  }
+  if (els.debugToggleStatus) {
+    els.debugToggleStatus.hidden = !state.debugCopyStatus;
+    els.debugToggleStatus.textContent = state.debugCopyStatus || DEFAULT_DEBUG_COPY_STATUS;
+  }
+  setTextOutput(els.logOutput, composeUnderparDebugConsoleOutput());
+}
+
+function setDebugConsoleCollapsed(collapsed) {
+  const nextValue = collapsed === true;
+  if (state.debugConsoleCollapsed === nextValue) {
+    return;
+  }
+  state.debugConsoleCollapsed = nextValue;
+  renderDebugConsole();
+}
+
+function setDebugCopyStatus(message = "") {
+  state.debugCopyStatus = String(message || "").trim();
+  renderDebugConsole();
+
+  window.clearTimeout(debugCopyResetTimer);
+  if (!state.debugCopyStatus) {
+    return;
+  }
+
+  debugCopyResetTimer = window.setTimeout(() => {
+    state.debugCopyStatus = "";
+    renderDebugConsole();
+  }, COPY_DEBUG_RESET_DELAY_MS);
+}
+
+async function copyDebugConsoleToClipboard() {
+  const snapshot = String(els.logOutput?.value || "").trim();
+  if (!snapshot) {
+    return;
+  }
+
+  const copyResult = await copyTextToClipboard(snapshot);
+  if (copyResult?.ok) {
+    setDebugCopyStatus(DEFAULT_DEBUG_COPY_STATUS);
+    return;
+  }
+
+  log("Unable to copy UnderPAR debug console", copyResult?.error || "Unknown clipboard failure.");
+  window.alert("UnderPAR could not copy the debug console to the clipboard.");
+  setDebugCopyStatus("");
 }
 
 const UNDERPAR_BROWSER_CONSOLE_TRACE_ENABLED = true;
@@ -11028,6 +11476,8 @@ function emitUnderparBrowserConsoleTrace(channel = "event", message = "", detail
   if (UNDERPAR_BROWSER_CONSOLE_TRACE_ENABLED !== true) {
     return;
   }
+  const normalizedChannel = String(channel || "event").trim() || "event";
+  const normalizedMessage = String(message || "").trim() || "(no message)";
   const requestedConsoleLevel = String(options.level || "").trim().toLowerCase();
   const consoleMethodName =
     requestedConsoleLevel === "debug"
@@ -11038,7 +11488,10 @@ function emitUnderparBrowserConsoleTrace(channel = "event", message = "", detail
   // Trace warnings/errors are intentionally logged as non-errors so Chrome's extension
   // Errors pane only reflects real uncaught failures instead of expected diagnostic noise.
   const consoleMethod = typeof console?.[consoleMethodName] === "function" ? console[consoleMethodName].bind(console) : console.log.bind(console);
-  const label = `[UnderPAR Trace][${String(channel || "event").trim() || "event"}] ${String(message || "").trim() || "(no message)"}`;
+  const label = `[UnderPAR Trace][${normalizedChannel}] ${normalizedMessage}`;
+  appendDebugLogEntry(normalizedChannel, normalizedMessage, details, {
+    level: requestedConsoleLevel || "info",
+  });
   if (details == null) {
     consoleMethod(label);
     return;
@@ -11102,6 +11555,9 @@ function setStatus(message = "", type = "info") {
   if (showAsGlobalStatus) {
     els.status.classList.add("error");
   }
+  if (normalizedMessage) {
+    appendDebugLogEntry("status", normalizedMessage, { type: normalizedType }, { level: normalizedType });
+  }
 }
 
 function summarizeUnderparImsClientId(clientId = "") {
@@ -11145,13 +11601,9 @@ function syncZipKeyImportView() {
   const hasClientId = Boolean(runtimeConfig?.clientId);
   const pending = state.zipKeyImportPending === true;
   const dragActive = state.zipKeyImportDragActive === true;
-  const clientSummary = summarizeUnderparImsClientId(runtimeConfig?.clientId || "");
-  const description = hasClientId
-    ? "Adobe IMS client is loaded in VAULT. Drop a new ZIP.KEY to replace it or continue to sign in."
-    : "UnderPAR needs a ZIP.KEY with adobe.ims.client_id before Adobe IMS sign-in can start.";
   const stateMessage = pending
-    ? "Importing ZIP.KEY into VAULT..."
-    : String(state.zipKeyImportMessage || "").trim();
+    ? PENDING_ZIP_KEY_IMPORT_STATUS_MESSAGE
+    : String(state.zipKeyImportMessage || "").trim() || (hasClientId ? READY_ZIP_KEY_IMPORT_STATUS_MESSAGE : DEFAULT_ZIP_KEY_IMPORT_STATUS_MESSAGE);
   const stateType = pending ? "info" : String(state.zipKeyImportMessageType || "info").trim().toLowerCase();
 
   if (els.zipKeyImportCard) {
@@ -11160,39 +11612,30 @@ function syncZipKeyImportView() {
     els.zipKeyImportCard.classList.toggle("is-busy", pending);
   }
   if (els.zipKeyImportTitle) {
-    els.zipKeyImportTitle.textContent = hasClientId ? "ZIP.KEY Ready" : "Import ZIP.KEY";
+    els.zipKeyImportTitle.textContent = pending ? "LOADING KEY" : "LOAD KEY";
   }
   if (els.zipKeyImportDescription) {
-    els.zipKeyImportDescription.innerHTML = hasClientId
-      ? "Adobe IMS client is loaded in VAULT. Drop a new ZIP.KEY to replace it or continue to sign in."
-      : 'UnderPAR needs a ZIP.KEY with <code>adobe.ims.client_id</code> before Adobe IMS sign-in can start.';
+    els.zipKeyImportDescription.hidden = true;
+    els.zipKeyImportDescription.textContent = "";
   }
   if (els.zipKeyImportClient) {
-    els.zipKeyImportClient.hidden = !hasClientId;
-    els.zipKeyImportClient.textContent = hasClientId ? `Active Adobe IMS client: ${clientSummary}` : "";
+    els.zipKeyImportClient.hidden = true;
+    els.zipKeyImportClient.textContent = "";
   }
   if (els.zipKeyDropzoneLabel) {
-    els.zipKeyDropzoneLabel.textContent = pending
-      ? "Importing ZIP.KEY..."
-      : hasClientId
-        ? "Drop a new ZIP.KEY here"
-        : "Drop ZIP.KEY here";
+    els.zipKeyDropzoneLabel.textContent = pending ? "LOADING KEY" : "LOAD KEY";
   }
   if (els.zipKeyDropzone) {
-    els.zipKeyDropzone.setAttribute("aria-label", pending ? "Importing ZIP.KEY" : description);
+    els.zipKeyDropzone.setAttribute("aria-label", pending ? "Loading key" : "Drop ZIP.KEY here or choose a file");
     els.zipKeyDropzone.setAttribute("aria-disabled", pending ? "true" : "false");
     els.zipKeyDropzone.tabIndex = pending ? -1 : 0;
   }
   if (els.zipKeyBrowseBtn) {
     els.zipKeyBrowseBtn.disabled = pending;
-    els.zipKeyBrowseBtn.textContent = pending ? "Importing..." : hasClientId ? "Replace ZIP.KEY" : "Choose ZIP.KEY";
-  }
-  if (els.zipKeyContinueBtn) {
-    els.zipKeyContinueBtn.hidden = !hasClientId;
-    els.zipKeyContinueBtn.disabled = pending || state.busy;
+    els.zipKeyBrowseBtn.textContent = pending ? "LOADING..." : "CHOOSE KEY";
   }
   if (els.zipKeyImportState) {
-    els.zipKeyImportState.hidden = !stateMessage;
+    els.zipKeyImportState.hidden = false;
     els.zipKeyImportState.textContent = stateMessage;
     els.zipKeyImportState.classList.remove("error", "success", "info");
     if (stateMessage) {
@@ -11212,7 +11655,7 @@ function promptForZipKeyImport() {
   }
   setStatus("", "info");
   if (!String(state.zipKeyImportMessage || "").trim()) {
-    setZipKeyImportFeedback("Choose a ZIP.KEY file to load the Adobe IMS client into VAULT.", "info");
+    setZipKeyImportFeedback(DEFAULT_ZIP_KEY_IMPORT_STATUS_MESSAGE, "info");
     render();
   }
   if (els.zipKeyFileInput) {
@@ -11273,10 +11716,6 @@ function readUnderparTextFile(file = null) {
 
 function focusPostZipKeyImportAction() {
   window.setTimeout(() => {
-    if (state.manualZipKeyImportGate === true && els.zipKeyContinueBtn && !els.zipKeyContinueBtn.hidden) {
-      els.zipKeyContinueBtn.focus();
-      return;
-    }
     if (els.signInHeroBtn && !els.signInHeroBtn.hidden) {
       els.signInHeroBtn.focus();
       return;
@@ -11290,16 +11729,13 @@ function focusPostZipKeyImportAction() {
 async function importZipKeyIntoVaultFromText(zipKeyText = "", sourceLabel = "ZIP.KEY") {
   state.zipKeyImportPending = true;
   state.zipKeyImportDragActive = false;
-  setZipKeyImportFeedback(`Importing ${String(sourceLabel || "ZIP.KEY").trim() || "ZIP.KEY"}...`, "info");
+  setZipKeyImportFeedback(PENDING_ZIP_KEY_IMPORT_STATUS_MESSAGE, "info");
   render();
 
   try {
     const result = await importUnderparImsRuntimeConfigFromZipKeyText(zipKeyText, { silent: true });
     setStatus("", "info");
-    setZipKeyImportFeedback(
-      result?.message || "ZIP.KEY imported into VAULT. Continue to sign in.",
-      "success"
-    );
+    setZipKeyImportFeedback(READY_ZIP_KEY_IMPORT_STATUS_MESSAGE, "success");
     render();
     focusPostZipKeyImportAction();
     return {
@@ -11325,17 +11761,14 @@ async function importZipKeyIntoVaultFromFile(file = null) {
   const label = String(file?.name || "ZIP.KEY").trim() || "ZIP.KEY";
   state.zipKeyImportPending = true;
   state.zipKeyImportDragActive = false;
-  setZipKeyImportFeedback(`Importing ${label}...`, "info");
+  setZipKeyImportFeedback(PENDING_ZIP_KEY_IMPORT_STATUS_MESSAGE, "info");
   render();
 
   try {
     const text = await readUnderparTextFile(file);
     const result = await importUnderparImsRuntimeConfigFromZipKeyText(text, { silent: true });
     setStatus("", "info");
-    setZipKeyImportFeedback(
-      result?.message || "ZIP.KEY imported into VAULT. Continue to sign in.",
-      "success"
-    );
+    setZipKeyImportFeedback(READY_ZIP_KEY_IMPORT_STATUS_MESSAGE, "success");
     render();
     focusPostZipKeyImportAction();
     return {
@@ -11577,12 +12010,20 @@ function installGlobalNetworkFetchTracker() {
 }
 
 function setBusy(isBusy, context = "") {
+  const nextBusy = isBusy === true;
+  const nextContext = nextBusy ? String(context || "").trim() : "";
+  if (state.busy !== nextBusy || String(state.busyContext || "") !== nextContext) {
+    appendDebugLogEntry("busy", nextBusy ? "Busy state entered" : "Busy state cleared", {
+      busy: nextBusy,
+      context: nextContext || "n/a",
+    });
+  }
   state.busy = isBusy;
-  state.busyContext = isBusy ? String(context || "").trim() : "";
+  state.busyContext = nextContext;
   syncGlobalNetworkActivityIndicator();
 
-  const shouldLockLoggedOutAuth = isBusy && isInteractiveAuthBusyContext(context);
-  els.authBtn.disabled = state.sessionReady || state.restricted ? isBusy : shouldLockLoggedOutAuth;
+  const shouldLockLoggedOutAuth = nextBusy && isInteractiveAuthBusyContext(context);
+  els.authBtn.disabled = state.sessionReady || state.restricted ? nextBusy : shouldLockLoggedOutAuth;
   if (!state.sessionReady || state.restricted) {
     const busyLabel = shouldLockLoggedOutAuth ? "Signing In..." : "Sign in to AdobePass";
     els.authBtn.title = busyLabel;
@@ -11594,9 +12035,9 @@ function setBusy(isBusy, context = "") {
     return;
   }
 
-  els.authBtn.title = isBusy ? "Working..." : "Account menu";
+  els.authBtn.title = nextBusy ? "Working..." : "Account menu";
   if (els.signInHeroBtn) {
-    els.signInHeroBtn.disabled = isBusy;
+    els.signInHeroBtn.disabled = nextBusy;
     els.signInHeroBtn.textContent = "Sign In";
   }
 }
@@ -28400,63 +28841,100 @@ function isRestV2ScopedAppMappingMissingError(error) {
 }
 
 const ZIP_THEME_PALETTE_HEX = {
-  AZURE_BLUE: "#0078D4",
-  INDIGO: "#4338CA",
-  VIOLET: "#8A3FFC",
-  PINK: "#FF94DB",
-  FUCHSIA: "#EB3FA9",
-  MAGENTA: "#C2185B",
-  PETRUS_RED: "#8B0000",
-  CARMINE: "#D4433A",
-  PUMPKIN: "#D6702A",
-  AMBER: "#C68500",
-  CHARTREUSE: "#8DB600",
-  CELERY: "#81E43A",
-  EMERALD: "#009B77",
-  CYAN: "#00A3E0",
-  CINNAMON: "#B66A50",
-  BRONZE: "#8C6A3A",
-  SILVER: "#9EA3A8",
-  SLATE_GRAY: "#6B7280",
-  CHARCOAL: "#222222",
+  BLUE: "#5681FF",
+  INDIGO: "#8077FE",
+  PURPLE: "#AD69E9",
+  FUCHSIA: "#D549EB",
+  MAGENTA: "#FF3377",
+  PINK: "#EC43AF",
+  RED: "#FC432E",
+  ORANGE: "#E06400",
+  GOLD: "#DA9F00",
+  CHARTREUSE: "#7A9300",
+  CELERY: "#4E9A17",
+  GREEN: "#099D59",
+  SEAFOAM: "#0A9A80",
+  CYAN: "#188EDC",
+  CINNAMON: "#C07750",
+  SILVER: "#BEC7D3",
+  SLATE_GRAY: "#7C8899",
 };
 
-const ESM_WORKSPACE_SEGMENT_COLORS = {
-  year: ZIP_THEME_PALETTE_HEX.AZURE_BLUE,
-  month: ZIP_THEME_PALETTE_HEX.CELERY,
-  day: ZIP_THEME_PALETTE_HEX.CARMINE,
-  hour: ZIP_THEME_PALETTE_HEX.PUMPKIN,
-  minute: ZIP_THEME_PALETTE_HEX.CINNAMON,
-  "requestor-id": ZIP_THEME_PALETTE_HEX.AMBER,
-  proxy: ZIP_THEME_PALETTE_HEX.BRONZE,
-  mvpd: ZIP_THEME_PALETTE_HEX.CYAN,
-  platform: ZIP_THEME_PALETTE_HEX.SLATE_GRAY,
-  "platform-version": ZIP_THEME_PALETTE_HEX.SILVER,
-  dc: ZIP_THEME_PALETTE_HEX.PUMPKIN,
-  "media-company": ZIP_THEME_PALETTE_HEX.BRONZE,
-  channel: ZIP_THEME_PALETTE_HEX.EMERALD,
-  "customer-app": ZIP_THEME_PALETTE_HEX.INDIGO,
-  "application-name": ZIP_THEME_PALETTE_HEX.VIOLET,
-  "application-version": ZIP_THEME_PALETTE_HEX.FUCHSIA,
-  nsdk: ZIP_THEME_PALETTE_HEX.CHARTREUSE,
-  "nsdk-version": ZIP_THEME_PALETTE_HEX.CELERY,
-  "sso-type": ZIP_THEME_PALETTE_HEX.AMBER,
-  cdt: ZIP_THEME_PALETTE_HEX.PUMPKIN,
-  eap: ZIP_THEME_PALETTE_HEX.CHARCOAL,
-  "content-category": ZIP_THEME_PALETTE_HEX.EMERALD,
-  "os-family": ZIP_THEME_PALETTE_HEX.AZURE_BLUE,
-  "browser-family": ZIP_THEME_PALETTE_HEX.CYAN,
-  "browser-version": ZIP_THEME_PALETTE_HEX.SILVER,
-  device: ZIP_THEME_PALETTE_HEX.SLATE_GRAY,
-  reason: ZIP_THEME_PALETTE_HEX.PETRUS_RED,
-  "decision-type": ZIP_THEME_PALETTE_HEX.MAGENTA,
-  duration: ZIP_THEME_PALETTE_HEX.INDIGO,
-  occurrences: ZIP_THEME_PALETTE_HEX.VIOLET,
-  "activity-level": ZIP_THEME_PALETTE_HEX.MAGENTA,
-  "concurrency-level": ZIP_THEME_PALETTE_HEX.CYAN,
-  tenant: ZIP_THEME_PALETTE_HEX.CELERY,
-  api: ZIP_THEME_PALETTE_HEX.INDIGO,
-  event: ZIP_THEME_PALETTE_HEX.FUCHSIA,
+const ESM_WORKSPACE_SEGMENT_COLOR_KEYS = {
+  year: "BLUE",
+  month: "CELERY",
+  day: "MAGENTA",
+  hour: "ORANGE",
+  minute: "GOLD",
+  "requestor-id": "GOLD",
+  proxy: "CINNAMON",
+  mvpd: "CYAN",
+  platform: "INDIGO",
+  "platform-version": "SILVER",
+  dc: "ORANGE",
+  "media-company": "CINNAMON",
+  channel: "SEAFOAM",
+  "customer-app": "PURPLE",
+  "application-name": "FUCHSIA",
+  "application-version": "PINK",
+  nsdk: "CHARTREUSE",
+  "nsdk-version": "GREEN",
+  "sso-type": "GOLD",
+  cdt: "ORANGE",
+  eap: "INDIGO",
+  "content-category": "GREEN",
+  "os-family": "BLUE",
+  "browser-family": "CYAN",
+  "browser-version": "INDIGO",
+  device: "PURPLE",
+  reason: "RED",
+  "decision-type": "MAGENTA",
+  duration: "BLUE",
+  occurrences: "PURPLE",
+  "activity-level": "FUCHSIA",
+  "concurrency-level": "CYAN",
+  tenant: "PURPLE",
+  api: "INDIGO",
+  event: "PINK",
+};
+
+const ZIP_NODE_SERVICE_PALETTE_HEX = {
+  esm: [
+    ZIP_THEME_PALETTE_HEX.GOLD,
+    ZIP_THEME_PALETTE_HEX.ORANGE,
+    ZIP_THEME_PALETTE_HEX.CELERY,
+    ZIP_THEME_PALETTE_HEX.GREEN,
+    ZIP_THEME_PALETTE_HEX.SEAFOAM,
+    ZIP_THEME_PALETTE_HEX.CYAN,
+    ZIP_THEME_PALETTE_HEX.BLUE,
+    ZIP_THEME_PALETTE_HEX.INDIGO,
+    ZIP_THEME_PALETTE_HEX.MAGENTA,
+    ZIP_THEME_PALETTE_HEX.CINNAMON,
+  ],
+  cm: [
+    ZIP_THEME_PALETTE_HEX.PURPLE,
+    ZIP_THEME_PALETTE_HEX.FUCHSIA,
+    ZIP_THEME_PALETTE_HEX.PINK,
+    ZIP_THEME_PALETTE_HEX.MAGENTA,
+    ZIP_THEME_PALETTE_HEX.INDIGO,
+    ZIP_THEME_PALETTE_HEX.BLUE,
+    ZIP_THEME_PALETTE_HEX.CYAN,
+    ZIP_THEME_PALETTE_HEX.SEAFOAM,
+    ZIP_THEME_PALETTE_HEX.GOLD,
+    ZIP_THEME_PALETTE_HEX.ORANGE,
+  ],
+  neutral: [
+    ZIP_THEME_PALETTE_HEX.BLUE,
+    ZIP_THEME_PALETTE_HEX.CYAN,
+    ZIP_THEME_PALETTE_HEX.PURPLE,
+    ZIP_THEME_PALETTE_HEX.CELERY,
+    ZIP_THEME_PALETTE_HEX.ORANGE,
+    ZIP_THEME_PALETTE_HEX.MAGENTA,
+    ZIP_THEME_PALETTE_HEX.INDIGO,
+    ZIP_THEME_PALETTE_HEX.SEAFOAM,
+    ZIP_THEME_PALETTE_HEX.GOLD,
+    ZIP_THEME_PALETTE_HEX.CINNAMON,
+  ],
 };
 
 function esmWorkspaceHexToRgb(hexValue) {
@@ -28477,9 +28955,49 @@ function esmWorkspaceHexToRgb(hexValue) {
   };
 }
 
-function esmWorkspaceGetSegmentColor(segment) {
+function zipNormalizeNodePaletteFamily(value = "") {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "cm" || normalized === "service-cm" || normalized === "service-cm-mvpd") {
+    return "cm";
+  }
+  if (normalized === "esm" || normalized === "service-esm") {
+    return "esm";
+  }
+  return "neutral";
+}
+
+function zipResolveNodePaletteFamilyFromElement(element = null) {
+  if (element?.closest?.(".service-cm, .service-cm-mvpd")) {
+    return "cm";
+  }
+  if (element?.closest?.(".service-esm")) {
+    return "esm";
+  }
+  return "neutral";
+}
+
+function zipHashString(value = "") {
+  let hash = 2166136261;
+  const text = String(value || "");
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function esmWorkspaceGetSegmentColor(segment, paletteFamily = "neutral") {
   const key = String(segment || "").trim().toLowerCase();
-  return ESM_WORKSPACE_SEGMENT_COLORS[key] || ZIP_THEME_PALETTE_HEX.SLATE_GRAY;
+  const mappedColorKey = ESM_WORKSPACE_SEGMENT_COLOR_KEYS[key];
+  if (mappedColorKey && ZIP_THEME_PALETTE_HEX[mappedColorKey]) {
+    return ZIP_THEME_PALETTE_HEX[mappedColorKey];
+  }
+  const normalizedFamily = zipNormalizeNodePaletteFamily(paletteFamily);
+  const familyPalette = ZIP_NODE_SERVICE_PALETTE_HEX[normalizedFamily] || ZIP_NODE_SERVICE_PALETTE_HEX.neutral;
+  if (!key || familyPalette.length === 0) {
+    return ZIP_THEME_PALETTE_HEX.SLATE_GRAY;
+  }
+  return familyPalette[zipHashString(key) % familyPalette.length] || ZIP_THEME_PALETTE_HEX.SLATE_GRAY;
 }
 
 const ZIP_WHITE_RGB_TRIPLET = [255, 255, 255];
@@ -28531,22 +29049,24 @@ function zipBuildTonePaletteFromRgb(baseRgbTriplet, paletteSet = "dark") {
   };
 }
 
-function zipResolveNodeToneSet(segment) {
-  const hexColor = esmWorkspaceGetSegmentColor(segment);
-  const cacheKey = String(hexColor || "").trim().toLowerCase();
+function zipResolveNodeToneSet(segment, paletteFamily = "neutral") {
+  const normalizedFamily = zipNormalizeNodePaletteFamily(paletteFamily);
+  const hexColor = esmWorkspaceGetSegmentColor(segment, normalizedFamily);
+  const cacheKey = `${normalizedFamily}|${String(hexColor || "").trim().toLowerCase()}`;
   if (ZIP_NODE_TONE_CACHE.has(cacheKey)) {
     return ZIP_NODE_TONE_CACHE.get(cacheKey);
   }
   const parsed = esmWorkspaceHexToRgb(hexColor) || { red: 107, green: 114, blue: 128 };
   const base = [parsed.red, parsed.green, parsed.blue];
-  const lightPalette = zipBuildTonePaletteFromRgb(base, "light");
-  const darkPalette = zipBuildTonePaletteFromRgb(base, "dark");
   const toneSet = {
-    // Resting state mirrors ZIP Light x Color.
-    restRgb: zipRgbTripletToCss(lightPalette["900"] || base),
-    // Interactive state mirrors ZIP Dark x Color "hot" tones.
-    hotRgb: zipRgbTripletToCss(darkPalette["1000"] || darkPalette["900"] || base),
-    activeRgb: zipRgbTripletToCss(darkPalette["1100"] || darkPalette["1000"] || base),
+    fillRgb: zipRgbTripletToCss(base),
+    borderRgb: zipRgbTripletToCss(zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.34)),
+    inkRgb: zipRgbTripletToCss(zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.72)),
+    hotRgb: zipRgbTripletToCss(zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.52)),
+    activeRgb: zipRgbTripletToCss(zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.64)),
+    shadowRgb: zipRgbTripletToCss(zipMixRgbTriplets(base, ZIP_BLACK_RGB_TRIPLET, 0.18)),
+    // Preserve the older variables for compatibility with any stale chip styles.
+    restRgb: zipRgbTripletToCss(zipMixRgbTriplets(base, ZIP_WHITE_RGB_TRIPLET, 0.34)),
   };
   ZIP_NODE_TONE_CACHE.set(cacheKey, toneSet);
   return toneSet;
@@ -28556,7 +29076,12 @@ function esmWorkspaceApplyChipColor(chipElement, segment) {
   if (!chipElement) {
     return;
   }
-  const tones = zipResolveNodeToneSet(segment);
+  const paletteFamily = zipResolveNodePaletteFamilyFromElement(chipElement);
+  const tones = zipResolveNodeToneSet(segment, paletteFamily);
+  chipElement.style.setProperty("--esm-workspace-seg-fill-rgb", tones.fillRgb);
+  chipElement.style.setProperty("--esm-workspace-seg-border-rgb", tones.borderRgb);
+  chipElement.style.setProperty("--esm-workspace-seg-ink-rgb", tones.inkRgb);
+  chipElement.style.setProperty("--esm-workspace-seg-shadow-rgb", tones.shadowRgb);
   chipElement.style.setProperty("--esm-workspace-seg-rest-rgb", tones.restRgb);
   chipElement.style.setProperty("--esm-workspace-seg-hot-rgb", tones.hotRgb);
   chipElement.style.setProperty("--esm-workspace-seg-active-rgb", tones.activeRgb);
@@ -45394,6 +45919,10 @@ function quoteShellArgument(value = "") {
   return `'${String(value == null ? "" : value).replace(/'/g, `'\"'\"'`)}'`;
 }
 
+function quoteCurlDoubleQuoted(value = "") {
+  return `"${String(value == null ? "" : value).replace(/(["\\`$])/g, "\\$1")}"`;
+}
+
 async function applyDegradationQuickSetPreset(panelState, presetKey = "", options = {}) {
   const activePanelState = panelState || getActiveDegradationWorkspaceState();
   const quickSetState = activePanelState?.quickSetState || degradationBuildQuickSetState(activePanelState);
@@ -45589,22 +46118,21 @@ function degradationBuildCheatSheetFallbackCoverage(error = null) {
 
 function degradationBuildCheatSheetCommands(panelState, context = {}) {
   const accessToken = String(context.accessToken || "").trim();
-  const buildCommandLines = (requestUrl, callSpec, options = {}) => {
+  const buildCommand = (requestUrl, callSpec, options = {}) => {
     const useFreshTokenEnv = options.useFreshTokenEnv === true;
     const useManualTokenPlaceholder = options.useManualTokenPlaceholder === true;
-    const authHeaderLine = useManualTokenPlaceholder
-      ? `--header ${quoteShellArgument("Authorization: Bearer <PASTE_FRESH_ACCESS_TOKEN_HERE>")}`
+    const method = String(callSpec?.method || "GET").trim().toUpperCase() || "GET";
+    const authHeader = useManualTokenPlaceholder
+      ? '-H "Authorization: Bearer <PASTE_FRESH_ACCESS_TOKEN_HERE>"'
       : useFreshTokenEnv
-        ? '--header "Authorization: Bearer $DGR_ACCESS_TOKEN"'
-        : `--header ${quoteShellArgument(`Authorization: Bearer ${accessToken}`)}`;
+        ? '-H "Authorization: Bearer $DGR_ACCESS_TOKEN"'
+        : `-H ${quoteCurlDoubleQuoted(`Authorization: Bearer ${accessToken}`)}`;
     return [
-      "curl --silent --show-error --location",
-      `--request ${String(callSpec?.method || "GET").trim().toUpperCase() || "GET"}`,
-      `--url ${quoteShellArgument(requestUrl)}`,
-      authHeaderLine,
-      `--header ${quoteShellArgument("Accept: application/json")}`,
-      `--header ${quoteShellArgument(`api_version: ${DEGRADATION_API_VERSION}`)}`,
-    ];
+      `curl -X ${method}`,
+      authHeader,
+      `-H ${quoteCurlDoubleQuoted(`api_version: ${DEGRADATION_API_VERSION}`)}`,
+      quoteCurlDoubleQuoted(requestUrl),
+    ].join(" ");
   };
   return DEGRADATION_CHEAT_SHEET_CALL_SPECS.map((callSpec) => {
     const requestUrl = degradationBuildCheatSheetRequestUrl(panelState, callSpec, context);
@@ -45614,9 +46142,9 @@ function degradationBuildCheatSheetCommands(panelState, context = {}) {
       method: String(callSpec?.method || "GET").trim().toUpperCase() || "GET",
       path: String(callSpec?.path || "").trim(),
       requestUrl,
-      command: buildCommandLines(requestUrl, callSpec).join(" \\\n  "),
-      freshTokenCommand: buildCommandLines(requestUrl, callSpec, { useFreshTokenEnv: true }).join(" \\\n  "),
-      manualTokenCommand: buildCommandLines(requestUrl, callSpec, { useManualTokenPlaceholder: true }).join(" \\\n  "),
+      command: buildCommand(requestUrl, callSpec),
+      freshTokenCommand: buildCommand(requestUrl, callSpec, { useFreshTokenEnv: true }),
+      manualTokenCommand: buildCommand(requestUrl, callSpec, { useManualTokenPlaceholder: true }),
       mutation: String(callSpec?.method || "GET").trim().toUpperCase() !== "GET",
     };
   });
@@ -45635,21 +46163,19 @@ function buildDegradationCheatSheetTokenBootstrap(context = {}) {
   }
 
   const tokenSetupScript = [
-    "Step 1. Mint a fresh bearer token with the hydrated client credentials:",
-    "curl --silent --show-error --location \\",
-    "  --request POST \\",
-    `  --url ${quoteShellArgument(tokenUrl)} \\`,
-    "  --header 'Content-Type: application/x-www-form-urlencoded' \\",
-    "  --header 'Accept: application/json' \\",
-    "  --data-urlencode 'grant_type=client_credentials' \\",
-    `  --data-urlencode ${quoteShellArgument(`client_id=${clientId}`)} \\`,
-    `  --data-urlencode ${quoteShellArgument(`client_secret=${clientSecret}`)} \\`,
-    `  --data-urlencode ${quoteShellArgument(`scope=${tokenScope}`)}`,
+    "Step 1. Mint a fresh bearer token:",
+    [
+      `curl -X POST ${quoteCurlDoubleQuoted(tokenUrl)}`,
+      '-H "Content-Type: application/x-www-form-urlencoded"',
+      `-d ${quoteShellArgument("grant_type=client_credentials")}`,
+      `-d ${quoteShellArgument(`client_id=${clientId}`)}`,
+      `-d ${quoteShellArgument(`client_secret=${clientSecret}`)}`,
+      `-d ${quoteShellArgument(`scope=${tokenScope}`)}`,
+    ].join(" "),
     "",
-    "Step 2. From the JSON response, copy only the access_token value.",
-    "Do not include quotes and do not include the word Bearer.",
+    "Step 2. Copy only the access_token value from the JSON response.",
     "",
-    "Step 3. Paste that fresh token anywhere you see <PASTE_FRESH_ACCESS_TOKEN_HERE> in the calls below.",
+    "Step 3. Replace <PASTE_FRESH_ACCESS_TOKEN_HERE> in the calls below.",
   ].join("\n");
 
   const manualTokenCommands = (Array.isArray(context.calls) ? context.calls : [])
@@ -45686,9 +46212,10 @@ function buildDegradationCheatSheetSetupItems(context = {}) {
   const appLabel = buildDegradationCheatSheetAppLabel(context);
   const items = [
     `Confirm the runtime context before using these commands: ${contextEnvelope || "Environment | Media Company | Requestor x MVPD"}.`,
-    `This export minted a fresh bearer token on ${String(context.generatedAtLabel || "").trim() || "generation time"} for ${appLabel}. Expected token expiry: ${String(context.tokenExpiresLabel || "unknown").trim() || "unknown"}.`,
-    'If the bearer token is stale, "no bueno", or you get HTTP 401/403, reopen UnderPAR, keep the same global RequestorId and MVPD selected, and click CHEAT again to mint a new bearer token.',
-    "After regeneration, use only the newest cheat sheet or freshly copied commands. Older exports can carry expired bearer tokens.",
+    `This export was generated on ${String(context.generatedAtLabel || "").trim() || "generation time"} for ${appLabel}. Expected token expiry: ${String(context.tokenExpiresLabel || "unknown").trim() || "unknown"}.`,
+    "Use the one-line Fresh Token Bootstrap command when the token is stale or you see HTTP 401/403.",
+    'If Terminal says "Could not resolve host: --request" or similar, the command was pasted with rich-text spacing. Re-copy it directly from this sheet.',
+    "Use only the newest cheat sheet. Older exports can carry expired bearer tokens.",
   ];
   const harvestWarning = String(context.harvestWarning || "").trim();
   if (harvestWarning) {
@@ -46417,13 +46944,11 @@ async function degradationBuildCurlCommand(panelState, options = {}) {
   const requestUrl = degradationBuildRequestUrl(activePanelState, endpointSpec, queryValues).toString();
 
   return [
-    "curl --silent --show-error --location",
-    "--request GET",
-    `--url ${quoteShellArgument(requestUrl)}`,
-    `--header ${quoteShellArgument(`Authorization: Bearer ${String(accessToken || "").trim()}`)}`,
-    `--header ${quoteShellArgument("Accept: application/json")}`,
-    `--header ${quoteShellArgument(`api_version: ${DEGRADATION_API_VERSION}`)}`,
-  ].join(" \\\n  ");
+    "curl -X GET",
+    `-H ${quoteCurlDoubleQuoted(`Authorization: Bearer ${String(accessToken || "").trim()}`)}`,
+    `-H ${quoteCurlDoubleQuoted(`api_version: ${DEGRADATION_API_VERSION}`)}`,
+    quoteCurlDoubleQuoted(requestUrl),
+  ].join(" ");
 }
 
 async function degradationCopyCurlCommandFromUi(panelState, options = {}) {
@@ -49017,210 +49542,6 @@ async function maybeReleaseRetainedAuthPopupBootstrapContext(preferredTabId = 0,
   return true;
 }
 
-function getAdobePassConsoleAuthPrimeUrl() {
-  const environment =
-    state.adobePassEnvironment && typeof state.adobePassEnvironment === "object"
-      ? state.adobePassEnvironment
-      : getActiveAdobePassEnvironment();
-  const explicitUrl = String(environment?.consoleShellUrl || "").trim();
-  if (explicitUrl) {
-    return explicitUrl;
-  }
-  const cmConsoleOrigin = String(environment?.cmConsoleOrigin || CM_CONSOLE_APP_ORIGIN || "").trim();
-  const route = String(environment?.route || "release-production").trim() || "release-production";
-  if (!cmConsoleOrigin) {
-    return "";
-  }
-  return `${cmConsoleOrigin.replace(/\/+$/, "")}/#/@adobepass/pass/authentication/${route}`;
-}
-
-function getCmConsoleAuthPrimeUrl() {
-  const environment =
-    state.adobePassEnvironment && typeof state.adobePassEnvironment === "object"
-      ? state.adobePassEnvironment
-      : getActiveAdobePassEnvironment();
-  const explicitUrl = String(environment?.cmConsoleShellUrl || "").trim();
-  if (explicitUrl) {
-    return explicitUrl;
-  }
-  const cmConsoleOrigin = String(environment?.cmConsoleOrigin || CM_CONSOLE_APP_ORIGIN || "").trim();
-  if (!cmConsoleOrigin) {
-    return "";
-  }
-  return `${cmConsoleOrigin.replace(/\/+$/, "")}/#/@adobepass/cm-console/cmu/year`;
-}
-
-async function primeCmConsoleInAuthPopup(tabId, options = {}) {
-  const normalizedTabId = Number(tabId || 0);
-  const primeUrls = uniquePreserveOrder([
-    String(options?.passConsoleUrl || getAdobePassConsoleAuthPrimeUrl()).trim(),
-    String(options?.primeUrl || getCmConsoleAuthPrimeUrl()).trim(),
-  ]).filter(Boolean);
-  if (!Number.isInteger(normalizedTabId) || normalizedTabId <= 0 || primeUrls.length === 0) {
-    return { ok: false, skipped: true, reason: "missing-tab-or-url" };
-  }
-
-  const timeoutMs = Math.max(5000, Number(options?.timeoutMs || 15000));
-  const settleMs = Math.max(0, Number(options?.settleMs || 1800));
-  const requestId = String(options?.requestId || "").trim();
-
-  try {
-    log("Priming AdobePass/CM console bootstrap tab", {
-      tabId: normalizedTabId,
-      requestId,
-      urls: primeUrls.map((value) => summarizeUrl(value)),
-    });
-    let lastNavigation = null;
-    for (const primeUrl of primeUrls) {
-      await chrome.tabs.update(normalizedTabId, {
-        url: primeUrl,
-        active: options?.activateTab === true,
-      });
-      lastNavigation = await waitForTabCompletion(normalizedTabId, timeoutMs, {
-        expectedUrl: primeUrl,
-      });
-      if (settleMs > 0) {
-        await sleepMs(settleMs);
-      }
-    }
-    log("AdobePass/CM console bootstrap tab prime complete", {
-      tabId: normalizedTabId,
-      requestId,
-      ok: lastNavigation?.ok === true,
-      reason: String(lastNavigation?.reason || ""),
-      url: summarizeUrl(lastNavigation?.url || primeUrls[primeUrls.length - 1] || ""),
-    });
-    return {
-      ok: lastNavigation?.ok === true,
-      skipped: false,
-      reason: String(lastNavigation?.reason || ""),
-      url: String(lastNavigation?.url || primeUrls[primeUrls.length - 1] || ""),
-    };
-  } catch (error) {
-    log("AdobePass/CM console bootstrap tab prime failed", {
-      tabId: normalizedTabId,
-      requestId,
-      error: error instanceof Error ? error.message : String(error),
-      urls: primeUrls.map((value) => summarizeUrl(value)),
-    });
-    return {
-      ok: false,
-      skipped: false,
-      reason: error instanceof Error ? error.message : String(error),
-      url: primeUrls[primeUrls.length - 1] || "",
-    };
-  }
-}
-
-async function openTemporaryCmConsoleBootstrapTab(options = {}) {
-  if (!chrome.tabs?.create || !chrome.tabs?.remove) {
-    return {
-      ok: false,
-      skipped: true,
-      reason: "tabs-unavailable",
-      tabId: 0,
-      windowId: 0,
-    };
-  }
-
-  const passConsoleUrl = String(options?.passConsoleUrl || getAdobePassConsoleAuthPrimeUrl()).trim();
-  const cmConsoleUrl = String(options?.primeUrl || getCmConsoleAuthPrimeUrl()).trim();
-  const initialUrl = firstNonEmptyString([passConsoleUrl, cmConsoleUrl]);
-  if (!initialUrl) {
-    return {
-      ok: false,
-      skipped: true,
-      reason: "missing-prime-url",
-      tabId: 0,
-      windowId: 0,
-    };
-  }
-
-  let createdTabId = 0;
-  let createdWindowId = 0;
-  try {
-    const createdTab = await chrome.tabs.create({
-      url: initialUrl,
-      active: false,
-    });
-    createdTabId = Number(createdTab?.id || 0);
-    createdWindowId = Number(createdTab?.windowId || 0);
-    if (createdTabId <= 0) {
-      throw new Error("Unable to create the CM bootstrap tab.");
-    }
-
-    const primeResult = await primeCmConsoleInAuthPopup(createdTabId, {
-      passConsoleUrl,
-      primeUrl: cmConsoleUrl,
-      activateTab: false,
-      timeoutMs: options?.timeoutMs,
-      settleMs: options?.settleMs,
-      requestId: options?.requestId,
-    });
-
-    return {
-      ok: primeResult?.ok === true,
-      skipped: primeResult?.skipped === true,
-      reason: String(primeResult?.reason || ""),
-      url: String(primeResult?.url || initialUrl),
-      tabId: createdTabId,
-      windowId: createdWindowId,
-    };
-  } catch (error) {
-    if (createdTabId > 0) {
-      try {
-        await chrome.tabs.remove(createdTabId);
-      } catch {
-        // Ignore bootstrap tab cleanup failures.
-      }
-    }
-    return {
-      ok: false,
-      skipped: false,
-      reason: error instanceof Error ? error.message : String(error),
-      url: initialUrl,
-      tabId: 0,
-      windowId: 0,
-    };
-  }
-}
-
-async function withTemporaryCmConsoleBootstrapContext(task, options = {}) {
-  const action = typeof task === "function" ? task : null;
-  if (!action) {
-    return null;
-  }
-
-  const explicitTabId = Number(options?.preferredTabId || 0);
-  if (explicitTabId > 0) {
-    return action(explicitTabId);
-  }
-
-  let bootstrapTabId = 0;
-  const primeResult = await openTemporaryCmConsoleBootstrapTab({
-    passConsoleUrl: options?.passConsoleUrl,
-    primeUrl: options?.primeUrl,
-    timeoutMs: options?.timeoutMs,
-    settleMs: options?.settleMs,
-    requestId: options?.requestId,
-  }).catch(() => null);
-  if (primeResult?.tabId > 0) {
-    bootstrapTabId = Number(primeResult.tabId || 0);
-  }
-
-  try {
-    return await action(bootstrapTabId);
-  } finally {
-    if (bootstrapTabId > 0) {
-      try {
-        await chrome.tabs.remove(bootstrapTabId);
-      } catch {
-        // Ignore cleanup failures for temporary CM bootstrap tabs.
-      }
-    }
-  }
-}
-
 async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
   if (!chrome.windows?.create || !chrome.tabs?.query || !chrome.tabs?.onUpdated) {
     throw new Error("Chrome popup tab monitoring is unavailable. Add the tabs permission and reload the extension.");
@@ -50165,6 +50486,13 @@ function flattenOrganizations(payload) {
   }
 
   return flattened;
+}
+
+function resolveCachedOrganizationsFromLoginData(loginData) {
+  if (!loginData || typeof loginData !== "object") {
+    return [];
+  }
+  return flattenOrganizations(loginData.organizations);
 }
 
 function extractOrgId(org) {
@@ -52094,6 +52422,8 @@ function buildLoginSessionPayloadFromAuth(authData, profile = null, imageUrl = "
       cmConsoleExpiresAt: 0,
       cmConsoleScope: "",
       cmConsoleImsSession: null,
+      organizations:
+        authData?.organizations && typeof authData.organizations === "object" ? authData.organizations : null,
       profile: normalizedProfile,
       imageUrl: resolvedImageUrl,
     },
@@ -52177,8 +52507,7 @@ function buildNormalizedLoginData(loginData = {}, options = {}) {
 
 async function resolveNormalizedLoginData(loginData = {}, options = {}) {
   const accessToken = firstNonEmptyString([loginData?.accessToken]);
-  const allowCookieProfile = options.allowCookieProfile === true;
-  const fetchProfileEnabled = options.fetchProfile !== false && (accessToken || allowCookieProfile);
+  const fetchProfileEnabled = options.fetchProfile !== false && Boolean(accessToken);
   const [profilePayload, validatedImsSession] = await Promise.all([
     fetchProfileEnabled ? fetchImsSessionProfile(accessToken).catch(() => null) : Promise.resolve(null),
     accessToken ? fetchValidateTokenSessionSnapshot(accessToken).catch(() => null) : Promise.resolve(null),
@@ -52679,7 +53008,7 @@ function buildAvatarFetchAttempts(accessToken = "", url = "") {
   const baseHeaders = {
     Accept: "image/*,*/*;q=0.8",
   };
-  const preferCookieSessionFirst = isPpsProfileImageUrl(url);
+  const preferPpsIdentitySessionFirst = isPpsProfileImageUrl(url);
 
   const attempts = [];
   const seen = new Set();
@@ -52695,7 +53024,7 @@ function buildAvatarFetchAttempts(accessToken = "", url = "") {
     attempts.push({ headers, credentials });
   };
 
-  if (preferCookieSessionFirst) {
+  if (preferPpsIdentitySessionFirst) {
     pushAttempt(baseHeaders, "include");
     pushAttempt(baseHeaders, "omit");
   }
@@ -52748,7 +53077,7 @@ function buildAvatarFetchAttempts(accessToken = "", url = "") {
     }
   }
 
-  if (!preferCookieSessionFirst) {
+  if (!preferPpsIdentitySessionFirst) {
     pushAttempt(baseHeaders, "omit");
     pushAttempt(baseHeaders, "include");
   } else {
@@ -52905,7 +53234,7 @@ function buildAvatarDataUrlPrefetchKey(loginData, url) {
   if (!sourceUrl) {
     return "";
   }
-  const tokenFingerprint = loginData?.accessToken ? String(loginData.accessToken).slice(-24) : "cookie";
+  const tokenFingerprint = loginData?.accessToken ? String(loginData.accessToken).slice(-24) : "no-token";
   const userFingerprint = getAvatarCacheIdentity(loginData);
   return `${userFingerprint}:${tokenFingerprint}:${sourceUrl}`;
 }
@@ -53587,16 +53916,20 @@ async function enforceAdobePassAccess(loginData) {
     normalizeAvatarCandidate(resolveLoginImageUrl(profileSeedData)) ||
     normalizeAvatarCandidate(readPersistedAvatarCandidate(profileSeedData)) ||
     "";
-  let organizations = [];
+  let organizations = resolveCachedOrganizationsFromLoginData(loginData);
   let orgFetchFailed = false;
 
-  try {
-    const orgPayload = await fetchOrganizations(loginData.accessToken);
-    organizations = flattenOrganizations(orgPayload);
+  if (organizations.length > 0) {
     updateRestrictedOrgOptions(organizations, loginData?.adobePassOrg || null);
-  } catch (error) {
-    orgFetchFailed = true;
-    log("Unable to fetch organizations; allowing session as unknown", error);
+  } else {
+    try {
+      const orgPayload = await fetchOrganizations(loginData.accessToken);
+      organizations = flattenOrganizations(orgPayload);
+      updateRestrictedOrgOptions(organizations, loginData?.adobePassOrg || null);
+    } catch (error) {
+      orgFetchFailed = true;
+      log("Unable to fetch organizations; allowing session as unknown", error);
+    }
   }
 
   if (orgFetchFailed) {
@@ -53606,6 +53939,7 @@ async function enforceAdobePassAccess(loginData) {
         ...loginData,
         profile: normalizedProfile,
         imageUrl: normalizedImageUrl,
+        organizations: organizations.length > 0 ? organizations : loginData?.organizations || null,
         adobePassOrg: loginData.adobePassOrg || null,
       },
     };
@@ -53620,6 +53954,7 @@ async function enforceAdobePassAccess(loginData) {
         ...loginData,
         profile: normalizedProfile,
         imageUrl: normalizedImageUrl,
+        organizations,
         adobePassOrg: loginData.adobePassOrg || null,
       },
     };
@@ -53629,6 +53964,7 @@ async function enforceAdobePassAccess(loginData) {
     ...loginData,
     profile: normalizedProfile,
     imageUrl: normalizedImageUrl,
+    organizations,
     adobePassOrg: toAdobePassOrgDescriptor(adobePassOrg, normalizedProfile),
   };
 
@@ -53652,6 +53988,7 @@ async function enforceAdobePassAccess(loginData) {
         ...switched,
         profile: switchedProfile,
       }),
+      organizations: switchedOrgs,
       adobePassOrg: toAdobePassOrgDescriptor(switchedAdobePassOrg, switchedProfile),
     };
   }
@@ -53682,14 +54019,18 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
     return false;
   }
 
-  let organizations = [];
-  try {
-    const orgPayload = await fetchOrganizations(token);
-    organizations = flattenOrganizations(orgPayload);
+  let organizations = resolveCachedOrganizationsFromLoginData(sessionData);
+  if (organizations.length > 0) {
     updateRestrictedOrgOptions(organizations, sessionData?.adobePassOrg || null);
-  } catch (error) {
-    log("Unable to load organizations for interactive AdobePass recovery", error);
-    return false;
+  } else {
+    try {
+      const orgPayload = await fetchOrganizations(token);
+      organizations = flattenOrganizations(orgPayload);
+      updateRestrictedOrgOptions(organizations, sessionData?.adobePassOrg || null);
+    } catch (error) {
+      log("Unable to load organizations for interactive AdobePass recovery", error);
+      return false;
+    }
   }
 
   if (!findAdobePassOrg(organizations)) {
@@ -53711,18 +54052,12 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
     return false;
   }
 
-  return withTemporaryCmConsoleBootstrapContext(
-    async (preferredCmBootstrapTabId) =>
-      activateSession(
-        buildLoginSessionPayloadFromAuth(switched, switched.profile, switched.imageUrl),
-        "interactive-auto-switch-recovery",
-        {
-          allowDeniedRecovery: false,
-          preferredCmBootstrapTabId,
-        }
-      ),
+  return activateSession(
+    buildLoginSessionPayloadFromAuth(switched, switched.profile, switched.imageUrl),
+    "interactive-auto-switch-recovery",
     {
-      requestId: "interactive-auto-switch-recovery",
+      allowDeniedRecovery: false,
+      allowTemporaryPageContextTab: true,
     }
   );
 }
@@ -54235,13 +54570,6 @@ function getSessionExpiryState() {
   return "fresh";
 }
 
-async function attemptSessionAutoBootstrap(trigger = "interval") {
-  // Manual-login mode: UnderPAR must remain on the sign-in screen until the
-  // user explicitly clicks Sign In. Do not auto-bootstrap cookie or silent
-  // sessions from the background monitor while logged out.
-  return false;
-}
-
 async function resetToSignedOutState(options = {}) {
   const statusMessage = String(options.statusMessage || "").trim();
   const statusType = options.statusType === "error" ? "error" : options.statusType === "success" ? "success" : "info";
@@ -54374,6 +54702,7 @@ async function applyActiveLoginSession(loginData, options = {}) {
 }
 
 async function activateSession(sessionData, source = "unknown", options = {}) {
+  const activationStartedAt = Date.now();
   const allowDeniedRecovery = options.allowDeniedRecovery !== false;
   const allowTemporaryPageContextTab = options.allowTemporaryPageContextTab === true;
   const preferredCmBootstrapTabId = Number(options.preferredCmBootstrapTabId || getRetainedAuthPopupBootstrapTabId() || 0);
@@ -54478,40 +54807,30 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     persist: true,
     scheduleRefresh: true,
   });
-  let cmTenantsPrecheckError = null;
-  try {
-    await ensureCmTenantsPrecheckForActiveSession(`session-activated:${source}`, {
-      forceRefresh: true,
-      allowTemporaryPageContextTab,
-      preferredCmBootstrapTabId,
-    });
-  } catch (error) {
-    cmTenantsPrecheckError = error instanceof Error ? error : new Error(String(error));
-  }
+  prefetchCmTenantsCatalogInBackground(`session-activated:${source}`, {
+    forceRefresh: true,
+    allowTemporaryPageContextTab,
+    preferredCmBootstrapTabId,
+  });
+  prefetchCmConsoleBootstrapSummaryInBackground(`session-activated:${source}`, {
+    forceRefresh: false,
+  });
   if (programmersLoadError) {
     const message = String(programmersLoadError?.message || "").trim();
     setStatus(
       message || "Signed in, but UnderPAR could not load media companies. Refresh the session and retry.",
       "error"
     );
-  } else if (cmTenantsPrecheckError) {
-    const message = String(cmTenantsPrecheckError?.message || "").trim();
-    setStatus(
-      message
-        ? `Global CM tenants lookup failed. Media Company selection stays disabled until CM tenants load successfully. ${message}`
-        : "Global CM tenants lookup failed. Media Company selection stays disabled until CM tenants load successfully.",
-      "error"
-    );
   } else {
     clearStatusUnlessCmTenantsPrecheckBlocked();
-  }
-  if (cmTenantsPrecheckError) {
-    queueCmConsoleAutoHydration(`session-activated:${source}`);
   }
   render();
   log(`Session activated (${source})`, {
     expiresAt: resolvedLoginData.expiresAt,
     org: resolvedLoginData.adobePassOrg,
+    programmersCount: Number(state.programmers.length || 0),
+    criticalPathMs: Math.max(0, Date.now() - activationStartedAt),
+    cmHydrationMode: "background",
   });
   return true;
 }
@@ -54824,15 +55143,10 @@ function hasCmTenantsCatalogEntries(catalog = state.cmTenantsCatalog) {
 }
 
 function isMediaCompanySelectionLockedByCmPrecheck() {
-  return Boolean(state.sessionReady && state.loginData && !state.restricted && state.cmTenantsPrecheckComplete !== true);
+  return false;
 }
 
 function getMediaCompanySelectDefaultLabel() {
-  if (isMediaCompanySelectionLockedByCmPrecheck()) {
-    return state.cmTenantsPrecheckPending || state.cmTenantsCatalogPromise || state.cmTenantsCatalogHydrationPromise
-      ? "-- Loading CM Tenants before Media Companies --"
-      : "-- Complete CM Tenants lookup before selecting --";
-  }
   return "-- Choose a Media Company --";
 }
 
@@ -60308,7 +60622,7 @@ async function persistCmTokenBootstrapResult(result = {}, options = {}) {
     return "";
   }
 
-  const current = state.loginData || createCookieSessionLoginData();
+  const current = state.loginData || createCmBootstrapSeedLoginData();
   const profileMerge = options.profileMerge && typeof options.profileMerge === "object" ? options.profileMerge : null;
   const mergedProfile = profileMerge
     ? mergeProfilePayloads(resolveLoginProfile(current), profileMerge)
@@ -61384,29 +61698,24 @@ async function hydrateCmTenantsCatalogFromStorage(options = {}) {
 
 function prefetchCmTenantsCatalogInBackground(reason = "background", options = {}) {
   const forceRefresh = options?.forceRefresh === true;
+  const allowTemporaryPageContextTab = options?.allowTemporaryPageContextTab === true;
+  const preferredCmBootstrapTabId = Number(options?.preferredCmBootstrapTabId || getRetainedAuthPopupBootstrapTabId() || 0);
   if (state.restricted || !state.sessionReady) {
     return;
   }
-  if (state.cmTenantsCatalogPromise) {
+  if (!forceRefresh && (state.cmTenantsCatalogPromise || state.cmTenantsPrecheckPending)) {
     return;
   }
   const cachedCatalog = state.cmTenantsCatalog;
   if (!forceRefresh && cachedCatalog && Array.isArray(cachedCatalog.tenants) && cachedCatalog.tenants.length > 0) {
     return;
   }
-  if (state.cmTenantsPrecheckComplete !== true) {
-    state.cmTenantsPrecheckPending = true;
-    state.cmTenantsPrecheckLastError = "";
-    syncMediaCompanySelectAvailability();
-  }
-  void ensureCmTenantsCatalog({ forceRefresh })
+  void ensureCmTenantsPrecheckForActiveSession(String(reason || "background"), {
+    forceRefresh,
+    allowTemporaryPageContextTab,
+    preferredCmBootstrapTabId,
+  })
     .then((catalog) => {
-      if (hasCmTenantsCatalogEntries(catalog)) {
-        state.cmTenantsPrecheckComplete = true;
-        state.cmTenantsPrecheckLastError = "";
-      }
-      state.cmTenantsPrecheckPending = false;
-      syncMediaCompanySelectAvailability();
       if (!catalog || typeof catalog !== "object") {
         return;
       }
@@ -61419,13 +61728,11 @@ function prefetchCmTenantsCatalogInBackground(reason = "background", options = {
       if (state.avatarMenuOpen) {
         renderAvatarMenu();
       }
+      prefetchCmConsoleBootstrapSummaryInBackground(`cm-tenant-catalog-prefetch:${reason}`, {
+        forceRefresh: false,
+      });
     })
     .catch((error) => {
-      state.cmTenantsPrecheckPending = false;
-      if (state.cmTenantsPrecheckComplete !== true) {
-        state.cmTenantsPrecheckLastError = error instanceof Error ? error.message : String(error);
-      }
-      syncMediaCompanySelectAvailability();
       log("CM tenant catalog prefetch failed", {
         reason,
         error: error instanceof Error ? error.message : String(error),
@@ -62087,8 +62394,7 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
       return [baseHeaders];
     }
     const variants = [];
-    const allowCookieFallback = isCmConfigRequestUrl(url);
-    const requiresBearerAuthorization = isCmReportsRequestUrl(url);
+    const requiresAdobeConsoleAuth = isCmReportsRequestUrl(url) || isCmConfigRequestUrl(url);
     const candidateTokens = [];
     const seenTokens = new Set();
     [
@@ -62113,7 +62419,7 @@ async function fetchCmJsonWithAuthVariants(urlCandidates, contextLabel, options 
         Authorization: `Bearer ${accessToken}`,
       });
     });
-    if (allowCookieFallback || (!requiresBearerAuthorization && variants.length === 0)) {
+    if (!requiresAdobeConsoleAuth && variants.length === 0) {
       variants.push(baseHeaders);
     }
     return variants;
@@ -62548,7 +62854,7 @@ async function ensureCmUsageWarmStateForProgrammer(programmer, cmService = null,
   };
 }
 
-async function fetchCmTenantCatalogWithSession(url = "", options = {}) {
+async function fetchCmTenantCatalogWithAuth(url = "", options = {}) {
   const requestUrl = normalizeCmUrl(url);
   if (!requestUrl) {
     throw new Error("CM tenants load failed: tenant catalog URL is missing.");
@@ -62560,16 +62866,22 @@ async function fetchCmTenantCatalogWithSession(url = "", options = {}) {
     requestUrl
   );
   const headerVariants = [];
-  const cmBearerToken = normalizeBearerTokenValue(
-    firstNonEmptyString([options?.accessToken, getPreferredCmAccessTokenCandidate()])
-  );
+  const cmBearerToken = [
+    normalizeBearerTokenValue(options?.accessToken),
+    normalizeBearerTokenValue(getPreferredCmAccessTokenCandidate()),
+    normalizeBearerTokenValue(state.loginData?.cmConsoleAccessToken || ""),
+  ].find((candidate) => candidate && tokenSupportsCmTenantCatalog(candidate));
   if (cmBearerToken && tokenSupportsCmTenantCatalog(cmBearerToken)) {
     headerVariants.push({
       ...baseHeaders,
       Authorization: `Bearer ${cmBearerToken}`,
     });
   }
-  headerVariants.push(baseHeaders);
+  if (headerVariants.length === 0) {
+    throw new Error(
+      "CM tenants load failed: UnderPAR could not auto-hydrate a cm-console-ui bearer from the current Adobe IMS session."
+    );
+  }
 
   let lastError = null;
   for (const requestHeaders of headerVariants) {
@@ -62787,7 +63099,7 @@ async function ensureCmTenantsCatalog(options = {}) {
 
       for (const tenantCatalogUrl of tenantCatalogUrls) {
         try {
-          const response = await fetchCmTenantCatalogWithSession(tenantCatalogUrl, {
+          const response = await fetchCmTenantCatalogWithAuth(tenantCatalogUrl, {
             accessToken: preferredAccessToken,
           });
           const tenants = normalizeCmTenantsFromPayload(response.parsed, response.url);
@@ -65528,23 +65840,65 @@ async function loadProgrammersData(accessToken = "") {
     return;
   }
 
-  try {
-    await ensureConsoleBootstrapState(normalizedAccessToken, {
-      forceRefresh: false,
+  let consoleBootstrapError = null;
+  const consoleBootstrapPromise = ensureConsoleBootstrapState(normalizedAccessToken, {
+    forceRefresh: false,
+  }).catch((error) => {
+    consoleBootstrapError = error instanceof Error ? error : new Error(String(error));
+    log("Console bootstrap deferred during media company load", {
+      error: consoleBootstrapError.message,
     });
-    const entities = await fetchProgrammersFromApi({
+    return null;
+  });
+
+  let entities = [];
+  let programmersLoadError = null;
+  try {
+    entities = await fetchProgrammersFromApi({
       accessToken: normalizedAccessToken,
       requireEntities: false,
     });
+  } catch (error) {
+    programmersLoadError = error instanceof Error ? error : new Error(String(error));
+  }
+
+  if (programmersLoadError || entities.length === 0) {
+    const bootstrapState = await settlePromiseWithin(consoleBootstrapPromise, 900, null);
+    if (bootstrapState && (programmersLoadError || entities.length === 0)) {
+      try {
+        entities = await fetchProgrammersFromApi({
+          accessToken: normalizedAccessToken,
+          requireEntities: false,
+        });
+        programmersLoadError = null;
+      } catch (error) {
+        if (!programmersLoadError) {
+          programmersLoadError = error instanceof Error ? error : new Error(String(error));
+        }
+      }
+    }
+  }
+
+  if (programmersLoadError) {
+    if (consoleBootstrapError) {
+      log("Media company retry followed console bootstrap failure", {
+        programmersError: programmersLoadError.message,
+        bootstrapError: consoleBootstrapError.message,
+      });
+    }
+    log("Media company load failed", programmersLoadError);
+    applyProgrammerEntities([]);
+    throw programmersLoadError;
+  }
+
+  try {
     applyProgrammerEntities(entities);
     if (state.programmers.length === 0) {
       setStatus("No media company records were returned for this account.", "error");
     }
     return true;
-  } catch (error) {
-    log("Media company load failed", error);
-    applyProgrammerEntities([]);
-    throw error;
+  } finally {
+    void consoleBootstrapPromise;
   }
 }
 
@@ -65589,7 +65943,7 @@ function applyProgrammerEntities(entities) {
   // until explicit Media Company selection or environment restore.
 }
 
-function createCookieSessionLoginData() {
+function createCmBootstrapSeedLoginData() {
   return {
     accessToken: "",
     expiresAt: 0,
@@ -65616,175 +65970,6 @@ function createCookieSessionLoginData() {
       avatarUrl: "",
     },
   };
-}
-
-async function tryActivateCookieSession(source, options = {}) {
-  const restrictOnDenied = options.restrictOnDenied === true;
-  const allowTemporaryPageContextTab = options.allowTemporaryPageContextTab === true;
-  const preferredCmBootstrapTabId = Number(options.preferredCmBootstrapTabId || getRetainedAuthPopupBootstrapTabId() || 0);
-  resetCmTenantsPrecheckState();
-  try {
-    const entities = await fetchProgrammersFromApi({
-      accessToken: "",
-      requireEntities: false,
-    });
-
-    applyProgrammerEntities(entities);
-    if (!state.loginData) {
-      state.loginData = createCookieSessionLoginData();
-    }
-
-    const cookieSessionData = await resolveNormalizedLoginData({
-      ...state.loginData,
-      adobePassOrg: state.loginData?.adobePassOrg || getDefaultAdobePassOrgDescriptor(),
-    }, {
-      allowCookieProfile: true,
-      fetchProfile: true,
-      resetBootstrapTokens: true,
-      fallbackAdobePassOrg: state.loginData?.adobePassOrg || getDefaultAdobePassOrgDescriptor(),
-    });
-
-    const cookieProfileCompleteness = getSessionProfileCompleteness(cookieSessionData);
-    if (!cookieProfileCompleteness.complete) {
-      logDecisionPoint("Cookie session rejected: incomplete profile", {
-        source,
-        missing: cookieProfileCompleteness.missing,
-        displayName: cookieProfileCompleteness.displayName,
-        principalId: cookieProfileCompleteness.principalId,
-        authId: cookieProfileCompleteness.authId,
-        userId: cookieProfileCompleteness.userId,
-        orgId: cookieProfileCompleteness.orgId,
-        orgName: cookieProfileCompleteness.orgName,
-      });
-      state.loginData = null;
-      state.sessionReady = false;
-      state.restricted = false;
-      resetWorkflowForLoggedOut();
-      clearRefreshTimer();
-      state.cmTenantsPrecheckPending = false;
-      syncMediaCompanySelectAvailability();
-      render();
-      return false;
-    }
-
-    await applyActiveLoginSession(cookieSessionData, {
-      persist: false,
-      scheduleRefresh: false,
-    });
-    let cmTenantsPrecheckError = null;
-    try {
-      await ensureCmTenantsPrecheckForActiveSession(`cookie-session:${source}`, {
-        forceRefresh: true,
-        allowTemporaryPageContextTab,
-        preferredCmBootstrapTabId,
-      });
-    } catch (error) {
-      cmTenantsPrecheckError = error instanceof Error ? error : new Error(String(error));
-    }
-    render();
-
-    if (state.programmers.length === 0) {
-      setStatus("No media company records were returned for this account.", "error");
-    } else if (cmTenantsPrecheckError) {
-      const message = String(cmTenantsPrecheckError?.message || "").trim();
-      setStatus(
-        message
-          ? `Global CM tenants lookup failed. Media Company selection stays disabled until CM tenants load successfully. ${message}`
-          : "Global CM tenants lookup failed. Media Company selection stays disabled until CM tenants load successfully.",
-        "error"
-      );
-    } else {
-      clearStatusUnlessCmTenantsPrecheckBlocked();
-    }
-
-    void hydrateCookieSessionWithProfile();
-
-    log(`Cookie session activated (${source})`, { programmersCount: state.programmers.length });
-    return true;
-  } catch (error) {
-    if (restrictOnDenied && error?.code === "PROGRAMMERS_ACCESS_DENIED") {
-      await clearLoginData();
-      resetWorkflowForLoggedOut();
-      await ensureRestrictedOrgOptionsFromToken(state.loginData?.accessToken, state.loginData?.adobePassOrg || null);
-      updateRestrictedContext(state.loginData, {
-        recoveryLabel: "Cookie session is not mapped to AdobePass access. Sign in again with the AdobePass profile.",
-      });
-      state.loginData = null;
-      state.sessionReady = false;
-      state.restricted = true;
-      setStatus("", "info");
-      render();
-    }
-    state.cmTenantsPrecheckPending = false;
-    syncMediaCompanySelectAvailability();
-    return false;
-  }
-}
-
-async function hydrateCookieSessionWithProfile() {
-  if (!state.sessionReady || state.restricted) {
-    return;
-  }
-
-  if (state.loginData?.accessToken) {
-    return;
-  }
-
-  try {
-    const silent = await attemptSilentBootstrapLogin();
-    if (!silent) {
-      const cookieProfile = await fetchImsSessionProfile("");
-      if (cookieProfile && typeof cookieProfile === "object" && state.loginData) {
-        const mergedCookieSession = buildNormalizedLoginData({
-          ...state.loginData,
-          profile: mergeProfilePayloads(resolveLoginProfile(state.loginData), cookieProfile),
-          adobePassOrg: state.loginData?.adobePassOrg || getDefaultAdobePassOrgDescriptor(),
-        }, {
-          resetBootstrapTokens: true,
-          fallbackAdobePassOrg: state.loginData?.adobePassOrg || getDefaultAdobePassOrgDescriptor(),
-        });
-        state.loginData = mergedCookieSession;
-        writePersistedAvatarCandidate(state.loginData, {
-          sourceUrl: state.loginData.imageUrl || "",
-          resolvedUrl: state.loginData.imageUrl || "",
-        });
-        state.avatarResolveKey = "";
-        render();
-      }
-      return;
-    }
-
-    const enforced = await enforceAdobePassAccess(silent);
-    if (!enforced.allowed || !enforced.loginData) {
-      return;
-    }
-
-    const hydrated = await resolveNormalizedLoginData({
-      ...enforced.loginData,
-      adobePassOrg:
-        enforced.loginData.adobePassOrg ||
-        state.loginData?.adobePassOrg ||
-        getDefaultAdobePassOrgDescriptor(),
-    }, {
-      fetchProfile: true,
-      resetBootstrapTokens: true,
-      fallbackAdobePassOrg:
-        enforced.loginData.adobePassOrg ||
-        state.loginData?.adobePassOrg ||
-        getDefaultAdobePassOrgDescriptor(),
-    });
-
-    await applyActiveLoginSession(hydrated, {
-      persist: true,
-      scheduleRefresh: true,
-    });
-    state.avatarResolveKey = "";
-    render();
-    queueCmConsoleAutoHydration("cookie-session-profile-hydrated");
-    log("Cookie session profile hydrated.");
-  } catch (error) {
-    log("Cookie session profile hydration skipped", error?.message || String(error));
-  }
 }
 
 function renderBuildInfo() {
@@ -65887,6 +66072,7 @@ function renderRestrictedView() {
 function render() {
   void syncSidepanelControllerBridge();
   syncZipKeyImportView();
+  renderDebugConsole();
 
   if (state.restricted) {
     clearResolvedAvatar();
@@ -65967,26 +66153,34 @@ async function signInInteractive() {
   setBusy(true, "Signing in...");
   setStatus("", "info");
 
+  const signInStartedAt = Date.now();
   try {
     const authData = await startLogin({
       interactive: true,
       allowFallback: true,
     });
+    const authCompletedAt = Date.now();
     resetAvatarStateForInteractiveLogin();
     const profile = await resolveProfileAfterLogin(authData);
+    const profileResolvedAt = Date.now();
     const imageUrl = resolveAuthAvatarSeed(authData, profile);
-    const activated = await withTemporaryCmConsoleBootstrapContext(async (preferredCmBootstrapTabId) => {
-      return activateSession(
-        buildLoginSessionPayloadFromAuth(authData, profile, imageUrl),
-        "interactive",
-        {
-          allowTemporaryPageContextTab: false,
-          preferredCmBootstrapTabId,
-        }
-      );
-    }, {
-      requestId: "interactive-signin",
-    });
+    const activated = await activateSession(
+      buildLoginSessionPayloadFromAuth(authData, profile, imageUrl),
+      "interactive",
+      {
+        allowTemporaryPageContextTab: true,
+      }
+    );
+
+    if (activated) {
+      log("Interactive sign-in critical path complete", {
+        authMs: Math.max(0, authCompletedAt - signInStartedAt),
+        profileMs: Math.max(0, profileResolvedAt - authCompletedAt),
+        activationMs: Math.max(0, Date.now() - profileResolvedAt),
+        totalMs: Math.max(0, Date.now() - signInStartedAt),
+        cmHydrationMode: "background",
+      });
+    }
 
     if (!activated) {
       clearStatusUnlessCmTenantsPrecheckBlocked();
@@ -66008,6 +66202,7 @@ async function refreshSessionManual() {
   setBusy(true, "Refreshing session...");
   setStatus("", "info");
 
+  const refreshStartedAt = Date.now();
   try {
     let authData;
     let usedInteractiveLogin = false;
@@ -66018,26 +66213,33 @@ async function refreshSessionManual() {
       usedInteractiveLogin = true;
     }
 
+    const authCompletedAt = Date.now();
+
     if (usedInteractiveLogin) {
       resetAvatarStateForInteractiveLogin();
     }
 
     const profile = await resolveProfileAfterLogin(authData);
+    const profileResolvedAt = Date.now();
     const imageUrl = resolveAuthAvatarSeed(authData, profile);
-    const runActivation = async (preferredCmBootstrapTabId = 0) => {
-      return activateSession(
-        buildLoginSessionPayloadFromAuth(authData, profile, imageUrl),
-        "manual-refresh",
-        {
-          preferredCmBootstrapTabId,
-        }
-      );
-    };
-    const activated = usedInteractiveLogin
-      ? await withTemporaryCmConsoleBootstrapContext(runActivation, {
-          requestId: "manual-refresh-interactive",
-        })
-      : await runActivation();
+    const activated = await activateSession(
+      buildLoginSessionPayloadFromAuth(authData, profile, imageUrl),
+      usedInteractiveLogin ? "manual-refresh-interactive" : "manual-refresh",
+      {
+        allowTemporaryPageContextTab: usedInteractiveLogin,
+      }
+    );
+
+    if (activated) {
+      log("Manual refresh critical path complete", {
+        interactive: usedInteractiveLogin,
+        authMs: Math.max(0, authCompletedAt - refreshStartedAt),
+        profileMs: Math.max(0, profileResolvedAt - authCompletedAt),
+        activationMs: Math.max(0, Date.now() - profileResolvedAt),
+        totalMs: Math.max(0, Date.now() - refreshStartedAt),
+        cmHydrationMode: usedInteractiveLogin ? "background-temporary-tab-allowed" : "background",
+      });
+    }
 
     if (!activated) {
       clearStatusUnlessCmTenantsPrecheckBlocked();
@@ -66092,18 +66294,12 @@ async function onRestrictedOrgSwitch() {
         resetAvatarStateForInteractiveLogin();
         const profile = await resolveProfileAfterLogin(authData);
         const imageUrl = resolveAuthAvatarSeed(authData, profile);
-        const activated = await withTemporaryCmConsoleBootstrapContext(
-          async (preferredCmBootstrapTabId) =>
-            activateSession(
-              buildLoginSessionPayloadFromAuth(authData, profile, imageUrl),
-              "restricted-org-switch",
-              {
-                allowDeniedRecovery: false,
-                preferredCmBootstrapTabId,
-              }
-            ),
+        const activated = await activateSession(
+          buildLoginSessionPayloadFromAuth(authData, profile, imageUrl),
+          "restricted-org-switch",
           {
-            requestId: "restricted-org-switch",
+            allowDeniedRecovery: false,
+            allowTemporaryPageContextTab: true,
           }
         );
         if (activated) {
@@ -66277,6 +66473,16 @@ function registerEventHandlers() {
     });
   }
 
+  if (els.debugToggleButton) {
+    els.debugToggleButton.addEventListener("click", (event) => {
+      if (event.shiftKey) {
+        setDebugConsoleCollapsed(!state.debugConsoleCollapsed);
+        return;
+      }
+      void copyDebugConsoleToClipboard();
+    });
+  }
+
   if (els.signInUpdateIndicator) {
     els.signInUpdateIndicator.addEventListener("click", () => {
       void triggerGetLatestWorkflow();
@@ -66325,7 +66531,9 @@ function registerEventHandlers() {
   }
 
   if (els.zipKeyBrowseBtn) {
-    els.zipKeyBrowseBtn.addEventListener("click", () => {
+    els.zipKeyBrowseBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       promptForZipKeyImport();
     });
   }
@@ -66661,6 +66869,7 @@ async function init() {
   installGlobalNetworkFetchTracker();
   syncGlobalNetworkActivityIndicator();
   renderBuildInfo();
+  renderDebugConsole();
   let environment = resolveAdobePassEnvironment(DEFAULT_ADOBEPASS_ENVIRONMENT.key);
   try {
     environment = await initializeAdobePassEnvironment();

@@ -1484,7 +1484,7 @@ async function buildAvatarFetchAttempts(accessToken = "", url = "") {
   const baseHeaders = {
     Accept: "image/*,*/*;q=0.8",
   };
-  const preferCookieSessionFirst = isPpsProfileImageUrl(url);
+  const preferPpsIdentitySessionFirst = isPpsProfileImageUrl(url);
   const avatarClientIds = accessToken ? await getBackgroundImsAvatarClientIdCandidates(accessToken) : [];
 
   const attempts = [];
@@ -1501,7 +1501,7 @@ async function buildAvatarFetchAttempts(accessToken = "", url = "") {
     attempts.push({ headers, credentials });
   };
 
-  if (preferCookieSessionFirst) {
+  if (preferPpsIdentitySessionFirst) {
     pushAttempt(baseHeaders, "include");
     pushAttempt(baseHeaders, "omit");
   }
@@ -1554,7 +1554,7 @@ async function buildAvatarFetchAttempts(accessToken = "", url = "") {
     }
   }
 
-  if (!preferCookieSessionFirst) {
+  if (!preferPpsIdentitySessionFirst) {
     pushAttempt(baseHeaders, "omit");
     pushAttempt(baseHeaders, "include");
   } else {

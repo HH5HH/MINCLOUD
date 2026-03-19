@@ -65,6 +65,10 @@
   --danger-strong-rgb: 229, 116, 131;
   --blondie-time-size: 72px;
   --blondie-time-stop-size: 26px;
+  --workspace-header-action-size: var(--blondie-time-size);
+  --workspace-header-action-icon-size: 28px;
+  --workspace-header-action-rerun-glyph-size: 22px;
+  --workspace-header-action-indicator-size: 18px;
   --blondie-time-focus-ring: rgba(var(--zip-accent-900), 0.24);
   font-family: "Avenir Next", "Segoe UI Variable", "Gill Sans MT", "Trebuchet MS", sans-serif;
 }
@@ -272,6 +276,27 @@ body::after {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.workspace-actions > .workspace-icon-btn {
+  flex: 0 0 auto;
+  width: var(--workspace-header-action-size);
+  height: var(--workspace-header-action-size);
+}
+
+.workspace-actions > .workspace-icon-btn .workspace-icon {
+  width: var(--workspace-header-action-icon-size);
+  height: var(--workspace-header-action-icon-size);
+}
+
+.workspace-actions > .workspace-icon-btn .workspace-icon--rerun-glyph {
+  min-width: var(--workspace-header-action-icon-size);
+  font-size: var(--workspace-header-action-rerun-glyph-size);
+}
+
+.workspace-actions > .workspace-icon-btn .workspace-net-indicator {
+  width: var(--workspace-header-action-indicator-size);
+  height: var(--workspace-header-action-indicator-size);
 }
 
 .workspace-blondie-time-wrap {

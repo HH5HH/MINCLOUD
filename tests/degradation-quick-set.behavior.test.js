@@ -42,11 +42,15 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(popupSource, /"cheat-sheet-error"/);
   assert.match(popupSource, /function buildDegradationCheatSheetTokenBootstrap\(/);
   assert.match(popupSource, /grant_type=client_credentials/);
-  assert.match(popupSource, /Step 1\. Mint a fresh bearer token with the hydrated client credentials:/);
-  assert.match(popupSource, /Step 3\. Paste that fresh token anywhere you see <PASTE_FRESH_ACCESS_TOKEN_HERE>/);
+  assert.match(popupSource, /Step 1\. Mint a fresh bearer token:/);
+  assert.match(popupSource, /Step 3\. Replace <PASTE_FRESH_ACCESS_TOKEN_HERE> in the calls below\./);
   assert.match(popupSource, /manualTokenCommand/);
   assert.match(popupSource, /void degradationWorkspaceSendWorkspaceMessage\("cheat-sheet-result"/);
-  assert.match(popupSource, /click CHEAT again to mint a new bearer token/);
+  assert.match(popupSource, /Could not resolve host: --request/);
+  assert.match(popupSource, /curl -X POST/);
+  assert.match(popupSource, /-H "Content-Type: application\/x-www-form-urlencoded"/);
+  assert.match(popupSource, /-H "Authorization: Bearer \$DGR_ACCESS_TOKEN"/);
+  assert.match(popupSource, /quoteCurlDoubleQuoted\(`api_version: \$\{DEGRADATION_API_VERSION\}`\)/);
   assert.ok(cheatSheetSpecBlock, "expected cheat-sheet call inventory to be declared");
   assert.deepEqual(cheatSheetKeys, [
     "get-all",
