@@ -244,6 +244,8 @@ const PREMIUM_AUTO_REFRESH_COOLDOWN_MS = 90 * 1000;
 const PREMIUM_AUTO_REFRESH_TOKEN_LEEWAY_MS = 2 * 60 * 1000;
 const PREMIUM_APPLICATIONS_FETCH_TIMEOUT_MS = 2500;
 const PREMIUM_APPLICATION_DETAIL_TIMEOUT_MS = 2500;
+const DEGRADATION_CHEAT_SHEET_FAST_AUTH_TIMEOUT_MS = 1200;
+const DEGRADATION_CHEAT_SHEET_FAST_HARVEST_TIMEOUT_MS = 1200;
 const PREMIUM_SERVICE_SCOPE_HYDRATION_CONCURRENCY = 6;
 const PREMIUM_CM_RENDER_GRACE_MS = 250;
 const PREMIUM_REQUIRED_SERVICE_KEYS = ["restV2", "esm", "degradation"];
@@ -26498,7 +26500,7 @@ async function resolveClickDgrDownloadContext(panelState = null) {
   };
 }
 
-async function resolveClickDgrAuthContext(context, requestToken, options = {}) {
+function resolveClickDgrSelectedAppContext(context, requestToken) {
   const programmer = context?.programmer || null;
   let appInfo = context?.appInfo || null;
   const panelState = context?.panelState || null;
@@ -26539,13 +26541,48 @@ async function resolveClickDgrAuthContext(context, requestToken, options = {}) {
     programmer?.programmerId,
   ]) || "Media Company";
 
+  return {
+    programmer,
+    appInfo,
+    programmerLabel,
+    mediaCompanyId: String(programmer?.programmerId || "").trim(),
+    mediaCompanyName: String(firstNonEmptyString([programmer?.programmerName, programmer?.mediaCompanyName]) || "").trim(),
+    requestorId,
+  };
+}
+
+function resolveClickDgrCachedAuthContext(context, requestToken) {
+  const selectedContext = resolveClickDgrSelectedAppContext(context, requestToken);
+  const dcrCache =
+    normalizeUnderparVaultDcrCache(
+      loadDcrCache(String(selectedContext?.programmer?.programmerId || ""), String(selectedContext?.appInfo?.guid || "")) || null
+    ) || {};
+  const tokenExpiresAt = Number(dcrCache?.tokenExpiresAt || 0);
+  const hasFreshToken = Boolean(String(dcrCache?.accessToken || "").trim()) && tokenExpiresAt > Date.now() + 60 * 1000;
+
+  return {
+    programmerLabel: selectedContext.programmerLabel,
+    mediaCompanyId: selectedContext.mediaCompanyId,
+    mediaCompanyName: selectedContext.mediaCompanyName,
+    appInfo: selectedContext.appInfo,
+    clientId: String(dcrCache?.clientId || "").trim(),
+    clientSecret: String(dcrCache?.clientSecret || "").trim(),
+    accessToken: hasFreshToken ? String(dcrCache?.accessToken || "").trim() : "",
+    accessTokenCached: hasFreshToken,
+  };
+}
+
+async function resolveClickDgrAuthContext(context, requestToken, options = {}) {
+  const selectedContext = resolveClickDgrSelectedAppContext(context, requestToken);
+  const programmer = selectedContext.programmer;
+  const appInfo = selectedContext.appInfo;
   const requiredScope = getPreferredDegradationScopeForApp(appInfo) || PREMIUM_SERVICE_SCOPE_BY_KEY.degradation;
   const accessToken = await ensureDcrAccessToken(programmer.programmerId, appInfo, options?.forceFreshToken === true, {
     service: "degradation-clickdgr",
     scope: requiredScope,
     requestorIds: Array.isArray(context?.requestorIds) ? context.requestorIds.slice(0, 24) : [],
     mvpdIds: Array.isArray(context?.mvpdIds) ? context.mvpdIds.slice(0, 24) : [],
-    requestorId: String(context?.requestorIds?.[0] || ""),
+    requestorId: String(context?.requestorIds?.[0] || selectedContext.requestorId || ""),
     mvpd: String(context?.mvpdIds?.[0] || ""),
     appGuid: String(appInfo?.guid || ""),
     appName: String(appInfo?.appName || appInfo?.guid || ""),
@@ -26561,13 +26598,53 @@ async function resolveClickDgrAuthContext(context, requestToken, options = {}) {
   }
 
   return {
-    programmerLabel,
-    mediaCompanyId: String(programmer?.programmerId || "").trim(),
-    mediaCompanyName: String(firstNonEmptyString([programmer?.programmerName, programmer?.mediaCompanyName]) || "").trim(),
+    programmerLabel: selectedContext.programmerLabel,
+    mediaCompanyId: selectedContext.mediaCompanyId,
+    mediaCompanyName: selectedContext.mediaCompanyName,
     appInfo,
     clientId,
     clientSecret,
     accessToken: resolvedAccessToken,
+  };
+}
+
+async function resolveClickDgrCheatSheetAuthContext(context, requestToken, options = {}) {
+  const cachedAuthContext = resolveClickDgrCachedAuthContext(context, requestToken);
+  const liveAuthPromise = resolveClickDgrAuthContext(context, requestToken, {
+    ...options,
+    forceFreshToken: false,
+  }).catch(() => null);
+  const fastAuthContext = await settlePromiseWithin(
+    liveAuthPromise,
+    Math.max(250, Number(options?.fastTimeoutMs || DEGRADATION_CHEAT_SHEET_FAST_AUTH_TIMEOUT_MS)),
+    null
+  );
+  if (fastAuthContext?.clientId && fastAuthContext?.clientSecret) {
+    return {
+      ...fastAuthContext,
+      authSource: "live",
+      authWarning: "",
+    };
+  }
+
+  if (cachedAuthContext?.clientId || cachedAuthContext?.clientSecret || cachedAuthContext?.accessToken || cachedAuthContext?.appInfo?.guid) {
+    return {
+      ...cachedAuthContext,
+      authSource: cachedAuthContext.accessToken ? "cache" : "cache-partial",
+      authWarning: cachedAuthContext.accessToken
+        ? "UnderPAR opened this cheat sheet immediately from cached DEGRADATION credentials. Use the Fresh Token Bootstrap if the embedded bearer is stale."
+        : "UnderPAR opened this cheat sheet immediately before a fresh DEGRADATION bearer was ready. Use the Fresh Token Bootstrap or paste a fresh bearer token into the commands below.",
+    };
+  }
+
+  return {
+    ...cachedAuthContext,
+    clientId: "",
+    clientSecret: "",
+    accessToken: "",
+    authSource: "manual-only",
+    authWarning:
+      "UnderPAR opened this cheat sheet immediately while DEGRADATION credentials were still hydrating. Commands are rendered with manual bearer placeholders.",
   };
 }
 
@@ -46504,7 +46581,9 @@ function degradationBuildCheatSheetCommands(panelState, context = {}) {
       ? '-H "Authorization: Bearer <PASTE_FRESH_ACCESS_TOKEN_HERE>"'
       : useFreshTokenEnv
         ? '-H "Authorization: Bearer $DGR_ACCESS_TOKEN"'
-        : `-H ${quoteCurlDoubleQuoted(`Authorization: Bearer ${accessToken}`)}`;
+        : accessToken
+          ? `-H ${quoteCurlDoubleQuoted(`Authorization: Bearer ${accessToken}`)}`
+          : '-H "Authorization: Bearer <PASTE_FRESH_ACCESS_TOKEN_HERE>"';
     return [
       methodPrefix,
       authHeader,
@@ -46592,6 +46671,15 @@ function buildDegradationCheatSheetSetupItems(context = {}) {
     'If Terminal says "Could not resolve host:" or similar, the command was pasted with rich-text spacing. Re-copy it directly from this sheet.',
     "Use only the newest cheat sheet. Older exports can carry expired bearer tokens.",
   ];
+  const authWarning = String(context.authWarning || "").trim();
+  if (authWarning) {
+    items.push(authWarning);
+  }
+  if (!String(context.clientId || "").trim() || !String(context.clientSecret || "").trim()) {
+    items.push(
+      "Fresh Token Bootstrap is unavailable until UnderPAR hydrates DEGRADATION client credentials for the selected application."
+    );
+  }
   const harvestWarning = String(context.harvestWarning || "").trim();
   if (harvestWarning) {
     items.push(
@@ -47141,21 +47229,34 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
     if (!downloadContext) {
       throw new Error("Unable to resolve DEGRADATION context for cheat-sheet generation.");
     }
-    const authContext = await resolveClickDgrAuthContext(downloadContext, activePanelState.requestToken, {
+    const authContext = await resolveClickDgrCheatSheetAuthContext(downloadContext, activePanelState.requestToken, {
       source: "degradation-cheat-sheet",
-      forceFreshToken: true,
     });
     const dcrCache =
       normalizeUnderparVaultDcrCache(
         loadDcrCache(String(activePanelState?.programmer?.programmerId || ""), String(authContext?.appInfo?.guid || "")) || null
       ) || {};
     let liveCoverage = degradationBuildCheatSheetFallbackCoverage();
-    let harvestWarning = "";
-    try {
-      liveCoverage = await degradationHarvestCheatSheetTargetCoverage(activePanelState, queryValues);
-    } catch (error) {
-      liveCoverage = degradationBuildCheatSheetFallbackCoverage(error);
-      harvestWarning = String(liveCoverage.warning || "").trim();
+    let harvestWarning = String(authContext?.authWarning || "").trim();
+    const shouldAttemptLiveHarvest = Boolean(String(authContext?.accessToken || "").trim());
+    if (shouldAttemptLiveHarvest) {
+      const harvestedCoverage = await settlePromiseWithin(
+        degradationHarvestCheatSheetTargetCoverage(activePanelState, queryValues),
+        DEGRADATION_CHEAT_SHEET_FAST_HARVEST_TIMEOUT_MS,
+        null
+      );
+      if (harvestedCoverage && typeof harvestedCoverage === "object") {
+        liveCoverage = harvestedCoverage;
+      } else {
+        liveCoverage = degradationBuildCheatSheetFallbackCoverage("Live /all harvest timed out.");
+        harvestWarning = firstNonEmptyString([
+          harvestWarning,
+          String(liveCoverage.warning || "").trim(),
+        ]);
+      }
+    }
+    if (liveCoverage.warning) {
+      harvestWarning = firstNonEmptyString([harvestWarning, String(liveCoverage.warning || "").trim()]);
       if (targetWindowId > 0) {
         void degradationWorkspaceSendWorkspaceMessage(
           "cheat-sheet-progress",
@@ -47219,7 +47320,7 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
       cheatSheetId: [selectionContext.selectionKey, String(generatedAt.getTime() || Date.now())].filter(Boolean).join("::"),
       title: `${programmerLabel} DEGRADATION Cheat Sheet`,
       description:
-        "All documented DEGRADATION v3 calls for the active context, generated with a fresh bearer token and live target coverage.",
+        "All documented DEGRADATION v3 calls for the active context, generated for immediate workspace use with token/bootstrap helpers when live enrichment is unavailable.",
       selectionKey: selectionContext.selectionKey,
       programmerId: String(activePanelState?.programmer?.programmerId || "").trim(),
       environmentLabel: String(getActiveAdobePassEnvironment()?.label || queryValues.adobePassEnvironmentLabel || "").trim(),
@@ -47242,6 +47343,7 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
       generatedAt: generatedAt.getTime(),
       generatedAtLabel,
       tokenExpiresLabel,
+      authWarning: String(authContext?.authWarning || "").trim(),
       harvestWarning,
       liveRowCount: Array.isArray(liveCoverage.rows) ? liveCoverage.rows.length : 0,
       callCount: commands.length,
@@ -47267,7 +47369,7 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
     }
     degradationSetControllerStatus(
       activePanelState,
-      `Loaded ${commands.length} fresh DEGRADATION cURL commands into the DEGRADATION Workspace.`,
+      `Loaded ${commands.length} DEGRADATION cURL commands into the DEGRADATION Workspace.`,
       "success"
     );
     return {

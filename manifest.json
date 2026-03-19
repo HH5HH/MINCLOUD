@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "UnderPAR",
   "short_name": "UP",
-  "version": "1.13.52",
+  "version": "1.13.54",
   "description": "UnderPAR (UP) PASS Acceleration Layer. Keep PASS workflows under par.",
   "minimum_chrome_version": "114.0.0.0",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtpo42bTNfKsM6NBkV1W3eXleUsCRGMT10vO5krXqiLGsp4jd7MeEayJh2+cm1X84tLirkfbehu6pu60b3FA85PHWF/4xQ9ODZY4aIdmeAfnPPwF2qt5SjKRtn7k54BPzk2f9snKNB7c6VuGAmQICc1cgMCO900MWN5MGZdTZL1SF/64Q0i+ve3xewdB5ly1PiPhWm3QKnDAxLsBj58Gmp6CbzM+3uqWAb4ST6alUJqbSxTOSwOmNRzg7F/xqa2QBFt2XlaHREZgXMkB60K2fq4N4I03zb0qI2BA9rQuMak56VvessrAOcCyLNDJxwtPS8PMKMhlOVpiV0ADRzd8bwQIDAQAB",
@@ -79,5 +79,5 @@
       ]
     }
   ],
-  "version_name": "1.13.52"
+  "version_name": "1.13.54"
 }

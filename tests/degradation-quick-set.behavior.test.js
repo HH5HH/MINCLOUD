@@ -25,6 +25,7 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.doesNotMatch(popupSource, /class="degradation-quick-set-btn"/);
   assert.match(popupSource, /function buildDegradationCheatSheetSetupItems\(/);
   assert.match(popupSource, /async function degradationGenerateCheatSheetFromUi\(/);
+  assert.match(popupSource, /async function resolveClickDgrCheatSheetAuthContext\(/);
   assert.match(popupSource, /Select RequestorId in the global picker first\./);
   assert.match(popupSource, /Select MVPD in the global picker first\./);
   assert.match(
@@ -40,6 +41,8 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(popupSource, /syncReports:\s*false/);
   assert.match(popupSource, /function degradationBuildCheatSheetFallbackCoverage\(/);
   assert.match(popupSource, /Live \/all harvest failed\. Building cheat sheet with fallback defaults\./);
+  assert.match(popupSource, /DEGRADATION_CHEAT_SHEET_FAST_AUTH_TIMEOUT_MS = 1200/);
+  assert.match(popupSource, /DEGRADATION_CHEAT_SHEET_FAST_HARVEST_TIMEOUT_MS = 1200/);
   assert.match(popupSource, /"cheat-sheet-start"/);
   assert.match(popupSource, /"cheat-sheet-progress"/);
   assert.match(popupSource, /"cheat-sheet-error"/);
@@ -52,9 +55,16 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(popupSource, /Step 3\. Replace <PASTE_FRESH_ACCESS_TOKEN_HERE> in the calls below\./);
   assert.match(popupSource, /manualTokenCommand/);
   assert.match(popupSource, /void degradationWorkspaceSendWorkspaceMessage\("cheat-sheet-result"/);
+  assert.match(popupSource, /degradationHarvestCheatSheetTargetCoverage\(activePanelState, queryValues\)/);
+  assert.match(popupSource, /resolveClickDgrAuthContext\(context, requestToken, \{\s*\.\.\.options,\s*forceFreshToken: false,/);
+  assert.doesNotMatch(popupSource, /source:\s*"degradation-cheat-sheet",\s*forceFreshToken:\s*true/);
   assert.match(popupSource, /Could not resolve host:/);
   assert.doesNotMatch(popupSource, /Could not resolve host: --request/);
   assert.match(popupSource, /const methodPrefix = method === "GET" \? "curl" : `curl -X \$\{method\}`;/);
+  assert.match(
+    popupSource,
+    /: accessToken\s*\?\s*`-H \$\{quoteCurlDoubleQuoted\(`Authorization: Bearer \$\{accessToken\}`\)\}`\s*:\s*'-H "Authorization: Bearer <PASTE_FRESH_ACCESS_TOKEN_HERE>"'/
+  );
   assert.match(popupSource, /const tokenRequestBody = new URLSearchParams\(\{/);
   assert.match(popupSource, /curl \$\{quoteCurlDoubleQuoted\(tokenUrl\)\}/);
   assert.match(popupSource, /-d \$\{quoteCurlDoubleQuoted\(tokenRequestBody\)\}/);
