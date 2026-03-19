@@ -1618,6 +1618,7 @@ function buildCurrentLapExportPayload(options = {}) {
 function buildLapHistoryEntry(exportPayload = null) {
   const payload = exportPayload && typeof exportPayload === "object" ? exportPayload : buildCurrentLapExportPayload();
   const current = buildCurrentLapSummary();
+  const orderedCards = getOrderedCards();
   return {
     lapNumber: state.sessionHistory.length + 1,
     firedAt: Date.now(),
@@ -1628,7 +1629,8 @@ function buildLapHistoryEntry(exportPayload = null) {
     authzHits: current.authzHits,
     latencyHits: current.latencyHits,
     exportPayload: cloneJson(payload, null),
-    tableSummaries: getOrderedCards().map((cardState) => ({
+    offenderSnapshots: orderedCards.flatMap((cardState) => buildSessionOffenderSnapshotsForCard(cardState)),
+    tableSummaries: orderedCards.map((cardState) => ({
       title: firstNonEmptyString([cardState.displayNodeLabel, cardState.endpointUrl, cardState.cardId]),
       summary: cloneJson(cardState.analysis?.summary, {}),
       offendingRows: Math.max(0, Number(cardState.analysis?.summary?.offendingRows || 0)),
@@ -1701,15 +1703,123 @@ function parseDisplayMetricValue(value = "") {
   return Number.isFinite(numeric) ? numeric : null;
 }
 
-function getSessionPerformerLabel(rowMap = new Map()) {
+function getSessionFieldValue(source = null, key = "") {
+  const normalizedKey = String(key || "").trim();
+  if (!normalizedKey || !source) {
+    return "";
+  }
+  if (source instanceof Map) {
+    const value = source.get(normalizedKey);
+    return value == null ? "" : String(value);
+  }
+  if (typeof source === "object") {
+    const value = source[normalizedKey];
+    return value == null ? "" : String(value);
+  }
+  return "";
+}
+
+function getSessionSourceLabel(source = null) {
   return firstNonEmptyString([
-    rowMap.get("mvpd"),
-    rowMap.get("requestor-id"),
-    rowMap.get("channel"),
-    rowMap.get("resource-id"),
-    rowMap.get("Analysis Table"),
+    getSessionFieldValue(source, "mvpd"),
+    getSessionFieldValue(source, "requestor-id"),
+    getSessionFieldValue(source, "channel"),
+    getSessionFieldValue(source, "resource-id"),
+    getSessionFieldValue(source, "service-provider"),
+    getSessionFieldValue(source, "site-name"),
+    getSessionFieldValue(source, "partner"),
+    getSessionFieldValue(source, "Analysis Table"),
     "Unknown MVPD",
   ]);
+}
+
+function extractThresholdHitKeysFromSummary(value = "") {
+  const summary = String(value || "").trim();
+  const keys = [];
+  if (!summary) {
+    return keys;
+  }
+  if (/AuthN/i.test(summary)) {
+    keys.push("authn");
+  }
+  if (/AuthZ/i.test(summary)) {
+    keys.push("authz");
+  }
+  if (/Latency/i.test(summary)) {
+    keys.push("latency");
+  }
+  return keys;
+}
+
+function buildSessionOffenderSnapshotFromSource(source = null, options = {}) {
+  const thresholdSummary = firstNonEmptyString([options.thresholdSummary, getSessionFieldValue(source, "Threshold Hits")]);
+  const authnSuccessPercent =
+    options.authnSuccessPercent != null ? Number(options.authnSuccessPercent) : parseDisplayMetricValue(getSessionFieldValue(source, "AuthN Success"));
+  const authzSuccessPercent =
+    options.authzSuccessPercent != null ? Number(options.authzSuccessPercent) : parseDisplayMetricValue(getSessionFieldValue(source, "AuthZ Success"));
+  const avgLatencyMs =
+    options.avgLatencyMs != null ? Number(options.avgLatencyMs) : parseDisplayMetricValue(getSessionFieldValue(source, "Avg AuthZ Latency"));
+  return {
+    label: getSessionSourceLabel(source),
+    tableTitle: firstNonEmptyString([options.tableTitle, getSessionFieldValue(source, "Analysis Table"), "Analysis Table"]),
+    dateLabel: firstNonEmptyString([options.dateLabel, getSessionFieldValue(source, "DATE"), "—"]),
+    thresholdSummary,
+    hitKeys: Array.isArray(options.hitKeys) && options.hitKeys.length > 0 ? options.hitKeys.slice() : extractThresholdHitKeysFromSummary(thresholdSummary),
+    authnSuccessPercent: Number.isFinite(authnSuccessPercent) ? authnSuccessPercent : null,
+    authzSuccessPercent: Number.isFinite(authzSuccessPercent) ? authzSuccessPercent : null,
+    avgLatencyMs: Number.isFinite(avgLatencyMs) ? avgLatencyMs : null,
+    requestorId: firstNonEmptyString([options.requestorId, getSessionFieldValue(source, "requestor-id")]),
+    mvpd: firstNonEmptyString([options.mvpd, getSessionFieldValue(source, "mvpd")]),
+    proxy: firstNonEmptyString([options.proxy, getSessionFieldValue(source, "proxy")]),
+    resourceId: firstNonEmptyString([options.resourceId, getSessionFieldValue(source, "resource-id")]),
+  };
+}
+
+function getSessionPerformerLabel(rowMap = new Map()) {
+  return getSessionSourceLabel(rowMap);
+}
+
+function buildSessionOffenderSnapshotsForCard(cardState = null) {
+  const tableTitle = firstNonEmptyString([cardState?.displayNodeLabel, cardState?.endpointUrl, cardState?.cardId, "Analysis Table"]);
+  return (Array.isArray(cardState?.offendingRows) ? cardState.offendingRows : [])
+    .map((row) => {
+      const metrics = row?.__btMetrics && typeof row.__btMetrics === "object" ? row.__btMetrics : BLONDIE_TIME_LOGIC.computeRowMetrics(row);
+      const hits = Array.isArray(row?.__btThresholdHits) ? row.__btThresholdHits : [];
+      return buildSessionOffenderSnapshotFromSource(row, {
+        tableTitle,
+        dateLabel: buildEsmDateLabel(row),
+        thresholdSummary: firstNonEmptyString([row?.__btThresholdSummary, buildExportRowThresholdSummary(row)]),
+        hitKeys: hits.map((hit) => String(hit?.key || "").trim()).filter(Boolean),
+        authnSuccessPercent: metrics.authnSuccessPercent,
+        authzSuccessPercent: metrics.authzSuccessPercent,
+        avgLatencyMs: metrics.avgLatencyMs,
+      });
+    })
+    .filter((snapshot) => snapshot.thresholdSummary && snapshot.thresholdSummary !== "No hits");
+}
+
+function getLapOffenderSnapshots(lap = null) {
+  const explicitSnapshots = Array.isArray(lap?.offenderSnapshots) ? lap.offenderSnapshots.filter(Boolean) : [];
+  if (explicitSnapshots.length > 0) {
+    return explicitSnapshots;
+  }
+  const payloadHeaders = Array.isArray(lap?.exportPayload?.columns) ? lap.exportPayload.columns : [];
+  const payloadRows = Array.isArray(lap?.exportPayload?.rows) ? lap.exportPayload.rows : [];
+  return payloadRows
+    .map((payloadRow) => {
+      const rowMap = new Map();
+      payloadHeaders.forEach((header, index) => {
+        rowMap.set(header, payloadRow[index] ?? "");
+      });
+      const thresholdSummary = String(rowMap.get("Threshold Hits") || "").trim();
+      if (!thresholdSummary || thresholdSummary === "No hits" || /^Filtered low-volume/i.test(thresholdSummary)) {
+        return null;
+      }
+      return buildSessionOffenderSnapshotFromSource(rowMap, {
+        thresholdSummary,
+      });
+    })
+    .filter(Boolean);
 }
 
 function collectSessionPerformerSummaries() {
@@ -1764,6 +1874,182 @@ function collectSessionPerformerSummaries() {
   }));
 }
 
+function formatSessionOffenderHitSummary(offender = null) {
+  const parts = [];
+  if (Number(offender?.authnHitRows || 0) > 0) {
+    parts.push(`AuthN ${formatInteger(offender.authnHitRows)}`);
+  }
+  if (Number(offender?.authzHitRows || 0) > 0) {
+    parts.push(`AuthZ ${formatInteger(offender.authzHitRows)}`);
+  }
+  if (Number(offender?.latencyHitRows || 0) > 0) {
+    parts.push(`Latency ${formatInteger(offender.latencyHitRows)}`);
+  }
+  return parts.join(" | ") || "—";
+}
+
+function formatSessionOffenderTableSummary(offender = null) {
+  const tables = Array.isArray(offender?.tables) ? offender.tables.filter(Boolean) : [];
+  if (tables.length === 0) {
+    return "—";
+  }
+  if (tables.length === 1) {
+    return tables[0];
+  }
+  return `${tables[0]} +${tables.length - 1} more`;
+}
+
+function formatSessionOffenderWorstSnapshot(offender = null) {
+  const parts = [];
+  if (Number(offender?.authnHitRows || 0) > 0 && offender?.worstAuthn != null) {
+    parts.push(`AuthN ${formatPercent(offender.worstAuthn)}`);
+  }
+  if (Number(offender?.authzHitRows || 0) > 0 && offender?.worstAuthz != null) {
+    parts.push(`AuthZ ${formatPercent(offender.worstAuthz)}`);
+  }
+  if (Number(offender?.latencyHitRows || 0) > 0 && offender?.highestLatency != null) {
+    parts.push(`Latency ${formatLatency(offender.highestLatency)}`);
+  }
+  return parts.join(" | ") || firstNonEmptyString([offender?.latestThresholdSummary, "—"]);
+}
+
+function formatLatestLapOffenderLabels(snapshots = [], limit = 4) {
+  const labels = [];
+  const seen = new Set();
+  (Array.isArray(snapshots) ? snapshots : []).forEach((snapshot) => {
+    const label = String(snapshot?.label || "").trim();
+    const key = label.toLowerCase();
+    if (!label || seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    labels.push(label);
+  });
+  if (labels.length === 0) {
+    return "None";
+  }
+  if (labels.length <= limit) {
+    return labels.join(", ");
+  }
+  return `${labels.slice(0, limit).join(", ")} +${labels.length - limit} more`;
+}
+
+function collectSessionOffenderSummaries(sessionHistoryInput = state.sessionHistory) {
+  const sessionHistory = Array.isArray(sessionHistoryInput) ? sessionHistoryInput : [];
+  const latestLap = sessionHistory.length > 0 ? sessionHistory[sessionHistory.length - 1] : null;
+  const latestLapSnapshots = getLapOffenderSnapshots(latestLap);
+  const offenderMap = new Map();
+  const uniqueOffenderLabels = new Set();
+  const totals = {
+    totalOffenderRows: 0,
+    authnHitRows: 0,
+    authzHitRows: 0,
+    latencyHitRows: 0,
+    lapsWithHits: 0,
+  };
+
+  sessionHistory.forEach((lap) => {
+    const snapshots = getLapOffenderSnapshots(lap);
+    if (snapshots.length > 0) {
+      totals.lapsWithHits += 1;
+    }
+    snapshots.forEach((snapshot) => {
+      totals.totalOffenderRows += 1;
+      const hasAuthn = snapshot.hitKeys.includes("authn");
+      const hasAuthz = snapshot.hitKeys.includes("authz");
+      const hasLatency = snapshot.hitKeys.includes("latency");
+      if (hasAuthn) {
+        totals.authnHitRows += 1;
+      }
+      if (hasAuthz) {
+        totals.authzHitRows += 1;
+      }
+      if (hasLatency) {
+        totals.latencyHitRows += 1;
+      }
+      const labelKey = String(snapshot.label || "").trim().toLowerCase();
+      if (labelKey) {
+        uniqueOffenderLabels.add(labelKey);
+      }
+      const key = `${String(snapshot.tableTitle || "").trim().toLowerCase()}::${String(snapshot.label || "").trim().toLowerCase()}`;
+      if (!offenderMap.has(key)) {
+        offenderMap.set(key, {
+          label: snapshot.label || "Unknown MVPD",
+          tables: new Set(),
+          rowHits: 0,
+          authnHitRows: 0,
+          authzHitRows: 0,
+          latencyHitRows: 0,
+          worstAuthn: null,
+          worstAuthz: null,
+          highestLatency: null,
+          latestThresholdSummary: "",
+          lastSeenAt: 0,
+        });
+      }
+      const offender = offenderMap.get(key);
+      offender.tables.add(String(snapshot.tableTitle || "").trim());
+      offender.rowHits += 1;
+      if (hasAuthn) {
+        offender.authnHitRows += 1;
+      }
+      if (hasAuthz) {
+        offender.authzHitRows += 1;
+      }
+      if (hasLatency) {
+        offender.latencyHitRows += 1;
+      }
+      if (snapshot.authnSuccessPercent != null) {
+        offender.worstAuthn =
+          offender.worstAuthn == null ? snapshot.authnSuccessPercent : Math.min(offender.worstAuthn, snapshot.authnSuccessPercent);
+      }
+      if (snapshot.authzSuccessPercent != null) {
+        offender.worstAuthz =
+          offender.worstAuthz == null ? snapshot.authzSuccessPercent : Math.min(offender.worstAuthz, snapshot.authzSuccessPercent);
+      }
+      if (snapshot.avgLatencyMs != null) {
+        offender.highestLatency =
+          offender.highestLatency == null ? snapshot.avgLatencyMs : Math.max(offender.highestLatency, snapshot.avgLatencyMs);
+      }
+      offender.latestThresholdSummary = firstNonEmptyString([snapshot.thresholdSummary, offender.latestThresholdSummary]);
+      offender.lastSeenAt = Math.max(offender.lastSeenAt, Number(lap?.firedAt || 0));
+    });
+  });
+
+  const topOffenders = Array.from(offenderMap.values())
+    .map((offender) => {
+      const normalized = {
+        ...offender,
+        tables: Array.from(offender.tables).filter(Boolean),
+      };
+      return {
+        ...normalized,
+        hitSummary: formatSessionOffenderHitSummary(normalized),
+        tableSummary: formatSessionOffenderTableSummary(normalized),
+        worstSnapshot: formatSessionOffenderWorstSnapshot(normalized),
+      };
+    })
+    .sort((left, right) => {
+      if (right.rowHits !== left.rowHits) {
+        return right.rowHits - left.rowHits;
+      }
+      if (right.lastSeenAt !== left.lastSeenAt) {
+        return right.lastSeenAt - left.lastSeenAt;
+      }
+      return String(left.label || "").localeCompare(String(right.label || ""));
+    })
+    .slice(0, 8);
+
+  return {
+    ...totals,
+    uniqueOffenders: uniqueOffenderLabels.size,
+    latestLapOffenderRows: latestLapSnapshots.length,
+    latestLapOffenderLabels: formatLatestLapOffenderLabels(latestLapSnapshots),
+    latestLapAt: Math.max(0, Number(latestLap?.firedAt || 0)),
+    topOffenders,
+  };
+}
+
 function pickSessionPerformer(performers = [], metricKey = "", direction = "max") {
   const source = Array.isArray(performers) ? performers : [];
   const sorted = source
@@ -1779,7 +2065,7 @@ function pickSessionPerformer(performers = [], metricKey = "", direction = "max"
 function buildSessionSummaryModel() {
   const tableHitCounts = new Map();
   let capturedRows = 0;
-  const performers = collectSessionPerformerSummaries();
+  const offenderSummary = collectSessionOffenderSummaries();
 
   state.sessionHistory.forEach((lap) => {
     const payload = lap?.exportPayload;
@@ -1803,12 +2089,7 @@ function buildSessionSummaryModel() {
     capturedRows,
     sessionWindow,
     topTables,
-    bestAuthn: pickSessionPerformer(performers, "averageAuthn", "max"),
-    bestAuthz: pickSessionPerformer(performers, "averageAuthz", "max"),
-    lowestLatency: pickSessionPerformer(performers, "averageLatency", "min"),
-    worstAuthn: pickSessionPerformer(performers, "averageAuthn", "min"),
-    worstAuthz: pickSessionPerformer(performers, "averageAuthz", "min"),
-    highestLatency: pickSessionPerformer(performers, "averageLatency", "max"),
+    ...offenderSummary,
   };
 }
 
@@ -1840,6 +2121,19 @@ function buildSessionSummaryMarkup(model = null, options = {}) {
       `
     )
     .join("");
+  const offenderTableRows = (Array.isArray(summaryModel.topOffenders) ? summaryModel.topOffenders : [])
+    .map(
+      (offender) => `
+        <tr>
+          <td>${escapeHtml(offender.label || "Unknown MVPD")}</td>
+          <td>${escapeHtml(offender.tableSummary || "—")}</td>
+          <td>${escapeHtml(formatInteger(offender.rowHits || 0))}</td>
+          <td>${escapeHtml(offender.hitSummary || "—")}</td>
+          <td>${escapeHtml(offender.worstSnapshot || "—")}</td>
+        </tr>
+      `
+    )
+    .join("");
   const includeExportSection = options.includeExportSection !== false;
   const exportSectionMarkup = includeExportSection
     ? `
@@ -1860,26 +2154,49 @@ function buildSessionSummaryMarkup(model = null, options = {}) {
           <li>Stopped: <strong>${escapeHtml(formatTimestamp(summaryModel.stoppedAt || 0))}</strong></li>
           <li>Laps captured: <strong>${escapeHtml(formatInteger(summaryModel.totalLaps))}</strong></li>
           <li>Interval rows captured: <strong>${escapeHtml(formatInteger(summaryModel.capturedRows))}</strong></li>
+          <li>Offending rows observed: <strong>${escapeHtml(formatInteger(summaryModel.totalOffenderRows || 0))}</strong></li>
+          <li>Unique offenders observed: <strong>${escapeHtml(formatInteger(summaryModel.uniqueOffenders || 0))}</strong></li>
           <li>Full ESM window: <strong>${escapeHtml(summaryModel.sessionWindow.startLabel)} to ${escapeHtml(summaryModel.sessionWindow.endLabel)}</strong></li>
         </ul>
       </section>
       <section class="bt-session-block">
-        <h3 class="bt-session-block-title">Best Performers</h3>
+        <h3 class="bt-session-block-title">Threshold Snapshot</h3>
         <ul class="bt-session-list">
-          <li>Highest AuthN: <strong>${escapeHtml(formatSessionPerformerValue(summaryModel.bestAuthn, "averageAuthn"))}</strong></li>
-          <li>Highest AuthZ: <strong>${escapeHtml(formatSessionPerformerValue(summaryModel.bestAuthz, "averageAuthz"))}</strong></li>
-          <li>Lowest latency: <strong>${escapeHtml(formatSessionPerformerValue(summaryModel.lowestLatency, "averageLatency"))}</strong></li>
+          <li>Hit laps: <strong>${escapeHtml(formatInteger(summaryModel.lapsWithHits || 0))} of ${escapeHtml(
+            formatInteger(summaryModel.totalLaps || 0)
+          )}</strong></li>
+          <li>Latest lap offenders: <strong>${escapeHtml(formatInteger(summaryModel.latestLapOffenderRows || 0))}</strong></li>
+          <li>AuthN hit rows: <strong>${escapeHtml(formatInteger(summaryModel.authnHitRows || 0))}</strong></li>
+          <li>AuthZ hit rows: <strong>${escapeHtml(formatInteger(summaryModel.authzHitRows || 0))}</strong></li>
+          <li>Latency hit rows: <strong>${escapeHtml(formatInteger(summaryModel.latencyHitRows || 0))}</strong></li>
         </ul>
       </section>
       <section class="bt-session-block">
-        <h3 class="bt-session-block-title">Worst Performers</h3>
+        <h3 class="bt-session-block-title">Latest Lap</h3>
         <ul class="bt-session-list">
-          <li>Lowest AuthN: <strong>${escapeHtml(formatSessionPerformerValue(summaryModel.worstAuthn, "averageAuthn"))}</strong></li>
-          <li>Lowest AuthZ: <strong>${escapeHtml(formatSessionPerformerValue(summaryModel.worstAuthz, "averageAuthz"))}</strong></li>
-          <li>Highest latency: <strong>${escapeHtml(formatSessionPerformerValue(summaryModel.highestLatency, "averageLatency"))}</strong></li>
+          <li>Latest lap fired: <strong>${escapeHtml(formatTimestamp(summaryModel.latestLapAt || 0))}</strong></li>
+          <li>Offenders: <strong>${escapeHtml(summaryModel.latestLapOffenderLabels || "None")}</strong></li>
+          <li>Analysis tables with hits: <strong>${escapeHtml(formatInteger((summaryModel.topTables || []).length))}</strong></li>
         </ul>
       </section>
     </div>
+    <section class="bt-session-block">
+      <h3 class="bt-session-block-title">Offender Rollup</h3>
+      <table class="bt-session-table">
+        <thead>
+          <tr>
+            <th>Offender</th>
+            <th>Analysis Table</th>
+            <th>Row hits</th>
+            <th>Hit Types</th>
+            <th>Worst Snapshot</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${offenderTableRows || `<tr><td colspan="5">No offending MVPDs were captured in the monitored laps.</td></tr>`}
+        </tbody>
+      </table>
+    </section>
     <section class="bt-session-block">
       <h3 class="bt-session-block-title">Analysis Table Heat</h3>
       <table class="bt-session-table">
