@@ -37,6 +37,7 @@ const state = {
   selectionKey: "",
   appGuid: "",
   appName: "",
+  cheatSheets: [],
   reports: [],
   batchRunning: false,
   pendingAutoRerunCards: [],
@@ -334,6 +335,69 @@ function normalizeReports(reportList = []) {
     .sort((left, right) => Number(right.fetchedAt || 0) - Number(left.fetchedAt || 0));
 }
 
+function normalizeCheatSheetCall(call = null) {
+  if (!call || typeof call !== "object") {
+    return null;
+  }
+  return {
+    key: String(call.key || "").trim(),
+    title: String(call.title || call.path || "DEGRADATION Call").trim(),
+    method: String(call.method || "GET").trim().toUpperCase() || "GET",
+    path: String(call.path || "").trim(),
+    requestUrl: String(call.requestUrl || "").trim(),
+    command: String(call.command || "").trim(),
+    mutation: call.mutation === true,
+  };
+}
+
+function normalizeCheatSheet(payload = null) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+  const selectionKey = String(payload.selectionKey || "").trim();
+  const selectionParts = parseWorkspaceSelectionKey(selectionKey);
+  const calls = (Array.isArray(payload.calls) ? payload.calls : [])
+    .map((call) => normalizeCheatSheetCall(call))
+    .filter(Boolean);
+  const requestorId = firstNonEmptyString([payload.requestorId, selectionParts.requestorId]);
+  const mvpd = firstNonEmptyString([payload.mvpd, selectionParts.mvpd]);
+  const generatedAt = Math.max(0, Number(payload.generatedAt || Date.now() || 0));
+  return {
+    cheatSheetId: String(payload.cheatSheetId || [selectionKey, String(generatedAt || Date.now())].filter(Boolean).join("::")).trim(),
+    selectionKey,
+    title: String(payload.title || "DEGRADATION Cheat Sheet").trim(),
+    description: String(payload.description || "").trim(),
+    programmerId: firstNonEmptyString([payload.programmerId, selectionParts.programmerId]),
+    programmerLabel: String(payload.programmerLabel || payload.mediaCompanyName || payload.programmerId || "").trim(),
+    environmentLabel: String(payload.environmentLabel || payload.adobePassEnvironmentLabel || selectionParts.environmentKey || "").trim(),
+    requestorId,
+    mvpd,
+    mvpdLabel: String(payload.mvpdLabel || mvpd).trim(),
+    appName: String(payload.appName || "").trim(),
+    appGuid: String(payload.appGuid || "").trim(),
+    ttlSeconds: Math.max(0, Number(payload.ttlSeconds || 0)),
+    message: String(payload.message || "").trim(),
+    resource: String(payload.resource || "").trim(),
+    resourceSource: String(payload.resourceSource || "").trim(),
+    channel: String(payload.channel || "").trim(),
+    channelSource: String(payload.channelSource || "").trim(),
+    generatedAt,
+    generatedAtLabel: String(payload.generatedAtLabel || (generatedAt > 0 ? new Date(generatedAt).toLocaleString() : "")).trim(),
+    tokenExpiresLabel: String(payload.tokenExpiresLabel || "unknown").trim(),
+    liveRowCount: Math.max(0, Number(payload.liveRowCount || 0)),
+    callCount: Math.max(0, Number(payload.callCount || calls.length || 0)),
+    setupItems: (Array.isArray(payload.setupItems) ? payload.setupItems : []).map((item) => String(item || "").trim()).filter(Boolean),
+    calls,
+  };
+}
+
+function normalizeCheatSheets(list = []) {
+  return (Array.isArray(list) ? list : [])
+    .map((item) => normalizeCheatSheet(item))
+    .filter(Boolean)
+    .sort((left, right) => Number(right.generatedAt || 0) - Number(left.generatedAt || 0));
+}
+
 function getReportIdentity(report = null) {
   return firstNonEmptyString([report?.queryKey, report?.reportId]);
 }
@@ -438,11 +502,79 @@ async function copyReportRequestUrl(reportId = "") {
   }
 }
 
+function findCheatSheetById(cheatSheetId = "") {
+  const normalizedId = String(cheatSheetId || "").trim();
+  if (!normalizedId) {
+    return null;
+  }
+  return state.cheatSheets.find((cheatSheet) => String(cheatSheet?.cheatSheetId || "").trim() === normalizedId) || null;
+}
+
+function findCheatSheetCall(cheatSheetId = "", callKey = "") {
+  const cheatSheet = findCheatSheetById(cheatSheetId);
+  if (!cheatSheet) {
+    return null;
+  }
+  const normalizedCallKey = String(callKey || "").trim().toLowerCase();
+  return (
+    (Array.isArray(cheatSheet.calls) ? cheatSheet.calls : []).find(
+      (call) => String(call?.key || "").trim().toLowerCase() === normalizedCallKey
+    ) || null
+  );
+}
+
+async function copyCheatSheetAllCommands(cheatSheetId = "") {
+  const cheatSheet = findCheatSheetById(cheatSheetId);
+  if (!cheatSheet) {
+    setStatus("Cheat sheet is unavailable.", "error");
+    return;
+  }
+  const combined = (Array.isArray(cheatSheet.calls) ? cheatSheet.calls : [])
+    .map((call) => String(call?.command || "").trim())
+    .filter(Boolean)
+    .join("\n\n");
+  const copied = await copyTextToClipboard(combined);
+  if (copied) {
+    setStatus("Copied all DEGRADATION cURL commands.", "success");
+  } else {
+    setStatus("Unable to copy the DEGRADATION cheat sheet.", "error");
+  }
+}
+
+async function copyCheatSheetCommand(cheatSheetId = "", callKey = "") {
+  const call = findCheatSheetCall(cheatSheetId, callKey);
+  if (!call) {
+    setStatus("Cheat-sheet command is unavailable.", "error");
+    return;
+  }
+  const copied = await copyTextToClipboard(String(call.command || "").trim());
+  if (copied) {
+    setStatus(`${call.method} ${call.path} copied to clipboard.`, "success");
+  } else {
+    setStatus("Unable to copy the DEGRADATION command.", "error");
+  }
+}
+
+async function copyCheatSheetUrl(cheatSheetId = "", callKey = "") {
+  const call = findCheatSheetCall(cheatSheetId, callKey);
+  if (!call) {
+    setStatus("Cheat-sheet URL is unavailable.", "error");
+    return;
+  }
+  const copied = await copyTextToClipboard(String(call.requestUrl || "").trim());
+  if (copied) {
+    setStatus(`${call.method} request URL copied.`, "success");
+  } else {
+    setStatus("Unable to copy the DEGRADATION request URL.", "error");
+  }
+}
+
 function syncActionButtonsDisabled() {
-  const hasCards = state.reports.length > 0;
+  const hasReports = state.reports.length > 0;
+  const hasCards = hasReports || state.cheatSheets.length > 0;
   const isBusy = state.batchRunning === true;
   if (els.rerunAllButton) {
-    els.rerunAllButton.disabled = isBusy || !hasCards;
+    els.rerunAllButton.disabled = isBusy || !hasReports;
     els.rerunAllButton.classList.toggle("net-busy", isBusy);
     els.rerunAllButton.setAttribute("aria-busy", isBusy ? "true" : "false");
     els.rerunAllButton.title = isBusy ? "Re-run all (loading...)" : "Re-run all";
@@ -869,6 +1001,96 @@ function buildDegradationBlondieGroupExportPayload(groupId = "", reportList = st
     responseReceivedAt: Math.max(0, Number(group.latestFetchedAt || 0)),
     createdAt: Math.max(0, Number(group.latestFetchedAt || Date.now() || 0)),
   };
+}
+
+function renderCheatSheetCallCard(cheatSheet = null, call = null) {
+  if (!cheatSheet || !call) {
+    return "";
+  }
+  const methodClass = call.mutation
+    ? "degradation-cheat-method-pill degradation-cheat-method-pill--mutating"
+    : "degradation-cheat-method-pill degradation-cheat-method-pill--readonly";
+  return `
+    <article class="degradation-cheat-call-card">
+      <header class="degradation-cheat-call-head">
+        <div class="degradation-cheat-call-title-wrap">
+          <span class="${methodClass}">${escapeHtml(call.method)}</span>
+          <p class="degradation-cheat-call-title">${escapeHtml(call.title)}</p>
+          <p class="degradation-cheat-call-path">/${escapeHtml(call.path)}</p>
+        </div>
+        <div class="degradation-cheat-call-actions">
+          <button
+            type="button"
+            class="degradation-cheat-action-btn"
+            data-action="copy-cheat-command"
+            data-cheat-sheet-id="${escapeHtml(String(cheatSheet.cheatSheetId || ""))}"
+            data-call-key="${escapeHtml(String(call.key || ""))}"
+            title="Copy DEGRADATION cURL to clipboard"
+            aria-label="Copy DEGRADATION cURL to clipboard"
+          >Copy to Clipboard</button>
+          <button
+            type="button"
+            class="degradation-cheat-action-btn degradation-cheat-action-btn--secondary"
+            data-action="copy-cheat-url"
+            data-cheat-sheet-id="${escapeHtml(String(cheatSheet.cheatSheetId || ""))}"
+            data-call-key="${escapeHtml(String(call.key || ""))}"
+            title="Copy DEGRADATION request URL to clipboard"
+            aria-label="Copy DEGRADATION request URL to clipboard"
+          >Copy URL</button>
+        </div>
+      </header>
+      <p class="degradation-cheat-call-url">${escapeHtml(call.requestUrl)}</p>
+      <pre class="degradation-cheat-command-block">${escapeHtml(call.command)}</pre>
+    </article>
+  `;
+}
+
+function renderCheatSheetCard(cheatSheet = null) {
+  if (!cheatSheet || typeof cheatSheet !== "object") {
+    return "";
+  }
+  const setupItems = Array.isArray(cheatSheet.setupItems) ? cheatSheet.setupItems : [];
+  const callsMarkup = (Array.isArray(cheatSheet.calls) ? cheatSheet.calls : [])
+    .map((call) => renderCheatSheetCallCard(cheatSheet, call))
+    .join("");
+  return `
+    <section class="degradation-cheat-sheet-card" data-cheat-sheet-id="${escapeHtml(String(cheatSheet.cheatSheetId || ""))}">
+      <header class="degradation-cheat-sheet-head">
+        <div class="degradation-cheat-sheet-title-row">
+          <div class="degradation-cheat-sheet-title-wrap">
+            <p class="degradation-cheat-sheet-kicker">DEGRADATION Cheat Sheet</p>
+            <h2 class="degradation-cheat-sheet-title">${escapeHtml(cheatSheet.title || "DEGRADATION Cheat Sheet")}</h2>
+            <p class="degradation-cheat-sheet-description">${escapeHtml(cheatSheet.description || "")}</p>
+          </div>
+          <div class="degradation-cheat-sheet-head-actions">
+            <button
+              type="button"
+              class="degradation-cheat-action-btn"
+              data-action="copy-cheat-all"
+              data-cheat-sheet-id="${escapeHtml(String(cheatSheet.cheatSheetId || ""))}"
+              title="Copy all DEGRADATION cURL commands to clipboard"
+              aria-label="Copy all DEGRADATION cURL commands to clipboard"
+            >Copy to Clipboard</button>
+          </div>
+        </div>
+        <div class="degradation-cheat-meta-grid">
+          <div class="degradation-cheat-meta-card"><span class="degradation-cheat-meta-label">Environment</span><span class="degradation-cheat-meta-value">${escapeHtml(cheatSheet.environmentLabel || "")}</span></div>
+          <div class="degradation-cheat-meta-card"><span class="degradation-cheat-meta-label">Media Company</span><span class="degradation-cheat-meta-value">${escapeHtml(cheatSheet.programmerLabel || "")}</span></div>
+          <div class="degradation-cheat-meta-card"><span class="degradation-cheat-meta-label">Requestor x MVPD</span><span class="degradation-cheat-meta-value">${escapeHtml(`${String(cheatSheet.requestorId || "").trim()} x ${String(cheatSheet.mvpdLabel || cheatSheet.mvpd || "").trim()}`)}</span></div>
+          <div class="degradation-cheat-meta-card"><span class="degradation-cheat-meta-label">Token Freshness</span><span class="degradation-cheat-meta-value">${escapeHtml(`${String(cheatSheet.generatedAtLabel || "").trim()} -> ${String(cheatSheet.tokenExpiresLabel || "unknown").trim()}`)}</span></div>
+        </div>
+      </header>
+      <section class="degradation-cheat-setup-shell">
+        <p class="degradation-cheat-setup-kicker">Prerequisite Setup</p>
+        <ol class="degradation-cheat-setup-list">
+          ${setupItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+        </ol>
+      </section>
+      <section class="degradation-cheat-call-grid">
+        ${callsMarkup}
+      </section>
+    </section>
+  `;
 }
 
 function renderReportFooter(report = null) {
@@ -1317,24 +1539,32 @@ function renderReportGroup(group = null) {
   `;
 }
 
-function renderReports() {
+function renderWorkspaceCards() {
   if (!els.cardsHost) {
     return;
   }
-  if (state.reports.length === 0) {
+  if (state.reports.length === 0 && state.cheatSheets.length === 0) {
     els.cardsHost.innerHTML = "";
     syncActionButtonsDisabled();
     return;
   }
+  const cheatSheetsMarkup = (Array.isArray(state.cheatSheets) ? state.cheatSheets : [])
+    .map((cheatSheet) => renderCheatSheetCard(cheatSheet))
+    .join("");
   const groupsMarkup = buildDegradationReportGroups(state.reports).map((group) => renderReportGroup(group)).join("");
-  els.cardsHost.innerHTML = groupsMarkup;
+  els.cardsHost.innerHTML = `${cheatSheetsMarkup}${groupsMarkup}`;
   syncBlondieButtons(els.cardsHost);
   syncActionButtonsDisabled();
 }
 
 function replaceReports(reportList = []) {
   state.reports = normalizeReports(reportList);
-  renderReports();
+  renderWorkspaceCards();
+}
+
+function replaceCheatSheets(cheatSheetList = []) {
+  state.cheatSheets = normalizeCheatSheets(cheatSheetList);
+  renderWorkspaceCards();
 }
 
 function upsertReport(report = null) {
@@ -1354,25 +1584,56 @@ function upsertReport(report = null) {
   if (normalized.selectionKey) {
     state.selectionKey = normalized.selectionKey;
   }
-  renderReports();
+  renderWorkspaceCards();
+}
+
+function upsertCheatSheet(cheatSheet = null) {
+  const normalized = normalizeCheatSheet(cheatSheet);
+  if (!normalized) {
+    return;
+  }
+  const cheatSheetId = String(normalized.cheatSheetId || "").trim();
+  const nextCheatSheets = [normalized];
+  state.cheatSheets.forEach((existing) => {
+    if (cheatSheetId && String(existing?.cheatSheetId || "").trim() === cheatSheetId) {
+      return;
+    }
+    nextCheatSheets.push(existing);
+  });
+  state.cheatSheets = normalizeCheatSheets(nextCheatSheets).slice(0, 20);
+  if (normalized.selectionKey) {
+    state.selectionKey = normalized.selectionKey;
+  }
+  renderWorkspaceCards();
 }
 
 function clearWorkspaceCards() {
+  state.cheatSheets = [];
   state.reports = [];
-  renderReports();
+  renderWorkspaceCards();
 }
 
 function handleReportsSync(payload = {}) {
   const reports = normalizeReports(payload?.reports);
+  const cheatSheets = normalizeCheatSheets(payload?.cheatSheets);
   const selectionKey = String(payload?.selectionKey || "").trim();
   if (selectionKey) {
     state.selectionKey = selectionKey;
   }
-  replaceReports(reports);
-  if (reports.length > 0) {
-    setStatus(`Loaded ${reports.length} DEGRADATION report${reports.length === 1 ? "" : "s"} in workspace.`, "success");
+  state.reports = reports;
+  state.cheatSheets = cheatSheets;
+  renderWorkspaceCards();
+  if (reports.length > 0 || cheatSheets.length > 0) {
+    const parts = [];
+    if (cheatSheets.length > 0) {
+      parts.push(`${cheatSheets.length} cheat sheet${cheatSheets.length === 1 ? "" : "s"}`);
+    }
+    if (reports.length > 0) {
+      parts.push(`${reports.length} DEGRADATION report${reports.length === 1 ? "" : "s"}`);
+    }
+    setStatus(`Loaded ${parts.join(" and ")} in workspace.`, "success");
   } else {
-    setStatus("No DEGRADATION reports are cached in this workspace.", "info");
+    setStatus("No DEGRADATION reports or cheat sheets are cached in this workspace.", "info");
   }
 }
 
@@ -1387,6 +1648,18 @@ function handleReportResult(payload = {}) {
   } else {
     setStatus(`${report.endpointTitle}: ${report.error || "Request failed."}`, "error");
   }
+}
+
+function handleCheatSheetResult(payload = {}) {
+  const cheatSheet = normalizeCheatSheet(payload);
+  if (!cheatSheet) {
+    return;
+  }
+  upsertCheatSheet(cheatSheet);
+  setStatus(
+    `Loaded DEGRADATION Cheat Sheet with ${Math.max(0, Number(cheatSheet.callCount || cheatSheet.calls?.length || 0))} commands.`,
+    "success"
+  );
 }
 
 function handleWorkspaceEvent(eventName, payload = {}) {
@@ -1404,6 +1677,10 @@ function handleWorkspaceEvent(eventName, payload = {}) {
   }
   if (event === "report-result") {
     handleReportResult(payload);
+    return;
+  }
+  if (event === "cheat-sheet-result") {
+    handleCheatSheetResult(payload);
     return;
   }
   if (event === "batch-start") {
@@ -1591,6 +1868,30 @@ function registerEventHandlers() {
       if (!(event.target instanceof Element)) {
         return;
       }
+      const copyAllTrigger = event.target.closest('button[data-action="copy-cheat-all"]');
+      if (copyAllTrigger instanceof HTMLButtonElement) {
+        event.preventDefault();
+        void copyCheatSheetAllCommands(String(copyAllTrigger.getAttribute("data-cheat-sheet-id") || "").trim());
+        return;
+      }
+      const copyCheatCommandTrigger = event.target.closest('button[data-action="copy-cheat-command"]');
+      if (copyCheatCommandTrigger instanceof HTMLButtonElement) {
+        event.preventDefault();
+        void copyCheatSheetCommand(
+          String(copyCheatCommandTrigger.getAttribute("data-cheat-sheet-id") || "").trim(),
+          String(copyCheatCommandTrigger.getAttribute("data-call-key") || "").trim()
+        );
+        return;
+      }
+      const copyCheatUrlTrigger = event.target.closest('button[data-action="copy-cheat-url"]');
+      if (copyCheatUrlTrigger instanceof HTMLButtonElement) {
+        event.preventDefault();
+        void copyCheatSheetUrl(
+          String(copyCheatUrlTrigger.getAttribute("data-cheat-sheet-id") || "").trim(),
+          String(copyCheatUrlTrigger.getAttribute("data-call-key") || "").trim()
+        );
+        return;
+      }
       const groupBlondieTrigger = event.target.closest('button[data-action="blondie-export-group"]');
       if (groupBlondieTrigger instanceof HTMLButtonElement) {
         event.preventDefault();
@@ -1650,7 +1951,7 @@ async function init() {
   state.pendingWorkspaceDeeplink = parseWorkspaceDeeplinkPayloadFromLocation();
   registerEventHandlers();
   updateControllerBanner();
-  renderReports();
+  renderWorkspaceCards();
   if (state.pendingWorkspaceDeeplink) {
     const label = firstNonEmptyString([
       state.pendingWorkspaceDeeplink.displayNodeLabel,

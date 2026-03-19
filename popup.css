@@ -4505,7 +4505,8 @@ select:disabled {
   box-shadow: 0 0 0 2px var(--service-accent-soft);
 }
 
-.degradation-quick-set-row {
+.degradation-quick-set-row,
+.degradation-cheat-sheet-row {
   display: flex;
   align-items: center;
   gap: 8px;

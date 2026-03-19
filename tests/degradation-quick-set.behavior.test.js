@@ -9,32 +9,31 @@ function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), "utf8");
 }
 
-test("DEGRADATION controller exposes the quick-set emergency row and full cheat-sheet export flow", () => {
+test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-set UI", () => {
   const popupSource = read("popup.js");
   const popupCss = read("popup.css");
+  const workspaceSource = read("degradation-workspace.js");
+  const workspaceCss = read("degradation-workspace.css");
   const cheatSheetSpecBlock = popupSource.match(
     /const DEGRADATION_CHEAT_SHEET_CALL_SPECS = Object\.freeze\(\[([\s\S]*?)\]\);/
   );
   const cheatSheetKeys = Array.from(cheatSheetSpecBlock?.[1]?.matchAll(/key:\s*"([^"]+)"/g) || []).map((match) => match[1]);
 
-  assert.match(popupSource, /class="degradation-quick-set-row"/);
-  assert.match(popupSource, /class="degradation-quick-set-select"/);
-  assert.match(popupSource, /class="degradation-quick-set-btn"/);
+  assert.match(popupSource, /class="degradation-cheat-sheet-row"/);
   assert.match(popupSource, /class="degradation-copy-curl-btn"/);
-  assert.match(popupSource, /class="degradation-controller-status"/);
-  assert.match(popupSource, /function degradationBuildQuickSetState\(/);
-  assert.match(popupSource, /async function applyDegradationQuickSetPreset\(/);
-  assert.match(popupSource, /const DEGRADATION_CHEAT_SHEET_CALL_SPECS = Object\.freeze\(\[/);
-  assert.match(popupSource, /function buildDegradationCheatSheetHtml\(/);
+  assert.doesNotMatch(popupSource, /class="degradation-quick-set-select"/);
+  assert.doesNotMatch(popupSource, /class="degradation-quick-set-btn"/);
+  assert.match(popupSource, /function buildDegradationCheatSheetSetupItems\(/);
   assert.match(popupSource, /async function degradationGenerateCheatSheetFromUi\(/);
-  assert.match(popupSource, /Generate a full DEGRADATION Cheat Sheet with fresh runnable cURL commands/);
-  assert.match(popupSource, /Copy to Clipboard/);
-  assert.match(popupSource, /Copy DEGRADATION cURL to clipboard/);
-  assert.match(popupSource, /Copy all DEGRADATION cURL commands to clipboard/);
-  assert.match(popupSource, /Prerequisite Setup/);
-  assert.match(popupSource, /Bearer token rescue:/);
+  assert.match(popupSource, /Select RequestorId in the global picker first\./);
+  assert.match(popupSource, /Select MVPD in the global picker first\./);
+  assert.match(
+    popupSource,
+    /Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD/
+  );
+  assert.match(popupSource, /degradationWorkspaceStoreCheatSheet\(/);
+  assert.match(popupSource, /void degradationWorkspaceSendWorkspaceMessage\("cheat-sheet-result"/);
   assert.match(popupSource, /click CHEAT again to mint a new bearer token/);
-  assert.match(popupSource, /QUICK SET ready:/);
   assert.ok(cheatSheetSpecBlock, "expected cheat-sheet call inventory to be declared");
   assert.deepEqual(cheatSheetKeys, [
     "get-all",
@@ -49,8 +48,17 @@ test("DEGRADATION controller exposes the quick-set emergency row and full cheat-
     "delete-authz-none",
   ]);
 
-  assert.match(popupCss, /\.degradation-quick-set-row\s*\{/);
-  assert.match(popupCss, /\.degradation-quick-set-select\s*\{/);
-  assert.match(popupCss, /\.degradation-quick-set-btn,\s*\.degradation-copy-curl-btn\s*\{/);
+  assert.match(popupCss, /\.degradation-cheat-sheet-row\s*\{/);
   assert.match(popupCss, /\.degradation-copy-curl-btn\s*\{/);
+
+  assert.match(workspaceSource, /function renderCheatSheetCard\(/);
+  assert.match(workspaceSource, /function handleCheatSheetResult\(/);
+  assert.match(workspaceSource, /event === "cheat-sheet-result"/);
+  assert.match(workspaceSource, /data-action="copy-cheat-all"/);
+  assert.match(workspaceSource, /data-action="copy-cheat-command"/);
+  assert.match(workspaceSource, /Prerequisite Setup/);
+
+  assert.match(workspaceCss, /\.degradation-cheat-sheet-card\s*\{/);
+  assert.match(workspaceCss, /\.degradation-cheat-action-btn\s*\{/);
+  assert.match(workspaceCss, /\.degradation-cheat-command-block\s*\{/);
 });

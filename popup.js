@@ -10596,6 +10596,7 @@ const state = {
   degradationWorkspaceTraceViewerTabId: 0,
   degradationWorkspaceLastSelectionKey: "",
   degradationWorkspaceReportsBySelectionKey: new Map(),
+  degradationWorkspaceCheatSheetsBySelectionKey: new Map(),
   degradationWorkspaceQueryStateBySelectionKey: new Map(),
   bobtoolsWorkspaceTabId: 0,
   bobtoolsWorkspaceWindowId: 0,
@@ -39539,6 +39540,13 @@ function degradationWorkspaceTrimCacheMaps(limit = 80) {
     }
     state.degradationWorkspaceQueryStateBySelectionKey.delete(firstKey);
   }
+  while (state.degradationWorkspaceCheatSheetsBySelectionKey.size > maxSize) {
+    const firstKey = state.degradationWorkspaceCheatSheetsBySelectionKey.keys().next().value;
+    if (!firstKey) {
+      break;
+    }
+    state.degradationWorkspaceCheatSheetsBySelectionKey.delete(firstKey);
+  }
 }
 
 function degradationWorkspaceStoreReport(reportPayload = null, queryState = null) {
@@ -39594,6 +39602,36 @@ function degradationWorkspaceGetAllReports() {
   return reports.sort((left, right) => Number(right?.fetchedAt || 0) - Number(left?.fetchedAt || 0));
 }
 
+function degradationWorkspaceStoreCheatSheet(cheatSheetPayload = null) {
+  const clonedCheatSheet = cloneJsonLikeValue(cheatSheetPayload, null);
+  if (!clonedCheatSheet || typeof clonedCheatSheet !== "object") {
+    return "";
+  }
+  const selectionKey = firstNonEmptyString([clonedCheatSheet.selectionKey, state.degradationWorkspaceLastSelectionKey]);
+  if (!selectionKey) {
+    return "";
+  }
+  clonedCheatSheet.selectionKey = selectionKey;
+  if (!Number.isFinite(Number(clonedCheatSheet.generatedAt || 0)) || Number(clonedCheatSheet.generatedAt || 0) <= 0) {
+    clonedCheatSheet.generatedAt = Date.now();
+  }
+  state.degradationWorkspaceCheatSheetsBySelectionKey.set(selectionKey, clonedCheatSheet);
+  state.degradationWorkspaceLastSelectionKey = selectionKey;
+  degradationWorkspaceTrimCacheMaps(80);
+  return selectionKey;
+}
+
+function degradationWorkspaceGetAllCheatSheets() {
+  const cheatSheets = [];
+  for (const cheatSheet of state.degradationWorkspaceCheatSheetsBySelectionKey.values()) {
+    const clonedCheatSheet = cloneJsonLikeValue(cheatSheet, null);
+    if (clonedCheatSheet && typeof clonedCheatSheet === "object") {
+      cheatSheets.push(clonedCheatSheet);
+    }
+  }
+  return cheatSheets.sort((left, right) => Number(right?.generatedAt || 0) - Number(left?.generatedAt || 0));
+}
+
 function degradationWorkspaceGetReports(selectionKey = "") {
   const normalizedSelectionKey = String(selectionKey || "").trim();
   if (normalizedSelectionKey && state.degradationWorkspaceReportsBySelectionKey.has(normalizedSelectionKey)) {
@@ -39612,12 +39650,14 @@ function degradationWorkspaceGetReports(selectionKey = "") {
 function degradationWorkspaceBroadcastReports(selectionKey = "", targetWindowId = 0) {
   const resolvedWindowId = Number(targetWindowId || 0) || Number(state.degradationWorkspaceWindowId || 0);
   const reports = degradationWorkspaceGetAllReports();
+  const cheatSheets = degradationWorkspaceGetAllCheatSheets();
   const resolvedSelectionKey = firstNonEmptyString([selectionKey, state.degradationWorkspaceLastSelectionKey]);
   void degradationWorkspaceSendWorkspaceMessage(
     "reports-sync",
     {
       selectionKey: resolvedSelectionKey,
       reports,
+      cheatSheets,
       updatedAt: Date.now(),
     },
     { targetWindowId: resolvedWindowId }
@@ -40240,12 +40280,14 @@ async function handleDegradationWorkspaceAction(message, sender = null) {
     const selectionKey = firstNonEmptyString([message?.selectionKey, message?.selection?.selectionKey]);
     if (selectionKey) {
       state.degradationWorkspaceReportsBySelectionKey.delete(selectionKey);
+      state.degradationWorkspaceCheatSheetsBySelectionKey.delete(selectionKey);
       state.degradationWorkspaceQueryStateBySelectionKey.delete(selectionKey);
       if (state.degradationWorkspaceLastSelectionKey === selectionKey) {
         state.degradationWorkspaceLastSelectionKey = "";
       }
     } else {
       state.degradationWorkspaceReportsBySelectionKey.clear();
+      state.degradationWorkspaceCheatSheetsBySelectionKey.clear();
       state.degradationWorkspaceQueryStateBySelectionKey.clear();
       state.degradationWorkspaceLastSelectionKey = "";
     }
@@ -44442,10 +44484,8 @@ function degradationSetBusy(panelState, busy) {
   panelState.busy = busy === true;
   const controls = [
     panelState.endpointSelect,
-    panelState.quickSetSelect,
     panelState.recordingToggleButton,
     panelState.makeClickDgrButton,
-    panelState.quickSetButton,
     panelState.copyCurlButton,
   ];
   controls.forEach((control) => {
@@ -44973,29 +45013,41 @@ function degradationBuildCheatSheetCommands(panelState, context = {}) {
   });
 }
 
-function buildDegradationCheatSheetHtml(context = {}) {
-  const calls = Array.isArray(context.calls) ? context.calls : [];
-  const resourceSourceLabel = context.resourceSource === "live" ? "Live /all target" : "Synthesized fallback";
-  const channelSourceLabel = context.channelSource === "live" ? "Live /all target" : "Synthesized fallback";
-  const contextEnvelope = [
+function buildDegradationCheatSheetContextEnvelope(context = {}) {
+  return [
     String(context.environmentLabel || "").trim(),
     String(context.programmerLabel || "").trim(),
     `${String(context.requestorId || "").trim()} x ${String(context.mvpdLabel || context.mvpd || "").trim()}`.trim(),
   ]
     .filter(Boolean)
     .join(" | ");
-  const appLabel = firstNonEmptyString([
+}
+
+function buildDegradationCheatSheetAppLabel(context = {}) {
+  return firstNonEmptyString([
     `${String(context.appName || "").trim()}${String(context.appGuid || "").trim() ? ` (${String(context.appGuid || "").trim()})` : ""}`,
     String(context.appName || "").trim(),
     String(context.appGuid || "").trim(),
     "registered application",
   ]);
-  const setupItems = [
+}
+
+function buildDegradationCheatSheetSetupItems(context = {}) {
+  const contextEnvelope = buildDegradationCheatSheetContextEnvelope(context);
+  const appLabel = buildDegradationCheatSheetAppLabel(context);
+  return [
     `Confirm the runtime context before using these commands: ${contextEnvelope || "Environment | Media Company | Requestor x MVPD"}.`,
     `This export minted a fresh bearer token on ${String(context.generatedAtLabel || "").trim() || "generation time"} for ${appLabel}. Expected token expiry: ${String(context.tokenExpiresLabel || "unknown").trim() || "unknown"}.`,
-    "If the bearer token is stale, \"no bueno\", or you get HTTP 401/403, reopen UnderPAR, run QUICK SET for this same DEGRADATION context, and click CHEAT again to mint a new bearer token.",
+    'If the bearer token is stale, "no bueno", or you get HTTP 401/403, reopen UnderPAR, keep the same global RequestorId and MVPD selected, and click CHEAT again to mint a new bearer token.',
     "After regeneration, use only the newest cheat sheet or freshly copied commands. Older exports can carry expired bearer tokens.",
   ];
+}
+
+function buildDegradationCheatSheetHtml(context = {}) {
+  const calls = Array.isArray(context.calls) ? context.calls : [];
+  const resourceSourceLabel = context.resourceSource === "live" ? "Live /all target" : "Synthesized fallback";
+  const channelSourceLabel = context.channelSource === "live" ? "Live /all target" : "Synthesized fallback";
+  const setupItems = buildDegradationCheatSheetSetupItems(context);
   const clipboardIconMarkup = `
     <svg class="copy-btn-icon" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
       <rect x="3.25" y="2.5" width="6.25" height="7" rx="1.35"></rect>
@@ -45482,16 +45534,7 @@ function buildDegradationCheatSheetHtml(context = {}) {
 }
 
 async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
-  const prepared = await applyDegradationQuickSetPreset(panelState, String(panelState?.quickSetSelect?.value || "").trim(), {
-    endpointKey: firstNonEmptyString([
-      String(options?.endpointKey || "").trim().toLowerCase(),
-      String(panelState?.endpointSelect?.value || "").trim().toLowerCase(),
-      "all",
-    ]),
-    autoSelectFirstMvpd: true,
-    setStatus: false,
-  });
-  const activePanelState = prepared?.panelState || getActiveDegradationWorkspaceState() || panelState;
+  const activePanelState = panelState || getActiveDegradationWorkspaceState();
   if (!activePanelState) {
     throw new Error("DEGRADATION panel context is not available.");
   }
@@ -45500,11 +45543,18 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
   try {
     const queryValues = degradationCollectFormValues(activePanelState);
     if (!queryValues.requestorId) {
-      throw new Error("Select RequestorId first.");
+      throw new Error("Select RequestorId in the global picker first.");
     }
     if (!queryValues.mvpd) {
-      throw new Error("No MVPD is available for the selected RequestorId.");
+      throw new Error("Select MVPD in the global picker first.");
     }
+
+    const workspaceResult = await degradationOpenWorkspaceFromPanel(activePanelState, {
+      activate: true,
+    });
+    const targetWindowId = Number(
+      workspaceResult?.targetWindowId || workspaceResult?.workspaceTab?.windowId || state.degradationWorkspaceWindowId || 0
+    );
 
     const downloadContext = await resolveClickDgrDownloadContext(activePanelState);
     if (!downloadContext) {
@@ -45555,10 +45605,17 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
       String(activePanelState?.programmer?.mediaCompanyName || "").trim(),
       String(activePanelState?.programmer?.programmerId || "").trim(),
     ]);
-    const html = buildDegradationCheatSheetHtml({
+    const selectionContext = degradationWorkspaceGetSelectionContext(activePanelState.programmer, {
+      ...(getCurrentPremiumAppsSnapshot(String(activePanelState?.programmer?.programmerId || "").trim()) || {}),
+      degradation: authContext?.appInfo || activePanelState?.appInfo || null,
+    });
+    const cheatSheetPayload = {
+      cheatSheetId: [selectionContext.selectionKey, String(generatedAt.getTime() || Date.now())].filter(Boolean).join("::"),
       title: `${programmerLabel} DEGRADATION Cheat Sheet`,
       description:
         "All documented DEGRADATION v3 calls for the active context, generated with a fresh bearer token and live target coverage.",
+      selectionKey: selectionContext.selectionKey,
+      programmerId: String(activePanelState?.programmer?.programmerId || "").trim(),
       environmentLabel: String(getActiveAdobePassEnvironment()?.label || queryValues.adobePassEnvironmentLabel || "").trim(),
       programmerLabel,
       requestorId: queryValues.requestorId,
@@ -45572,22 +45629,28 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
       resourceSource: liveCoverage.resourceTargets.length > 0 ? "live" : "synthesized",
       channel: resolvedChannel,
       channelSource: liveCoverage.channelTargets.length > 0 ? "live" : "synthesized",
+      generatedAt: generatedAt.getTime(),
       generatedAtLabel,
       tokenExpiresLabel,
       liveRowCount: Array.isArray(liveCoverage.rows) ? liveCoverage.rows.length : 0,
       callCount: commands.length,
       calls: commands,
-    });
-    const fileName = buildDegradationCheatSheetFileName(activePanelState.programmer);
-    await downloadBlobFile(new Blob([html], { type: "text/html;charset=utf-8" }), fileName);
+    };
+    cheatSheetPayload.setupItems = buildDegradationCheatSheetSetupItems(cheatSheetPayload);
+    degradationWorkspaceStoreCheatSheet(cheatSheetPayload);
+    degradationWorkspaceBroadcastReports(selectionContext.selectionKey, targetWindowId);
+    if (targetWindowId > 0) {
+      void degradationWorkspaceSendWorkspaceMessage("cheat-sheet-result", cheatSheetPayload, { targetWindowId });
+    }
     degradationSetControllerStatus(
       activePanelState,
-      `Generated ${fileName} with ${commands.length} fresh DEGRADATION cURL commands.`,
+      `Loaded ${commands.length} fresh DEGRADATION cURL commands into the DEGRADATION Workspace.`,
       "success"
     );
     return {
-      fileName,
+      cheatSheetId: String(cheatSheetPayload.cheatSheetId || "").trim(),
       callCount: commands.length,
+      targetWindowId,
       panelState: activePanelState,
     };
   } finally {
@@ -46278,13 +46341,11 @@ async function degradationExecuteStatusRequest(panelState, endpointSpec, options
   });
 }
 
-function degradationBuildControllerHtml(programmer, appInfo, quickSetState = null) {
+function degradationBuildControllerHtml(programmer, appInfo) {
   const hasRequestor = Boolean(String(state.selectedRequestorId || "").trim());
   const goHiddenAttr = hasRequestor ? "" : " hidden";
   const requestorControlsHiddenAttr = hasRequestor ? "" : " hidden";
   const goButtonLabel = degradationBuildGoButtonLabel();
-  const resolvedQuickSetState = quickSetState && typeof quickSetState === "object" ? quickSetState : degradationBuildQuickSetState();
-  const quickSetDisabledAttr = resolvedQuickSetState.hasPresets ? "" : " disabled";
   return `
     <section class="degradation-controller-shell">
       <div class="degradation-runner-actions">
@@ -46325,23 +46386,12 @@ function degradationBuildControllerHtml(programmer, appInfo, quickSetState = nul
           <button type="button" class="degradation-run-go-btn"${goHiddenAttr}>${escapeHtml(goButtonLabel)}</button>
         </div>
       </div>
-      <div class="degradation-quick-set-row">
-        <select class="degradation-quick-set-select" aria-label="DEGRADATION quick set preset"${quickSetDisabledAttr}>
-          ${resolvedQuickSetState.optionsHtml}
-        </select>
-        <button
-          type="button"
-          class="degradation-quick-set-btn"
-          title="Stamp the global Environment and Media Company pickers from a DEGRADATION preset"
-          aria-label="Stamp the global Environment and Media Company pickers from a DEGRADATION preset"${quickSetDisabledAttr}
-        >
-          QUICK SET
-        </button>
+      <div class="degradation-cheat-sheet-row">
         <button
           type="button"
           class="degradation-copy-curl-btn"
-          title="Generate a full DEGRADATION Cheat Sheet with fresh runnable cURL commands"
-          aria-label="Generate a full DEGRADATION Cheat Sheet with fresh runnable cURL commands"${quickSetDisabledAttr}
+          title="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
+          aria-label="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
         >
           CHEAT
         </button>
@@ -46811,24 +46861,6 @@ function wireDegradationPanelInteractions(panelState, requestToken) {
     });
   }
 
-  if (panelState.quickSetButton) {
-    panelState.quickSetButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      void applyDegradationQuickSetPreset(panelState, String(panelState.quickSetSelect?.value || "").trim(), {
-        endpointKey: String(panelState.endpointSelect?.value || "").trim().toLowerCase(),
-        setStatus: true,
-      }).catch((error) => {
-        const activePanelState = getActiveDegradationWorkspaceState() || panelState;
-        degradationSetControllerStatus(
-          activePanelState,
-          error instanceof Error ? error.message : String(error),
-          "error"
-        );
-      });
-    });
-  }
-
   if (panelState.copyCurlButton) {
     panelState.copyCurlButton.addEventListener("click", (event) => {
       event.preventDefault();
@@ -46887,10 +46919,7 @@ async function loadDegradationService(programmer, appInfo, section, contentEleme
         '<div class="service-error">No properly scoped DEGRADATION software statement was found for this media company.</div>';
       return;
     }
-    const quickSetState = degradationBuildQuickSetState({
-      programmer,
-    });
-    contentElement.innerHTML = degradationBuildControllerHtml(programmer, resolvedInitialApp, quickSetState);
+    contentElement.innerHTML = degradationBuildControllerHtml(programmer, resolvedInitialApp);
     const panelState = {
       serviceType: "degradation",
       section,
@@ -46898,18 +46927,15 @@ async function loadDegradationService(programmer, appInfo, section, contentEleme
       programmer,
       appInfo: resolvedInitialApp,
       appCandidates: initialCandidates,
-      quickSetState,
       requestToken,
       controllerWindowId: Number(controllerWindowId || 0),
       busy: false,
       appLabelElement: contentElement.querySelector(".degradation-app-label"),
       runnerForm: contentElement.querySelector(".degradation-runner-form"),
       endpointSelect: contentElement.querySelector(".degradation-endpoint-select"),
-      quickSetSelect: contentElement.querySelector(".degradation-quick-set-select"),
       recordingToggleButton: contentElement.querySelector(".degradation-record-toggle-btn"),
       makeClickDgrButton: contentElement.querySelector(".degradation-make-clickdgr-btn"),
       runGoButton: contentElement.querySelector(".degradation-run-go-btn"),
-      quickSetButton: contentElement.querySelector(".degradation-quick-set-btn"),
       copyCurlButton: contentElement.querySelector(".degradation-copy-curl-btn"),
       statusElement: contentElement.querySelector(".degradation-controller-status"),
     };
@@ -47591,6 +47617,7 @@ function resetWorkflowForLoggedOut() {
   state.degradationWorkspaceTabIdByWindowId.clear();
   state.degradationWorkspaceLastSelectionKey = "";
   state.degradationWorkspaceReportsBySelectionKey.clear();
+  state.degradationWorkspaceCheatSheetsBySelectionKey.clear();
   state.degradationWorkspaceQueryStateBySelectionKey.clear();
   state.bobtoolsWorkspaceTabId = 0;
   state.bobtoolsWorkspaceWindowId = 0;
