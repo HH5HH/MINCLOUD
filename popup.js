@@ -48272,6 +48272,37 @@ function degradationBuildReportPayload(endpointSpec, queryValues, result = {}) {
   };
 }
 
+function degradationBuildEndpointReportsFromMegaStatusReport(megaReport = null, queryValues = {}) {
+  const sourceReport = megaReport && typeof megaReport === "object" ? megaReport : {};
+  const sourceRows = Array.isArray(sourceReport.rows) ? sourceReport.rows : [];
+  const rowsByRuleTitle = new Map();
+
+  sourceRows.forEach((row) => {
+    const ruleTitle = String(row?.Rule || "").trim();
+    if (!ruleTitle) {
+      return;
+    }
+    const existingRows = rowsByRuleTitle.get(ruleTitle) || [];
+    existingRows.push(row);
+    rowsByRuleTitle.set(ruleTitle, existingRows);
+  });
+
+  return DEGRADATION_STATUS_ENDPOINT_SPECS.map((endpointSpec) =>
+    degradationBuildReportPayload(endpointSpec, queryValues, {
+      selectionKey: String(sourceReport.selectionKey || "").trim(),
+      runGroupId: String(sourceReport.runGroupId || "").trim(),
+      ok: sourceReport.ok === true,
+      status: Number(sourceReport.status || 0),
+      statusText: String(sourceReport.statusText || "").trim(),
+      error: sourceReport.ok === true ? "" : String(sourceReport.error || "").trim(),
+      rows: sourceReport.ok === true ? rowsByRuleTitle.get(String(endpointSpec.title || "").trim()) || [] : [],
+      requestUrl: String(sourceReport.requestUrl || "").trim(),
+      fetchedAt: Number(sourceReport.fetchedAt || Date.now()),
+      durationMs: Number(sourceReport.durationMs || 0),
+    })
+  );
+}
+
 function buildDegradationRunGroupId() {
   return `dgr-run-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -48773,24 +48804,61 @@ async function degradationRunAllStatusEndpointsFromPanel(panelState, options = {
       programmerId: String(queryValues.programmerId || ""),
       mvpd: String(queryValues.mvpd || ""),
       includeAllMvpd: queryValues.includeAllMvpd === true,
-      endpointCount: DEGRADATION_STATUS_ENDPOINT_SPECS.length,
+      endpointCount: queryValues.includeAllMvpd === true ? 1 : DEGRADATION_STATUS_ENDPOINT_SPECS.length,
       targetWindowId,
       workspaceKey: "degradation-workspace",
       workspaceOrigin: "DEGRADATION Workspace",
     });
-    for (const endpointSpec of DEGRADATION_STATUS_ENDPOINT_SPECS) {
-      const report = await degradationRunStatusEndpointFromPanel(panelState, endpointSpec.key, {
-        requestToken,
+    if (queryValues.includeAllMvpd === true) {
+      const selectionContext = degradationWorkspaceGetSelectionContext(panelState.programmer, {
+        degradation: selectedApp,
+      });
+      const megaReport = await degradationExecuteStatusRequest(panelState, DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC, {
         queryValues,
+        selectionKey: String(selectionContext.selectionKey || "").trim(),
         runGroupId,
         selectedApp,
-        manageBusy: false,
-        openWorkspace: false,
         targetWindowId,
-        allowDetachedControllerContext: true,
       });
-      if (report) {
+      const splitReports = degradationBuildEndpointReportsFromMegaStatusReport(megaReport, queryValues);
+      splitReports.forEach((report) => {
+        degradationWorkspaceStoreReport(report, queryValues);
         reports.push(report);
+      });
+      emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
+        phase: megaReport.ok === true ? "sweep-mega-result" : "sweep-mega-error",
+        requestScope: "degradation-run-all",
+        endpoint: DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.path,
+        status: Number(megaReport.status || 0),
+        statusText: String(megaReport.statusText || ""),
+        rowCount: Number(megaReport.rowCount || 0),
+        activeCount: Number(megaReport.activeCount || 0),
+        error: String(megaReport.error || ""),
+        programmerId: String(queryValues.programmerId || ""),
+        mvpd: "",
+        includeAllMvpd: true,
+        targetWindowId,
+        workspaceKey: "degradation-workspace",
+        workspaceOrigin: "DEGRADATION Workspace",
+      });
+      if (targetWindowId > 0) {
+        degradationWorkspaceBroadcastReports(selectionContext.selectionKey, targetWindowId);
+      }
+    } else {
+      for (const endpointSpec of DEGRADATION_STATUS_ENDPOINT_SPECS) {
+        const report = await degradationRunStatusEndpointFromPanel(panelState, endpointSpec.key, {
+          requestToken,
+          queryValues,
+          runGroupId,
+          selectedApp,
+          manageBusy: false,
+          openWorkspace: false,
+          targetWindowId,
+          allowDetachedControllerContext: true,
+        });
+        if (report) {
+          reports.push(report);
+        }
       }
     }
     const okCount = reports.filter((report) => report?.ok === true).length;

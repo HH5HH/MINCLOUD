@@ -91,12 +91,17 @@ function loadDegradationRunAllHelper() {
   const filePath = path.join(ROOT, "popup.js");
   const source = fs.readFileSync(filePath, "utf8");
   const script = [
-    "const DEGRADATION_STATUS_ENDPOINT_SPECS = [{ key: 'authnall' }, { key: 'authzall' }, { key: 'authznone' }];",
+    "const DEGRADATION_STATUS_ENDPOINT_SPECS = [{ key: 'authnall', title: 'Authenticate All - Status' }, { key: 'authzall', title: 'Authorize All - Status' }, { key: 'authznone', title: 'Authorize None - Status' }];",
+    "const DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC = { key: 'all', path: 'all', title: 'All Rules - Status' };",
     "let refreshCalls = 0;",
     "let refreshOptions = [];",
     "let endpointCalls = [];",
+    "let executeStatusCalls = [];",
+    "let storedReports = [];",
+    "let broadcastCalls = [];",
+    "let queryValues = { requestorId: 'MML', programmerId: 'MML', mvpd: 'ATT', includeAllMvpd: false };",
     "function isDegradationServiceRequestActive() { return true; }",
-    "function degradationCollectFormValues() { return { requestorId: 'MML', programmerId: 'MML', mvpd: 'ATT', includeAllMvpd: false }; }",
+    "function degradationCollectFormValues() { return { ...queryValues }; }",
     "function degradationRequireSelectedRequestor() { return true; }",
     "function degradationSetControllerStatus() {}",
     "function degradationSetBusy(panelState, busy) { panelState.busy = busy === true; }",
@@ -105,12 +110,22 @@ function loadDegradationRunAllHelper() {
     "function degradationRefreshSelectedAppForRequest(panelState, options = {}) { refreshCalls += 1; refreshOptions.push(options); const app = { guid: 'app-1', appName: 'Degradation App', scope: 'entitlement:degradation' }; panelState.appInfo = app; return app; }",
     "function emitDegradationWorkspaceDebugEvent() {}",
     "function getActiveDegradationWorkspaceDebugFlowId() { return 'flow-1'; }",
+    "function degradationWorkspaceGetSelectionContext() { return { selectionKey: 'release-production|Turner' }; }",
+    "async function degradationExecuteStatusRequest(panelState, endpointSpec, options = {}) { executeStatusCalls.push({ endpointSpec, options }); return { ok: true, status: 200, statusText: 'OK', selectionKey: 'release-production|Turner', runGroupId: String(options.runGroupId || 'run-fixed'), requestUrl: 'https://degradation.example/Turner/all', rows: [{ Rule: 'Authorize All - Status', id: 'row-1' }], rowCount: 1, activeCount: 1, fetchedAt: 1000, durationMs: 20 }; }",
+    "function degradationBuildReportPayload(endpointSpec, queryValues, result = {}) { const rows = Array.isArray(result.rows) ? result.rows : []; return { endpointKey: String(endpointSpec?.key || ''), endpointPath: String(endpointSpec?.path || ''), endpointTitle: String(endpointSpec?.title || endpointSpec?.key || ''), programmerId: String(queryValues?.programmerId || ''), mvpd: String(queryValues?.mvpd || ''), includeAllMvpd: queryValues?.includeAllMvpd === true, mvpdScopeLabel: queryValues?.includeAllMvpd === true ? 'ALL MVPDs' : String(queryValues?.mvpd || ''), rowCount: rows.length, activeCount: rows.length, ...result }; }",
+    "function degradationWorkspaceStoreReport(report, state) { storedReports.push({ report, state }); }",
+    "function degradationWorkspaceBroadcastReports(selectionKey, targetWindowId) { broadcastCalls.push({ selectionKey, targetWindowId }); }",
     "async function degradationRunStatusEndpointFromPanel(panelState, endpointKey, options = {}) { endpointCalls.push({ endpointKey, options }); return { ok: true, rowCount: 1, activeCount: 1 }; }",
+    extractFunctionSource(source, "degradationBuildEndpointReportsFromMegaStatusReport"),
     extractFunctionSource(source, "degradationRunAllStatusEndpointsFromPanel"),
+    "function setQueryValues(nextValues = {}) { queryValues = { ...queryValues, ...nextValues }; }",
     "function getRefreshCalls() { return refreshCalls; }",
     "function getRefreshOptions() { return refreshOptions.slice(); }",
     "function getEndpointCalls() { return endpointCalls.slice(); }",
-    "module.exports = { degradationRunAllStatusEndpointsFromPanel, getRefreshCalls, getRefreshOptions, getEndpointCalls };",
+    "function getExecuteStatusCalls() { return executeStatusCalls.slice(); }",
+    "function getStoredReports() { return storedReports.slice(); }",
+    "function getBroadcastCalls() { return broadcastCalls.slice(); }",
+    "module.exports = { degradationRunAllStatusEndpointsFromPanel, setQueryValues, getRefreshCalls, getRefreshOptions, getEndpointCalls, getExecuteStatusCalls, getStoredReports, getBroadcastCalls };",
   ].join("\n\n");
   const context = {
     module: { exports: {} },
@@ -222,6 +237,41 @@ test("DEGRADATION GET ALL resolves one app and reuses it for every endpoint", as
     assert.equal(call.options.targetWindowId, 42);
   });
   assert.equal(reports.length, 3);
+  assert.equal(panelState.busy, false);
+});
+
+test("DEGRADATION GET ALL for ALL MVPDs uses the mega endpoint and fans out report cards", async () => {
+  const helpers = loadDegradationRunAllHelper();
+  helpers.setQueryValues({
+    mvpd: "",
+    includeAllMvpd: true,
+  });
+  const panelState = {
+    section: {},
+    programmer: {
+      programmerId: "Turner",
+    },
+    requestToken: 7,
+    busy: false,
+  };
+
+  const reports = await helpers.degradationRunAllStatusEndpointsFromPanel(panelState, {
+    requestToken: 7,
+  });
+
+  assert.equal(helpers.getRefreshCalls(), 1);
+  assert.equal(helpers.getEndpointCalls().length, 0);
+  const [executeCall] = helpers.getExecuteStatusCalls();
+  assert.equal(executeCall.endpointSpec.key, "all");
+  assert.equal(executeCall.options.selectedApp.guid, "app-1");
+  assert.equal(executeCall.options.targetWindowId, 42);
+
+  assert.equal(reports.length, 3);
+  assert.equal(reports.find((report) => report.endpointKey === "authnall")?.rowCount, 0);
+  assert.equal(reports.find((report) => report.endpointKey === "authzall")?.rowCount, 1);
+  assert.equal(reports.find((report) => report.endpointKey === "authznone")?.rowCount, 0);
+  assert.equal(helpers.getStoredReports().length, 3);
+  assert.equal(JSON.stringify(helpers.getBroadcastCalls()), JSON.stringify([{ selectionKey: "release-production|Turner", targetWindowId: 42 }]));
   assert.equal(panelState.busy, false);
 });
 
