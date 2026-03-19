@@ -374,6 +374,16 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.match(fetchProgrammersSource, /Authorization: `Bearer \$\{accessToken\}`/);
 });
 
+test("console endpoint bootstrap initializes underparStateRef before top-level programmer endpoint construction", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const stateRefIndex = popupSource.indexOf("let underparStateRef = null;");
+  const endpointIndex = popupSource.indexOf("let PROGRAMMER_ENDPOINTS = buildProgrammerEndpointsForConsoleBase(ADOBE_CONSOLE_BASE);");
+
+  assert.notEqual(stateRefIndex, -1);
+  assert.notEqual(endpointIndex, -1);
+  assert.ok(stateRefIndex < endpointIndex, "underparStateRef must initialize before PROGRAMMER_ENDPOINTS");
+});
+
 test("DEBUG INFO and logged-out controls bind before async init and keep a safe fallback snapshot", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const initSource = extractFunctionSource(popupSource, "init");
