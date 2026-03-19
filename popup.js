@@ -40899,12 +40899,10 @@ function buildDegradationWorkspaceSelectionKey(context = null) {
     context?.adobePassEnvironment?.key || context?.environmentKey || getActiveAdobePassEnvironmentKey()
   ).trim();
   const programmerId = String(context?.programmerId || "").trim();
-  const requestorId = String(context?.requestorId || "").trim();
-  const mvpd = String(context?.mvpd || "").trim();
   if (!programmerId) {
     return "";
   }
-  return [environmentKey || DEFAULT_ADOBEPASS_ENVIRONMENT.key, programmerId, requestorId || "*", mvpd || "*"].join("|");
+  return [environmentKey || DEFAULT_ADOBEPASS_ENVIRONMENT.key, programmerId].join("|");
 }
 
 function parseDegradationWorkspaceSelectionKey(selectionKey = "") {
@@ -40915,6 +40913,15 @@ function parseDegradationWorkspaceSelectionKey(selectionKey = "") {
     requestorId: String(requestorId || "").trim() === "*" ? "" : String(requestorId || "").trim(),
     mvpd: String(mvpd || "").trim() === "*" ? "" : String(mvpd || "").trim(),
   };
+}
+
+function normalizeDegradationWorkspaceSelectionKey(selectionKey = "", context = null) {
+  const selectionParts = parseDegradationWorkspaceSelectionKey(selectionKey);
+  return buildDegradationWorkspaceSelectionKey({
+    adobePassEnvironment: context?.adobePassEnvironment,
+    environmentKey: firstNonEmptyString([context?.environmentKey, selectionParts.environmentKey]),
+    programmerId: firstNonEmptyString([context?.programmerId, selectionParts.programmerId]),
+  });
 }
 
 function degradationWorkspaceGetSelectionContext(programmer = null, services = null) {
@@ -40944,7 +40951,7 @@ function degradationWorkspaceGetSelectionContext(programmer = null, services = n
     appGuid: String(degradationApp?.guid || "").trim(),
     appName: String(degradationApp?.appName || degradationApp?.guid || "").trim(),
   };
-  selectionContext.selectionKey = buildDegradationWorkspaceSelectionKey(selectionContext);
+  selectionContext.selectionKey = normalizeDegradationWorkspaceSelectionKey("", selectionContext);
   return selectionContext;
 }
 
@@ -40972,7 +40979,7 @@ function degradationWorkspaceGetSelectedControllerStatePayload(programmer = null
     mvpd: String(context.mvpd || "").trim(),
     mvpdLabel: String(context.mvpdLabel || "").trim(),
     mvpdScopeLabel: String(context.mvpdScopeLabel || "").trim(),
-    selectionKey: String(context.selectionKey || "").trim(),
+    selectionKey: normalizeDegradationWorkspaceSelectionKey(String(context.selectionKey || "").trim(), context),
     appGuid: String(context.appGuid || "").trim(),
     appName: String(context.appName || "").trim(),
     controllerReason,
@@ -41257,7 +41264,17 @@ function degradationWorkspaceStoreReport(reportPayload = null, queryState = null
   if (!clonedReport || typeof clonedReport !== "object") {
     return "";
   }
-  const selectionKey = firstNonEmptyString([clonedReport.selectionKey, state.degradationWorkspaceLastSelectionKey]);
+  const selectionKey = firstNonEmptyString([
+    normalizeDegradationWorkspaceSelectionKey(clonedReport.selectionKey, {
+      environmentKey: firstNonEmptyString([clonedReport.adobePassEnvironmentKey, clonedReport.environmentKey]),
+      programmerId: firstNonEmptyString([clonedReport.mediaCompanyId, clonedReport.mediaCompany, clonedReport.programmerId]),
+    }),
+    buildDegradationWorkspaceSelectionKey({
+      environmentKey: firstNonEmptyString([clonedReport.adobePassEnvironmentKey, clonedReport.environmentKey]),
+      programmerId: firstNonEmptyString([clonedReport.mediaCompanyId, clonedReport.mediaCompany, clonedReport.programmerId]),
+    }),
+    normalizeDegradationWorkspaceSelectionKey(state.degradationWorkspaceLastSelectionKey),
+  ]);
   if (!selectionKey) {
     return "";
   }
@@ -41310,7 +41327,17 @@ function degradationWorkspaceStoreCheatSheet(cheatSheetPayload = null) {
   if (!clonedCheatSheet || typeof clonedCheatSheet !== "object") {
     return "";
   }
-  const selectionKey = firstNonEmptyString([clonedCheatSheet.selectionKey, state.degradationWorkspaceLastSelectionKey]);
+  const selectionKey = firstNonEmptyString([
+    normalizeDegradationWorkspaceSelectionKey(clonedCheatSheet.selectionKey, {
+      environmentKey: firstNonEmptyString([clonedCheatSheet.adobePassEnvironmentKey, clonedCheatSheet.environmentKey]),
+      programmerId: firstNonEmptyString([clonedCheatSheet.programmerId, clonedCheatSheet.mediaCompanyId]),
+    }),
+    buildDegradationWorkspaceSelectionKey({
+      environmentKey: firstNonEmptyString([clonedCheatSheet.adobePassEnvironmentKey, clonedCheatSheet.environmentKey]),
+      programmerId: firstNonEmptyString([clonedCheatSheet.programmerId, clonedCheatSheet.mediaCompanyId]),
+    }),
+    normalizeDegradationWorkspaceSelectionKey(state.degradationWorkspaceLastSelectionKey),
+  ]);
   if (!selectionKey) {
     return "";
   }
@@ -41336,12 +41363,12 @@ function degradationWorkspaceGetAllCheatSheets() {
 }
 
 function degradationWorkspaceGetCheatSheets(selectionKey = "") {
-  const normalizedSelectionKey = String(selectionKey || "").trim();
+  const normalizedSelectionKey = normalizeDegradationWorkspaceSelectionKey(selectionKey);
   if (normalizedSelectionKey) {
     const cachedCheatSheet = state.degradationWorkspaceCheatSheetsBySelectionKey.get(normalizedSelectionKey);
     return cachedCheatSheet ? [cloneJsonLikeValue(cachedCheatSheet, null)].filter(Boolean) : [];
   }
-  const fallbackSelectionKey = String(state.degradationWorkspaceLastSelectionKey || "").trim();
+  const fallbackSelectionKey = normalizeDegradationWorkspaceSelectionKey(state.degradationWorkspaceLastSelectionKey);
   if (fallbackSelectionKey && state.degradationWorkspaceCheatSheetsBySelectionKey.has(fallbackSelectionKey)) {
     return [cloneJsonLikeValue(state.degradationWorkspaceCheatSheetsBySelectionKey.get(fallbackSelectionKey), null)].filter(Boolean);
   }
@@ -41357,7 +41384,10 @@ function degradationWorkspaceSetPendingCheatSheet(windowId, payload = {}) {
     return null;
   }
   const pendingState = {
-    selectionKey: String(payload?.selectionKey || "").trim(),
+    selectionKey: normalizeDegradationWorkspaceSelectionKey(payload?.selectionKey, {
+      environmentKey: firstNonEmptyString([payload?.adobePassEnvironmentKey, payload?.environmentKey]),
+      programmerId: firstNonEmptyString([payload?.programmerId, payload?.mediaCompanyId]),
+    }),
     message: String(payload?.message || "Generating DEGRADATION Cheat Sheet...").trim() || "Generating DEGRADATION Cheat Sheet...",
     startedAt: Date.now(),
   };
@@ -41374,8 +41404,8 @@ function degradationWorkspaceGetPendingCheatSheet(windowId, selectionKey = "") {
   if (!pendingState || typeof pendingState !== "object") {
     return null;
   }
-  const expectedSelectionKey = String(selectionKey || "").trim();
-  const pendingSelectionKey = String(pendingState.selectionKey || "").trim();
+  const expectedSelectionKey = normalizeDegradationWorkspaceSelectionKey(selectionKey);
+  const pendingSelectionKey = normalizeDegradationWorkspaceSelectionKey(pendingState.selectionKey);
   if (expectedSelectionKey && pendingSelectionKey && expectedSelectionKey !== pendingSelectionKey) {
     return null;
   }
@@ -41392,14 +41422,14 @@ function degradationWorkspaceClearPendingCheatSheet(windowId) {
 }
 
 function degradationWorkspaceGetReports(selectionKey = "") {
-  const normalizedSelectionKey = String(selectionKey || "").trim();
+  const normalizedSelectionKey = normalizeDegradationWorkspaceSelectionKey(selectionKey);
   if (normalizedSelectionKey) {
     if (state.degradationWorkspaceReportsBySelectionKey.has(normalizedSelectionKey)) {
       return cloneJsonLikeValue(state.degradationWorkspaceReportsBySelectionKey.get(normalizedSelectionKey), []);
     }
     return [];
   }
-  const fallbackSelectionKey = String(state.degradationWorkspaceLastSelectionKey || "").trim();
+  const fallbackSelectionKey = normalizeDegradationWorkspaceSelectionKey(state.degradationWorkspaceLastSelectionKey);
   if (fallbackSelectionKey && state.degradationWorkspaceReportsBySelectionKey.has(fallbackSelectionKey)) {
     return cloneJsonLikeValue(state.degradationWorkspaceReportsBySelectionKey.get(fallbackSelectionKey), []);
   }
@@ -41411,7 +41441,10 @@ function degradationWorkspaceGetReports(selectionKey = "") {
 
 function degradationWorkspaceBroadcastReports(selectionKey = "", targetWindowId = 0) {
   const resolvedWindowId = Number(targetWindowId || 0) || Number(state.degradationWorkspaceWindowId || 0);
-  const resolvedSelectionKey = firstNonEmptyString([selectionKey, state.degradationWorkspaceLastSelectionKey]);
+  const resolvedSelectionKey = firstNonEmptyString([
+    normalizeDegradationWorkspaceSelectionKey(selectionKey),
+    normalizeDegradationWorkspaceSelectionKey(state.degradationWorkspaceLastSelectionKey),
+  ]);
   const reports = degradationWorkspaceGetReports(resolvedSelectionKey);
   const cheatSheets = degradationWorkspaceGetCheatSheets(resolvedSelectionKey);
   const pendingCheatSheet = degradationWorkspaceGetPendingCheatSheet(resolvedWindowId, resolvedSelectionKey);
@@ -41434,7 +41467,10 @@ async function degradationWorkspaceFlushReportsToTarget(selectionKey = "", targe
   if (resolvedWindowId <= 0) {
     return false;
   }
-  const resolvedSelectionKey = firstNonEmptyString([selectionKey, state.degradationWorkspaceLastSelectionKey]);
+  const resolvedSelectionKey = firstNonEmptyString([
+    normalizeDegradationWorkspaceSelectionKey(selectionKey),
+    normalizeDegradationWorkspaceSelectionKey(state.degradationWorkspaceLastSelectionKey),
+  ]);
   const targetTabId = Number(options?.targetTabId || degradationWorkspaceGetBoundWorkspaceTabId(resolvedWindowId) || 0);
   await degradationWorkspaceWaitForReady(
     resolvedWindowId,
@@ -41508,12 +41544,13 @@ function degradationWorkspaceBuildCardQuery(card = null) {
     adobePassEnvironmentKey,
     adobePassEnvironmentLabel,
     selectionKey:
-      String(card?.selectionKey || "").trim() ||
+      normalizeDegradationWorkspaceSelectionKey(card?.selectionKey, {
+        environmentKey: adobePassEnvironmentKey,
+        programmerId: mediaCompanyId,
+      }) ||
       buildDegradationWorkspaceSelectionKey({
         environmentKey: adobePassEnvironmentKey,
         programmerId: mediaCompanyId,
-        requestorId,
-        mvpd: includeAllMvpd ? "" : mvpd,
       }),
     queryValues: {
       requestorId,
@@ -41576,7 +41613,10 @@ function buildDegradationWorkspaceCardGroupDeeplink(group = null) {
     includeAllMvpd: firstCard.includeAllMvpd === true,
     environmentKey: String(firstCard.adobePassEnvironmentKey || "").trim(),
     environmentLabel: String(firstCard.adobePassEnvironmentLabel || "").trim(),
-    selectionKey: String(firstCard.selectionKey || "").trim(),
+    selectionKey: normalizeDegradationWorkspaceSelectionKey(firstCard.selectionKey, {
+      environmentKey: firstCard.adobePassEnvironmentKey,
+      programmerId: firstCard.mediaCompanyId,
+    }),
   };
 }
 
@@ -41685,12 +41725,13 @@ function buildDegradationWorkspaceBlondieExportPayload(report = null, options = 
     endpointPath: String(report.endpointPath || options.endpointPath || "").trim(),
     includeAllMvpd,
     selectionKey:
-      String(options.selectionKey || report.selectionKey || "").trim() ||
+      normalizeDegradationWorkspaceSelectionKey(options.selectionKey || report.selectionKey, {
+        environmentKey,
+        programmerId: mediaCompanyId,
+      }) ||
       buildDegradationWorkspaceSelectionKey({
         environmentKey,
         programmerId: mediaCompanyId,
-        requestorId,
-        mvpd,
       }),
     columns,
     rows,
@@ -41749,12 +41790,13 @@ function normalizeDegradationWorkspaceDeeplinkPayload(input = null) {
     environmentKey,
     environmentLabel: String(source.environmentLabel || source.adobePassEnvironmentLabel || "").trim(),
     selectionKey:
-      String(source.selectionKey || "").trim() ||
+      normalizeDegradationWorkspaceSelectionKey(source.selectionKey, {
+        environmentKey,
+        programmerId,
+      }) ||
       buildDegradationWorkspaceSelectionKey({
         environmentKey,
         programmerId,
-        requestorId,
-        mvpd: includeAllMvpd ? "" : mvpd,
       }),
     source: String(source.source || "blondie-button").trim() || "blondie-button",
     createdAt: Math.max(0, Number(source.createdAt || Date.now() || 0)),
@@ -42092,7 +42134,10 @@ async function handleDegradationWorkspaceAction(message, sender = null) {
       workspaceKey: "degradation-workspace",
       workspaceOrigin: "DEGRADATION Workspace",
     });
-    const selectionKey = firstNonEmptyString([message?.selectionKey, message?.selection?.selectionKey]);
+    const selectionKey = firstNonEmptyString([
+      normalizeDegradationWorkspaceSelectionKey(message?.selectionKey),
+      normalizeDegradationWorkspaceSelectionKey(message?.selection?.selectionKey),
+    ]);
     if (selectionKey) {
       state.degradationWorkspaceReportsBySelectionKey.delete(selectionKey);
       state.degradationWorkspaceCheatSheetsBySelectionKey.delete(selectionKey);
@@ -48172,7 +48217,19 @@ function degradationBuildReportPayload(endpointSpec, queryValues, result = {}) {
     (count, row) => count + (String(row?.Active || "").trim().toUpperCase() === "YES" ? 1 : 0),
     0
   );
-  const selectionKey = String(result.selectionKey || "").trim();
+  const selectionKey =
+    normalizeDegradationWorkspaceSelectionKey(result.selectionKey, {
+      environmentKey:
+        String(queryValues?.adobePassEnvironmentKey || getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+        DEFAULT_ADOBEPASS_ENVIRONMENT.key,
+      programmerId: String(queryValues?.mediaCompanyId || "").trim(),
+    }) ||
+    buildDegradationWorkspaceSelectionKey({
+      environmentKey:
+        String(queryValues?.adobePassEnvironmentKey || getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+        DEFAULT_ADOBEPASS_ENVIRONMENT.key,
+      programmerId: String(queryValues?.mediaCompanyId || "").trim(),
+    });
   const queryKey = [
     String(endpointSpec?.key || "").trim(),
     `programmer=${String(queryValues?.programmerId || "").trim()}`,
