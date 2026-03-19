@@ -50494,6 +50494,26 @@ function isExpectedUnderparSilentAuthMiss(error) {
   ].some((token) => message.includes(token));
 }
 
+async function launchUnderparImsAuthorizationFlow(authorizeUrl, interactive = true) {
+  if (!chrome.identity || typeof chrome.identity.launchWebAuthFlow !== "function") {
+    throw new Error("chrome.identity.launchWebAuthFlow is unavailable.");
+  }
+
+  if (interactive) {
+    return await chrome.identity.launchWebAuthFlow({
+      url: authorizeUrl,
+      interactive: true,
+    });
+  }
+
+  return await chrome.identity.launchWebAuthFlow({
+    url: authorizeUrl,
+    interactive: false,
+    abortOnLoadForNonInteractive: false,
+    timeoutMsForNonInteractive: NON_INTERACTIVE_AUTH_TIMEOUT_MS,
+  });
+}
+
 async function runUnderparPkceLogin(options = {}) {
   const interactive = options?.interactive !== false;
   const extraParams = options?.extraParams && typeof options.extraParams === "object" ? options.extraParams : {};
@@ -50533,19 +50553,7 @@ async function runUnderparPkceLogin(options = {}) {
     let responseUrl = "";
     let capturedAvatarUrl = "";
     let authPopupTabId = 0;
-    if (interactive) {
-      const popupResult = await runAuthInPopupWindow(authorizeUrl, redirectUri);
-      responseUrl = String(popupResult?.responseUrl || "");
-      capturedAvatarUrl = normalizeAvatarCandidate(popupResult?.capturedAvatarUrl || "");
-      authPopupTabId = Number(popupResult?.authPopupTabId || 0);
-    } else {
-      responseUrl = await chrome.identity.launchWebAuthFlow({
-        url: authorizeUrl,
-        interactive: false,
-        abortOnLoadForNonInteractive: false,
-        timeoutMsForNonInteractive: NON_INTERACTIVE_AUTH_TIMEOUT_MS,
-      });
-    }
+    responseUrl = String(await launchUnderparImsAuthorizationFlow(authorizeUrl, interactive));
 
     const authResponse = parseUnderparImsAuthorizationCodeResponse(responseUrl, requestState);
     const tokenPayload = await exchangeUnderparImsAuthorizationCode({

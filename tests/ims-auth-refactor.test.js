@@ -138,6 +138,26 @@ function loadPopupCmActivationHelper() {
   return context.module.exports;
 }
 
+function loadPopupImsAuthLaunchHelper() {
+  const filePath = path.join(ROOT, "popup.js");
+  const source = fs.readFileSync(filePath, "utf8");
+  const script = [
+    "let recordedOptions = [];",
+    "const NON_INTERACTIVE_AUTH_TIMEOUT_MS = 45000;",
+    "const chrome = { identity: { launchWebAuthFlow: async (options) => { recordedOptions.push(options); return `callback:${String(options?.interactive)}`; } } };",
+    extractFunctionSource(source, "launchUnderparImsAuthorizationFlow"),
+    "function getRecordedOptions() { return recordedOptions.slice(); }",
+    "function resetRecordedOptions() { recordedOptions = []; }",
+    "module.exports = { launchUnderparImsAuthorizationFlow, getRecordedOptions, resetRecordedOptions, chrome };",
+  ].join("\n\n");
+  const context = {
+    module: { exports: {} },
+    exports: {},
+  };
+  vm.runInNewContext(script, context, { filename: filePath });
+  return context.module.exports;
+}
+
 function loadPopupCmPrecheckResetHelper() {
   const filePath = path.join(ROOT, "popup.js");
   const source = fs.readFileSync(filePath, "utf8");
@@ -183,6 +203,34 @@ test("legacy helper login surface is no longer shipped", () => {
     assert.equal(/src\/login\/login\.(html|js|css)/.test(source), false);
     assert.equal(/loginHelperResult/i.test(source), false);
   }
+});
+
+test("interactive UnderPAR IMS login uses chrome.identity.launchWebAuthFlow", async () => {
+  const helpers = loadPopupImsAuthLaunchHelper();
+  helpers.resetRecordedOptions();
+
+  const response = await helpers.launchUnderparImsAuthorizationFlow("https://ims.example/authorize", true);
+
+  assert.equal(response, "callback:true");
+  const [request] = helpers.getRecordedOptions();
+  assert.equal(request.url, "https://ims.example/authorize");
+  assert.equal(request.interactive, true);
+  assert.equal(Object.prototype.hasOwnProperty.call(request, "abortOnLoadForNonInteractive"), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(request, "timeoutMsForNonInteractive"), false);
+});
+
+test("silent UnderPAR IMS login keeps non-interactive launchWebAuthFlow options", async () => {
+  const helpers = loadPopupImsAuthLaunchHelper();
+  helpers.resetRecordedOptions();
+
+  const response = await helpers.launchUnderparImsAuthorizationFlow("https://ims.example/authorize", false);
+
+  assert.equal(response, "callback:false");
+  const [request] = helpers.getRecordedOptions();
+  assert.equal(request.url, "https://ims.example/authorize");
+  assert.equal(request.interactive, false);
+  assert.equal(request.abortOnLoadForNonInteractive, false);
+  assert.equal(request.timeoutMsForNonInteractive, 45000);
 });
 
 test("CM auth bootstrap no longer harvests tokens from Experience page context", () => {
