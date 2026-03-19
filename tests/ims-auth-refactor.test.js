@@ -404,3 +404,30 @@ test("logged-out popup and sidepanel surfaces expose ZIP.KEY import controls", (
   assert.match(popupSource, /promptForZipKeyImport/);
   assert.match(popupSource, /importZipKeyIntoVaultFromFile/);
 });
+
+test("missing-client-id flow renders a standalone ZIP.KEY gate before sign-in", () => {
+  const popupHtml = fs.readFileSync(path.join(ROOT, "popup.html"), "utf8");
+  const sidepanelHtml = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const syncZipKeyImportViewSource = extractFunctionSource(popupSource, "syncZipKeyImportView");
+  const renderSource = extractFunctionSource(popupSource, "render");
+
+  assert.match(popupHtml, /id="zip-key-import-view" class="zip-key-import-view zip-key-import-view--gate"/);
+  assert.match(sidepanelHtml, /id="zip-key-import-view" class="zip-key-import-view zip-key-import-view--gate"/);
+  assert.ok(popupHtml.indexOf('id="zip-key-import-view"') < popupHtml.indexOf('id="sign-in-view"'));
+  assert.match(popupSource, /function shouldShowZipKeyImportGate\(/);
+  assert.match(syncZipKeyImportViewSource, /const show = shouldShowZipKeyImportGate\(\);/);
+  assert.match(renderSource, /const showZipKeyImportGate = shouldShowZipKeyImportGate\(\);/);
+  assert.match(renderSource, /els\.authBtn\.hidden = showZipKeyImportGate;/);
+});
+
+test("build label renders immediately from the manifest version with a placeholder fallback", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const renderBuildInfoSource = extractFunctionSource(popupSource, "renderBuildInfo");
+  const initSource = extractFunctionSource(popupSource, "init");
+
+  assert.match(renderBuildInfoSource, /chrome\?\.\s*runtime\?\.\s*getManifest\?\.\(\)\?\.version/);
+  assert.match(renderBuildInfoSource, /Version \$\{manifestVersion\}/);
+  assert.match(renderBuildInfoSource, /Version --/);
+  assert.match(initSource, /renderBuildInfo\(\);/);
+});

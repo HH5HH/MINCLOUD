@@ -11117,6 +11117,10 @@ function hasConfiguredUnderparImsClientId(vault = state.passVault || null) {
   return Boolean(getActiveUnderparImsRuntimeConfig(vault)?.clientId);
 }
 
+function shouldShowZipKeyImportGate(vault = state.passVault || null) {
+  return !state.sessionReady && !state.restricted && !hasConfiguredUnderparImsClientId(vault);
+}
+
 function setZipKeyImportFeedback(message = "", type = "info") {
   state.zipKeyImportMessage = String(message || "").trim();
   const normalizedType = String(type || "info").trim().toLowerCase();
@@ -11129,7 +11133,7 @@ function syncZipKeyImportView() {
     return;
   }
 
-  const show = !state.sessionReady && !state.restricted;
+  const show = shouldShowZipKeyImportGate();
   els.zipKeyImportView.hidden = !show;
   if (!show) {
     return;
@@ -65756,12 +65760,12 @@ async function hydrateCookieSessionWithProfile() {
 }
 
 function renderBuildInfo() {
-  const manifestVersion = chrome.runtime.getManifest().version;
+  const manifestVersion = String(chrome?.runtime?.getManifest?.()?.version || "").trim();
   if (!els.buildInfo) {
     renderPageEnvironmentBadge();
     return;
   }
-  els.buildInfo.textContent = `v${manifestVersion}`;
+  els.buildInfo.textContent = manifestVersion ? `Version ${manifestVersion}` : "Version --";
   renderPageEnvironmentBadge();
 }
 
@@ -65877,7 +65881,19 @@ function render() {
     return;
   }
 
-  els.authBtn.hidden = false;
+  const showZipKeyImportGate = shouldShowZipKeyImportGate();
+  els.authBtn.hidden = showZipKeyImportGate;
+  if (showZipKeyImportGate) {
+    clearResolvedAvatar();
+    closeAvatarMenu();
+    if (els.signInView) {
+      els.signInView.hidden = true;
+    }
+    els.restrictedView.hidden = true;
+    els.workflow.hidden = true;
+    return;
+  }
+
   if (els.signInView) {
     els.signInView.hidden = Boolean(state.sessionReady && state.loginData);
   }
@@ -65885,8 +65901,7 @@ function render() {
   els.workflow.hidden = !(state.sessionReady && state.loginData);
 
   if (!state.sessionReady || !state.loginData) {
-    const imsConfigured = hasConfiguredUnderparImsClientId();
-    const authActionLabel = imsConfigured ? "Sign in to AdobePass" : "Import ZIP.KEY";
+    const authActionLabel = "Sign in to AdobePass";
     clearResolvedAvatar();
     closeAvatarMenu();
     els.authBtn.classList.add("avatar", "avatar-ready");
@@ -65897,7 +65912,7 @@ function render() {
     if (!state.busy) {
       els.authBtn.title = authActionLabel;
       if (els.signInHeroBtn) {
-        els.signInHeroBtn.textContent = imsConfigured ? "Sign In" : "Import ZIP.KEY";
+        els.signInHeroBtn.textContent = "Sign In";
       }
     }
     return;
@@ -66114,7 +66129,7 @@ async function onAuthClick() {
     return;
   }
 
-  if (!state.sessionReady && !state.restricted && !hasConfiguredUnderparImsClientId()) {
+  if (shouldShowZipKeyImportGate()) {
     promptForZipKeyImport();
     return;
   }
@@ -66603,6 +66618,7 @@ async function init() {
   }
   installGlobalNetworkFetchTracker();
   syncGlobalNetworkActivityIndicator();
+  renderBuildInfo();
   let environment = resolveAdobePassEnvironment(DEFAULT_ADOBEPASS_ENVIRONMENT.key);
   try {
     environment = await initializeAdobePassEnvironment();

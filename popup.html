@@ -22,6 +22,49 @@
         ></button>
       </header>
 
+      <section id="zip-key-import-view" class="zip-key-import-view zip-key-import-view--gate" hidden>
+        <div id="zip-key-import-card" class="zip-key-import-card">
+          <div class="zip-key-import-copy">
+            <p class="zip-key-import-eyebrow">VAULT</p>
+            <h3 id="zip-key-import-title" class="zip-key-import-title">Import ZIP.KEY</h3>
+            <p id="zip-key-import-description" class="zip-key-import-description">
+              UnderPAR needs a ZIP.KEY with <code>adobe.ims.client_id</code> before Adobe IMS sign-in can start.
+            </p>
+            <p id="zip-key-import-client" class="zip-key-import-client" hidden></p>
+          </div>
+          <div
+            id="zip-key-dropzone"
+            class="zip-key-dropzone"
+            role="button"
+            tabindex="0"
+            aria-describedby="zip-key-import-description"
+            aria-label="Drop ZIP.KEY here or choose a file"
+          >
+            <span class="zip-key-dropzone-eyebrow">ZIP.KEY</span>
+            <span id="zip-key-dropzone-label" class="zip-key-dropzone-label">Drop ZIP.KEY here</span>
+            <span class="zip-key-dropzone-meta">or click to choose a file</span>
+          </div>
+          <div class="zip-key-import-actions">
+            <button id="zip-key-browse-btn" type="button" class="zip-key-import-btn">Choose ZIP.KEY</button>
+            <button
+              id="zip-key-continue-btn"
+              type="button"
+              class="zip-key-import-btn zip-key-import-btn-secondary"
+              hidden
+            >
+              Continue To Sign In
+            </button>
+          </div>
+          <p id="zip-key-import-state" class="zip-key-import-state" hidden></p>
+          <input
+            id="zip-key-file-input"
+            type="file"
+            accept=".key,.txt,.json,text/plain,application/json"
+            hidden
+          />
+        </div>
+      </section>
+
       <section id="sign-in-view" class="sign-in-view">
         <div class="sign-in-view-card">
           <div class="sign-in-hero-art">
@@ -47,48 +90,6 @@
                 <span class="sign-in-update-indicator-label">New Version Available</span>
               </button>
             </div>
-            <section id="zip-key-import-view" class="zip-key-import-view" hidden>
-              <div id="zip-key-import-card" class="zip-key-import-card">
-                <div class="zip-key-import-copy">
-                  <p class="zip-key-import-eyebrow">VAULT</p>
-                  <h3 id="zip-key-import-title" class="zip-key-import-title">Import ZIP.KEY</h3>
-                  <p id="zip-key-import-description" class="zip-key-import-description">
-                    UnderPAR needs a ZIP.KEY with <code>adobe.ims.client_id</code> before Adobe IMS sign-in can start.
-                  </p>
-                  <p id="zip-key-import-client" class="zip-key-import-client" hidden></p>
-                </div>
-                <div
-                  id="zip-key-dropzone"
-                  class="zip-key-dropzone"
-                  role="button"
-                  tabindex="0"
-                  aria-describedby="zip-key-import-description"
-                  aria-label="Drop ZIP.KEY here or choose a file"
-                >
-                  <span class="zip-key-dropzone-eyebrow">ZIP.KEY</span>
-                  <span id="zip-key-dropzone-label" class="zip-key-dropzone-label">Drop ZIP.KEY here</span>
-                  <span class="zip-key-dropzone-meta">or click to choose a file</span>
-                </div>
-                <div class="zip-key-import-actions">
-                  <button id="zip-key-browse-btn" type="button" class="zip-key-import-btn">Choose ZIP.KEY</button>
-                  <button
-                    id="zip-key-continue-btn"
-                    type="button"
-                    class="zip-key-import-btn zip-key-import-btn-secondary"
-                    hidden
-                  >
-                    Continue To Sign In
-                  </button>
-                </div>
-                <p id="zip-key-import-state" class="zip-key-import-state" hidden></p>
-                <input
-                  id="zip-key-file-input"
-                  type="file"
-                  accept=".key,.txt,.json,text/plain,application/json"
-                  hidden
-                />
-              </div>
-            </section>
           </div>
         </div>
       </section>

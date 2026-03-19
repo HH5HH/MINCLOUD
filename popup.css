@@ -359,6 +359,24 @@ body.underpar-up-tab .zip-key-import-card {
     0 12px 24px rgba(17, 17, 17, 0.06);
 }
 
+body.underpar-up-tab .zip-key-import-view--gate {
+  width: calc(100% - var(--underpar-shell-gutter-width) - var(--underpar-shell-column-gap));
+  max-width: calc(100% - var(--underpar-shell-gutter-width) - var(--underpar-shell-column-gap));
+  align-self: flex-start;
+}
+
+body.underpar-up-tab .zip-key-import-view--gate .zip-key-import-card {
+  min-height: min(60vh, 380px);
+  padding: 20px;
+  gap: 16px;
+  justify-content: center;
+}
+
+body.underpar-up-tab .zip-key-import-view--gate .zip-key-dropzone {
+  min-height: 148px;
+  justify-content: center;
+}
+
 body.underpar-up-tab .zip-key-dropzone {
   border-color: rgba(var(--underpar-gray-300-rgb), 0.82);
   background: linear-gradient(180deg, rgba(248, 248, 248, 0.98), rgba(243, 243, 243, 0.98));
@@ -956,6 +974,10 @@ body[aria-busy="true"] .auth-btn::before {
 
 .zip-key-import-view {
   width: 100%;
+}
+
+.zip-key-import-view--gate {
+  flex: 1 0 auto;
 }
 
 .zip-key-import-card {
