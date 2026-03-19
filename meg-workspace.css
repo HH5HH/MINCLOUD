@@ -1548,12 +1548,12 @@ body.meg-standalone-mode[data-theme="modern"] .meg-info-body {
   border-top-width: 1px;
 }
 
-body:not(.meg-standalone-mode) #meg-modern-shell :is(#DD_TBL tbody tr, #RAW_TBL tbody tr):hover {
+body:not(.meg-standalone-mode) #meg-modern-shell #RAW_TBL tbody tr:hover {
   background-color: var(--meg-row-hover-accent);
   color: var(--meg-row-hover-text);
 }
 
-body:not(.meg-standalone-mode) #meg-modern-shell :is(#DD_TBL tbody tr, #RAW_TBL tbody tr):hover :is(td, th, a, button) {
+body:not(.meg-standalone-mode) #meg-modern-shell #RAW_TBL tbody tr:hover :is(td, th, a, button) {
   color: var(--meg-row-hover-text);
 }
 

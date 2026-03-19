@@ -17,7 +17,11 @@ test("embedded MEG workspace stays monochrome while SAVE QUERY remains the only 
   );
   assert.match(
     css,
-    /body:not\(\.meg-standalone-mode\) #meg-modern-shell :is\(#DD_TBL tbody tr, #RAW_TBL tbody tr\):hover\s*\{[\s\S]*?background-color:\s*var\(--meg-row-hover-accent\);[\s\S]*?color:\s*var\(--meg-row-hover-text\);/i
+    /body:not\(\.meg-standalone-mode\) #meg-modern-shell #RAW_TBL tbody tr:hover\s*\{[\s\S]*?background-color:\s*var\(--meg-row-hover-accent\);[\s\S]*?color:\s*var\(--meg-row-hover-text\);/i
+  );
+  assert.doesNotMatch(
+    css,
+    /body:not\(\.meg-standalone-mode\) #meg-modern-shell #DD_TBL tbody tr:hover/i
   );
   assert.doesNotMatch(css, /:root,\s*body\.meg-standalone-mode\[data-theme="modern"\]/i);
 });
