@@ -1,15 +1,14 @@
 "use strict";
 
-const IMS_CLIENT_ID = "adobeExperienceCloudDebugger";
-const IMS_SCOPE =
-  "AdobeID,openid,avatar,session,read_organizations,additional_info.job_function,additional_info.projectedProductContext,additional_info.account_type,additional_info.roles,additional_info.user_image_url,analytics_services";
-const IMS_AUTHORIZE_URL = "https://ims-na1.adobelogin.com/ims/authorize/v1";
-const IMS_BASE_URL = IMS_AUTHORIZE_URL.split("/ims/")[0];
+const IMS_CLIENT_ID = "";
+const IMS_SCOPE = "openid profile offline_access additional_info.projectedProductContext";
+const IMS_AUTHORIZE_URL = "https://ims-na1.adobelogin.com/ims/authorize/v2";
+const IMS_BASE_URL = "https://ims-na1.adobelogin.com";
 const IMS_PROFILE_URL = "https://ims-na1.adobelogin.com/ims/profile/v1";
 const IMS_ORGS_URL = "https://ims-na1.adobelogin.com/ims/organizations/v5";
 const PPS_PROFILE_BASE_URL = "https://pps.services.adobe.com";
-const IMS_LEGACY_REDIRECT_URI = "https://login.aepdebugger.adobe.com";
-const IMS_PROFILE_CLIENT_IDS = [IMS_CLIENT_ID, "AdobePass1"];
+const IMS_LEGACY_REDIRECT_URI = "";
+const IMS_PROFILE_CLIENT_IDS = ["AdobePass1"];
 const HELPER_STATE_KEY = "underpar_helper_state_v1";
 const LEGACY_HELPER_STATE_KEY = "mincloudlogin_helper_state_v1";
 const HELPER_RESULT_PREFIX = "underpar_helper_result_v1:";

@@ -57,6 +57,7 @@ function loadGetLatestHelpers(seed = {}) {
     'const UNDERPAR_LATEST_MANIFEST_URL = `https://raw.githubusercontent.com/${UNDERPAR_GITHUB_OWNER}/${UNDERPAR_GITHUB_REPO}/main/manifest.json`;',
     'const UNDERPAR_LATEST_MANIFEST_API_URL = `https://api.github.com/repos/${UNDERPAR_GITHUB_OWNER}/${UNDERPAR_GITHUB_REPO}/contents/manifest.json?ref=main`;',
     'const UNDERPAR_LATEST_PACKAGE_URL = `https://raw.githubusercontent.com/${UNDERPAR_GITHUB_OWNER}/${UNDERPAR_GITHUB_REPO}/main/underpar_distro.zip`;',
+    'const UNDERPAR_LOCAL_PACKAGE_PATH = "underpar_distro.zip";',
     'const CHROME_EXTENSIONS_URL = "chrome://extensions";',
     'const UPDATE_CHECK_TTL_MS = 10 * 60 * 1000;',
     "const chrome = globalThis.__seed.chrome;",
@@ -79,6 +80,8 @@ function loadGetLatestHelpers(seed = {}) {
     extractFunctionSource(source, "fetchLatestUnderparCommitSha"),
     extractFunctionSource(source, "withCacheBust"),
     extractFunctionSource(source, "buildLatestUnderparPackageUrl"),
+    extractFunctionSource(source, "buildLocalUnderparPackageUrl"),
+    extractFunctionSource(source, "shouldPreferLocalUnderparPackage"),
     extractFunctionSource(source, "sanitizeLatestPackageFileSegment"),
     extractFunctionSource(source, "buildLatestUnderparPackageFileName"),
     extractFunctionSource(source, "startLatestPackageDownload"),
@@ -110,6 +113,9 @@ function createSeed(options = {}) {
       runtime: {
         getManifest() {
           return { version: String(options.currentVersion || "1.0.0") };
+        },
+        getURL(pathname = "") {
+          return `chrome-extension://underpar/${String(pathname || "").replace(/^\/+/, "")}`;
         },
       },
       downloads: {
@@ -242,6 +248,37 @@ test("openUnderparGetLatestFlow uses the commit-pinned manifest version when mai
   assert.ok(
     seed.calls.fetch.includes(`https://raw.githubusercontent.com/HH5HH/UNDERPAR/${latestSha}/manifest.json`)
   );
+});
+
+test("openUnderparGetLatestFlow prefers the local runtime package when the loaded build is newer than GitHub main", async () => {
+  const seed = createSeed({
+    currentVersion: "1.12.88",
+    responseByUrl: {
+      "https://raw.githubusercontent.com/HH5HH/UNDERPAR/main/manifest.json": {
+        ok: true,
+        status: 200,
+        async json() {
+          return { version: "1.12.86" };
+        },
+      },
+      "https://api.github.com/repos/HH5HH/UNDERPAR/git/ref/heads/main": {
+        ok: true,
+        status: 200,
+        async json() {
+          return { object: { sha: "0123456789abcdef0123456789abcdef01234567" } };
+        },
+      },
+    },
+  });
+
+  const helpers = loadGetLatestHelpers(seed);
+  const response = await helpers.openUnderparGetLatestFlow();
+
+  assert.equal(response.ok, true);
+  assert.equal(String(response.downloadSource || ""), "local-runtime");
+  assert.equal(seed.calls.downloadsDownload.length, 1);
+  assert.equal(String(seed.calls.downloadsDownload[0]?.url || "").startsWith("chrome-extension://underpar/underpar_distro.zip?cacheBust="), true);
+  assert.equal(String(seed.calls.downloadsDownload[0]?.filename || ""), "UnderPAR-v1.12.88.zip");
 });
 
 test("openUnderparGetLatestFlow falls back to main underpar_distro.zip with cache bust when SHA lookup fails", async () => {

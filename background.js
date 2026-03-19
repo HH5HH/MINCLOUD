@@ -1,10 +1,10 @@
 const BUILD_INFO_KEY = "underpar_build_info";
 const LEGACY_BUILD_INFO_KEY = "mincloudlogin_build_info";
 const AVATAR_MAX_DATAURL_BYTES = 6000000;
-const IMS_CLIENT_ID = "adobeExperienceCloudDebugger";
+const IMS_CLIENT_ID = "";
 const IMS_BASE_URL = "https://ims-na1.adobelogin.com";
 const PPS_PROFILE_BASE_URL = "https://pps.services.adobe.com";
-const IMS_AVATAR_CLIENT_IDS = ["AdobePass1", IMS_CLIENT_ID];
+const IMS_AVATAR_CLIENT_IDS = ["AdobePass1"];
 const IMS_LOGIN_HELPER_PATH = "src/login/login.html";
 const IMS_LOGIN_REDIRECT_RULE_ID = 164001;
 const UNDERPAR_ESM_DEEPLINK_REDIRECT_RULE_ID = 164002;
@@ -61,6 +61,7 @@ const UP_DEVTOOLS_STATUS_PORT_NAME = "underpar-up-devtools-status";
 const DEBUG_FLOW_PERSIST_MAX = 8;
 const DEBUG_FLOW_PERSIST_DEBOUNCE_MS = 250;
 const IMS_RELAY_FETCH_TIMEOUT_MS = 15000;
+const UNDERPAR_VAULT_STORAGE_KEY = "underpar_vault_v1";
 const UNDERPAR_GITHUB_OWNER = "HH5HH";
 const UNDERPAR_GITHUB_REPO = "UNDERPAR";
 const UNDERPAR_LATEST_REF_API_URL =
@@ -73,6 +74,7 @@ const UNDERPAR_LATEST_MANIFEST_API_URL =
   `https://api.github.com/repos/${UNDERPAR_GITHUB_OWNER}/${UNDERPAR_GITHUB_REPO}/contents/manifest.json?ref=main`;
 const UNDERPAR_LATEST_PACKAGE_URL =
   `https://raw.githubusercontent.com/${UNDERPAR_GITHUB_OWNER}/${UNDERPAR_GITHUB_REPO}/main/underpar_distro.zip`;
+const UNDERPAR_LOCAL_PACKAGE_PATH = "underpar_distro.zip";
 const CHROME_EXTENSIONS_URL = "chrome://extensions";
 const UPDATE_CHECK_TTL_MS = 10 * 60 * 1000;
 // Redirect-host filtering mode for flow capture trimming.
@@ -988,47 +990,12 @@ async function ensureImsLoginRedirectRule() {
     return;
   }
 
-  let helperUrl;
-  try {
-    helperUrl = new URL(chrome.runtime.getURL(IMS_LOGIN_HELPER_PATH));
-  } catch {
-    return;
-  }
-
   try {
     await dnr.updateSessionRules({
       removeRuleIds: [IMS_LOGIN_REDIRECT_RULE_ID],
-      addRules: [
-        {
-          id: IMS_LOGIN_REDIRECT_RULE_ID,
-          priority: 1,
-          action: {
-            type: "redirect",
-            redirect: {
-              transform: {
-                scheme: helperUrl.protocol.replace(":", ""),
-                host: helperUrl.host,
-                path: helperUrl.pathname,
-                queryTransform: {
-                  addOrReplaceParams: [
-                    {
-                      key: "from_ims",
-                      value: "true",
-                    },
-                  ],
-                },
-              },
-            },
-          },
-          condition: {
-            urlFilter: "*://login.aepdebugger.adobe.com/*",
-            resourceTypes: ["main_frame", "sub_frame"],
-          },
-        },
-      ],
     });
   } catch {
-    // Ignore DNR setup errors; auth flow has non-DNR fallback paths.
+    // Ignore DNR cleanup errors.
   }
 }
 
@@ -1441,11 +1408,89 @@ function buildAvatarFetchUrlCandidates(url) {
   return candidates;
 }
 
-function buildAvatarFetchAttempts(accessToken = "", url = "") {
+function decodeBase64UrlText(value = "") {
+  let normalized = String(value || "").trim().replace(/-/g, "+").replace(/_/g, "/");
+  if (!normalized) {
+    return "";
+  }
+  const remainder = normalized.length % 4;
+  if (remainder) {
+    normalized += "=".repeat(4 - remainder);
+  }
+  try {
+    return atob(normalized);
+  } catch {
+    return "";
+  }
+}
+
+function parseJwtPayload(token = "") {
+  const raw = String(token || "").trim();
+  if (!raw) {
+    return null;
+  }
+  const parts = raw.split(".");
+  if (parts.length < 2) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(decodeBase64UrlText(parts[1]));
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function readObjectPathValue(source, path) {
+  const normalizedPath = String(path || "").trim();
+  if (!normalizedPath || !source || typeof source !== "object") {
+    return "";
+  }
+  const directValue = String(source?.[normalizedPath] || "").trim();
+  if (directValue) {
+    return directValue;
+  }
+  const parts = normalizedPath.split(".");
+  let current = source;
+  for (const part of parts) {
+    if (!current || typeof current !== "object" || !(part in current)) {
+      return "";
+    }
+    current = current[part];
+  }
+  return String(current || "").trim();
+}
+
+async function loadUnderparImsClientIdFromVault() {
+  if (!chrome?.storage?.local?.get) {
+    return "";
+  }
+  try {
+    const stored = await chrome.storage.local.get(UNDERPAR_VAULT_STORAGE_KEY);
+    const vault = stored?.[UNDERPAR_VAULT_STORAGE_KEY] || null;
+    return (
+      readObjectPathValue(vault, "underpar.globals.adobeIms.clientId") ||
+      readObjectPathValue(vault, "underpar.globals.ims.clientId") ||
+      ""
+    );
+  } catch {
+    return "";
+  }
+}
+
+async function getBackgroundImsAvatarClientIdCandidates(accessToken = "") {
+  const tokenClaims = parseJwtPayload(accessToken) || {};
+  const tokenClientId = String(tokenClaims?.client_id || tokenClaims?.clientId || "").trim();
+  const configuredClientId = await loadUnderparImsClientIdFromVault();
+  return [...new Set([tokenClientId, configuredClientId, ...IMS_AVATAR_CLIENT_IDS].filter(Boolean))];
+}
+
+async function buildAvatarFetchAttempts(accessToken = "", url = "") {
   const baseHeaders = {
     Accept: "image/*,*/*;q=0.8",
   };
   const preferCookieSessionFirst = isPpsProfileImageUrl(url);
+  const avatarClientIds = accessToken ? await getBackgroundImsAvatarClientIdCandidates(accessToken) : [];
 
   const attempts = [];
   const seen = new Set();
@@ -1489,7 +1534,7 @@ function buildAvatarFetchAttempts(accessToken = "", url = "") {
       "omit"
     );
 
-    for (const clientId of IMS_AVATAR_CLIENT_IDS) {
+    for (const clientId of avatarClientIds) {
       if (!clientId) {
         continue;
       }
@@ -1537,7 +1582,7 @@ async function fetchAvatarAsDataUrl(url, accessToken = "") {
 
     let lastError = null;
     for (const targetUrl of urlCandidates) {
-      const attempts = buildAvatarFetchAttempts(accessToken, targetUrl);
+      const attempts = await buildAvatarFetchAttempts(accessToken, targetUrl);
       for (const attempt of attempts) {
         attemptCount += 1;
         if (attemptCount > maxAttempts) {
@@ -2151,6 +2196,24 @@ function buildLatestUnderparPackageUrl(commitSha = "") {
   return withCacheBust(baseUrl);
 }
 
+function buildLocalUnderparPackageUrl() {
+  try {
+    const runtimeUrl = chrome.runtime?.getURL ? chrome.runtime.getURL(UNDERPAR_LOCAL_PACKAGE_PATH) : "";
+    return withCacheBust(runtimeUrl);
+  } catch {
+    return "";
+  }
+}
+
+function shouldPreferLocalUnderparPackage(currentVersion = "", latestVersion = "") {
+  const normalizedCurrent = String(currentVersion || "").trim();
+  const normalizedLatest = String(latestVersion || "").trim();
+  if (!normalizedCurrent || !normalizedLatest) {
+    return false;
+  }
+  return compareVersions(normalizedCurrent, normalizedLatest) > 0;
+}
+
 function sanitizeLatestPackageFileSegment(value = "", fallback = "latest") {
   const normalized = String(value || "")
     .trim()
@@ -2268,25 +2331,36 @@ async function refreshUpdateState(options = {}) {
 
 async function openUnderparGetLatestFlow() {
   await refreshUpdateState({ force: true }).catch(() => {});
+  const currentVersion = getUnderparBuildVersion();
   const useFreshLatestMetadata = !updateState.checkError;
   const latestVersion = useFreshLatestMetadata ? updateState.latestVersion || "" : "";
   const latestCommitSha = useFreshLatestMetadata ? updateState.latestCommitSha || "" : "";
-  const downloadUrl = buildLatestUnderparPackageUrl(latestCommitSha);
-  const downloadFileName = buildLatestUnderparPackageFileName(latestVersion, latestCommitSha);
+  const preferLocalPackage = shouldPreferLocalUnderparPackage(currentVersion, latestVersion);
+  const downloadUrl = preferLocalPackage
+    ? buildLocalUnderparPackageUrl()
+    : buildLatestUnderparPackageUrl(latestCommitSha);
+  const downloadFileName = preferLocalPackage
+    ? buildLatestUnderparPackageFileName(currentVersion, "")
+    : buildLatestUnderparPackageFileName(latestVersion, latestCommitSha);
   const result = {
     ok: false,
     downloadUrl,
     downloadFileName,
+    currentVersion,
     latestVersion,
     latestCommitSha,
     updateAvailable: updateState.updateAvailable === true,
     checkError: updateState.checkError || "",
+    downloadSource: preferLocalPackage ? "local-runtime" : "github-remote",
     downloadId: 0,
     downloadStarted: false,
     downloadTabOpened: false,
     extensionsOpened: false,
   };
   try {
+    if (!downloadUrl) {
+      throw new Error("No UnderPAR package URL available");
+    }
     const createdDownloadId = await startLatestPackageDownload({
       url: downloadUrl,
       filename: downloadFileName,
@@ -2309,9 +2383,11 @@ async function openUnderparGetLatestFlow() {
   } catch {
     // Ignore tab creation failures here too.
   }
-  result.ok = result.downloadStarted || result.downloadTabOpened || result.extensionsOpened;
+  result.ok = result.downloadStarted || result.downloadTabOpened;
   if (!result.ok) {
-    result.error = "Unable to open update links";
+    result.error = preferLocalPackage
+      ? `Loaded UnderPAR v${currentVersion || "current"} is newer than GitHub latest v${latestVersion || "remote"}, but the local ${UNDERPAR_LOCAL_PACKAGE_PATH} package could not be opened.`
+      : "Unable to open update links";
   }
   return result;
 }

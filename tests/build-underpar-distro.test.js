@@ -113,3 +113,34 @@ test("distribution build packages staged tracked files even when the worktree co
   assert.ok(archiveEntries.includes("underpar-distro/background.js"));
   assert.equal(backgroundSource, 'console.log("underpar");\n');
 });
+
+test("distribution build prefers current tracked worktree content over stale index content", (t) => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "underpar-distro-worktree-test-"));
+  const repoDir = path.join(tempRoot, "repo");
+  const scriptDir = path.join(repoDir, "scripts");
+  const artifactPath = path.join(repoDir, "underpar_distro.zip");
+
+  t.after(() => {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  fs.mkdirSync(scriptDir, { recursive: true });
+  fs.copyFileSync(SCRIPT_PATH, path.join(scriptDir, "build_underpar_distro.sh"));
+  fs.chmodSync(path.join(scriptDir, "build_underpar_distro.sh"), 0o755);
+
+  fs.writeFileSync(path.join(repoDir, "manifest.json"), '{ "version": "1.0.0" }\n');
+  fs.writeFileSync(path.join(repoDir, "background.js"), 'console.log("stale-index");\n');
+
+  runCommand("git", ["init", "--quiet"], repoDir);
+  runCommand("git", ["add", "scripts/build_underpar_distro.sh", "manifest.json", "background.js"], repoDir);
+
+  fs.writeFileSync(path.join(repoDir, "background.js"), 'console.log("fresh-worktree");\n');
+  fs.writeFileSync(path.join(repoDir, "manifest.json"), '{ "version": "1.0.2" }\n');
+
+  runCommand("bash", ["scripts/build_underpar_distro.sh"], repoDir);
+  const packagedManifest = runCommand("unzip", ["-p", artifactPath, "underpar-distro/manifest.json"], repoDir);
+  const packagedBackground = runCommand("unzip", ["-p", artifactPath, "underpar-distro/background.js"], repoDir);
+
+  assert.equal(packagedManifest, '{ "version": "1.0.2" }\n');
+  assert.equal(packagedBackground, 'console.log("fresh-worktree");\n');
+});

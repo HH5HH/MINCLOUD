@@ -19,7 +19,16 @@ rm -f "$output_path"
 
 mkdir -p "$staging_dir/$archive_root_name"
 
-git checkout-index --all --force --prefix="$staging_dir/$archive_root_name/"
+while IFS= read -r -d '' tracked_path; do
+  source_path="$repo_root/$tracked_path"
+  target_path="$staging_dir/$archive_root_name/$tracked_path"
+  mkdir -p "$(dirname "$target_path")"
+  if [[ -e "$source_path" ]]; then
+    cp -p "$source_path" "$target_path"
+  else
+    git checkout-index --force --prefix="$staging_dir/$archive_root_name/" -- "$tracked_path"
+  fi
+done < <(git ls-files -z)
 
 if [[ ! -d "$staging_dir/$archive_root_name" ]]; then
   echo "No repository files available to package." >&2

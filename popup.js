@@ -1,12 +1,36 @@
-const IMS_CLIENT_ID = "adobeExperienceCloudDebugger";
-const IMS_SCOPE =
-  "AdobeID,openid,avatar,session,read_organizations,additional_info.job_function,additional_info.projectedProductContext,additional_info.account_type,additional_info.roles,additional_info.user_image_url,analytics_services";
-const IMS_AUTHORIZE_URL = "https://ims-na1.adobelogin.com/ims/authorize/v1";
-const IMS_BASE_URL = IMS_AUTHORIZE_URL.split("/ims/")[0];
+const IMS_CLIENT_ID = "";
+const IMS_IDENTITY_SCOPE = "openid profile";
+const IMS_SCOPE = "openid profile offline_access additional_info.projectedProductContext";
+const IMS_CONSOLE_ALLOWED_SCOPES = Object.freeze([
+  "openid",
+  "profile",
+  "offline_access",
+  "additional_info.projectedProductContext",
+  "AdobeID",
+  "read_organizations",
+  "additional_info.job_function",
+]);
+const IMS_LEGACY_SCOPE_MIGRATION_TOKENS = Object.freeze([
+  "avatar",
+  "session",
+  "additional_info.account_type",
+  "additional_info.roles",
+  "additional_info.user_image_url",
+  "analytics_services",
+]);
+const IMS_ISSUER_URL = "https://ims-na1.adobelogin.com";
+const IMS_OPENID_CONFIGURATION_URL = `${IMS_ISSUER_URL}/ims/.well-known/openid-configuration`;
+const IMS_DEFAULT_AUTHORIZATION_ENDPOINT = `${IMS_ISSUER_URL}/ims/authorize/v2`;
+const IMS_DEFAULT_TOKEN_ENDPOINT = `${IMS_ISSUER_URL}/ims/token/v3`;
+const IMS_DEFAULT_USERINFO_ENDPOINT = `${IMS_ISSUER_URL}/ims/userinfo/v2`;
+const IMS_DEFAULT_REVOCATION_ENDPOINT = `${IMS_ISSUER_URL}/ims/revoke`;
+const IMS_AUTHORIZE_URL = IMS_DEFAULT_AUTHORIZATION_ENDPOINT;
+const IMS_BASE_URL = IMS_ISSUER_URL;
 const IMS_PROFILE_URL = "https://ims-na1.adobelogin.com/ims/profile/v1";
 const IMS_ORGS_URL = "https://ims-na1.adobelogin.com/ims/organizations/v5";
 const PPS_PROFILE_BASE_URL = "https://pps.services.adobe.com";
-const IMS_LEGACY_REDIRECT_URI = "https://login.aepdebugger.adobe.com";
+const IMS_LEGACY_REDIRECT_URI = "";
+const IMS_FALLBACK_PROFILE_CLIENT_IDS = Object.freeze(["AdobePass1"]);
 const LOGIN_HELPER_PATH = "src/login/login.html";
 const LOGIN_HELPER_RESULT_PREFIX = "underpar_helper_result_v1:";
 const LEGACY_LOGIN_HELPER_RESULT_PREFIX = "mincloudlogin_helper_result_v1:";
@@ -176,6 +200,7 @@ const JWT_VALUE_REDACTION_PATTERN = /\b[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[
 const BEARER_TOKEN_REDACTION_PATTERN = /\bBearer\s+[A-Za-z0-9._~-]{20,}\b/gi;
 const NAMED_TOKEN_VALUE_REDACTION_PATTERN =
   /\b(access[_\s-]?token|id[_\s-]?token|refresh[_\s-]?token)\b\s*([:=])\s*([A-Za-z0-9._~-]{16,})/gi;
+const PKCE_VERIFIER_CHARSET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
 const AUTH_DEBUGGER_PROTOCOL_VERSION = "1.3";
 const RATE_LIMIT_MAX_RETRIES = 4;
 const RATE_LIMIT_BASE_DELAY_MS = 1200;
@@ -525,6 +550,7 @@ function createEmptyUnderparVaultPayload() {
       globals: {
         savedQueries: {},
         cmImsByEnvironment: {},
+        adobeIms: null,
         slack: null,
       },
       app: {
@@ -935,6 +961,107 @@ function normalizeZipKeyMeta(input = null) {
     keyVersion: normalizeSlacktivationText(meta?.keyVersion || meta?.version || "", 64),
     importedAt: normalizeSlacktivationText(meta?.importedAt || "", 80) || new Date().toISOString(),
     source: normalizeSlacktivationText(meta?.source || "zip-key", 64) || "zip-key",
+  };
+}
+
+function normalizeImsScopeList(scopeValue = "", fallbackScope = IMS_SCOPE) {
+  const fallback = String(fallbackScope || IMS_SCOPE).trim();
+  const tokens = String(scopeValue || "")
+    .split(/[\s,]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+
+  if (tokens.length === 0) {
+    return fallback;
+  }
+
+  return Array.from(new Set(tokens)).join(" ");
+}
+
+function sanitizeUnderparImsScopeForCredential(scopeValue = "", fallbackScope = IMS_SCOPE) {
+  const normalized = normalizeImsScopeList(scopeValue, fallbackScope);
+  const requestedTokens = normalized.split(/\s+/).filter(Boolean);
+  const allowed = new Set(IMS_CONSOLE_ALLOWED_SCOPES);
+  const shouldMigrateLegacyScopeBundle = requestedTokens.some((token) =>
+    IMS_LEGACY_SCOPE_MIGRATION_TOKENS.includes(token)
+  );
+  const supportedTokens = [];
+  const droppedScopes = [];
+
+  for (const token of requestedTokens) {
+    if (allowed.has(token)) {
+      supportedTokens.push(token);
+    } else {
+      droppedScopes.push(token);
+    }
+  }
+
+  const effectiveScope = shouldMigrateLegacyScopeBundle
+    ? normalizeImsScopeList(fallbackScope, IMS_SCOPE)
+    : supportedTokens.length > 0
+      ? IMS_CONSOLE_ALLOWED_SCOPES.filter((token) => supportedTokens.includes(token)).join(" ")
+      : normalizeImsScopeList(fallbackScope, IMS_SCOPE);
+
+  return {
+    scope: effectiveScope,
+    droppedScopes,
+  };
+}
+
+function normalizeUnderparVaultImsRuntimeConfigRecord(value = null) {
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const isRuntimeRecord =
+    Object.prototype.hasOwnProperty.call(source, "schemaVersion") ||
+    Object.prototype.hasOwnProperty.call(source, "clientId") ||
+    Object.prototype.hasOwnProperty.call(source, "rawScope") ||
+    Object.prototype.hasOwnProperty.call(source, "importedAt") ||
+    Object.prototype.hasOwnProperty.call(source, "updatedAt");
+  const clientId = String(
+    firstNonEmptyString([
+      isRuntimeRecord ? String(source?.clientId || "").trim() : "",
+      readZipKeyValue(source, [
+        "services.adobe.ims.client_id",
+        "services.adobe.ims.clientId",
+        "adobe.ims.client_id",
+        "adobe.ims.clientId",
+        "ims.client_id",
+        "ims.clientId",
+      ]),
+    ]) || ""
+  ).trim();
+  const rawScope = String(
+    firstNonEmptyString([
+      isRuntimeRecord ? String(source?.rawScope || source?.scope || "").trim() : "",
+      readZipKeyValue(source, [
+        "services.adobe.ims.scope",
+        "services.adobe.ims.requested_scope",
+        "adobe.ims.scope",
+        "adobe.ims.requested_scope",
+        "ims.scope",
+        "ims.requested_scope",
+      ]),
+    ]) || ""
+  ).trim();
+  const sanitizedScope = sanitizeUnderparImsScopeForCredential(rawScope || IMS_SCOPE);
+  const sourceLabel = String(source?.source || (clientId ? "ZIP.KEY" : "defaults") || "").trim() || "defaults";
+  const importedAt = String(source?.importedAt || "").trim();
+  const updatedAt = Math.max(0, Number(source?.updatedAt || 0));
+
+  if (!clientId && !rawScope && !importedAt && !updatedAt && sourceLabel === "defaults") {
+    return null;
+  }
+
+  return {
+    schemaVersion: 1,
+    clientId,
+    scope: sanitizedScope.scope,
+    rawScope: rawScope || sanitizedScope.scope,
+    droppedScopes: Array.isArray(source?.droppedScopes)
+      ? uniqueSorted(source.droppedScopes)
+      : sanitizedScope.droppedScopes,
+    source: sourceLabel,
+    importedAt,
+    updatedAt: updatedAt || Date.now(),
   };
 }
 
@@ -1352,6 +1479,36 @@ function normalizeUnderparVaultSlacktivationRecord(value = null) {
     Boolean(normalized.singularity.mention);
   const hasRuntime = Boolean(normalized.identity) || Boolean(normalized.keyMeta) || Boolean(normalized.openIdSession) || Boolean(normalized.lastError);
   return hasConfig || hasRuntime ? normalized : null;
+}
+
+function getUnderparVaultImsRuntimeConfigInput(vault = null) {
+  if (!vault || typeof vault !== "object") {
+    return null;
+  }
+  if (vault?.underpar?.globals && Object.prototype.hasOwnProperty.call(vault.underpar.globals, "adobeIms")) {
+    return vault.underpar.globals.adobeIms;
+  }
+  if (vault?.underpar?.globals && Object.prototype.hasOwnProperty.call(vault.underpar.globals, "ims")) {
+    return vault.underpar.globals.ims;
+  }
+  if (vault?.underpar && Object.prototype.hasOwnProperty.call(vault.underpar, "adobeIms")) {
+    return vault.underpar.adobeIms;
+  }
+  return null;
+}
+
+function getUnderparVaultImsRuntimeConfig(vault = null) {
+  return normalizeUnderparVaultImsRuntimeConfigRecord(getUnderparVaultImsRuntimeConfigInput(vault));
+}
+
+function setUnderparVaultImsRuntimeConfig(vault = null, value = null) {
+  const target = ensureUnderparVaultGlobalContainers(vault);
+  const normalized = normalizeUnderparVaultImsRuntimeConfigRecord(value);
+  target.underpar.globals.adobeIms = normalized ? cloneJsonLikeValue(normalized, null) : null;
+  if (Object.prototype.hasOwnProperty.call(target.underpar.globals, "ims")) {
+    delete target.underpar.globals.ims;
+  }
+  return normalized;
 }
 
 function getUnderparVaultSlacktivationInput(vault = null) {
@@ -4935,6 +5092,9 @@ function ensureUnderparVaultGlobalContainers(vault = null) {
   ) {
     target.underpar.globals.cmImsByEnvironment = {};
   }
+  if (!Object.prototype.hasOwnProperty.call(target.underpar.globals, "adobeIms")) {
+    target.underpar.globals.adobeIms = null;
+  }
   if (!Object.prototype.hasOwnProperty.call(target.underpar.globals, "slack")) {
     target.underpar.globals.slack = null;
   }
@@ -5923,6 +6083,7 @@ function normalizeUnderparVaultPayload(payload = null) {
   setUnderparVaultSavedQueries(normalized, getUnderparVaultSavedQueries(payload));
   const cmImsByEnvironment = getUnderparVaultCmImsByEnvironment(payload);
   normalized.underpar.globals.cmImsByEnvironment = cloneJsonLikeValue(cmImsByEnvironment, {});
+  setUnderparVaultImsRuntimeConfig(normalized, getUnderparVaultImsRuntimeConfigInput(payload));
   setUnderparVaultSlacktivationRecord(normalized, getUnderparVaultSlacktivationInput(payload));
 
   const environmentsInput =
@@ -6684,6 +6845,16 @@ async function slacktivateUnderparFromDevtools(zipKeyText = "") {
     const vault = normalizeUnderparVaultPayload(state.passVault || (await ensurePassVaultLoaded({ forceReload: false })));
     const existingRecord = getUnderparVaultSlacktivationRecord(vault);
     const parsedPayload = parseZipKeyPayload(rawZipKeyText);
+    const parsedImsRuntimeConfig = normalizeUnderparVaultImsRuntimeConfigRecord(parsedPayload);
+    const importedImsRuntimeConfig = parsedImsRuntimeConfig
+      ? normalizeUnderparVaultImsRuntimeConfigRecord({
+          ...getUnderparVaultImsRuntimeConfig(vault),
+          ...parsedImsRuntimeConfig,
+          source: "ZIP.KEY",
+          importedAt: new Date().toISOString(),
+          updatedAt: Date.now(),
+        })
+      : null;
     const zipKeyConfig = normalizeUnderparSlacktivationZipKeyConfig(parsedPayload);
     const provisionalRecord = mergeUnderparSlacktivationRecord(existingRecord, {
       ...zipKeyConfig,
@@ -6691,6 +6862,10 @@ async function slacktivateUnderparFromDevtools(zipKeyText = "") {
       updatedAt: Date.now(),
       lastError: null,
     });
+    if (importedImsRuntimeConfig?.clientId) {
+      setUnderparVaultImsRuntimeConfig(vault, importedImsRuntimeConfig);
+      await clearLoginData().catch(() => {});
+    }
     setUnderparVaultSlacktivationRecord(vault, provisionalRecord);
     vault.updatedAt = Date.now();
     await persistPassVaultPayloadToStorage(vault, { silent: true });
@@ -10245,9 +10420,9 @@ const AVATAR_SIZE_PREFERENCES = [128, 64, 256, 32];
 const AVATAR_MAX_RESOLVE_CANDIDATES = 20;
 const AVATAR_DIRECT_LOAD_TIMEOUT_MS = 1200;
 const AVATAR_IMS_REFRESH_COOLDOWN_MS = 2 * 60 * 1000;
-const IMS_AVATAR_CLIENT_IDS = ["AdobePass1", IMS_CLIENT_ID];
-const IMS_PROFILE_CLIENT_IDS = [IMS_CLIENT_ID, "AdobePass1"];
-const IMS_VALIDATE_CLIENT_IDS = [IMS_CLIENT_ID, "AdobePass1"];
+const IMS_AVATAR_CLIENT_IDS = [...IMS_FALLBACK_PROFILE_CLIENT_IDS];
+const IMS_PROFILE_CLIENT_IDS = [...IMS_FALLBACK_PROFILE_CLIENT_IDS];
+const IMS_VALIDATE_CLIENT_IDS = [...IMS_FALLBACK_PROFILE_CLIENT_IDS];
 const AVATAR_CACHE_STORAGE_PREFIX = "underpar_avatar_cache_v2:";
 const LEGACY_AVATAR_CACHE_STORAGE_PREFIX = "mincloudlogin_avatar_cache_v2:";
 const AVATAR_MAX_LOCALSTORAGE_DATAURL_BYTES = 220000;
@@ -48059,7 +48234,6 @@ function isAuthFlowUrl(url) {
     value.includes("experience.adobe.com") ||
     value.includes("experience-stage.adobe.com") ||
     /console\.auth(?:-staging)?\.adobe\.com/i.test(value) ||
-    value.includes("login.aepdebugger.adobe.com") ||
     value.includes("pps.services.adobe.com")
   );
 }
@@ -48546,6 +48720,63 @@ function resolveAuthResponseExpiry(accessToken, expiresInValue) {
   };
 }
 
+function getDefaultUnderparImsAuthConfiguration() {
+  return {
+    issuer: IMS_ISSUER_URL,
+    authorization_endpoint: IMS_DEFAULT_AUTHORIZATION_ENDPOINT,
+    token_endpoint: IMS_DEFAULT_TOKEN_ENDPOINT,
+    userinfo_endpoint: IMS_DEFAULT_USERINFO_ENDPOINT,
+    revocation_endpoint: IMS_DEFAULT_REVOCATION_ENDPOINT,
+  };
+}
+
+function getActiveUnderparImsRuntimeConfig(vault = state?.passVault || null) {
+  return (
+    getUnderparVaultImsRuntimeConfig(vault) || {
+      schemaVersion: 1,
+      clientId: "",
+      scope: IMS_SCOPE,
+      rawScope: IMS_SCOPE,
+      droppedScopes: [],
+      source: "defaults",
+      importedAt: "",
+      updatedAt: 0,
+    }
+  );
+}
+
+async function requireUnderparImsRuntimeConfig() {
+  const vault = state.passVault || (await ensurePassVaultLoaded({ forceReload: false }));
+  const runtimeConfig = getActiveUnderparImsRuntimeConfig(vault);
+  if (runtimeConfig?.clientId) {
+    return runtimeConfig;
+  }
+  throw new Error("Adobe IMS client ID is not configured. Import a ZIP.KEY with adobe.ims.client_id in VAULT first.");
+}
+
+function getUnderparImsRedirectUri() {
+  try {
+    return chrome.identity?.getRedirectURL ? chrome.identity.getRedirectURL("ims-callback") : "";
+  } catch {
+    return "";
+  }
+}
+
+function getUnderparImsClientIdCandidates(accessToken = "", ...hints) {
+  const tokenClaims = parseJwtPayload(accessToken) || {};
+  const runtimeConfig = getActiveUnderparImsRuntimeConfig();
+  return uniquePreserveOrder(
+    [
+      ...hints,
+      firstNonEmptyString([tokenClaims?.client_id, tokenClaims?.clientId]),
+      runtimeConfig?.clientId,
+      ...IMS_FALLBACK_PROFILE_CLIENT_IDS,
+    ]
+      .map((value) => String(value || "").trim())
+      .filter(Boolean)
+  );
+}
+
 async function fetchValidateTokenSessionSnapshot(accessToken = "") {
   const token = String(accessToken || "").trim();
   if (!token) {
@@ -48553,7 +48784,7 @@ async function fetchValidateTokenSessionSnapshot(accessToken = "") {
   }
 
   const endpoint = `${IMS_BASE_URL}/ims/validate_token/v1?jslVersion=underpar`;
-  const clientIds = [...new Set(IMS_VALIDATE_CLIENT_IDS.map((value) => String(value || "").trim()).filter(Boolean))];
+  const clientIds = getUnderparImsClientIdCandidates(token);
 
   for (const clientId of clientIds) {
     const body = new URLSearchParams({
@@ -49192,6 +49423,7 @@ async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
     let timeoutId = null;
     let pollId = null;
     const successUrlMatcher = typeof options.successUrlMatcher === "function" ? options.successUrlMatcher : null;
+    const keepWindowOpenForBootstrap = options?.keepWindowOpenForBootstrap === true;
 
     const cleanup = () => {
       if (timeoutId) {
@@ -49202,10 +49434,6 @@ async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
       }
       chrome.tabs.onUpdated.removeListener(onUpdated);
       chrome.tabs.onRemoved.removeListener(onRemoved);
-      if (debuggerSession) {
-        void debuggerSession.detach();
-        debuggerSession = null;
-      }
     };
 
     const closeAuthWindow = async () => {
@@ -49219,7 +49447,7 @@ async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
       }
     };
 
-    const finish = (result, error) => {
+    const finish = async (result, error) => {
       if (completed) {
         return;
       }
@@ -49228,7 +49456,31 @@ async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
         ? normalizeAvatarCandidate(debuggerSession.getCapturedAvatarCandidate())
         : "";
       cleanup();
-      void closeAuthWindow();
+
+      let retainedBootstrapContext = null;
+      if (!error && keepWindowOpenForBootstrap && authWindowId && authTabId && debuggerSession) {
+        retainedBootstrapContext = await retainLoginHelperBootstrapContext({
+          windowId: authWindowId,
+          tabId: authTabId,
+          debuggerSession,
+        });
+        debuggerSession = null;
+        authWindowId = null;
+        authTabId = null;
+      }
+
+      if (debuggerSession) {
+        try {
+          await debuggerSession.detach();
+        } catch {
+          // Ignore debugger detach failures.
+        }
+        debuggerSession = null;
+      }
+
+      if (authWindowId) {
+        await closeAuthWindow();
+      }
 
       if (error) {
         reject(error);
@@ -49236,6 +49488,8 @@ async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
         resolve({
           responseUrl: String(result || ""),
           capturedAvatarUrl,
+          authPopupTabId: Number(retainedBootstrapContext?.tabId || 0),
+          authPopupWindowId: Number(retainedBootstrapContext?.windowId || 0),
         });
       }
     };
@@ -49245,11 +49499,11 @@ async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
         return;
       }
       if (redirectUri && url.startsWith(redirectUri)) {
-        finish(url, null);
+        void finish(url, null);
         return;
       }
       if (successUrlMatcher && successUrlMatcher(url)) {
-        finish(url, null);
+        void finish(url, null);
       }
     };
 
@@ -49262,7 +49516,7 @@ async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
 
     const onRemoved = (tabId) => {
       if (tabId === authTabId && !completed) {
-        finish(null, new Error("Login window was closed before completion."));
+        void finish(null, new Error("Login window was closed before completion."));
       }
     };
 
@@ -49270,7 +49524,7 @@ async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
     chrome.tabs.onRemoved.addListener(onRemoved);
 
     timeoutId = setTimeout(() => {
-      finish(null, new Error("Login timed out. Please try again."));
+      void finish(null, new Error("Login timed out. Please try again."));
     }, AUTH_WINDOW_TIMEOUT_MS);
 
     try {
@@ -49286,7 +49540,7 @@ async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
       authTabId = authWindow.tabs?.[0]?.id ?? null;
 
       if (!authTabId) {
-        finish(null, new Error("Unable to open login window."));
+        await finish(null, new Error("Unable to open login window."));
         return;
       }
 
@@ -49305,7 +49559,7 @@ async function runAuthInPopupWindow(authUrl, redirectUri, options = {}) {
         }
       }, 250);
     } catch (error) {
-      finish(null, error instanceof Error ? error : new Error(String(error)));
+      await finish(null, error instanceof Error ? error : new Error(String(error)));
     }
   });
 }
@@ -49340,52 +49594,375 @@ async function runLegacyAuthWindowFlow(requestState, extraParams = {}) {
     : parsed;
 }
 
-async function startLogin(options = {}) {
-  const requestState = randomStateValue();
-  const extraParams = options.extraParams || {};
-  const interactive = options.interactive !== false;
-  const allowFallback = options.allowFallback !== false;
-  const useLoginHelper = interactive && options.useLoginHelper !== false;
+function buildUnderparImsAuthError(parsed, text, fallbackMessage = "Adobe IMS request failed.") {
+  const payload = parsed && typeof parsed === "object" ? parsed : {};
+  const code = firstNonEmptyString([
+    String(payload?.error || "").trim(),
+    String(payload?.code || "").trim(),
+    String(payload?.errorCode || "").trim(),
+  ]);
+  const description = firstNonEmptyString([
+    String(payload?.error_description || "").trim(),
+    String(payload?.errorDescription || "").trim(),
+    String(payload?.message || "").trim(),
+    String(payload?.errorMessage || "").trim(),
+    normalizeHttpErrorMessage(text),
+  ]);
+  const message = code && description ? `${code}: ${description}` : description || code || fallbackMessage;
+  return new Error(redactSensitiveTokenValues(message));
+}
 
-  log("Starting IMS auth flow", { interactive, allowFallback, useLoginHelper, extraParams });
+async function fetchUnderparImsOpenIdConfiguration() {
+  const defaults = getDefaultUnderparImsAuthConfiguration();
+  try {
+    const response = await relayImsFetch(IMS_OPENID_CONFIGURATION_URL, {
+      method: "GET",
+      credentials: "omit",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+    const text = await response.text().catch(() => "");
+    const parsed = parseJsonText(text, null);
+    if (!response.ok) {
+      throw buildUnderparImsAuthError(parsed, text, "Adobe IMS discovery failed.");
+    }
+    if (!parsed || typeof parsed !== "object") {
+      return defaults;
+    }
+    return {
+      ...defaults,
+      ...parsed,
+    };
+  } catch {
+    return defaults;
+  }
+}
 
-  if (useLoginHelper) {
-    try {
-      return await runLoginHelperFlow(requestState, extraParams, {
-        keepWindowOpenForBootstrap: options.keepAuthWindowOpenForBootstrap === true,
-      });
-    } catch (error) {
-      const message = error?.message || String(error);
-      const normalizedMessage = String(message).toLowerCase();
-      log("Login helper auth flow failed", message);
+function buildPkceCodeVerifier(length = 64) {
+  const normalizedLength = Number.isFinite(Number(length)) ? Math.max(43, Math.min(128, Number(length))) : 64;
+  const bytes = new Uint8Array(normalizedLength);
+  crypto.getRandomValues(bytes);
+  let output = "";
+  for (const byte of bytes) {
+    output += PKCE_VERIFIER_CHARSET[byte % PKCE_VERIFIER_CHARSET.length];
+  }
+  return output;
+}
 
-      const userClosedLoginWindow =
-        normalizedMessage.includes("closed before completion") ||
-        normalizedMessage.includes("login was canceled") ||
-        normalizedMessage.includes("login was cancelled");
-      if (userClosedLoginWindow || !allowFallback) {
-        throw error;
-      }
+async function buildPkceCodeChallenge(codeVerifier = "") {
+  const verifier = String(codeVerifier || "").trim();
+  if (verifier.length < 43) {
+    throw new Error("PKCE code verifier is too short.");
+  }
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier));
+  const bytes = new Uint8Array(digest);
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function buildUnderparImsAuthorizationCodeUrl({
+  authorizationEndpoint = IMS_DEFAULT_AUTHORIZATION_ENDPOINT,
+  clientId = "",
+  redirectUri = "",
+  scope = IMS_SCOPE,
+  state = "",
+  codeChallenge = "",
+  prompt = "",
+  extraParams = {},
+} = {}) {
+  const params = new URLSearchParams({
+    client_id: String(clientId || "").trim(),
+    redirect_uri: String(redirectUri || "").trim(),
+    response_type: "code",
+    scope: normalizeImsScopeList(scope, IMS_SCOPE),
+    state: String(state || "").trim(),
+    code_challenge_method: "S256",
+    code_challenge: String(codeChallenge || "").trim(),
+    response_mode: "query",
+  });
+  if (prompt) {
+    params.set("prompt", String(prompt));
+  }
+  for (const [key, value] of Object.entries(extraParams || {})) {
+    const normalizedKey = String(key || "").trim().toLowerCase();
+    if (
+      normalizedKey === "client_id" ||
+      normalizedKey === "redirect_uri" ||
+      normalizedKey === "response_type" ||
+      normalizedKey === "response_mode" ||
+      normalizedKey === "code_challenge" ||
+      normalizedKey === "code_challenge_method"
+    ) {
+      continue;
+    }
+    if (value !== undefined && value !== null && value !== "") {
+      params.set(key, String(value));
     }
   }
+  return `${String(authorizationEndpoint || IMS_DEFAULT_AUTHORIZATION_ENDPOINT).trim()}?${params.toString()}`;
+}
 
-  let authData;
-  try {
-    authData = await withPromiseTimeout(
-      runIdentityWebAuthFlow(requestState, extraParams, interactive),
-      interactive ? 0 : NON_INTERACTIVE_AUTH_TIMEOUT_MS,
-      "Silent Experience Cloud login timed out."
+function parseUnderparImsAuthorizationCodeResponse(responseUrl, expectedState = "") {
+  const authParams = extractAuthParams(responseUrl);
+  const authError = authParams.get("error");
+  if (authError) {
+    throw buildUnderparImsAuthError(
+      {
+        error: authError,
+        error_description: authParams.get("error_description"),
+      },
+      "",
+      "Adobe IMS authorization failed."
     );
+  }
+
+  const returnedState = String(authParams.get("state") || "").trim();
+  const normalizedExpectedState = String(expectedState || "").trim();
+  if (normalizedExpectedState && returnedState !== normalizedExpectedState) {
+    throw new Error("State validation failed.");
+  }
+
+  const code = String(authParams.get("code") || "").trim();
+  if (!code) {
+    throw new Error("No authorization code returned from Adobe IMS.");
+  }
+
+  return {
+    code,
+    state: returnedState,
+  };
+}
+
+async function exchangeUnderparImsAuthorizationCode({
+  tokenEndpoint = IMS_DEFAULT_TOKEN_ENDPOINT,
+  clientId = "",
+  code = "",
+  codeVerifier = "",
+} = {}) {
+  const endpoint = new URL(String(tokenEndpoint || IMS_DEFAULT_TOKEN_ENDPOINT));
+  endpoint.searchParams.set("client_id", String(clientId || "").trim());
+  const body = new URLSearchParams({
+    code: String(code || "").trim(),
+    grant_type: "authorization_code",
+    code_verifier: String(codeVerifier || "").trim(),
+  });
+  const response = await relayImsFetch(endpoint.toString(), {
+    method: "POST",
+    credentials: "omit",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: body.toString(),
+  });
+  const text = await response.text().catch(() => "");
+  const parsed = parseJsonOrFormText(text, null);
+  if (!response.ok) {
+    throw buildUnderparImsAuthError(parsed, text, "Adobe IMS token exchange failed.");
+  }
+  if (!parsed || typeof parsed !== "object") {
+    throw new Error("Adobe IMS token exchange returned an invalid response.");
+  }
+  return parsed;
+}
+
+async function fetchUnderparImsUserInfo({
+  userInfoEndpoint = IMS_DEFAULT_USERINFO_ENDPOINT,
+  accessToken = "",
+  clientId = "",
+} = {}) {
+  const token = String(accessToken || "").trim();
+  if (!token) {
+    return null;
+  }
+
+  const endpoint = new URL(String(userInfoEndpoint || IMS_DEFAULT_USERINFO_ENDPOINT));
+  if (clientId) {
+    endpoint.searchParams.set("client_id", String(clientId).trim());
+  }
+  const response = await relayImsFetch(endpoint.toString(), {
+    method: "GET",
+    credentials: "omit",
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  const text = await response.text().catch(() => "");
+  const parsed = normalizeProfileAvatarFields(parseJsonText(text, null));
+  if (!response.ok) {
+    throw buildUnderparImsAuthError(parsed, text, "Adobe IMS user info request failed.");
+  }
+  return parsed && typeof parsed === "object" ? parsed : null;
+}
+
+function shouldRetryUnderparImsLoginWithIdentityScope(error, configuredScope = "") {
+  const message = String(error?.message || error || "").toLowerCase();
+  return message.includes("invalid_scope") && normalizeImsScopeList(configuredScope, IMS_SCOPE) !== IMS_IDENTITY_SCOPE;
+}
+
+function isExpectedUnderparSilentAuthMiss(error) {
+  const message = String(error?.message || error || "").toLowerCase();
+  return [
+    "authorization page could not be loaded",
+    "login_required",
+    "interaction_required",
+    "consent_required",
+    "access_denied",
+    "no authorization code returned",
+  ].some((token) => message.includes(token));
+}
+
+async function runUnderparPkceLogin(options = {}) {
+  const interactive = options?.interactive !== false;
+  const extraParams = options?.extraParams && typeof options.extraParams === "object" ? options.extraParams : {};
+  const runtimeConfig = await requireUnderparImsRuntimeConfig();
+  const authConfiguration = await fetchUnderparImsOpenIdConfiguration();
+  const redirectUri = getUnderparImsRedirectUri();
+  if (!redirectUri) {
+    throw new Error("Unable to generate the UnderPAR Adobe IMS redirect URI.");
+  }
+
+  const runAttempt = async (requestedScope, reason = "configured-scope") => {
+    const requestState = randomStateValue();
+    const codeVerifier = buildPkceCodeVerifier();
+    const codeChallenge = await buildPkceCodeChallenge(codeVerifier);
+    const authorizeUrl = buildUnderparImsAuthorizationCodeUrl({
+      authorizationEndpoint: firstNonEmptyString([
+        authConfiguration?.authorization_endpoint,
+        IMS_DEFAULT_AUTHORIZATION_ENDPOINT,
+      ]),
+      clientId: runtimeConfig.clientId,
+      redirectUri,
+      scope: requestedScope,
+      state: requestState,
+      codeChallenge,
+      prompt: interactive ? "" : "none",
+      extraParams,
+    });
+
+    log("Starting UnderPAR Adobe IMS PKCE login", {
+      interactive,
+      reason,
+      clientId: runtimeConfig.clientId,
+      scope: requestedScope,
+      redirectUri,
+    });
+
+    let responseUrl = "";
+    let capturedAvatarUrl = "";
+    let authPopupTabId = 0;
+    if (interactive) {
+      const popupResult = await runAuthInPopupWindow(authorizeUrl, redirectUri, {
+        keepWindowOpenForBootstrap: options?.keepAuthWindowOpenForBootstrap === true,
+      });
+      responseUrl = String(popupResult?.responseUrl || "");
+      capturedAvatarUrl = normalizeAvatarCandidate(popupResult?.capturedAvatarUrl || "");
+      authPopupTabId = Number(popupResult?.authPopupTabId || 0);
+    } else {
+      responseUrl = await chrome.identity.launchWebAuthFlow({
+        url: authorizeUrl,
+        interactive: false,
+        abortOnLoadForNonInteractive: false,
+        timeoutMsForNonInteractive: NON_INTERACTIVE_AUTH_TIMEOUT_MS,
+      });
+    }
+
+    const authResponse = parseUnderparImsAuthorizationCodeResponse(responseUrl, requestState);
+    const tokenPayload = await exchangeUnderparImsAuthorizationCode({
+      tokenEndpoint: firstNonEmptyString([authConfiguration?.token_endpoint, IMS_DEFAULT_TOKEN_ENDPOINT]),
+      clientId: runtimeConfig.clientId,
+      code: authResponse.code,
+      codeVerifier,
+    });
+
+    const accessToken = String(tokenPayload?.access_token || "").trim();
+    if (!accessToken) {
+      throw new Error("Adobe IMS token exchange returned no access token.");
+    }
+
+    const tokenExpiry = resolveAuthResponseExpiry(accessToken, tokenPayload?.expires_in);
+    const accessTokenClaims = parseJwtPayload(accessToken) || {};
+    const idToken = String(tokenPayload?.id_token || "").trim();
+    const idTokenClaims = parseJwtPayload(idToken) || {};
+    const returnedScope = compactStorageString(
+      firstNonEmptyString([String(tokenPayload?.scope || "").trim(), requestedScope]),
+      2048
+    );
+    const expiresAt = coercePositiveNumber(tokenExpiry?.expiresAt);
+    const tokenType = compactStorageString(firstNonEmptyString([String(tokenPayload?.token_type || "").trim()]), 60) || "bearer";
+    const mergedImsSession = mergeImsSessionSnapshots(
+      mergeImsSessionSnapshots(tokenExpiry?.tokenSnapshot || null, {
+        userId: firstNonEmptyString([idTokenClaims?.sub]),
+        sessionId: firstNonEmptyString([idTokenClaims?.sid]),
+        authId: firstNonEmptyString([idTokenClaims?.aa_id, idTokenClaims?.authId]),
+      }),
+      {
+        clientId: firstNonEmptyString([accessTokenClaims?.client_id, accessTokenClaims?.clientId, runtimeConfig.clientId]),
+        tokenType,
+        scope: returnedScope,
+        expiresAt,
+      }
+    );
+
+    const [userInfoResult, profileResult, organizationsResult] = await Promise.allSettled([
+      fetchUnderparImsUserInfo({
+        userInfoEndpoint: firstNonEmptyString([authConfiguration?.userinfo_endpoint, IMS_DEFAULT_USERINFO_ENDPOINT]),
+        accessToken,
+        clientId: runtimeConfig.clientId,
+      }),
+      fetchProfile(accessToken),
+      fetchOrganizations(accessToken),
+    ]);
+    const mergedProfile = mergeProfilePayloads(
+      userInfoResult.status === "fulfilled" ? userInfoResult.value : null,
+      profileResult.status === "fulfilled" ? profileResult.value : null
+    );
+
+    return {
+      accessToken,
+      expiresAt,
+      tokenType,
+      scope: returnedScope,
+      idToken: compactStorageString(idToken, 4096),
+      refreshToken: compactStorageString(firstNonEmptyString([String(tokenPayload?.refresh_token || "").trim()]), 4096),
+      imsSession: mergedImsSession,
+      profile: mergedProfile,
+      organizations:
+        organizationsResult.status === "fulfilled" && organizationsResult.value && typeof organizationsResult.value === "object"
+          ? organizationsResult.value
+          : null,
+      capturedAvatarUrl,
+      authPopupTabId,
+    };
+  };
+
+  const configuredScope = normalizeImsScopeList(firstNonEmptyString([runtimeConfig.scope, IMS_SCOPE]), IMS_SCOPE);
+  try {
+    return await runAttempt(configuredScope, "configured-scope");
   } catch (error) {
-    log("Identity auth flow failed", error?.message || String(error));
-    if (!(allowFallback && interactive && shouldUseAuthWindowFallback(error))) {
+    if (!shouldRetryUnderparImsLoginWithIdentityScope(error, configuredScope)) {
       throw error;
     }
-    log("Falling back to popup auth window flow");
-    authData = await runLegacyAuthWindowFlow(requestState, extraParams);
+    return await runAttempt(IMS_IDENTITY_SCOPE, "identity-scope-fallback");
   }
+}
 
-  return authData;
+async function startLogin(options = {}) {
+  const interactive = options?.interactive !== false;
+  try {
+    const authData = await runUnderparPkceLogin(options);
+    return authData;
+  } catch (error) {
+    if (!interactive && isExpectedUnderparSilentAuthMiss(error)) {
+      throw error;
+    }
+    throw error;
+  }
 }
 
 function buildImsProfileHeaders(accessToken = "", clientId = "") {
@@ -49528,8 +50105,9 @@ function normalizeProfileAvatarFields(profilePayload) {
 }
 
 async function fetchProfile(accessToken) {
+  const clientIdCandidates = getUnderparImsClientIdCandidates(accessToken);
   const endpoints = [
-    ...IMS_PROFILE_CLIENT_IDS.map((clientId) => ({
+    ...clientIdCandidates.map((clientId) => ({
       url: `${IMS_PROFILE_URL}?client_id=${encodeURIComponent(clientId)}`,
       clientId,
     })),
@@ -49624,15 +50202,16 @@ function mergeProfilePayloads(baseProfile, updateProfile) {
 
 async function fetchImsSessionProfile(accessToken = "") {
   const imsBase = IMS_BASE_URL;
+  const clientIdCandidates = getUnderparImsClientIdCandidates(accessToken);
   const endpoints = [
-    `${IMS_PROFILE_URL}?client_id=AdobePass1`,
-    `${IMS_PROFILE_URL}?client_id=${encodeURIComponent(IMS_CLIENT_ID)}`,
+    ...clientIdCandidates.map((clientId) => `${IMS_PROFILE_URL}?client_id=${encodeURIComponent(clientId)}`),
     IMS_PROFILE_URL,
-    `${imsBase}/ims/userinfo/v2`,
-    `${imsBase}/ims/check/v6/status?client_id=AdobePass1`,
-    `${imsBase}/ims/check/v6/status?client_id=${encodeURIComponent(IMS_CLIENT_ID)}`,
-    `${imsBase}/ims/check/v5/status?client_id=AdobePass1&locale=en_US`,
-    `${imsBase}/ims/check/status?client_id=AdobePass1`,
+    ...clientIdCandidates.map((clientId) => `${imsBase}/ims/userinfo/v2?client_id=${encodeURIComponent(clientId)}`),
+    ...clientIdCandidates.map((clientId) => `${imsBase}/ims/check/v6/status?client_id=${encodeURIComponent(clientId)}`),
+    ...clientIdCandidates.map(
+      (clientId) => `${imsBase}/ims/check/v5/status?client_id=${encodeURIComponent(clientId)}&locale=en_US`
+    ),
+    ...clientIdCandidates.map((clientId) => `${imsBase}/ims/check/status?client_id=${encodeURIComponent(clientId)}`),
   ];
 
   const variants = [];
@@ -49647,7 +50226,7 @@ async function fetchImsSessionProfile(accessToken = "") {
     variants.push({ credentials, headers });
   };
 
-  for (const clientId of IMS_PROFILE_CLIENT_IDS) {
+  for (const clientId of clientIdCandidates) {
     pushVariant(clientId, "include", false);
     if (accessToken) {
       pushVariant(clientId, "omit", true);
@@ -52314,7 +52893,7 @@ function buildAvatarFetchAttempts(accessToken = "", url = "") {
       "omit"
     );
 
-    for (const clientId of IMS_AVATAR_CLIENT_IDS) {
+    for (const clientId of getUnderparImsClientIdCandidates(accessToken, ...IMS_AVATAR_CLIENT_IDS)) {
       if (!clientId) {
         continue;
       }
@@ -53345,6 +53924,19 @@ async function loadStoredLoginData() {
 
   const normalizedProfile = resolveLoginProfile(loginData);
   const tokenSnapshot = deriveImsSessionSnapshotFromToken(accessToken);
+  const runtimeImsConfig = getActiveUnderparImsRuntimeConfig(
+    state.passVault || (await ensurePassVaultLoaded({ forceReload: false }))
+  );
+  const configuredClientId = String(runtimeImsConfig?.clientId || "").trim();
+  const storedClientId = firstNonEmptyString([
+    tokenSnapshot?.clientId,
+    loginData?.imsSession?.clientId,
+    loginData?.imsSession?.client_id,
+  ]);
+  if (configuredClientId && storedClientId && storedClientId !== configuredClientId) {
+    await chrome.storage.local.remove(STORAGE_KEY);
+    return null;
+  }
   const expiresAt = resolveStoredSessionExpiresAt(loginData, tokenSnapshot);
   if (!expiresAt || expiresAt <= Date.now()) {
     await chrome.storage.local.remove(STORAGE_KEY);
@@ -53817,10 +54409,10 @@ function startExperienceCloudSessionMonitor() {
 }
 
 async function probeImsCookieSessionState() {
+  const clientIdCandidates = getUnderparImsClientIdCandidates("");
   const endpoints = [
-    `${IMS_BASE_URL}/ims/check/v6/status?client_id=AdobePass1`,
-    `${IMS_BASE_URL}/ims/check/v6/status?client_id=${encodeURIComponent(IMS_CLIENT_ID)}`,
-    `${IMS_PROFILE_URL}?client_id=AdobePass1`,
+    ...clientIdCandidates.map((clientId) => `${IMS_BASE_URL}/ims/check/v6/status?client_id=${encodeURIComponent(clientId)}`),
+    ...clientIdCandidates.map((clientId) => `${IMS_PROFILE_URL}?client_id=${encodeURIComponent(clientId)}`),
   ];
 
   for (const endpoint of endpoints) {
@@ -54322,29 +54914,15 @@ async function refreshSessionNoTouch() {
 }
 
 async function attemptSilentBootstrapLogin() {
-  const silentVariants = [
-    {
-      client_id: EXPERIENCE_CLOUD_SSO_CLIENT_ID,
-      profile_filter: EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER,
-    },
-    {},
-    {
-      client_id: "AdobePass1",
-    },
-  ];
-
-  for (const variant of silentVariants) {
-    try {
-      const authData = await startLogin({
-        interactive: false,
-        allowFallback: false,
-        extraParams: variant,
-      });
-      const profile = await resolveProfileAfterLogin(authData);
-      return buildLoginSessionPayloadFromAuth(authData, profile);
-    } catch {
-      // Try the next silent variant.
-    }
+  try {
+    const authData = await startLogin({
+      interactive: false,
+      allowFallback: false,
+    });
+    const profile = await resolveProfileAfterLogin(authData);
+    return buildLoginSessionPayloadFromAuth(authData, profile);
+  } catch {
+    // Silent PKCE bootstrap is best-effort only.
   }
 
   return null;
@@ -59856,7 +60434,6 @@ async function requestExperienceCloudConsoleToken(options = {}) {
         interactive: false,
         allowFallback: false,
         extraParams: {
-          client_id: EXPERIENCE_CLOUD_SSO_CLIENT_ID,
           scope: EXPERIENCE_CLOUD_EARLY_TOKEN_SCOPE,
           profile_filter: EXPERIENCE_CLOUD_SILENT_PROFILE_FILTER,
         },
@@ -66847,6 +67424,7 @@ async function init() {
   registerAdobePassEnvironmentStorageListener();
   registerPassVaultStorageListener();
   registerUnderparEsmDeeplinkStorageListener();
+  await ensurePassVaultLoaded({ forceReload: false });
   void renderBuildInfo();
   startSidepanelControllerBridge();
   resetWorkflowForLoggedOut();
