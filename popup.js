@@ -476,6 +476,112 @@ function setProgrammerWorkspaceHydrationReady(
   return ready === true;
 }
 
+function getProgrammerServiceHydrationPromise(
+  programmerId = "",
+  environmentKey = getActiveAdobePassEnvironmentKey()
+) {
+  const scopedKey = getEnvironmentScopedProgrammerKey(programmerId, environmentKey);
+  if (!scopedKey) {
+    return null;
+  }
+  return state.premiumServiceRecoveryPromiseByProgrammerKey.get(scopedKey) || null;
+}
+
+function setProgrammerServiceHydrationPromise(
+  programmerId = "",
+  promise = null,
+  environmentKey = getActiveAdobePassEnvironmentKey()
+) {
+  const scopedKey = getEnvironmentScopedProgrammerKey(programmerId, environmentKey);
+  if (!scopedKey) {
+    return null;
+  }
+  if (!promise || typeof promise.then !== "function") {
+    state.premiumServiceRecoveryPromiseByProgrammerKey.delete(scopedKey);
+    return null;
+  }
+  state.premiumServiceRecoveryPromiseByProgrammerKey.set(scopedKey, promise);
+  return promise;
+}
+
+async function primeProgrammerServiceHydration(programmer, services = null, options = {}) {
+  const programmerId = String(programmer?.programmerId || "").trim();
+  if (!programmerId) {
+    return null;
+  }
+
+  const existingPromise = getProgrammerServiceHydrationPromise(programmerId);
+  if (existingPromise) {
+    return existingPromise;
+  }
+
+  const controllerReason = String(options?.controllerReason || "").trim();
+  const requestToken = Math.max(0, Number(options?.requestToken || state.premiumPanelRequestToken || 0));
+  const forceRefresh = options?.forceRefresh === true;
+  const requestorId = String(options?.requestorId || state.selectedRequestorId || "").trim();
+  const seedServices =
+    services && typeof services === "object" && !Array.isArray(services)
+      ? services
+      : getCurrentPremiumAppsSnapshot(programmerId) || getRuntimePremiumServicesSeed(programmerId) || null;
+
+  const workPromise = (async () => {
+    const compileResult = await queuePassVaultProgrammerCompilation(programmer, seedServices, {
+      forceRefresh,
+      requestorId,
+    }).catch(() => null);
+    const compiledServices =
+      compileResult?.services && typeof compileResult.services === "object"
+        ? compileResult.services
+        : getCurrentPremiumAppsSnapshot(programmerId) || seedServices || null;
+    await finalizePassVaultProgrammerHydration(programmer, compiledServices).catch(() => null);
+    await hydrateProgrammerFromPassVault(programmer, {
+      forceReload: false,
+      forceOverwrite: true,
+      forceDcrRestore: true,
+    }).catch(() => null);
+
+    let runtimeServices = getCurrentPremiumAppsSnapshot(programmerId) || compiledServices || null;
+    if (runtimeServices && typeof runtimeServices === "object") {
+      const cmMvpdSelectionKey = buildCurrentCmMvpdSelectionKey(programmer);
+      runtimeServices = {
+        ...runtimeServices,
+        cmMvpd:
+          cmMvpdSelectionKey && state.cmServiceByMvpdSelectionKey.has(cmMvpdSelectionKey)
+            ? state.cmServiceByMvpdSelectionKey.get(cmMvpdSelectionKey) || runtimeServices?.cmMvpd || null
+            : runtimeServices?.cmMvpd || null,
+        cmMvpdSelectionKey: cmMvpdSelectionKey || String(runtimeServices?.cmMvpdSelectionKey || "").trim(),
+      };
+      setCurrentPremiumAppsSnapshot(programmerId, runtimeServices);
+    }
+
+    const runtimeReady = Boolean(
+      runtimeServices &&
+        typeof runtimeServices === "object" &&
+        hasPassVaultCredentialCoverageForServices(programmerId, runtimeServices) &&
+        isCmRuntimeRenderReady(runtimeServices?.cm)
+    );
+    const selectedProgrammerId = String(resolveSelectedProgrammer()?.programmerId || "").trim();
+    if (
+      runtimeReady &&
+      selectedProgrammerId === programmerId &&
+      requestToken === Number(state.premiumPanelRequestToken || 0)
+    ) {
+      setProgrammerWorkspaceHydrationReady(programmerId, true);
+      emitPremiumServiceDecisionLogs(programmer, runtimeServices);
+      renderPremiumServices(runtimeServices, programmer, { controllerReason });
+    }
+
+    return runtimeServices;
+  })().finally(() => {
+    if (getProgrammerServiceHydrationPromise(programmerId) === workPromise) {
+      setProgrammerServiceHydrationPromise(programmerId, null);
+    }
+  });
+
+  setProgrammerServiceHydrationPromise(programmerId, workPromise);
+  return workPromise;
+}
+
 function normalizeUnderparVaultStatus(value = "") {
   const normalized = String(value || "").trim().toLowerCase();
   if (
@@ -7412,6 +7518,7 @@ function resetPassVaultRuntimeStatePreservingProgrammers(controllerReason = "up-
   state.premiumAutoRefreshMetaByKey.clear();
   state.premiumPanelRequestToken = 0;
   state.dcrEnsureTokenPromiseByKey.clear();
+  state.premiumServiceRecoveryPromiseByProgrammerKey.clear();
   state.passVault = createEmptyUnderparVaultPayload();
   state.passVaultLoadPromise = null;
   state.passVaultPersistPromise = null;
@@ -34388,8 +34495,22 @@ async function loadEsmWorkspaceService(programmer, appInfo, section, contentElem
   if (!contentElement) {
     return;
   }
-  const currentServices = programmer?.programmerId ? getCurrentPremiumAppsSnapshot(programmer.programmerId) : null;
-  const resolvedAppInfo = hasEsmScopedApp(currentServices) ? currentServices.esm : appInfo;
+  let currentServices = programmer?.programmerId ? getCurrentPremiumAppsSnapshot(programmer.programmerId) : null;
+  let resolvedAppInfo = hasEsmScopedApp(currentServices) ? currentServices.esm : appInfo;
+  if (programmer?.programmerId && !resolvedAppInfo?.guid) {
+    const hydratedServices =
+      (await getProgrammerServiceHydrationPromise(programmer.programmerId)?.catch(() => null)) ||
+      (await primeProgrammerServiceHydration(programmer, currentServices, {
+        forceRefresh: false,
+        controllerReason: "esm-panel-open",
+        requestToken,
+      }).catch(() => null));
+    currentServices =
+      (hydratedServices && typeof hydratedServices === "object" ? hydratedServices : null) ||
+      getCurrentPremiumAppsSnapshot(programmer.programmerId) ||
+      currentServices;
+    resolvedAppInfo = hasEsmScopedApp(currentServices) ? currentServices.esm : appInfo;
+  }
   if (!programmer?.programmerId || !resolvedAppInfo?.guid) {
     contentElement.innerHTML = "";
     return;
@@ -44595,7 +44716,25 @@ async function loadCmService(programmer, cmService, section, contentElement, req
       resolvedCmService = state.cmServiceByProgrammerId.get(programmer.programmerId) || latestServices?.cm || cmService;
     }
   }
-  const matchedTenants = Array.isArray(resolvedCmService?.matchedTenants) ? resolvedCmService.matchedTenants : [];
+  let matchedTenants = Array.isArray(resolvedCmService?.matchedTenants) ? resolvedCmService.matchedTenants : [];
+  if (matchedTenants.length === 0) {
+    const hydratedServices =
+      (await getProgrammerServiceHydrationPromise(programmer.programmerId)?.catch(() => null)) ||
+      (await primeProgrammerServiceHydration(programmer, latestServices, {
+        forceRefresh: false,
+        controllerReason: isMvpdService ? "cm-mvpd-panel-open" : "cm-panel-open",
+        requestToken,
+      }).catch(() => null));
+    const latestHydratedServices =
+      (hydratedServices && typeof hydratedServices === "object" ? hydratedServices : null) ||
+      getCurrentPremiumAppsSnapshot(programmer.programmerId) ||
+      latestServices;
+    resolvedCmService =
+      (isMvpdService
+        ? latestHydratedServices?.cmMvpd || state.cmServiceByMvpdSelectionKey.get(buildCurrentCmMvpdSelectionKey(programmer))
+        : latestHydratedServices?.cm || state.cmServiceByProgrammerId.get(programmer.programmerId)) || resolvedCmService;
+    matchedTenants = Array.isArray(resolvedCmService?.matchedTenants) ? resolvedCmService.matchedTenants : [];
+  }
   if (matchedTenants.length === 0) {
     const loadError = String(resolvedCmService?.loadError || "").trim();
     const message = loadError
@@ -48311,7 +48450,30 @@ async function loadDegradationService(programmer, appInfo, section, contentEleme
   if (!contentElement) {
     return;
   }
-  if (!programmer?.programmerId || !appInfo?.guid) {
+  let resolvedAppInfo = appInfo;
+  if (programmer?.programmerId && !resolvedAppInfo?.guid) {
+    const hydratedServices =
+      (await getProgrammerServiceHydrationPromise(programmer.programmerId)?.catch(() => null)) ||
+      (await primeProgrammerServiceHydration(programmer, getCurrentPremiumAppsSnapshot(programmer.programmerId), {
+        forceRefresh: false,
+        controllerReason: "degradation-panel-open",
+        requestToken,
+      }).catch(() => null));
+    const latestHydratedServices =
+      (hydratedServices && typeof hydratedServices === "object" ? hydratedServices : null) ||
+      getCurrentPremiumAppsSnapshot(programmer.programmerId) ||
+      null;
+    const hydratedCandidates = resolveDegradationAppCandidates(
+      String(programmer?.programmerId || "").trim(),
+      latestHydratedServices?.degradation || resolvedAppInfo,
+      {
+        preferredGuid: String(resolvedAppInfo?.guid || "").trim(),
+        requestorId: String(state.selectedRequestorId || "").trim(),
+      }
+    );
+    resolvedAppInfo = hydratedCandidates[0] || resolvedAppInfo;
+  }
+  if (!programmer?.programmerId || !resolvedAppInfo?.guid) {
     contentElement.innerHTML = "";
     return;
   }
@@ -48333,9 +48495,9 @@ async function loadDegradationService(programmer, appInfo, section, contentEleme
     }
     const initialCandidates = resolveDegradationAppCandidates(
       String(programmer?.programmerId || "").trim(),
-      appInfo,
+      resolvedAppInfo,
       {
-        preferredGuid: String(appInfo?.guid || "").trim(),
+        preferredGuid: String(resolvedAppInfo?.guid || "").trim(),
         requestorId: String(state.selectedRequestorId || "").trim(),
       }
     );
@@ -49057,6 +49219,7 @@ function resetWorkflowForLoggedOut() {
   state.restV2PopupCloseProbeInFlightBySelectionKey.clear();
   state.premiumAutoRefreshMetaByKey.clear();
   state.premiumPanelRequestToken = 0;
+  state.premiumServiceRecoveryPromiseByProgrammerKey.clear();
   state.mvpdCacheByRequestor.clear();
   state.mvpdLoadPromiseByRequestor.clear();
   state.restV2AuthContextByRequestor.clear();
@@ -54994,6 +55157,19 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   prefetchCmConsoleBootstrapSummaryInBackground(`session-activated:${source}`, {
     forceRefresh: false,
   });
+  const selectedProgrammerForHydration = resolveSelectedProgrammer();
+  if (selectedProgrammerForHydration?.programmerId) {
+    void primeProgrammerServiceHydration(
+      selectedProgrammerForHydration,
+      getCurrentPremiumAppsSnapshot(selectedProgrammerForHydration.programmerId),
+      {
+        forceRefresh: false,
+        controllerReason: `session-activated:${source}`,
+        requestToken: state.premiumPanelRequestToken,
+        requestorId: String(state.selectedRequestorId || "").trim(),
+      }
+    ).catch(() => null);
+  }
   if (programmersLoadError) {
     const message = String(programmersLoadError?.message || "").trim();
     setStatus(
@@ -55682,7 +55858,9 @@ async function refreshProgrammerPanels(options = {}) {
   const forcePremiumRefresh = options.forcePremiumRefresh === true;
   const controllerReason = String(options?.controllerReason || "").trim();
   const requestToken = ++state.premiumPanelRequestToken;
+  const selectedRequestorId = String(state.selectedRequestorId || "").trim();
   let provisionalServices = null;
+  let backgroundHydrationPromise = null;
   const cmMvpdSelectionKey = buildCurrentCmMvpdSelectionKey(programmer);
   if (forcePremiumRefresh) {
     state.cmTenantBundleByTenantKey.clear();
@@ -55734,6 +55912,18 @@ async function refreshProgrammerPanels(options = {}) {
     provisionalServices = cachedServices;
     emitPremiumServiceDecisionLogs(programmer, cachedServices);
     renderPremiumServices(cachedServices, programmer, { controllerReason });
+    const cachedServicesNeedHydration =
+      forcePremiumRefresh ||
+      !hasPassVaultCredentialCoverageForServices(programmer.programmerId, cachedServices) ||
+      !isCmRuntimeRenderReady(cachedServices?.cm);
+    if (cachedServicesNeedHydration) {
+      backgroundHydrationPromise = primeProgrammerServiceHydration(programmer, cachedServices, {
+        forceRefresh: forcePremiumRefresh,
+        controllerReason,
+        requestToken,
+        requestorId: selectedRequestorId,
+      }).catch(() => null);
+    }
   } else {
     renderPremiumServicesLoading(programmer, { controllerReason });
   }
@@ -55889,49 +56079,48 @@ async function refreshProgrammerPanels(options = {}) {
       programmer.programmerId,
       renderReadyServices
     );
-    emitPremiumServiceDecisionLogs(programmer, renderReadyServices);
-    renderPremiumServices(renderReadyServices, programmer, { controllerReason });
     const shouldCompileVaultCredentials =
       forcePremiumRefresh ||
       !isPassVaultProgrammerHydrated(programmer.programmerId) ||
       !isPassVaultBackedValue(renderReadyServices) ||
       !initialVaultCredentialsReady;
+    if (shouldCompileVaultCredentials) {
+      backgroundHydrationPromise =
+        backgroundHydrationPromise ||
+        primeProgrammerServiceHydration(programmer, initialMergedServices, {
+          forceRefresh: forcePremiumRefresh,
+          controllerReason,
+          requestToken,
+          requestorId: selectedRequestorId,
+        }).catch(() => null);
+    }
+    emitPremiumServiceDecisionLogs(programmer, renderReadyServices);
+    renderPremiumServices(renderReadyServices, programmer, { controllerReason });
     let runtimeServices = renderReadyServices;
     if (shouldCompileVaultCredentials) {
-      const cmResults = await Promise.allSettled([cmServicePromise, cmMvpdServicePromise]);
+      const [cmResults, hydratedRuntimeServices] = await Promise.all([
+        Promise.allSettled([cmServicePromise, cmMvpdServicePromise]),
+        backgroundHydrationPromise,
+      ]);
       if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
         return;
       }
-
-      const compiledMergedServices = {
-        ...(renderReadyServices && typeof renderReadyServices === "object" ? renderReadyServices : {}),
-        cm: cmResults[0]?.status === "fulfilled" ? cmResults[0].value : renderReadyServices?.cm ?? null,
-        cmMvpd: cmResults[1]?.status === "fulfilled" ? cmResults[1].value : renderReadyServices?.cmMvpd ?? null,
+      runtimeServices =
+        (hydratedRuntimeServices && typeof hydratedRuntimeServices === "object" ? hydratedRuntimeServices : null) ||
+        getCurrentPremiumAppsSnapshot(programmer.programmerId) ||
+        renderReadyServices;
+      runtimeServices = {
+        ...(runtimeServices && typeof runtimeServices === "object" ? runtimeServices : {}),
+        cm: selectPreferredCmRuntimeService(
+          runtimeServices?.cm,
+          cmResults[0]?.status === "fulfilled" ? cmResults[0].value : null
+        ),
+        cmMvpd: selectPreferredCmRuntimeService(
+          runtimeServices?.cmMvpd,
+          cmResults[1]?.status === "fulfilled" ? cmResults[1].value : null
+        ),
         cmMvpdSelectionKey,
       };
-      setCurrentPremiumAppsSnapshot(programmer.programmerId, compiledMergedServices);
-
-      const compileResult = await queuePassVaultProgrammerCompilation(programmer, compiledMergedServices, {
-        forceRefresh: forcePremiumRefresh,
-      }).catch(() => null);
-      if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
-        return;
-      }
-      const compiledServicesForVault =
-        compileResult?.services && typeof compileResult.services === "object" ? compileResult.services : compiledMergedServices;
-      await finalizePassVaultProgrammerHydration(programmer, compiledServicesForVault).catch(() => null);
-      if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
-        return;
-      }
-      await hydrateProgrammerFromPassVault(programmer, {
-        forceReload: false,
-        forceOverwrite: true,
-        forceDcrRestore: true,
-      }).catch(() => null);
-      if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
-        return;
-      }
-      runtimeServices = getCurrentPremiumAppsSnapshot(programmer.programmerId) || compiledMergedServices;
     } else {
       await cmHydrationPromise;
       const hydratedServices = getCurrentPremiumAppsSnapshot(programmer.programmerId) || renderReadyServices;

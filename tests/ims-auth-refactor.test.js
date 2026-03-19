@@ -503,6 +503,29 @@ test("missing DCR credentials trigger on-demand pass vault compilation instead o
   assert.match(ensureDcrSource, /UnderPAR could not auto-hydrate DCR credentials/);
 });
 
+test("selected programmer hydration is primed early and reused by panel render instead of waiting for first service click", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const refreshSource = extractFunctionSource(popupSource, "refreshProgrammerPanels");
+  const activateSessionSource = extractFunctionSource(popupSource, "activateSession");
+
+  assert.match(popupSource, /async function primeProgrammerServiceHydration\(/);
+  assert.match(refreshSource, /backgroundHydrationPromise = primeProgrammerServiceHydration\(programmer, cachedServices/);
+  assert.match(refreshSource, /backgroundHydrationPromise =\s*backgroundHydrationPromise \|\|[\s\S]*primeProgrammerServiceHydration\(programmer, initialMergedServices/);
+  assert.match(activateSessionSource, /primeProgrammerServiceHydration\(\s*selectedProgrammerForHydration/);
+});
+
+test("ESM, CM, and DEGRADATION panel loaders wait for in-flight programmer hydration before surfacing missing-service state", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const esmSource = extractFunctionSource(popupSource, "loadEsmWorkspaceService");
+  const cmSource = extractFunctionSource(popupSource, "loadCmService");
+  const degradationSource = extractFunctionSource(popupSource, "loadDegradationService");
+
+  assert.match(esmSource, /getProgrammerServiceHydrationPromise\(programmer\.programmerId\)/);
+  assert.match(esmSource, /primeProgrammerServiceHydration\(programmer, currentServices/);
+  assert.match(cmSource, /primeProgrammerServiceHydration\(programmer, latestServices/);
+  assert.match(degradationSource, /primeProgrammerServiceHydration\(programmer, getCurrentPremiumAppsSnapshot\(programmer\.programmerId\)/);
+});
+
 test("CM direct fetch and tenant catalog paths no longer issue unauthenticated cookie-style fallbacks", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const fetchSource = extractFunctionSource(popupSource, "fetchCmJsonWithAuthVariants");
