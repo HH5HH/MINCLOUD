@@ -6606,32 +6606,13 @@ async function makeClickCmuWorkspaceDownload() {
   }
   setStatus("", "info");
   try {
-    const authResult = await sendWorkspaceAction("resolve-clickcmuws-auth");
-    if (!authResult?.ok) {
-      throw new Error(authResult?.error || "Unable to resolve clickCMU workspace credentials.");
+    const result = await sendWorkspaceAction("make-clickcmuws", {
+      cards: cards.map((cardState) => getCardPayload(cardState)),
+    });
+    if (!result?.ok) {
+      throw new Error(result?.error || "Unable to generate clickCMUWS_TEARSHEET.");
     }
-    const snapshot = buildWorkspaceExportSnapshot({
-      vaultExportPayload: authResult?.vaultExportPayload || null,
-    });
-    const [templateHtml, runtimeScriptText, stylesheetText] = await Promise.all([
-      loadWorkspaceTearsheetTemplateText(),
-      loadWorkspaceTearsheetRuntimeText(),
-      loadWorkspaceStylesheetText(),
-    ]);
-    const outputHtml = buildWorkspaceTearsheetHtml(snapshot, templateHtml, stylesheetText, runtimeScriptText, {
-      accessToken: String(authResult?.accessToken || ""),
-      clientIds: Array.isArray(authResult?.clientIds) ? authResult.clientIds : [],
-      userId: String(authResult?.userId || ""),
-      scope: String(authResult?.scope || CM_WORKSPACE_IMS_DEFAULT_SCOPE || ""),
-      experienceCloudAccessToken: String(authResult?.experienceCloudAccessToken || ""),
-      experienceCloudClientIds: Array.isArray(authResult?.experienceCloudClientIds)
-        ? authResult.experienceCloudClientIds
-        : [],
-      experienceCloudUserId: String(authResult?.experienceCloudUserId || ""),
-      experienceCloudScope: String(authResult?.experienceCloudScope || ""),
-    });
-    const fileName = buildClickCmuWorkspaceFileName(snapshot);
-    downloadHtmlFile(outputHtml, fileName);
+    setStatus("clickCMUWS_TEARSHEET download started.");
   } catch (error) {
     setStatus(
       `Unable to generate clickCMUWS_TEARSHEET: ${error instanceof Error ? error.message : String(error)}`,

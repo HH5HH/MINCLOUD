@@ -25644,19 +25644,11 @@ function buildClickEsmHtmlFromTemplate(templateHtml, context = {}) {
   return output;
 }
 
-function downloadClickEsmHtmlFile(htmlText, fileName) {
-  const blob = new Blob([String(htmlText || "")], { type: "text/html;charset=utf-8" });
-  const objectUrl = URL.createObjectURL(blob);
-  const anchor = document.createElement("a");
-  anchor.href = objectUrl;
-  anchor.download = String(fileName || `clickESM_${Date.now()}.html`);
-  anchor.style.display = "none";
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  setTimeout(() => {
-    URL.revokeObjectURL(objectUrl);
-  }, 1500);
+async function downloadClickEsmHtmlFile(htmlText, fileName) {
+  await downloadBlobFile(
+    new Blob([String(htmlText || "")], { type: "text/html;charset=utf-8" }),
+    String(fileName || `clickESM_${Date.now()}.html`)
+  );
 }
 
 function buildClickEsmDownloadFileName(programmer) {
@@ -26506,7 +26498,7 @@ async function makeClickEsmDownload(context, requestToken, options = {}) {
       mvpdIds: Array.isArray(context?.mvpdIds) ? context.mvpdIds : [],
     })
   );
-  downloadClickEsmHtmlFile(downloadHtml, fileName);
+  await downloadClickEsmHtmlFile(downloadHtml, fileName);
   return {
     fileName,
     programmerLabel: authContext.programmerLabel,
@@ -26902,7 +26894,7 @@ async function makeClickDgrDownload(context, requestToken, options = {}) {
       mvpdIds: Array.isArray(context?.mvpdIds) ? context.mvpdIds : [],
     })
   );
-  downloadClickEsmHtmlFile(downloadHtml, fileName);
+  await downloadClickEsmHtmlFile(downloadHtml, fileName);
   return {
     fileName,
     programmerLabel: authContext.programmerLabel,
@@ -29329,7 +29321,7 @@ async function makeClickCmuDownload(context, requestToken, options = {}) {
       tenantScope: isMvpdTenantMode ? tenantScope : (tenantScope || getCmTenantScopeForProgrammer(programmer)),
     }),
   });
-  downloadClickEsmHtmlFile(downloadHtml, fileName);
+  await downloadClickEsmHtmlFile(downloadHtml, fileName);
   return {
     fileName,
     programmerLabel: authContext.programmerLabel,
@@ -29393,7 +29385,7 @@ async function makeClickCmuWorkspaceDownload(context, cards, requestToken, optio
       tenantScope: isMvpdTenantMode ? tenantScope : (tenantScope || getCmTenantScopeForProgrammer(context?.programmer)),
     }),
   });
-  downloadClickEsmHtmlFile(downloadHtml, fileName);
+  await downloadClickEsmHtmlFile(downloadHtml, fileName);
   return {
     fileName,
     programmerLabel: authContext.programmerLabel,
@@ -30464,7 +30456,7 @@ async function megWorkspaceDownloadTearsheet(requestToken, options = {}) {
     spBase: String(snapshot?.adobePassEnvironment?.spBase || DEFAULT_ADOBEPASS_ENVIRONMENT.spBase).trim(),
   });
   const fileName = buildMegWorkspaceTearsheetFileName(snapshot);
-  downloadClickEsmHtmlFile(outputHtml, fileName);
+  await downloadClickEsmHtmlFile(outputHtml, fileName);
   return {
     fileName,
     programmerLabel: authContext.programmerLabel,
