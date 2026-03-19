@@ -4962,12 +4962,17 @@ select:disabled {
 
 .degradation-controller-shell {
   border: 1px solid var(--service-accent-soft);
-  border-radius: 10px;
-  background: var(--legacy-panel);
-  padding: 10px;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)),
+    var(--legacy-panel);
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+  box-shadow:
+    0 18px 32px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .degradation-controller-head {
@@ -4999,7 +5004,7 @@ select:disabled {
   display: flex;
   flex-direction: column;
   gap: 0;
-  margin-top: 8px;
+  margin-top: 2px;
 }
 
 .degradation-method-row {
@@ -5076,6 +5081,10 @@ select:disabled {
   min-width: 0;
 }
 
+.degradation-utility-row {
+  justify-content: flex-end;
+}
+
 .degradation-quick-set-select {
   flex: 1 1 220px;
   width: auto;
@@ -5089,21 +5098,6 @@ select:disabled {
   justify-content: flex-end;
   gap: 8px;
   margin-bottom: 8px;
-}
-
-.degradation-make-clickdgr-btn.esm-workspace-toolbar-icon-btn--tearsheet {
-  width: 34px;
-  height: 34px;
-  border-color: var(--service-action-border);
-  background: var(--service-action-bg);
-  color: #ffffff;
-  box-shadow: var(--service-action-shadow);
-}
-
-.degradation-make-clickdgr-btn.esm-workspace-toolbar-icon-btn--tearsheet:hover:not(:disabled) {
-  border-color: var(--service-action-border-hover);
-  background: var(--service-action-bg-hover);
-  box-shadow: var(--service-action-shadow-hover);
 }
 
 .degradation-make-clickdgr-btn:disabled {
@@ -5244,17 +5238,67 @@ select:disabled {
 
 .degradation-runner-actions {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   gap: 8px;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   margin-top: 0;
   width: 100%;
 }
 
-.degradation-runner-actions .degradation-make-clickdgr-btn {
-  margin-left: auto;
-  flex: 0 0 auto;
+.degradation-utility-btn {
+  height: 32px;
+  min-width: 0;
+  border-radius: 999px;
+  padding: 0 12px;
+  border: 1px solid var(--service-action-border);
+  background: linear-gradient(180deg, var(--service-action-bg), rgba(var(--underpar-onyx-1000), 0.88));
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
+  box-shadow: var(--service-action-shadow);
+}
+
+.degradation-utility-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--service-action-border-hover);
+  background: linear-gradient(180deg, var(--service-action-bg-hover), rgba(var(--underpar-onyx-1000), 0.94));
+  box-shadow: var(--service-action-shadow-hover);
+}
+
+.degradation-utility-btn:focus-visible {
+  outline: none;
+  border-color: var(--service-accent);
+  box-shadow: 0 0 0 2px var(--service-accent-soft), var(--service-action-shadow);
+}
+
+.degradation-utility-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+
+.degradation-utility-btn-icon svg {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.degradation-utility-btn-label {
+  line-height: 1;
 }
 
 .degradation-run-go-btn:hover:not(:disabled) {
@@ -5306,8 +5350,13 @@ select:disabled {
 }
 
 .degradation-copy-curl-btn {
-  background: linear-gradient(180deg, rgb(var(--underpar-danger-700)), rgb(var(--underpar-danger-900)));
-  border-color: rgba(var(--underpar-danger-1100), 0.72);
+  background: linear-gradient(
+    180deg,
+    rgba(var(--underpar-gold-500), 0.98),
+    rgba(var(--underpar-gold-700), 0.98)
+  );
+  border-color: rgba(var(--underpar-gold-900), 0.78);
+  color: rgb(var(--underpar-onyx-1000));
 }
 
 .degradation-quick-set-btn:hover:not(:disabled),
@@ -5322,8 +5371,12 @@ select:disabled {
 }
 
 .degradation-copy-curl-btn:hover:not(:disabled) {
-  background: linear-gradient(180deg, rgb(var(--underpar-danger-800)), rgb(var(--underpar-danger-1000)));
-  border-color: rgba(var(--underpar-danger-1100), 0.84);
+  background: linear-gradient(
+    180deg,
+    rgba(var(--underpar-gold-400), 1),
+    rgba(var(--underpar-gold-600), 1)
+  );
+  border-color: rgba(var(--underpar-gold-1000), 0.88);
 }
 
 .degradation-quick-set-btn:active:not(:disabled),
@@ -5369,7 +5422,15 @@ select:disabled {
 
 @media (max-width: 460px) {
   .degradation-runner-actions {
-    justify-content: space-between;
+    justify-content: flex-start;
+  }
+
+  .degradation-utility-row {
+    justify-content: stretch;
+  }
+
+  .degradation-utility-row > * {
+    flex: 1 1 100%;
   }
 }
 

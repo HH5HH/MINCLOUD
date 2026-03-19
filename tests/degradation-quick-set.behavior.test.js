@@ -19,8 +19,12 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   );
   const cheatSheetKeys = Array.from(cheatSheetSpecBlock?.[1]?.matchAll(/key:\s*"([^"]+)"/g) || []).map((match) => match[1]);
 
-  assert.match(popupSource, /class="degradation-cheat-sheet-row"/);
+  assert.match(popupSource, /class="degradation-cheat-sheet-row\b[^"]*"/);
+  assert.match(popupSource, /class="degradation-cheat-sheet-row degradation-utility-row"/);
   assert.match(popupSource, /class="degradation-copy-curl-btn"/);
+  assert.match(popupSource, /class="degradation-make-clickdgr-btn degradation-utility-btn"/);
+  assert.match(popupSource, />\s*CHEAT SHEET\s*</);
+  assert.match(popupSource, />\s*DGR TEARSHEET\s*</);
   assert.match(popupSource, /function degradationHasQualifiedCheatSheetContext\(/);
   assert.match(popupSource, /function degradationSyncCheatSheetButton\(/);
   assert.match(popupSource, /Select Environment x Media Company, RequestorId, and MVPD first/);
@@ -61,7 +65,8 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(popupSource, /void degradationWorkspaceSendWorkspaceMessage\("report-result", reportPayload, \{ targetWindowId: resolvedWindowId \}\);/);
   assert.match(popupSource, /activateWorkspace:\s*false/);
   assert.match(popupSource, /void degradationWorkspaceActivateTarget\(\);/);
-  assert.match(popupSource, /allowDetachedControllerContext:\s*true/);
+  assert.match(popupSource, /DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC/);
+  assert.match(popupSource, /degradationBuildEndpointReportsFromMegaStatusReport\(megaReport, queryValues\)/);
   assert.doesNotMatch(popupSource, /const reports = degradationWorkspaceGetAllReports\(\);\s*const cheatSheets = degradationWorkspaceGetAllCheatSheets\(\);/);
   assert.match(popupSource, /cheatSheetPending:\s*Boolean\(pendingCheatSheet\)/);
   assert.match(popupSource, /cheatSheetLoadingMessage:\s*String\(pendingCheatSheet\?\.message \|\| ""\)\.trim\(\)/);
@@ -104,13 +109,15 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   ]);
 
   assert.match(popupCss, /\.degradation-cheat-sheet-row\s*\{/);
+  assert.match(popupCss, /\.degradation-utility-row\s*\{/);
+  assert.match(popupCss, /\.degradation-utility-btn\s*\{/);
   assert.match(popupCss, /\.degradation-copy-curl-btn\s*\{/);
 
   assert.match(workspaceSource, /function renderCheatSheetCard\(/);
   assert.match(workspaceSource, /function buildWorkspaceFeedMarkup\(/);
   assert.match(workspaceSource, /function workspacePayloadMatchesSelection\(/);
   assert.match(workspaceSource, /function resetWorkspaceCardsForSelection\(/);
-  assert.match(workspaceSource, /const incomingSelectionKey = String\(payload\?\.selectionKey \|\| ""\)\.trim\(\);/);
+  assert.match(workspaceSource, /const incomingSelectionKey = normalizeWorkspaceSelectionKey\(payload\?\.selectionKey,\s*\{/);
   assert.match(workspaceSource, /const nextSelectionKey = incomingSelectionKey \|\| previousSelectionKey;/);
   assert.match(workspaceSource, /function handleCheatSheetResult\(/);
   assert.match(workspaceSource, /function handleCheatSheetStart\(/);

@@ -46429,10 +46429,11 @@ function degradationSyncCheatSheetButton(panelState) {
   const cheatSheetRow = panelState?.cheatSheetRow || null;
   const cheatButton = panelState?.copyCurlButton || null;
   const qualified = degradationHasQualifiedCheatSheetContext(panelState);
+  const hasRequestor = Boolean(String(state.selectedRequestorId || "").trim());
   const unavailableMessage = "Select Environment x Media Company, RequestorId, and MVPD first";
 
   if (cheatSheetRow) {
-    cheatSheetRow.hidden = !qualified;
+    cheatSheetRow.hidden = !hasRequestor;
   }
   if (!cheatButton) {
     return;
@@ -48217,6 +48218,20 @@ function degradationFilterAppliedActiveRows(rows = []) {
   return rows.filter((row) => degradationIsAppliedActiveRow(row));
 }
 
+function degradationBuildRequestGroupKey(queryValues = {}, sourceEndpointKey = "") {
+  const normalizedSourceEndpointKey = firstNonEmptyString([
+    String(sourceEndpointKey || "").trim().toLowerCase(),
+    String(queryValues?.endpointKey || "").trim().toLowerCase(),
+    DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.key,
+  ]);
+  return [
+    normalizedSourceEndpointKey,
+    `programmer=${String(queryValues?.programmerId || "").trim()}`,
+    `mvpd=${String(queryValues?.mvpd || "*").trim() || "*"}`,
+    `api_version=${String(queryValues?.apiVersion || "*").trim() || "*"}`,
+  ].join("|");
+}
+
 function degradationBuildReportPayload(endpointSpec, queryValues, result = {}) {
   const sourceRows = Array.isArray(result.rows) ? result.rows : [];
   const rows = degradationFilterAppliedActiveRows(sourceRows);
@@ -48244,9 +48259,27 @@ function degradationBuildReportPayload(endpointSpec, queryValues, result = {}) {
     `mvpd=${String(queryValues?.mvpd || "*").trim() || "*"}`,
     `api_version=${String(queryValues?.apiVersion || "*").trim() || "*"}`,
   ].join("|");
+  const requestMode = firstNonEmptyString([
+    String(result.requestMode || "").trim().toLowerCase(),
+    String(endpointSpec?.key || "").trim().toLowerCase() === DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.key ? "mega" : "direct",
+  ]);
+  const sourceEndpointKey = firstNonEmptyString([
+    String(result.sourceEndpointKey || "").trim().toLowerCase(),
+    String(endpointSpec?.key || "").trim().toLowerCase(),
+  ]);
+  const requestGroupKey = firstNonEmptyString([
+    String(result.requestGroupKey || "").trim(),
+    degradationBuildRequestGroupKey(
+      queryValues,
+      requestMode === "mega" ? sourceEndpointKey || DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.key : sourceEndpointKey
+    ),
+  ]);
   return {
     reportId: `degradation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`,
     queryKey,
+    requestMode,
+    requestGroupKey,
+    sourceEndpointKey,
     runGroupId: String(result.runGroupId || "").trim(),
     selectionKey,
     endpointKey: String(endpointSpec?.key || "").trim(),
@@ -48284,6 +48317,10 @@ function degradationBuildEndpointReportsFromMegaStatusReport(megaReport = null, 
   const sourceReport = megaReport && typeof megaReport === "object" ? megaReport : {};
   const sourceRows = Array.isArray(sourceReport.rows) ? sourceReport.rows : [];
   const rowsByRuleTitle = new Map();
+  const requestGroupKey = degradationBuildRequestGroupKey(
+    queryValues,
+    DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.key
+  );
 
   sourceRows.forEach((row) => {
     const ruleTitle = String(row?.Rule || "").trim();
@@ -48303,6 +48340,9 @@ function degradationBuildEndpointReportsFromMegaStatusReport(megaReport = null, 
       status: Number(sourceReport.status || 0),
       statusText: String(sourceReport.statusText || "").trim(),
       error: sourceReport.ok === true ? "" : String(sourceReport.error || "").trim(),
+      requestMode: "mega",
+      requestGroupKey,
+      sourceEndpointKey: DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC.key,
       rows: sourceReport.ok === true ? rowsByRuleTitle.get(String(endpointSpec.title || "").trim()) || [] : [],
       requestUrl: String(sourceReport.requestUrl || "").trim(),
       fetchedAt: Number(sourceReport.fetchedAt || Date.now()),
@@ -48500,14 +48540,6 @@ function degradationBuildControllerHtml(programmer, appInfo) {
   const hasRequestor = Boolean(String(state.selectedRequestorId || "").trim());
   const goHiddenAttr = hasRequestor ? "" : " hidden";
   const requestorControlsHiddenAttr = hasRequestor ? "" : " hidden";
-  const hasQualifiedCheatSelection = Boolean(
-    String(getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key || "").trim() &&
-      String(programmer?.programmerId || "").trim() &&
-      String(appInfo?.guid || "").trim() &&
-      String(state.selectedRequestorId || "").trim() &&
-      String(state.selectedMvpdId || "").trim()
-  );
-  const cheatSheetHiddenAttr = hasQualifiedCheatSelection ? "" : " hidden";
   const goButtonLabel = degradationBuildGoButtonLabel();
   return `
     <section class="degradation-controller-shell">
@@ -48522,21 +48554,6 @@ function degradationBuildControllerHtml(programmer, appInfo) {
           <span class="degradation-record-btn-icon degradation-record-btn-icon--record" aria-hidden="true"></span>
           <span class="degradation-record-btn-label">DEGRADATION</span>
         </button>
-        <button
-          type="button"
-          class="degradation-make-clickdgr-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"
-          title="Click to generate DEGRADATION Tearsheet ( clickDGR )"
-          aria-label="Click to generate DEGRADATION Tearsheet ( clickDGR )"
-        >
-          <span class="esm-workspace-toolbar-icon esm-workspace-toolbar-icon--tearsheet" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
-              <path d="M14.25 3.75V8.5H19" />
-              <path d="M9.5 12.75 10 14.25 11.5 14.75 10 15.25 9.5 16.75 9 15.25 7.5 14.75 9 14.25 9.5 12.75Z" />
-              <path d="M14 12.25 14.3 13.1 15.2 13.4 14.3 13.7 14 14.55 13.7 13.7 12.8 13.4 13.7 13.1 14 12.25Z" />
-            </svg>
-          </span>
-        </button>
       </div>
       <div class="degradation-runner-form"${requestorControlsHiddenAttr}>
         <div class="degradation-method-row">
@@ -48549,14 +48566,30 @@ function degradationBuildControllerHtml(programmer, appInfo) {
           <button type="button" class="degradation-run-go-btn"${goHiddenAttr}>${escapeHtml(goButtonLabel)}</button>
         </div>
       </div>
-      <div class="degradation-cheat-sheet-row"${cheatSheetHiddenAttr}>
+      <div class="degradation-cheat-sheet-row degradation-utility-row"${requestorControlsHiddenAttr}>
+        <button
+          type="button"
+          class="degradation-make-clickdgr-btn degradation-utility-btn"
+          title="Click to generate DEGRADATION Tearsheet ( clickDGR )"
+          aria-label="Click to generate DEGRADATION Tearsheet ( clickDGR )"
+        >
+          <span class="degradation-utility-btn-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" focusable="false">
+              <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
+              <path d="M14.25 3.75V8.5H19" />
+              <path d="M9.5 12.75 10 14.25 11.5 14.75 10 15.25 9.5 16.75 9 15.25 7.5 14.75 9 14.25 9.5 12.75Z" />
+              <path d="M14 12.25 14.3 13.1 15.2 13.4 14.3 13.7 14 14.55 13.7 13.7 12.8 13.4 13.7 13.1 14 12.25Z" />
+            </svg>
+          </span>
+          <span class="degradation-utility-btn-label">DGR TEARSHEET</span>
+        </button>
         <button
           type="button"
           class="degradation-copy-curl-btn"
           title="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
           aria-label="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
         >
-          CHEAT
+          CHEAT SHEET
         </button>
       </div>
       <p class="degradation-controller-status" aria-live="polite"></p>

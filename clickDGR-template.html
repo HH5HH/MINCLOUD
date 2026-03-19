@@ -41,6 +41,12 @@
         --zip-gray-1000-rgb: 0, 0, 0;
         --danger-rgb: 186, 54, 54;
         --danger-strong-rgb: 159, 37, 37;
+        --underpar-gold-300: 239, 215, 156;
+        --underpar-gold-500: 219, 182, 98;
+        --underpar-gold-700: 183, 138, 39;
+        --underpar-gold-900: 130, 91, 16;
+        --underpar-onyx-700: 72, 61, 46;
+        --underpar-onyx-900: 29, 24, 18;
 
         --radius-panel: 16px;
         --radius-control: 9px;
@@ -196,6 +202,12 @@
         --zip-gray-1000-rgb: 255, 255, 255;
         --danger-rgb: 183, 56, 56;
         --danger-strong-rgb: 198, 84, 84;
+        --underpar-gold-300: 239, 215, 156;
+        --underpar-gold-500: 219, 182, 98;
+        --underpar-gold-700: 183, 138, 39;
+        --underpar-gold-900: 130, 91, 16;
+        --underpar-onyx-700: 72, 61, 46;
+        --underpar-onyx-900: 16, 13, 10;
 
         --zip-shell-surface-bg: color-mix(
           in srgb,
@@ -349,12 +361,18 @@
         flex-wrap: nowrap;
         gap: clamp(4px, 0.7vw, 12px);
         background:
-          linear-gradient(180deg, color-mix(in srgb, var(--surface-frost) 95%, transparent) 0%, var(--panel) 100%),
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--surface-frost) 86%, rgb(var(--underpar-gold-300)) 14%) 0%,
+            color-mix(in srgb, var(--panel) 88%, rgb(var(--underpar-onyx-700)) 12%) 100%
+          ),
           var(--panel);
-        border: 1px solid color-mix(in srgb, var(--border) 78%, rgb(var(--zip-accent-900)) 22%);
-        border-radius: var(--radius-panel);
+        border: 1px solid color-mix(in srgb, var(--border) 56%, rgb(var(--underpar-gold-900)) 44%);
+        border-radius: 20px;
         padding: clamp(6px, 0.8vw, 12px) clamp(8px, 1vw, 14px);
-        box-shadow: var(--card-shadow);
+        box-shadow:
+          0 20px 38px rgba(0, 0, 0, 0.18),
+          0 0 0 1px rgba(var(--underpar-gold-900), 0.08);
         overflow: hidden;
         min-width: 0;
       }
@@ -386,14 +404,14 @@
         max-width: min(44vw, 420px);
         min-height: 24px;
         padding: 3px 8px 3px 6px;
-        border: 1px solid color-mix(in srgb, var(--field-border) 70%, rgb(var(--zip-gray-500-rgb)) 30%);
+        border: 1px solid color-mix(in srgb, var(--field-border) 58%, rgb(var(--underpar-gold-900)) 42%);
         border-radius: 6px;
         background:
           linear-gradient(
             180deg,
-            color-mix(in srgb, rgb(var(--zip-gray-25-rgb)) 30%, rgb(var(--zip-gray-100-rgb)) 70%) 0%,
-            color-mix(in srgb, rgb(var(--zip-gray-75-rgb)) 78%, rgb(var(--zip-gray-200-rgb)) 22%) 52%,
-            color-mix(in srgb, rgb(var(--zip-gray-100-rgb)) 62%, rgb(var(--zip-gray-300-rgb)) 38%) 100%
+            color-mix(in srgb, rgb(var(--zip-gray-25-rgb)) 46%, rgb(var(--underpar-gold-300)) 54%) 0%,
+            color-mix(in srgb, rgb(var(--zip-gray-75-rgb)) 80%, rgb(var(--underpar-gold-500)) 20%) 52%,
+            color-mix(in srgb, rgb(var(--zip-gray-100-rgb)) 72%, rgb(var(--underpar-gold-700)) 28%) 100%
           );
         color: color-mix(in srgb, var(--text-primary) 76%, var(--text-muted) 24%);
         font-family: adobe-clean, "Adobe Clean", "Source Sans Pro", "Segoe UI", system-ui, sans-serif;
@@ -414,19 +432,19 @@
         padding: 0 6px;
         flex: 0 0 auto;
         white-space: nowrap;
-        border: 1px solid color-mix(in srgb, var(--field-border) 66%, rgb(var(--zip-gray-500-rgb)) 34%);
+        border: 1px solid color-mix(in srgb, var(--field-border) 54%, rgb(var(--underpar-gold-900)) 46%);
         border-radius: 4px;
         background:
           linear-gradient(
             180deg,
-            color-mix(in srgb, rgb(var(--zip-gray-50-rgb)) 56%, rgb(var(--zip-gray-200-rgb)) 44%) 0%,
-            color-mix(in srgb, rgb(var(--zip-gray-100-rgb)) 76%, rgb(var(--zip-gray-300-rgb)) 24%) 100%
+            color-mix(in srgb, rgb(var(--underpar-gold-300)) 72%, rgb(var(--zip-gray-50-rgb)) 28%) 0%,
+            color-mix(in srgb, rgb(var(--underpar-gold-500)) 72%, rgb(var(--zip-gray-100-rgb)) 28%) 100%)
           );
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.08em;
         text-transform: uppercase;
-        color: color-mix(in srgb, var(--text-muted) 80%, rgb(var(--zip-gray-800-rgb)) 20%);
+        color: rgb(var(--underpar-onyx-900));
       }
 
       .env-badge-sep {
@@ -468,18 +486,28 @@
       }
 
       .toolbar-icon-btn {
-        border: 1px solid var(--button-border);
-        background: var(--button-bg);
-        color: var(--button-text);
+        border: 1px solid color-mix(in srgb, var(--button-border) 52%, rgb(var(--underpar-gold-900)) 48%);
+        background: linear-gradient(
+          180deg,
+          rgba(var(--underpar-gold-300), 0.98),
+          rgba(var(--underpar-gold-700), 0.98)
+        );
+        color: rgb(var(--underpar-onyx-900));
         cursor: pointer;
         transition: background-color 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
-        box-shadow: 0 1px 0 color-mix(in srgb, var(--text-primary) 12%, transparent);
+        box-shadow:
+          0 10px 22px rgba(0, 0, 0, 0.16),
+          inset 0 1px 0 rgba(255, 255, 255, 0.22);
       }
 
       .toolbar-icon-btn:hover:not(:disabled) {
-        border-color: color-mix(in srgb, var(--button-border) 70%, rgb(var(--zip-accent-900)) 30%);
-        box-shadow: 0 3px 10px color-mix(in srgb, var(--shadow) 48%, transparent);
-        background: var(--button-hover);
+        border-color: color-mix(in srgb, var(--button-border) 44%, rgb(var(--underpar-gold-900)) 56%);
+        box-shadow: 0 14px 26px color-mix(in srgb, var(--shadow) 52%, transparent);
+        background: linear-gradient(
+          180deg,
+          rgba(var(--underpar-gold-300), 1),
+          rgba(var(--underpar-gold-500), 1)
+        );
       }
 
       .toolbar-icon-btn:disabled {
@@ -503,9 +531,9 @@
 
       .theme-toggle {
         border-radius: var(--radius-pill);
-        border: 1.5px solid var(--theme-ring);
+        border: 1.5px solid rgb(var(--underpar-gold-900));
         background: var(--theme-preview);
-        box-shadow: 0 0 0 3px var(--theme-halo), 0 3px 10px var(--theme-shadow);
+        box-shadow: 0 0 0 3px rgba(var(--underpar-gold-500), 0.18), 0 6px 16px var(--theme-shadow);
         cursor: pointer;
         transition: border-color 120ms ease, box-shadow 120ms ease;
       }
@@ -594,23 +622,33 @@
         min-height: var(--control-height);
         min-width: 62px;
         border-radius: 999px;
-        border: 1px solid var(--button-border);
-        background: var(--button-bg);
-        color: var(--button-text);
+        border: 1px solid color-mix(in srgb, var(--button-border) 48%, rgb(var(--underpar-gold-900)) 52%);
+        background: linear-gradient(
+          180deg,
+          rgba(var(--underpar-gold-300), 0.98),
+          rgba(var(--underpar-gold-700), 0.98)
+        );
+        color: rgb(var(--underpar-onyx-900));
         font-size: 13px;
         font-weight: 700;
         letter-spacing: 0.01em;
         cursor: pointer;
-        box-shadow: 0 1px 0 color-mix(in srgb, var(--text-primary) 12%, transparent);
+        box-shadow:
+          0 12px 24px rgba(0, 0, 0, 0.14),
+          inset 0 1px 0 rgba(255, 255, 255, 0.18);
         transition: background-color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
         flex: 0 1 108px;
         padding: 0 clamp(8px, 1vw, 14px);
       }
 
       .go-btn:hover:not(:disabled) {
-        border-color: color-mix(in srgb, var(--button-border) 70%, rgb(var(--zip-accent-900)) 30%);
-        box-shadow: 0 3px 10px color-mix(in srgb, var(--shadow) 48%, transparent);
-        background: var(--button-hover);
+        border-color: color-mix(in srgb, var(--button-border) 42%, rgb(var(--underpar-gold-900)) 58%);
+        box-shadow: 0 14px 28px color-mix(in srgb, var(--shadow) 50%, transparent);
+        background: linear-gradient(
+          180deg,
+          rgba(var(--underpar-gold-300), 1),
+          rgba(var(--underpar-gold-500), 1)
+        );
       }
 
       .go-btn:focus-visible {
@@ -647,13 +685,15 @@
       }
 
       .report-card {
-        border: 1px solid color-mix(in srgb, var(--border) 84%, rgb(var(--zip-accent-900)) 16%);
-        border-radius: 18px;
+        border: 1px solid color-mix(in srgb, var(--border) 68%, rgb(var(--underpar-gold-900)) 32%);
+        border-radius: 20px;
         overflow: hidden;
         background:
-          linear-gradient(180deg, color-mix(in srgb, var(--surface-frost) 96%, transparent) 0%, var(--panel) 100%),
+          linear-gradient(180deg, color-mix(in srgb, var(--surface-frost) 94%, rgb(var(--underpar-gold-300)) 6%) 0%, var(--panel) 100%),
           var(--panel);
-        box-shadow: var(--card-shadow);
+        box-shadow:
+          0 18px 30px rgba(0, 0, 0, 0.14),
+          inset 0 1px 0 rgba(255, 255, 255, 0.05);
       }
 
       .report-card.report-card--no-active {
@@ -698,8 +738,8 @@
         border-bottom: 1px solid var(--line);
         background: linear-gradient(
           160deg,
-          color-mix(in srgb, var(--table-head) 84%, transparent),
-          color-mix(in srgb, var(--table-row) 92%, transparent)
+          color-mix(in srgb, var(--table-head) 70%, rgb(var(--underpar-gold-300)) 30%),
+          color-mix(in srgb, var(--table-row) 84%, rgb(var(--underpar-onyx-700)) 16%)
         );
         display: flex;
         flex-direction: column;
@@ -1912,14 +1952,26 @@
         const directMeta = preferredMap ? preferredMap.get(normalizedMvpdId) : null;
         if (directMeta?.name) {
           const name = String(directMeta.name || "").trim();
-          return name && name !== normalizedMvpdId ? `${name} (${normalizedMvpdId})` : normalizedMvpdId;
+          if (!name) {
+            return normalizedMvpdId;
+          }
+          if (name === normalizedMvpdId || name.toUpperCase().endsWith(`(${normalizedMvpdId.toUpperCase()})`)) {
+            return name;
+          }
+          return `${name} (${normalizedMvpdId})`;
         }
 
         for (const map of state.mvpdCacheByRequestor.values()) {
           const meta = map?.get?.(normalizedMvpdId) || null;
           if (meta?.name) {
             const name = String(meta.name || "").trim();
-            return name && name !== normalizedMvpdId ? `${name} (${normalizedMvpdId})` : normalizedMvpdId;
+            if (!name) {
+              return normalizedMvpdId;
+            }
+            if (name === normalizedMvpdId || name.toUpperCase().endsWith(`(${normalizedMvpdId.toUpperCase()})`)) {
+              return name;
+            }
+            return `${name} (${normalizedMvpdId})`;
           }
         }
 
@@ -1973,6 +2025,15 @@
         };
       }
 
+      function mergeStatusDetailNode(parentNode = null, detailNode = null) {
+        const parentObject = parentNode && typeof parentNode === "object" && !Array.isArray(parentNode) ? parentNode : {};
+        const detailObject = detailNode && typeof detailNode === "object" && !Array.isArray(detailNode) ? detailNode : {};
+        return {
+          ...parentObject,
+          ...detailObject,
+        };
+      }
+
       function extractRowsFromMegaPayload(parsedPayload, queryValues = {}) {
         const normalizedPayload = normalizeObjectKeys(parsedPayload);
         const payloadObject = normalizedPayload && typeof normalizedPayload === "object" ? normalizedPayload : {};
@@ -2019,7 +2080,7 @@
             };
 
             if (targetType === "programmer") {
-              const detailNode = programmerTarget && typeof programmerTarget === "object" ? programmerTarget : measureObject;
+              const detailNode = mergeStatusDetailNode(measureObject, programmerTarget);
               rows.push(
                 buildStatusRow(
                   rowEndpointSpec,
@@ -2051,7 +2112,7 @@
                 buildStatusRow(
                   rowEndpointSpec,
                   baseValues,
-                  targetNode && typeof targetNode === "object" ? targetNode : {},
+                  mergeStatusDetailNode(measureObject, targetNode),
                   targetType,
                   resolveIdValue(targetNode, "")
                 )
@@ -2099,7 +2160,7 @@
           };
 
           if (endpointSpec.targetType === "programmer") {
-            const detailNode = programmerNode && typeof programmerNode === "object" ? programmerNode : measureObject;
+            const detailNode = mergeStatusDetailNode(measureObject, programmerNode);
             rows.push(
               buildStatusRow(
                 endpointSpec,
@@ -2125,7 +2186,7 @@
               buildStatusRow(
                 endpointSpec,
                 baseValues,
-                targetNode && typeof targetNode === "object" ? targetNode : {},
+                mergeStatusDetailNode(measureObject, targetNode),
                 endpointSpec.targetType,
                 resolveIdValue(targetNode, "")
               )
@@ -2181,6 +2242,20 @@
         return safeReason ? `${httpLabel}: ${baseMessage} ${safeReason}` : `${httpLabel}: ${baseMessage}`;
       }
 
+      function buildRequestGroupKey(queryValues = {}, sourceEndpointKey = "") {
+        const normalizedSourceEndpointKey = firstNonEmptyString([
+          String(sourceEndpointKey || "").trim().toLowerCase(),
+          String(queryValues?.endpointKey || "").trim().toLowerCase(),
+          MEGA_ENDPOINT_SPEC.key,
+        ]);
+        return [
+          normalizedSourceEndpointKey,
+          `programmer=${String(queryValues?.programmerId || "").trim()}`,
+          `mvpd=${String(queryValues?.mvpd || "*").trim() || "*"}`,
+          `api_version=${String(queryValues?.apiVersion || "*").trim() || "*"}`,
+        ].join("|");
+      }
+
       function buildReportPayload(endpointSpec, queryValues, result = {}) {
         const sourceRows = Array.isArray(result.rows) ? result.rows : [];
         const rows = filterAppliedActiveRows(sourceRows);
@@ -2196,10 +2271,28 @@
           `mvpd=${String(queryValues?.mvpd || "*").trim() || "*"}`,
           `api_version=${String(queryValues?.apiVersion || "*").trim() || "*"}`,
         ].join("|");
+        const requestMode = firstNonEmptyString([
+          String(result.requestMode || "").trim().toLowerCase(),
+          String(endpointSpec?.key || "").trim().toLowerCase() === MEGA_ENDPOINT_SPEC.key ? "mega" : "direct",
+        ]);
+        const sourceEndpointKey = firstNonEmptyString([
+          String(result.sourceEndpointKey || "").trim().toLowerCase(),
+          String(endpointSpec?.key || "").trim().toLowerCase(),
+        ]);
+        const requestGroupKey = firstNonEmptyString([
+          String(result.requestGroupKey || "").trim(),
+          buildRequestGroupKey(
+            queryValues,
+            requestMode === "mega" ? sourceEndpointKey || MEGA_ENDPOINT_SPEC.key : sourceEndpointKey
+          ),
+        ]);
 
         return {
           reportId: `clickdgr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
           queryKey,
+          requestMode,
+          requestGroupKey,
+          sourceEndpointKey,
           endpointKey: String(endpointSpec?.key || "").trim(),
           endpointPath: String(endpointSpec?.path || "").trim(),
           endpointTitle: String(endpointSpec?.title || "DEGRADATION Status").trim(),
@@ -2222,6 +2315,39 @@
           fetchedAt: Number(result.fetchedAt || Date.now()),
           durationMs: Number(result.durationMs || 0),
         };
+      }
+
+      function buildEndpointReportsFromMegaStatusReport(megaReport = null, queryValues = {}) {
+        const sourceReport = megaReport && typeof megaReport === "object" ? megaReport : {};
+        const sourceRows = Array.isArray(sourceReport.rows) ? sourceReport.rows : [];
+        const rowsByRuleTitle = new Map();
+        const requestGroupKey = buildRequestGroupKey(queryValues, MEGA_ENDPOINT_SPEC.key);
+
+        sourceRows.forEach((row) => {
+          const ruleTitle = String(row?.Rule || "").trim();
+          if (!ruleTitle) {
+            return;
+          }
+          const existingRows = rowsByRuleTitle.get(ruleTitle) || [];
+          existingRows.push(row);
+          rowsByRuleTitle.set(ruleTitle, existingRows);
+        });
+
+        return ENDPOINT_SPECS.map((endpointSpec) =>
+          buildReportPayload(endpointSpec, queryValues, {
+            ok: sourceReport.ok === true,
+            status: Number(sourceReport.status || 0),
+            statusText: String(sourceReport.statusText || "").trim(),
+            error: sourceReport.ok === true ? "" : String(sourceReport.error || "").trim(),
+            requestMode: "mega",
+            requestGroupKey,
+            sourceEndpointKey: MEGA_ENDPOINT_SPEC.key,
+            rows: sourceReport.ok === true ? rowsByRuleTitle.get(String(endpointSpec.title || "").trim()) || [] : [],
+            requestUrl: String(sourceReport.requestUrl || "").trim(),
+            fetchedAt: Number(sourceReport.fetchedAt || Date.now()),
+            durationMs: Number(sourceReport.durationMs || 0),
+          })
+        );
       }
 
       async function executeStatusRequest(endpointSpec, queryValues = {}) {
@@ -2289,6 +2415,17 @@
           fetchedAt,
           durationMs,
         });
+      }
+
+      async function executeAllStatusReports(queryValues = {}) {
+        const megaReport = await executeStatusRequest(MEGA_ENDPOINT_SPEC, {
+          ...queryValues,
+          endpointKey: MEGA_ENDPOINT_SPEC.key,
+        });
+        return {
+          megaReport,
+          reports: buildEndpointReportsFromMegaStatusReport(megaReport, queryValues),
+        };
       }
 
       function getScopeValues(report = null) {
@@ -2402,6 +2539,20 @@
           return;
         }
         state.reportSortByQueryKey.delete(key);
+      }
+
+      function clearReportSortStateForGroup(report = null) {
+        const requestGroupKey = firstNonEmptyString([report?.requestGroupKey, report?.queryKey]);
+        if (!requestGroupKey) {
+          clearReportSortState(report);
+          return;
+        }
+        state.reports.forEach((entry) => {
+          const entryGroupKey = firstNonEmptyString([entry?.requestGroupKey, entry?.queryKey]);
+          if (entryGroupKey === requestGroupKey) {
+            clearReportSortState(entry);
+          }
+        });
       }
 
       function toSortablePrimitive(rawValue) {
@@ -2616,7 +2767,12 @@
       }
 
       function buildQueryValuesFromReport(report = null) {
-        const endpointKey = String(report?.endpointKey || "all").trim().toLowerCase();
+        const requestMode = String(report?.requestMode || "").trim().toLowerCase();
+        const endpointKey = firstNonEmptyString([
+          requestMode === "mega" ? String(report?.sourceEndpointKey || "").trim().toLowerCase() : "",
+          String(report?.endpointKey || "all").trim().toLowerCase(),
+          "all",
+        ]);
         const requestorId = firstNonEmptyString([report?.requestorId, report?.programmerId]);
         const programmerId = firstNonEmptyString([report?.programmerId, report?.requestorId]);
         const includeAllMvpd = report?.includeAllMvpd === true || !String(report?.mvpd || "").trim();
@@ -2631,12 +2787,20 @@
       }
 
       function getRerunnableReports() {
-        return state.reports.filter((report) => {
+        const rerunGroups = new Map();
+        state.reports.forEach((report) => {
           const reportId = String(report?.reportId || "").trim();
           const endpointKey = String(report?.endpointKey || "").trim();
           const requestorId = firstNonEmptyString([report?.requestorId, report?.programmerId]);
-          return Boolean(reportId && endpointKey && requestorId);
+          const requestGroupKey = firstNonEmptyString([report?.requestGroupKey, report?.queryKey, reportId]);
+          if (!reportId || !endpointKey || !requestorId || !requestGroupKey) {
+            return;
+          }
+          if (!rerunGroups.has(requestGroupKey)) {
+            rerunGroups.set(requestGroupKey, report);
+          }
         });
+        return [...rerunGroups.values()];
       }
 
       function refreshRerunAllButtonUi() {
@@ -2645,8 +2809,8 @@
         }
         const count = getRerunnableReports().length;
         const batchBusy = Boolean(rerunAllReportsInFlight);
-        const noun = count === 1 ? "open DEGRADATION report card" : "open DEGRADATION report cards";
-        let label = "No DEGRADATION report cards are open to re-run";
+        const noun = count === 1 ? "DEGRADATION request group" : "DEGRADATION request groups";
+        let label = "No DEGRADATION request groups are open to re-run";
         if (count > 0 && batchBusy) {
           label = `Re-running ${count} ${noun} with the current context`;
         } else if (count > 0 && state.busy) {
@@ -2664,7 +2828,8 @@
         if (!report) {
           throw new Error("Unable to resolve DEGRADATION report for rerun.");
         }
-        const endpointSpec = getEndpointSpec(report.endpointKey);
+        const requestMode = String(report?.requestMode || "").trim().toLowerCase();
+        const endpointSpec = getEndpointSpec(requestMode === "mega" ? report.sourceEndpointKey : report.endpointKey);
         if (!endpointSpec) {
           throw new Error("Unable to resolve DEGRADATION method for rerun.");
         }
@@ -2674,7 +2839,13 @@
         }
 
         if (clearSort) {
-          clearReportSortState(report);
+          clearReportSortStateForGroup(report);
+        }
+
+        if (requestMode === "mega" || String(endpointSpec?.key || "").trim().toLowerCase() === MEGA_ENDPOINT_SPEC.key) {
+          const result = await executeAllStatusReports(queryValues);
+          upsertReports(result.reports);
+          return result.reports.find((entry) => String(entry?.endpointKey || "").trim() === String(report?.endpointKey || "").trim()) || result.reports[0] || null;
         }
 
         const refreshedReport = await executeStatusRequest(endpointSpec, queryValues);
@@ -2922,15 +3093,24 @@
         refreshRerunAllButtonUi();
       }
 
-      function upsertReport(report = null) {
-        if (!report || typeof report !== "object") {
+      function upsertReports(reportList = []) {
+        const incomingReports = (Array.isArray(reportList) ? reportList : []).filter(
+          (report) => report && typeof report === "object"
+        );
+        if (!incomingReports.length) {
           return;
         }
-        const identity = firstNonEmptyString([report.queryKey, report.reportId]);
-        const nextReports = [report];
+        const incomingByIdentity = new Map();
+        incomingReports.forEach((report) => {
+          const identity = firstNonEmptyString([report.queryKey, report.reportId]);
+          if (identity) {
+            incomingByIdentity.set(identity, report);
+          }
+        });
+        const nextReports = [...incomingReports];
         state.reports.forEach((existing) => {
           const existingIdentity = firstNonEmptyString([existing?.queryKey, existing?.reportId]);
-          if (!identity || existingIdentity !== identity) {
+          if (!existingIdentity || !incomingByIdentity.has(existingIdentity)) {
             nextReports.push(existing);
           }
         });
@@ -2944,6 +3124,10 @@
           }
         });
         renderReports();
+      }
+
+      function upsertReport(report = null) {
+        upsertReports(report ? [report] : []);
       }
 
       async function runSelectedMethod(event) {
@@ -2971,9 +3155,19 @@
         setStatus("Running DEGRADATION request...", "info");
 
         try {
+          if (String(endpointSpec.key || "").trim().toLowerCase() === MEGA_ENDPOINT_SPEC.key) {
+            const result = await executeAllStatusReports(queryValues);
+            upsertReports(result.reports);
+            if (result.megaReport.ok) {
+              setStatus("", "info");
+            } else {
+              setStatus(`${result.megaReport.endpointTitle || "GET ALL"}: ${result.megaReport.error || "Request failed."}`, "error");
+            }
+            return;
+          }
+
           const report = await executeStatusRequest(endpointSpec, queryValues);
           upsertReport(report);
-
           if (report.ok) {
             setStatus("", "info");
           } else {
