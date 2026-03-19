@@ -462,6 +462,21 @@ test("active CM bootstrap uses UnderPAR bearer-derived qualification instead of 
   assert.equal(/ensure-cookie-session/.test(ensureCmSource), false);
 });
 
+test("CM token bootstrap can harvest JWTs from raw IMS response text when access_token fields are missing", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const extractTokenSource = extractFunctionSource(popupSource, "extractImsAccessTokenFromPayload");
+  const validateSource = extractFunctionSource(popupSource, "requestCmTokenViaValidateToken");
+  const checkSource = extractFunctionSource(popupSource, "requestCmTokenViaImsCheck");
+
+  assert.match(extractTokenSource, /extractJwtAndUrls\(payload\)/);
+  assert.match(extractTokenSource, /rawJwtMatch/);
+  assert.match(extractTokenSource, /access_token\|accessToken\|bearer\|authorization\|authToken\|token/);
+  assert.match(validateSource, /const text = await response\.text\(\)\.catch\(\(\) => ""\);/);
+  assert.match(validateSource, /extractImsAccessTokenFromPayload\(parsed,\s*text\)/);
+  assert.match(checkSource, /const text = await response\.text\(\)\.catch\(\(\) => ""\);/);
+  assert.match(checkSource, /extractImsAccessTokenFromPayload\(parsed,\s*text\)/);
+});
+
 test("CM direct fetch and tenant catalog paths no longer issue unauthenticated cookie-style fallbacks", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const fetchSource = extractFunctionSource(popupSource, "fetchCmJsonWithAuthVariants");

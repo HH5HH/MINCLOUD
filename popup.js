@@ -46329,7 +46329,6 @@ function buildDegradationCheatSheetTokenBootstrap(context = {}) {
   const tokenUrl = String(context.tokenUrl || "").trim();
   const clientId = String(context.clientId || "").trim();
   const clientSecret = String(context.clientSecret || "").trim();
-  const tokenScope = String(context.tokenScope || "").trim();
   if (!tokenUrl || !clientId || !clientSecret) {
     return {
       tokenSetupScript: "",
@@ -46341,7 +46340,6 @@ function buildDegradationCheatSheetTokenBootstrap(context = {}) {
     grant_type: "client_credentials",
     client_id: clientId,
     client_secret: clientSecret,
-    scope: tokenScope,
   }).toString();
 
   const tokenSetupScript = [
@@ -60229,42 +60227,71 @@ function normalizeBearerTokenValue(value) {
     .trim();
 }
 
-function extractImsAccessTokenFromPayload(payload) {
-  if (!payload) {
+function extractImsAccessTokenFromPayload(payload, rawText = "") {
+  const normalizedRawText = String(rawText || "").trim();
+  if (!payload && !normalizedRawText) {
     return "";
   }
 
   if (typeof payload === "string") {
-    return normalizeBearerTokenValue(payload);
+    const directStringToken = normalizeBearerTokenValue(payload);
+    if (isProbablyJwt(directStringToken)) {
+      return directStringToken;
+    }
   }
 
-  if (typeof payload !== "object") {
-    return "";
+  if (payload && typeof payload === "object") {
+    const nestedToken =
+      payload.token && typeof payload.token === "object"
+        ? firstNonEmptyString([
+            payload.token.access_token,
+            payload.token.accessToken,
+            payload.token.token,
+            payload.token.value,
+          ])
+        : payload.token;
+
+    const structuredToken = normalizeBearerTokenValue(
+      firstNonEmptyString([
+        payload.access_token,
+        payload.accessToken,
+        nestedToken,
+        payload.imsToken,
+        payload.bearer,
+        payload.authToken,
+        payload.authorization,
+        payload.Authorization,
+        payload.value,
+      ])
+    );
+    if (isProbablyJwt(structuredToken)) {
+      return structuredToken;
+    }
+
+    const extracted = extractJwtAndUrls(payload);
+    if (extracted.jwt && extracted.jwtScore >= 0 && isProbablyJwt(extracted.jwt)) {
+      return extracted.jwt;
+    }
   }
 
-  const nestedToken =
-    payload.token && typeof payload.token === "object"
-      ? firstNonEmptyString([
-          payload.token.access_token,
-          payload.token.accessToken,
-          payload.token.token,
-          payload.token.value,
-        ])
-      : payload.token;
+  const rawTextCandidates = [
+    typeof payload === "string" ? String(payload || "").trim() : "",
+    normalizedRawText,
+  ].filter(Boolean);
+  for (const candidateText of rawTextCandidates) {
+    const structuredMatch = candidateText.match(
+      /(?:access_token|accessToken|bearer|authorization|authToken|token)\s*(?:=|:)\s*["']?(Bearer\s+)?([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/i
+    );
+    if (structuredMatch?.[2] && isProbablyJwt(structuredMatch[2])) {
+      return normalizeBearerTokenValue(structuredMatch[2]);
+    }
+    const rawJwtMatch = candidateText.match(/[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}/);
+    if (rawJwtMatch?.[0] && isProbablyJwt(rawJwtMatch[0])) {
+      return normalizeBearerTokenValue(rawJwtMatch[0]);
+    }
+  }
 
-  return normalizeBearerTokenValue(
-    firstNonEmptyString([
-      payload.access_token,
-      payload.accessToken,
-      nestedToken,
-      payload.imsToken,
-      payload.bearer,
-      payload.authToken,
-      payload.authorization,
-      payload.Authorization,
-      payload.value,
-    ])
-  );
+  return "";
 }
 
 function isAccessTokenFreshEnough(accessToken = "", skewMs = 0) {
@@ -60563,12 +60590,9 @@ async function requestCmTokenViaValidateToken(seedToken = "", options = {}) {
           continue;
         }
 
-        const parsed = parseJsonText(await response.text().catch(() => ""), null);
-        if (!parsed || typeof parsed !== "object") {
-          continue;
-        }
-
-        const refreshedToken = normalizeBearerTokenValue(extractImsAccessTokenFromPayload(parsed));
+        const text = await response.text().catch(() => "");
+        const parsed = parseJsonText(text, null);
+        const refreshedToken = normalizeBearerTokenValue(extractImsAccessTokenFromPayload(parsed, text));
         if (refreshedToken && isProbablyJwt(refreshedToken) && tokenSupportsCmTenantCatalog(refreshedToken)) {
           if (!requireFresh || isAccessTokenFreshEnough(refreshedToken, CM_IMS_FORCE_REFRESH_SKEW_MS)) {
             const tokenPayload = parsed?.token && typeof parsed.token === "object" ? parsed.token : {};
@@ -60737,12 +60761,9 @@ async function requestCmTokenViaImsCheck(seedToken = "", options = {}) {
               continue;
             }
 
-            const parsed = parseJsonText(await response.text().catch(() => ""), null);
-            if (!parsed || typeof parsed !== "object") {
-              continue;
-            }
-
-            const refreshedToken = normalizeBearerTokenValue(extractImsAccessTokenFromPayload(parsed));
+            const text = await response.text().catch(() => "");
+            const parsed = parseJsonText(text, null);
+            const refreshedToken = normalizeBearerTokenValue(extractImsAccessTokenFromPayload(parsed, text));
             if (!refreshedToken || !isProbablyJwt(refreshedToken) || !tokenSupportsCmTenantCatalog(refreshedToken)) {
               continue;
             }

@@ -52,6 +52,7 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(popupSource, /const tokenRequestBody = new URLSearchParams\(\{/);
   assert.match(popupSource, /curl \$\{quoteCurlDoubleQuoted\(tokenUrl\)\}/);
   assert.match(popupSource, /-d \$\{quoteCurlDoubleQuoted\(tokenRequestBody\)\}/);
+  assert.doesNotMatch(popupSource, /scope:\s*tokenScope/);
   assert.doesNotMatch(popupSource, /-H "Content-Type: application\/x-www-form-urlencoded"/);
   assert.match(popupSource, /-H "Authorization: Bearer \$DGR_ACCESS_TOKEN"/);
   assert.doesNotMatch(popupSource, /quoteCurlDoubleQuoted\(`api_version: \$\{DEGRADATION_API_VERSION\}`\)/);
