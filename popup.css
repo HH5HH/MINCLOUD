@@ -4481,7 +4481,8 @@ select:disabled {
   min-width: 150px;
 }
 
-.degradation-endpoint-select {
+.degradation-endpoint-select,
+.degradation-quick-set-select {
   height: 30px;
   border-radius: 8px;
   border: 1px solid var(--service-accent-soft);
@@ -4495,10 +4496,28 @@ select:disabled {
 }
 
 .degradation-endpoint-select:focus,
-.degradation-run-go-btn:focus-visible {
+.degradation-quick-set-select:focus,
+.degradation-run-go-btn:focus-visible,
+.degradation-quick-set-btn:focus-visible,
+.degradation-copy-curl-btn:focus-visible {
   outline: none;
   border-color: var(--service-accent);
   box-shadow: 0 0 0 2px var(--service-accent-soft);
+}
+
+.degradation-quick-set-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.degradation-quick-set-select {
+  flex: 1 1 220px;
+  width: auto;
+  min-width: 0;
+  font-size: 11px;
 }
 
 .degradation-recording-actions {
@@ -4699,6 +4718,59 @@ select:disabled {
 }
 
 .degradation-run-go-btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.degradation-quick-set-btn,
+.degradation-copy-curl-btn {
+  height: 32px;
+  border-radius: 999px;
+  padding: 0 11px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
+  box-shadow: var(--service-action-shadow);
+}
+
+.degradation-quick-set-btn {
+  background: linear-gradient(180deg, rgba(29, 29, 29, 0.96), rgba(74, 74, 74, 0.92));
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.degradation-copy-curl-btn {
+  background: linear-gradient(180deg, rgb(var(--underpar-danger-700)), rgb(var(--underpar-danger-900)));
+  border-color: rgba(var(--underpar-danger-1100), 0.72);
+}
+
+.degradation-quick-set-btn:hover:not(:disabled),
+.degradation-copy-curl-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: var(--service-action-shadow-hover);
+}
+
+.degradation-quick-set-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(49, 49, 49, 0.98), rgba(98, 98, 98, 0.94));
+  border-color: rgba(255, 255, 255, 0.28);
+}
+
+.degradation-copy-curl-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgb(var(--underpar-danger-800)), rgb(var(--underpar-danger-1000)));
+  border-color: rgba(var(--underpar-danger-1100), 0.84);
+}
+
+.degradation-quick-set-btn:active:not(:disabled),
+.degradation-copy-curl-btn:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: var(--service-action-shadow-active);
+}
+
+.degradation-quick-set-btn:disabled,
+.degradation-copy-curl-btn:disabled {
   opacity: 0.65;
   cursor: default;
 }

@@ -8698,6 +8698,12 @@ function findProgrammerByProgrammerId(programmerId = "") {
   );
 }
 
+function getFirstSelectableOptionValue(selectElement = null) {
+  const options = Array.from(selectElement?.options || []);
+  const firstMatch = options.find((option) => String(option?.value || "").trim());
+  return String(firstMatch?.value || "").trim();
+}
+
 function selectProgrammerForController(programmer = null, controllerReason = "media-company-change") {
   const resolvedProgrammer = programmer && typeof programmer === "object" ? programmer : null;
   if (resolvedProgrammer?.programmerId) {
@@ -9159,7 +9165,7 @@ function shutdownSidepanelControllerBridge() {
   disconnectSidepanelControllerPort();
 }
 
-async function restoreAdobePassEnvironmentSwitchSelection(snapshot = null) {
+async function applyGlobalSelectionSnapshot(snapshot = null, options = {}) {
   const result = {
     programmerRestored: false,
     requestorRestored: false,
@@ -9184,8 +9190,12 @@ async function restoreAdobePassEnvironmentSwitchSelection(snapshot = null) {
   populateRequestorSelect();
   result.programmerRestored = true;
 
-  const requestorId = String(snapshot?.requestorId || "").trim();
-  if (requestorId && Array.isArray(programmer.requestorIds) && programmer.requestorIds.includes(requestorId)) {
+  const availableRequestorIds = Array.isArray(programmer.requestorIds) ? programmer.requestorIds : [];
+  const explicitRequestorId = String(snapshot?.requestorId || "").trim();
+  const fallbackRequestorId =
+    options?.autoSelectFirstRequestor === true ? String(availableRequestorIds[0] || "").trim() : "";
+  const requestorId = firstNonEmptyString([explicitRequestorId, fallbackRequestorId]);
+  if (requestorId && availableRequestorIds.includes(requestorId)) {
     state.selectedRequestorId = requestorId;
     if (els.requestorSelect) {
       els.requestorSelect.value = requestorId;
@@ -9200,14 +9210,16 @@ async function restoreAdobePassEnvironmentSwitchSelection(snapshot = null) {
   }).catch(() => null);
 
   await refreshProgrammerPanels({
-    controllerReason: "environment-switch",
+    controllerReason: String(options?.controllerReason || "environment-switch"),
   });
 
   if (result.requestorRestored) {
     await populateMvpdSelectForRequestor(requestorId);
   }
 
-  const mvpdId = String(snapshot?.mvpdId || "").trim();
+  const explicitMvpdId = String(snapshot?.mvpdId || "").trim();
+  const fallbackMvpdId = options?.autoSelectFirstMvpd === true ? getFirstSelectableOptionValue(els.mvpdSelect) : "";
+  const mvpdId = firstNonEmptyString([explicitMvpdId, fallbackMvpdId]);
   if (result.requestorRestored && mvpdId && els.mvpdSelect) {
     const mvpdAvailable = Array.from(els.mvpdSelect.options || []).some((option) => String(option?.value || "") === mvpdId);
     if (mvpdAvailable) {
@@ -9215,7 +9227,7 @@ async function restoreAdobePassEnvironmentSwitchSelection(snapshot = null) {
       els.mvpdSelect.value = mvpdId;
       result.mvpdRestored = true;
       await refreshProgrammerPanels({
-        controllerReason: "environment-switch-mvpd-restore",
+        controllerReason: String(options?.mvpdControllerReason || "environment-switch-mvpd-restore"),
         forcePremiumRefresh: false,
       });
     }
@@ -9251,6 +9263,13 @@ async function restoreAdobePassEnvironmentSwitchSelection(snapshot = null) {
   return result;
 }
 
+async function restoreAdobePassEnvironmentSwitchSelection(snapshot = null) {
+  return applyGlobalSelectionSnapshot(snapshot, {
+    controllerReason: "environment-switch",
+    mvpdControllerReason: "environment-switch-mvpd-restore",
+  });
+}
+
 async function switchAdobePassEnvironmentInPlace(environment = null, options = {}) {
   const targetEnvironment = resolveAdobePassEnvironment(environment);
   const targetEnvironmentKey =
@@ -9271,7 +9290,12 @@ async function switchAdobePassEnvironmentInPlace(environment = null, options = {
   }
 
   const switchPromise = (async () => {
-    const selectionSnapshot = captureAdobePassEnvironmentSwitchSelectionSnapshot();
+    const selectionSnapshot =
+      options?.selectionSnapshot && typeof options.selectionSnapshot === "object"
+        ? {
+            ...options.selectionSnapshot,
+          }
+        : captureAdobePassEnvironmentSwitchSelectionSnapshot();
     const retainedLoginData =
       state.loginData && typeof state.loginData === "object"
         ? {
@@ -9391,7 +9415,12 @@ async function switchAdobePassEnvironmentInPlace(environment = null, options = {
         };
       }
 
-      const restoreResult = await restoreAdobePassEnvironmentSwitchSelection(selectionSnapshot);
+      const restoreResult = await applyGlobalSelectionSnapshot(selectionSnapshot, {
+        controllerReason: "environment-switch",
+        mvpdControllerReason: "environment-switch-mvpd-restore",
+        autoSelectFirstRequestor: options?.autoSelectFirstRequestor === true,
+        autoSelectFirstMvpd: options?.autoSelectFirstMvpd === true,
+      });
       const missingSelectionLabel = String(restoreResult.missingSelection || "").trim();
       if (missingSelectionLabel) {
         setStatus(
@@ -10279,6 +10308,88 @@ const DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC = {
   targetKey: "",
   targetIdKey: "",
 };
+const DEGRADATION_CHEAT_SHEET_CALL_SPECS = Object.freeze([
+  {
+    key: "get-all",
+    title: "Get All Rules For Requestor",
+    method: "GET",
+    path: "all",
+    includeHistory: true,
+    includeScopedAllParams: true,
+  },
+  {
+    key: "get-authn-all",
+    title: "Get AuthnAll Rules For Requestor and MVPD",
+    method: "GET",
+    path: "authnAll",
+    requiresMvpd: true,
+  },
+  {
+    key: "post-authn-all",
+    title: "Post AuthnAll Rule For Requestor and MVPD",
+    method: "POST",
+    path: "authnAll",
+    requiresMvpd: true,
+    includesTtl: true,
+    includesMsg: true,
+  },
+  {
+    key: "delete-authn-all",
+    title: "Delete AuthnAll Rule For Requestor and MVPD",
+    method: "DELETE",
+    path: "authnAll",
+    requiresMvpd: true,
+  },
+  {
+    key: "get-authz-all",
+    title: "Get AuthzAll Rules For Requestor and MVPD",
+    method: "GET",
+    path: "authzAll",
+    requiresMvpd: true,
+  },
+  {
+    key: "post-authz-all",
+    title: "Post AuthzAll Rule For Requestor and MVPD",
+    method: "POST",
+    path: "authzAll",
+    requiresMvpd: true,
+    includesTtl: true,
+    includesResource: true,
+    includesMsg: true,
+  },
+  {
+    key: "delete-authz-all",
+    title: "Delete AuthzAll Rules For Requestor and MVPD",
+    method: "DELETE",
+    path: "authzAll",
+    requiresMvpd: true,
+    includesResource: true,
+  },
+  {
+    key: "get-authz-none",
+    title: "Get AuthzNone Rules For Requestor and MVPD",
+    method: "GET",
+    path: "authzNone",
+    requiresMvpd: true,
+  },
+  {
+    key: "post-authz-none",
+    title: "Post AuthzNone Rule For Requestor and MVPD",
+    method: "POST",
+    path: "authzNone",
+    requiresMvpd: true,
+    includesChannel: true,
+    includesMsg: true,
+  },
+  {
+    key: "delete-authz-none",
+    title: "Delete AuthzNone Rule For Requestor and MVPD",
+    method: "DELETE",
+    path: "authzNone",
+    requiresMvpd: true,
+    includesChannel: true,
+  },
+]);
 const DEGRADATION_API_VERSION = "3.0";
 
 const state = {
@@ -25222,7 +25333,7 @@ async function resolveClickDgrAuthContext(context, requestToken, options = {}) {
   ]) || "Media Company";
 
   const requiredScope = getPreferredDegradationScopeForApp(appInfo) || PREMIUM_SERVICE_SCOPE_BY_KEY.degradation;
-  const accessToken = await ensureDcrAccessToken(programmer.programmerId, appInfo, false, {
+  const accessToken = await ensureDcrAccessToken(programmer.programmerId, appInfo, options?.forceFreshToken === true, {
     service: "degradation-clickdgr",
     scope: requiredScope,
     requestorIds: Array.isArray(context?.requestorIds) ? context.requestorIds.slice(0, 24) : [],
@@ -25246,6 +25357,7 @@ async function resolveClickDgrAuthContext(context, requestToken, options = {}) {
     programmerLabel,
     mediaCompanyId: String(programmer?.programmerId || "").trim(),
     mediaCompanyName: String(firstNonEmptyString([programmer?.programmerName, programmer?.mediaCompanyName]) || "").trim(),
+    appInfo,
     clientId,
     clientSecret,
     accessToken: resolvedAccessToken,
@@ -44330,8 +44442,11 @@ function degradationSetBusy(panelState, busy) {
   panelState.busy = busy === true;
   const controls = [
     panelState.endpointSelect,
+    panelState.quickSetSelect,
     panelState.recordingToggleButton,
     panelState.makeClickDgrButton,
+    panelState.quickSetButton,
+    panelState.copyCurlButton,
   ];
   controls.forEach((control) => {
     if (control) {
@@ -44411,6 +44526,1144 @@ function degradationSyncGoButtonLabel(panelState) {
   goButton.title = requestorId
     ? `Run DEGRADATION for ${requestorId} X ${mvpdTitleLabel}`
     : "Select RequestorId first";
+}
+
+function degradationBuildQuickSetPresetKey(environmentKey = "", programmerId = "") {
+  const normalizedEnvironmentKey =
+    String(environmentKey || getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+    DEFAULT_ADOBEPASS_ENVIRONMENT.key;
+  const normalizedProgrammerId = String(programmerId || "").trim();
+  if (!normalizedProgrammerId) {
+    return "";
+  }
+  return `${normalizedEnvironmentKey}::${normalizedProgrammerId}`;
+}
+
+function degradationBuildQuickSetOptionLabel(preset = null) {
+  const environmentLabel = firstNonEmptyString([
+    String(preset?.environmentLabel || "").trim(),
+    String(preset?.environmentKey || "").trim(),
+    "Environment",
+  ]);
+  const mediaCompanyLabel = firstNonEmptyString([
+    String(preset?.mediaCompanyName || "").trim(),
+    String(preset?.programmerName || "").trim(),
+    String(preset?.programmerId || "").trim(),
+    "Media Company",
+  ]);
+  const requestorLabel = String(preset?.requestorId || "").trim() || "auto Requestor";
+  const vaultLabel = String(preset?.source || "").trim() === "vault" ? " [VAULT]" : "";
+  return `${environmentLabel} x ${mediaCompanyLabel} | ${requestorLabel}${vaultLabel}`;
+}
+
+function degradationBuildQuickSetState(panelState = null) {
+  const activeEnvironment = getActiveAdobePassEnvironment();
+  const currentEnvironmentKey =
+    String(activeEnvironment?.key || getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+    DEFAULT_ADOBEPASS_ENVIRONMENT.key;
+  const currentEnvironmentLabel = String(activeEnvironment?.label || currentEnvironmentKey).trim() || currentEnvironmentKey;
+  const currentProgrammer = panelState?.programmer || resolveSelectedProgrammer() || null;
+  const currentProgrammerId = String(currentProgrammer?.programmerId || "").trim();
+  const currentRequestorId = String(state.selectedRequestorId || "").trim();
+  const currentMvpdId = String(state.selectedMvpdId || "").trim();
+  const presetsByKey = new Map();
+
+  const addPreset = (input = {}, priority = 0) => {
+    const programmerId = String(input?.programmerId || "").trim();
+    if (!programmerId) {
+      return;
+    }
+    const environmentKey =
+      String(input?.environmentKey || currentEnvironmentKey).trim() || currentEnvironmentKey;
+    const key = degradationBuildQuickSetPresetKey(environmentKey, programmerId);
+    if (!key) {
+      return;
+    }
+
+    const existing = presetsByKey.get(key) || null;
+    const nextPriority = Math.max(Number(existing?.priority || 0), Number(priority || 0));
+    const nextRequestorId = firstNonEmptyString([
+      String(existing?.requestorId || "").trim(),
+      String(input?.requestorId || "").trim(),
+    ]);
+    const nextPreset = {
+      key,
+      environmentKey,
+      environmentLabel:
+        firstNonEmptyString([
+          String(existing?.environmentLabel || "").trim(),
+          String(input?.environmentLabel || "").trim(),
+          currentEnvironmentLabel,
+        ]) || currentEnvironmentLabel,
+      programmerId,
+      programmerName:
+        firstNonEmptyString([
+          String(existing?.programmerName || "").trim(),
+          String(input?.programmerName || "").trim(),
+          programmerId,
+        ]) || programmerId,
+      mediaCompanyName:
+        firstNonEmptyString([
+          String(existing?.mediaCompanyName || "").trim(),
+          String(input?.mediaCompanyName || "").trim(),
+          String(input?.programmerName || "").trim(),
+          programmerId,
+        ]) || programmerId,
+      requestorId: nextRequestorId,
+      mvpdId:
+        nextRequestorId &&
+        nextRequestorId === firstNonEmptyString([String(existing?.requestorId || "").trim(), String(input?.requestorId || "").trim()])
+          ? firstNonEmptyString([
+              String(existing?.mvpdId || "").trim(),
+              String(input?.mvpdId || "").trim(),
+            ])
+          : "",
+      source:
+        nextPriority >= 300
+          ? "active"
+          : firstNonEmptyString([String(existing?.source || "").trim(), String(input?.source || "").trim(), "vault"]) || "vault",
+      priority: nextPriority,
+    };
+    presetsByKey.set(key, nextPreset);
+  };
+
+  const currentProgrammers = Array.isArray(state.programmers) ? state.programmers : [];
+  currentProgrammers.forEach((programmer) => {
+    const programmerId = String(programmer?.programmerId || "").trim();
+    if (!programmerId) {
+      return;
+    }
+    const runtimeServices = getCurrentPremiumAppsSnapshot(programmerId);
+    const vaultRecord = getPassVaultMediaCompanyRecord(programmerId, currentEnvironmentKey);
+    const vaultRuntimeServices = vaultRecord ? buildPassVaultRuntimeServicesSnapshot(vaultRecord) : null;
+    const hasDegradation = Boolean(
+      String(runtimeServices?.degradation?.guid || "").trim() ||
+        String(vaultRuntimeServices?.degradation?.guid || "").trim() ||
+        (Array.isArray(runtimeServices?.degradationApps) ? runtimeServices.degradationApps.length : 0) > 0 ||
+        (Array.isArray(vaultRuntimeServices?.degradationApps) ? vaultRuntimeServices.degradationApps.length : 0) > 0 ||
+        vaultRecord?.services?.degradation?.available === true
+    );
+    if (!hasDegradation) {
+      return;
+    }
+    const requestorIds = uniqueSorted(programmer?.requestorIds || []);
+    const preferredRequestorId =
+      currentProgrammerId === programmerId && requestorIds.includes(currentRequestorId)
+        ? currentRequestorId
+        : String(requestorIds[0] || "").trim();
+    addPreset(
+      {
+        environmentKey: currentEnvironmentKey,
+        environmentLabel: currentEnvironmentLabel,
+        programmerId,
+        programmerName: String(programmer?.programmerName || "").trim(),
+        mediaCompanyName: String(programmer?.mediaCompanyName || programmer?.programmerName || programmerId).trim(),
+        requestorId: preferredRequestorId,
+        mvpdId: currentProgrammerId === programmerId && preferredRequestorId === currentRequestorId ? currentMvpdId : "",
+        source: currentProgrammerId === programmerId ? "active" : vaultRecord ? "vault" : "active",
+      },
+      currentProgrammerId === programmerId ? 400 : 300
+    );
+  });
+
+  const registry = getUnderParEnvironmentRegistry();
+  const environmentCatalog = registry?.listEnvironments?.() || [activeEnvironment];
+  environmentCatalog.forEach((environment) => {
+    const environmentKey = String(environment?.key || "").trim();
+    if (!environmentKey) {
+      return;
+    }
+    const environmentLabel = String(environment?.label || environmentKey).trim() || environmentKey;
+    const environmentRecord = getPassVaultEnvironmentRecordFromVault(state.passVault, environmentKey);
+    const mediaCompanies = environmentRecord?.mediaCompanies && typeof environmentRecord.mediaCompanies === "object"
+      ? environmentRecord.mediaCompanies
+      : {};
+    Object.values(mediaCompanies).forEach((record) => {
+      const programmerId = String(record?.programmerId || "").trim();
+      if (!programmerId) {
+        return;
+      }
+      const runtimeServices = buildPassVaultRuntimeServicesSnapshot(record);
+      const hasDegradation = Boolean(
+        String(runtimeServices?.degradation?.guid || "").trim() ||
+          (Array.isArray(runtimeServices?.degradationApps) ? runtimeServices.degradationApps.length : 0) > 0 ||
+          record?.services?.degradation?.available === true
+      );
+      if (!hasDegradation) {
+        return;
+      }
+
+      const liveProgrammer = environmentKey === currentEnvironmentKey ? findProgrammerByProgrammerId(programmerId) : null;
+      const liveRequestorIds = uniqueSorted(liveProgrammer?.requestorIds || []);
+      addPreset(
+        {
+          environmentKey,
+          environmentLabel,
+          programmerId,
+          programmerName: String(
+            firstNonEmptyString([liveProgrammer?.programmerName, record?.programmerName, programmerId]) || programmerId
+          ).trim(),
+          mediaCompanyName: String(
+            firstNonEmptyString([liveProgrammer?.mediaCompanyName, record?.mediaCompanyName, record?.programmerName, programmerId]) ||
+              programmerId
+          ).trim(),
+          requestorId:
+            environmentKey === currentEnvironmentKey && currentProgrammerId === programmerId && liveRequestorIds.includes(currentRequestorId)
+              ? currentRequestorId
+              : String(liveRequestorIds[0] || "").trim(),
+          mvpdId:
+            environmentKey === currentEnvironmentKey &&
+            currentProgrammerId === programmerId &&
+            liveRequestorIds.includes(currentRequestorId)
+              ? currentMvpdId
+              : "",
+          source: "vault",
+        },
+        environmentKey === currentEnvironmentKey ? 250 : 100
+      );
+    });
+  });
+
+  const presets = [...presetsByKey.values()].sort((leftPreset, rightPreset) => {
+    const leftCurrentEnvironment = leftPreset.environmentKey === currentEnvironmentKey ? 1 : 0;
+    const rightCurrentEnvironment = rightPreset.environmentKey === currentEnvironmentKey ? 1 : 0;
+    if (leftCurrentEnvironment !== rightCurrentEnvironment) {
+      return rightCurrentEnvironment - leftCurrentEnvironment;
+    }
+    if (leftPreset.priority !== rightPreset.priority) {
+      return rightPreset.priority - leftPreset.priority;
+    }
+    const leftLabel = degradationBuildQuickSetOptionLabel(leftPreset);
+    const rightLabel = degradationBuildQuickSetOptionLabel(rightPreset);
+    return leftLabel.localeCompare(rightLabel, undefined, { sensitivity: "base" });
+  });
+
+  const selectedKey = firstNonEmptyString([
+    currentProgrammerId ? degradationBuildQuickSetPresetKey(currentEnvironmentKey, currentProgrammerId) : "",
+    presets[0]?.key || "",
+  ]);
+  const optionsHtml =
+    presets.length > 0
+      ? presets
+          .map((preset) => {
+            const selectedAttr = preset.key === selectedKey ? " selected" : "";
+            return `<option value="${escapeHtml(preset.key)}"${selectedAttr}>${escapeHtml(
+              degradationBuildQuickSetOptionLabel(preset)
+            )}</option>`;
+          })
+          .join("")
+      : '<option value="">-- No DEGRADATION quick-set presets detected --</option>';
+
+  return {
+    presets,
+    presetsByKey,
+    selectedKey,
+    hasPresets: presets.length > 0,
+    optionsHtml,
+  };
+}
+
+function quoteShellArgument(value = "") {
+  return `'${String(value == null ? "" : value).replace(/'/g, `'\"'\"'`)}'`;
+}
+
+async function applyDegradationQuickSetPreset(panelState, presetKey = "", options = {}) {
+  const activePanelState = panelState || getActiveDegradationWorkspaceState();
+  const quickSetState = activePanelState?.quickSetState || degradationBuildQuickSetState(activePanelState);
+  const selectedPresetKey = firstNonEmptyString([
+    String(presetKey || "").trim(),
+    String(activePanelState?.quickSetSelect?.value || "").trim(),
+    quickSetState?.selectedKey || "",
+  ]);
+  const preset = quickSetState?.presetsByKey instanceof Map ? quickSetState.presetsByKey.get(selectedPresetKey) || null : null;
+  if (!preset) {
+    throw new Error("Choose a DEGRADATION quick-set preset first.");
+  }
+
+  const targetEnvironmentKey =
+    String(preset.environmentKey || getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() ||
+    DEFAULT_ADOBEPASS_ENVIRONMENT.key;
+  const endpointKey = firstNonEmptyString([
+    String(options?.endpointKey || "").trim().toLowerCase(),
+    String(activePanelState?.endpointSelect?.value || "").trim().toLowerCase(),
+    "all",
+  ]);
+  const selectionSnapshot = {
+    programmerId: String(preset.programmerId || "").trim(),
+    programmerName: String(preset.programmerName || "").trim(),
+    mediaCompanyName: String(preset.mediaCompanyName || preset.programmerName || preset.programmerId || "").trim(),
+    requestorId: String(preset.requestorId || "").trim(),
+    mvpdId: String(preset.mvpdId || "").trim(),
+  };
+
+  try {
+    await maybeAutoStopRestV2RecordingForSelectionChange(
+      {
+        requestorId: String(selectionSnapshot.requestorId || "").trim(),
+        mvpdId: String(selectionSnapshot.mvpdId || "").trim(),
+      },
+      {
+        reason: `DEGRADATION QUICK SET ${degradationBuildQuickSetOptionLabel(preset)}`,
+      }
+    );
+  } catch (error) {
+    log("DEGRADATION QUICK SET auto-stop skipped", error instanceof Error ? error.message : String(error));
+  }
+
+  let restoreResult = null;
+  if (targetEnvironmentKey !== getActiveAdobePassEnvironmentKey()) {
+    restoreResult = await switchAdobePassEnvironmentInPlace(targetEnvironmentKey, {
+      source: "degradation-quick-set",
+      selectionSnapshot,
+      autoSelectFirstRequestor: true,
+      autoSelectFirstMvpd: options?.autoSelectFirstMvpd === true,
+    });
+  } else {
+    restoreResult = await applyGlobalSelectionSnapshot(selectionSnapshot, {
+      controllerReason: "degradation-quick-set",
+      mvpdControllerReason: "degradation-quick-set-mvpd-restore",
+      autoSelectFirstRequestor: true,
+      autoSelectFirstMvpd: options?.autoSelectFirstMvpd === true,
+    });
+  }
+
+  if (String(restoreResult?.missingSelection || "").trim()) {
+    const environmentLabel = String(preset.environmentLabel || targetEnvironmentKey).trim() || targetEnvironmentKey;
+    throw new Error(`${restoreResult.missingSelection} is not available in ${environmentLabel}.`);
+  }
+  if (restoreResult?.requiresSignIn) {
+    const environmentLabel = String(preset.environmentLabel || targetEnvironmentKey).trim() || targetEnvironmentKey;
+    throw new Error(`Sign in is required for ${environmentLabel}.`);
+  }
+
+  const nextPanelState = getActiveDegradationWorkspaceState() || activePanelState || null;
+  if (nextPanelState?.endpointSelect) {
+    nextPanelState.endpointSelect.value = endpointKey;
+  }
+  if (options?.setStatus !== false && nextPanelState) {
+    const requestorLabel = String(state.selectedRequestorId || "").trim() || "auto Requestor";
+    degradationSetControllerStatus(
+      nextPanelState,
+      `QUICK SET ready: ${degradationBuildQuickSetOptionLabel(preset)} -> ${requestorLabel}`,
+      "success"
+    );
+  }
+
+  return {
+    preset,
+    panelState: nextPanelState,
+  };
+}
+
+function buildDegradationCheatSheetFileName(programmer = null) {
+  const label = firstNonEmptyString([
+    programmer?.programmerName,
+    programmer?.mediaCompanyName,
+    programmer?.programmerId,
+  ]);
+  const base = sanitizeDownloadFileSegment(label, "MediaCompany");
+  return `${base}_degradation_cheat_sheet_${getAdobePassEnvironmentFileTag()}_${Date.now()}.html`;
+}
+
+function degradationBuildCheatSheetRequestUrl(panelState, callSpec = null, context = {}) {
+  const mediaCompanyId = String(context.mediaCompanyId || panelState?.programmer?.programmerId || "").trim();
+  if (!mediaCompanyId) {
+    throw new Error("Selected Media Company is required for the DEGRADATION Cheat Sheet.");
+  }
+
+  const endpointPath = String(callSpec?.path || "").trim();
+  if (!endpointPath) {
+    throw new Error("DEGRADATION Cheat Sheet endpoint path is missing.");
+  }
+
+  const requestorId = String(context.requestorId || context.programmerId || "").trim();
+  const url = new URL(
+    `${DEGRADATION_API_BASE}/${encodeURIComponent(mediaCompanyId)}/${encodeURIComponent(endpointPath)}`
+  );
+  url.searchParams.set("format", String(context.format || "json").trim() || "json");
+  if (requestorId) {
+    url.searchParams.set("programmer", requestorId);
+  }
+  if (callSpec?.requiresMvpd) {
+    url.searchParams.set("mvpd", String(context.mvpd || "").trim());
+  }
+  if (callSpec?.includeHistory) {
+    url.searchParams.set("includeHistory", String(context.includeHistory === true));
+  }
+  if (callSpec?.includeScopedAllParams) {
+    if (String(context.mvpd || "").trim()) {
+      url.searchParams.set("mvpd", String(context.mvpd || "").trim());
+    }
+    url.searchParams.set("media-company", mediaCompanyId);
+    url.searchParams.set("resource", "");
+    url.searchParams.set("channel", "");
+  }
+  if (callSpec?.includesTtl) {
+    url.searchParams.set("ttl", String(context.ttlSeconds || 14400));
+  }
+  if (callSpec?.includesResource) {
+    url.searchParams.set("resource", String(context.resource || "").trim());
+  }
+  if (callSpec?.includesChannel) {
+    url.searchParams.set("channel", String(context.channel || "").trim());
+  }
+  if (callSpec?.includesMsg) {
+    url.searchParams.set("msg", String(context.message || "").trim());
+  }
+  return url.toString();
+}
+
+function degradationParsePositiveTtlSeconds(value = null) {
+  const numeric = Number(String(value == null ? "" : value).trim());
+  return Number.isFinite(numeric) && numeric > 0 ? Math.round(numeric) : 0;
+}
+
+async function degradationHarvestCheatSheetTargetCoverage(panelState, queryValues = {}) {
+  const report = await degradationExecuteStatusRequest(panelState, DEGRADATION_MEGA_STATUS_ENDPOINT_SPEC, {
+    queryValues,
+    selectionKey: "degradation-cheat-sheet",
+    runGroupId: buildDegradationRunGroupId(),
+  });
+  if (!report?.ok) {
+    throw new Error(report?.error || "Unable to fetch the live DEGRADATION rule snapshot.");
+  }
+
+  const rows = Array.isArray(report.rows) ? report.rows : [];
+  const collectTargets = (targetType = "") =>
+    uniqueSorted(
+      rows
+        .filter((row) => String(row?.["Target Type"] || "").trim().toLowerCase() === String(targetType || "").trim().toLowerCase())
+        .map((row) => String(row?.Target || "").trim())
+        .filter((value) => value && value.toUpperCase() !== "N/A")
+    );
+  const ttlCandidates = rows
+    .map((row) => degradationParsePositiveTtlSeconds(row?.["TTL (s)"]))
+    .filter((value) => value > 0);
+
+  return {
+    report,
+    rows,
+    resourceTargets: collectTargets("resource"),
+    channelTargets: collectTargets("channel"),
+    ttlSeconds: ttlCandidates[0] || 14400,
+  };
+}
+
+function degradationBuildCheatSheetCommands(panelState, context = {}) {
+  const accessToken = String(context.accessToken || "").trim();
+  return DEGRADATION_CHEAT_SHEET_CALL_SPECS.map((callSpec) => {
+    const requestUrl = degradationBuildCheatSheetRequestUrl(panelState, callSpec, context);
+    const commandLines = [
+      "curl --silent --show-error --location",
+      `--request ${String(callSpec?.method || "GET").trim().toUpperCase() || "GET"}`,
+      `--url ${quoteShellArgument(requestUrl)}`,
+      `--header ${quoteShellArgument(`Authorization: Bearer ${accessToken}`)}`,
+      `--header ${quoteShellArgument("Accept: application/json")}`,
+      `--header ${quoteShellArgument(`api_version: ${DEGRADATION_API_VERSION}`)}`,
+    ];
+    return {
+      key: String(callSpec?.key || "").trim(),
+      title: String(callSpec?.title || "").trim(),
+      method: String(callSpec?.method || "GET").trim().toUpperCase() || "GET",
+      path: String(callSpec?.path || "").trim(),
+      requestUrl,
+      command: commandLines.join(" \\\n  "),
+      mutation: String(callSpec?.method || "GET").trim().toUpperCase() !== "GET",
+    };
+  });
+}
+
+function buildDegradationCheatSheetHtml(context = {}) {
+  const calls = Array.isArray(context.calls) ? context.calls : [];
+  const resourceSourceLabel = context.resourceSource === "live" ? "Live /all target" : "Synthesized fallback";
+  const channelSourceLabel = context.channelSource === "live" ? "Live /all target" : "Synthesized fallback";
+  const contextEnvelope = [
+    String(context.environmentLabel || "").trim(),
+    String(context.programmerLabel || "").trim(),
+    `${String(context.requestorId || "").trim()} x ${String(context.mvpdLabel || context.mvpd || "").trim()}`.trim(),
+  ]
+    .filter(Boolean)
+    .join(" | ");
+  const appLabel = firstNonEmptyString([
+    `${String(context.appName || "").trim()}${String(context.appGuid || "").trim() ? ` (${String(context.appGuid || "").trim()})` : ""}`,
+    String(context.appName || "").trim(),
+    String(context.appGuid || "").trim(),
+    "registered application",
+  ]);
+  const setupItems = [
+    `Confirm the runtime context before using these commands: ${contextEnvelope || "Environment | Media Company | Requestor x MVPD"}.`,
+    `This export minted a fresh bearer token on ${String(context.generatedAtLabel || "").trim() || "generation time"} for ${appLabel}. Expected token expiry: ${String(context.tokenExpiresLabel || "unknown").trim() || "unknown"}.`,
+    "If the bearer token is stale, \"no bueno\", or you get HTTP 401/403, reopen UnderPAR, run QUICK SET for this same DEGRADATION context, and click CHEAT again to mint a new bearer token.",
+    "After regeneration, use only the newest cheat sheet or freshly copied commands. Older exports can carry expired bearer tokens.",
+  ];
+  const clipboardIconMarkup = `
+    <svg class="copy-btn-icon" viewBox="0 0 12 12" aria-hidden="true" focusable="false">
+      <rect x="3.25" y="2.5" width="6.25" height="7" rx="1.35"></rect>
+      <path d="M4.45 2.5V1.9c0-.45.36-.82.82-.82h2.08c.45 0 .82.37.82.82v.6"></path>
+      <path d="M2.4 3.7V9c0 .78.64 1.42 1.42 1.42h4.1"></path>
+    </svg>
+  `;
+  const warningItems = [
+    context.resourceSource === "live"
+      ? ""
+      : `No live authzAll resource target was discoverable, so the sheet synthesized ${String(context.resource || "").trim()}.`,
+    context.channelSource === "live"
+      ? ""
+      : `No live authzNone channel target was discoverable, so the sheet synthesized ${String(context.channel || "").trim()}.`,
+  ].filter(Boolean);
+  const warningMarkup =
+    warningItems.length > 0
+      ? `<section class="warning-shell"><h2>Warnings</h2><ul>${warningItems
+          .map((item) => `<li>${escapeHtml(item)}</li>`)
+          .join("")}</ul></section>`
+      : "";
+  const commandCardsMarkup = calls
+    .map((call, index) => {
+      const commandId = `cmd-${index + 1}`;
+      const urlId = `url-${index + 1}`;
+      const methodClass = call.mutation ? "method-pill method-pill--mutating" : "method-pill method-pill--readonly";
+      return `
+        <article class="command-card">
+          <div class="command-card-head">
+            <div class="command-card-title-wrap">
+              <span class="${methodClass}">${escapeHtml(call.method)}</span>
+              <h2>${escapeHtml(call.title)}</h2>
+              <p class="command-path">/${escapeHtml(call.path)}</p>
+            </div>
+            <div class="command-actions">
+              <button
+                type="button"
+                class="copy-btn"
+                data-copy-target="${escapeHtml(commandId)}"
+                title="Copy DEGRADATION cURL to clipboard"
+                aria-label="Copy DEGRADATION cURL to clipboard"
+              >${clipboardIconMarkup}<span class="copy-btn-label">Copy to Clipboard</span></button>
+              <button type="button" class="copy-btn copy-btn--secondary" data-copy-target="${escapeHtml(urlId)}">Copy URL</button>
+            </div>
+          </div>
+          <p id="${escapeHtml(urlId)}" class="request-url">${escapeHtml(call.requestUrl)}</p>
+          <pre id="${escapeHtml(commandId)}" class="command-block">${escapeHtml(call.command)}</pre>
+        </article>
+      `;
+    })
+    .join("");
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>${escapeHtml(String(context.title || "DEGRADATION Cheat Sheet"))}</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg-a: #120909;
+        --bg-b: #2a0f0f;
+        --shell: rgba(20, 20, 22, 0.92);
+        --shell-strong: rgba(28, 28, 31, 0.96);
+        --card: rgba(40, 18, 18, 0.96);
+        --card-alt: rgba(30, 30, 34, 0.98);
+        --line: rgba(255, 255, 255, 0.1);
+        --line-strong: rgba(248, 113, 113, 0.42);
+        --text: #f6f3f1;
+        --muted: #d4c6c3;
+        --soft: #a99a97;
+        --accent: #f87171;
+        --accent-strong: #ef4444;
+        --readonly: #0f766e;
+        --readonly-ink: #d1fae5;
+        --mutating: #9f1239;
+        --mutating-ink: #ffe4e6;
+        --warning-bg: rgba(127, 29, 29, 0.28);
+        --warning-line: rgba(248, 113, 113, 0.34);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "SF Mono", "Roboto Mono", "IBM Plex Mono", monospace;
+        background:
+          radial-gradient(circle at top left, rgba(248, 113, 113, 0.18), transparent 40%),
+          linear-gradient(180deg, var(--bg-a), var(--bg-b));
+        color: var(--text);
+      }
+
+      main {
+        width: min(1200px, calc(100vw - 32px));
+        margin: 24px auto 40px;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--shell);
+        box-shadow: 0 28px 80px rgba(0, 0, 0, 0.44);
+      }
+
+      .hero {
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero-top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(24px, 4vw, 38px);
+        line-height: 1.05;
+      }
+
+      .hero-copy {
+        margin: 10px 0 0;
+        max-width: 76ch;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .hero-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .hero-btn,
+      .copy-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        border: 1px solid var(--line-strong);
+        border-radius: 999px;
+        padding: 10px 14px;
+        background: linear-gradient(180deg, rgba(248, 113, 113, 0.24), rgba(127, 29, 29, 0.3));
+        color: var(--text);
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .copy-btn--secondary {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04));
+        border-color: var(--line);
+      }
+
+      .copy-btn-icon {
+        width: 12px;
+        height: 12px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.15;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex: 0 0 auto;
+      }
+
+      .copy-btn-label {
+        white-space: nowrap;
+      }
+
+      .hero-btn:hover,
+      .copy-btn:hover {
+        filter: brightness(1.08);
+      }
+
+      .copy-status {
+        min-height: 20px;
+        margin: 0;
+        color: var(--accent);
+      }
+
+      .setup-shell {
+        border: 1px solid var(--line-strong);
+        border-radius: 16px;
+        padding: 16px;
+        background: linear-gradient(180deg, rgba(127, 29, 29, 0.34), rgba(28, 28, 31, 0.92));
+      }
+
+      .setup-shell h2 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      .setup-kicker {
+        margin: 0 0 10px;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .setup-list {
+        margin: 0;
+        padding-left: 20px;
+        color: var(--text);
+        line-height: 1.65;
+      }
+
+      .setup-list strong {
+        color: #ffffff;
+      }
+
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 12px;
+      }
+
+      .meta-card {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 14px;
+        background: var(--shell-strong);
+      }
+
+      .meta-card dt {
+        margin: 0 0 8px;
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--soft);
+      }
+
+      .meta-card dd {
+        margin: 0;
+        font-size: 14px;
+        line-height: 1.45;
+        word-break: break-word;
+      }
+
+      .warning-shell {
+        margin-top: 18px;
+        padding: 14px 16px;
+        border: 1px solid var(--warning-line);
+        border-radius: 14px;
+        background: var(--warning-bg);
+      }
+
+      .warning-shell h2,
+      .commands-shell h2 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      .warning-shell ul {
+        margin: 0;
+        padding-left: 20px;
+        color: var(--muted);
+      }
+
+      .commands-shell {
+        margin-top: 24px;
+      }
+
+      .commands-grid {
+        display: grid;
+        gap: 16px;
+      }
+
+      .command-card {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 16px;
+        background: linear-gradient(180deg, var(--card), var(--card-alt));
+      }
+
+      .command-card-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+
+      .command-card-title-wrap h2 {
+        margin: 10px 0 6px;
+        font-size: 18px;
+        color: var(--text);
+        text-transform: none;
+        letter-spacing: 0;
+      }
+
+      .command-path,
+      .request-url {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+        word-break: break-all;
+      }
+
+      .command-actions {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .method-pill {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .method-pill--readonly {
+        background: var(--readonly);
+        color: var(--readonly-ink);
+      }
+
+      .method-pill--mutating {
+        background: var(--mutating);
+        color: var(--mutating-ink);
+      }
+
+      .command-block {
+        margin: 14px 0 0;
+        padding: 14px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: rgba(7, 7, 9, 0.95);
+        color: #f5d6d6;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.55;
+      }
+
+      @media (max-width: 720px) {
+        main {
+          width: min(100vw - 16px, 1200px);
+          padding: 16px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <div class="hero-top">
+          <div>
+            <p class="eyebrow">UnderPAR Emergency Export</p>
+            <h1>${escapeHtml(String(context.title || "DEGRADATION Cheat Sheet"))}</h1>
+            <p class="hero-copy">${escapeHtml(
+              String(
+                context.description ||
+                  "Fresh cURL commands generated from the active UnderPAR DEGRADATION context and a live /all rule harvest."
+              )
+            )}</p>
+          </div>
+          <div class="hero-actions">
+            <button
+              type="button"
+              class="hero-btn"
+              data-copy-all="curl"
+              title="Copy all DEGRADATION cURL commands to clipboard"
+              aria-label="Copy all DEGRADATION cURL commands to clipboard"
+            >${clipboardIconMarkup}<span class="copy-btn-label">Copy to Clipboard</span></button>
+          </div>
+        </div>
+        <p id="copy-status" class="copy-status" aria-live="polite"></p>
+        <section class="setup-shell">
+          <h2>Prerequisite Setup</h2>
+          <p class="setup-kicker"><strong>Bearer token rescue:</strong> the token is minted when this cheat sheet is generated, not when the cURL is later copied or pasted.</p>
+          <ol class="setup-list">
+            ${setupItems.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}
+          </ol>
+        </section>
+        <div class="meta-grid">
+          <dl class="meta-card"><dt>Environment</dt><dd>${escapeHtml(String(context.environmentLabel || ""))}</dd></dl>
+          <dl class="meta-card"><dt>Media Company</dt><dd>${escapeHtml(String(context.programmerLabel || ""))}</dd></dl>
+          <dl class="meta-card"><dt>Requestor x MVPD</dt><dd>${escapeHtml(
+            `${String(context.requestorId || "").trim()} x ${String(context.mvpdLabel || context.mvpd || "").trim()}`
+          )}</dd></dl>
+          <dl class="meta-card"><dt>App</dt><dd>${escapeHtml(
+            `${String(context.appName || "").trim()}${String(context.appGuid || "").trim() ? ` (${String(context.appGuid || "").trim()})` : ""}`
+          )}</dd></dl>
+          <dl class="meta-card"><dt>TTL x Message</dt><dd>${escapeHtml(
+            `${String(context.ttlSeconds || "").trim()}s | ${String(context.message || "").trim()}`
+          )}</dd></dl>
+          <dl class="meta-card"><dt>Resource x Channel</dt><dd>${escapeHtml(
+            `${String(context.resource || "").trim()} [${resourceSourceLabel}]` +
+              `\n${String(context.channel || "").trim()} [${channelSourceLabel}]`
+          )}</dd></dl>
+          <dl class="meta-card"><dt>Token Freshness</dt><dd>${escapeHtml(
+            `${String(context.generatedAtLabel || "").trim()} -> ${String(context.tokenExpiresLabel || "unknown").trim()}`
+          )}</dd></dl>
+          <dl class="meta-card"><dt>Live Harvest</dt><dd>${escapeHtml(
+            `${Number(context.liveRowCount || 0)} active rows | ${Number(context.callCount || calls.length)} commands`
+          )}</dd></dl>
+        </div>
+        ${warningMarkup}
+      </section>
+
+      <section class="commands-shell">
+        <h2>Command Set</h2>
+        <div class="commands-grid">
+          ${commandCardsMarkup}
+        </div>
+      </section>
+    </main>
+    <script>
+      (function initDegradationCheatSheet() {
+        const statusEl = document.getElementById("copy-status");
+        const setStatus = (message) => {
+          if (statusEl) {
+            statusEl.textContent = String(message || "");
+          }
+        };
+        const copyText = async (value) => {
+          const text = String(value || "");
+          if (!text.trim()) {
+            throw new Error("Nothing to copy.");
+          }
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            return;
+          }
+          const helper = document.createElement("textarea");
+          helper.value = text;
+          helper.setAttribute("readonly", "");
+          helper.style.position = "fixed";
+          helper.style.left = "-9999px";
+          document.body.appendChild(helper);
+          helper.focus();
+          helper.select();
+          document.execCommand("copy");
+          helper.remove();
+        };
+        document.addEventListener("click", async (event) => {
+          const target = event.target instanceof Element ? event.target.closest("[data-copy-target], [data-copy-all]") : null;
+          if (!target) {
+            return;
+          }
+          event.preventDefault();
+          try {
+            if (target.hasAttribute("data-copy-all")) {
+              const combined = Array.from(document.querySelectorAll(".command-block"))
+                .map((node) => node.textContent || "")
+                .filter(Boolean)
+                .join("\\n\\n");
+              await copyText(combined);
+              setStatus("Copied all DEGRADATION cURL commands.");
+              return;
+            }
+            const targetId = String(target.getAttribute("data-copy-target") || "");
+            const sourceNode = targetId ? document.getElementById(targetId) : null;
+            await copyText(sourceNode ? sourceNode.textContent || "" : "");
+            setStatus("Copied selected DEGRADATION command.");
+          } catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error));
+          }
+        });
+      })();
+    </script>
+  </body>
+</html>`;
+}
+
+async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
+  const prepared = await applyDegradationQuickSetPreset(panelState, String(panelState?.quickSetSelect?.value || "").trim(), {
+    endpointKey: firstNonEmptyString([
+      String(options?.endpointKey || "").trim().toLowerCase(),
+      String(panelState?.endpointSelect?.value || "").trim().toLowerCase(),
+      "all",
+    ]),
+    autoSelectFirstMvpd: true,
+    setStatus: false,
+  });
+  const activePanelState = prepared?.panelState || getActiveDegradationWorkspaceState() || panelState;
+  if (!activePanelState) {
+    throw new Error("DEGRADATION panel context is not available.");
+  }
+
+  degradationSetBusy(activePanelState, true);
+  try {
+    const queryValues = degradationCollectFormValues(activePanelState);
+    if (!queryValues.requestorId) {
+      throw new Error("Select RequestorId first.");
+    }
+    if (!queryValues.mvpd) {
+      throw new Error("No MVPD is available for the selected RequestorId.");
+    }
+
+    const downloadContext = await resolveClickDgrDownloadContext(activePanelState);
+    if (!downloadContext) {
+      throw new Error("Unable to resolve DEGRADATION context for cheat-sheet generation.");
+    }
+    const authContext = await resolveClickDgrAuthContext(downloadContext, activePanelState.requestToken, {
+      source: "degradation-cheat-sheet",
+      forceFreshToken: true,
+    });
+    const dcrCache =
+      normalizeUnderparVaultDcrCache(
+        loadDcrCache(String(activePanelState?.programmer?.programmerId || ""), String(authContext?.appInfo?.guid || "")) || null
+      ) || {};
+    const liveCoverage = await degradationHarvestCheatSheetTargetCoverage(activePanelState, queryValues);
+    const targetSeed = sanitizeDownloadFileSegment(
+      [queryValues.requestorId, queryValues.mvpd].filter(Boolean).join("-"),
+      "degradation"
+    )
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .toLowerCase();
+    const resolvedResource = firstNonEmptyString([
+      liveCoverage.resourceTargets[0],
+      `urn:underpar:${targetSeed || "degradation"}:resource`,
+    ]);
+    const resolvedChannel = firstNonEmptyString([
+      liveCoverage.channelTargets[0],
+      `underpar.${targetSeed || "degradation"}.channel`,
+    ]);
+    const generatedAt = new Date();
+    const generatedAtLabel = generatedAt.toLocaleString();
+    const tokenExpiresLabel =
+      Number(dcrCache?.tokenExpiresAt || 0) > 0 ? new Date(Number(dcrCache.tokenExpiresAt)).toLocaleString() : "unknown";
+    const message = `UnderPAR DEGRADATION Cheat Sheet | ${queryValues.requestorId} | ${generatedAt.toISOString()}`;
+    const commands = degradationBuildCheatSheetCommands(activePanelState, {
+      mediaCompanyId: String(activePanelState?.programmer?.programmerId || "").trim(),
+      requestorId: queryValues.requestorId,
+      mvpd: queryValues.mvpd,
+      format: "json",
+      includeHistory: false,
+      ttlSeconds: liveCoverage.ttlSeconds || 14400,
+      resource: resolvedResource,
+      channel: resolvedChannel,
+      message,
+      accessToken: String(authContext?.accessToken || "").trim(),
+    });
+    const programmerLabel = firstNonEmptyString([
+      String(activePanelState?.programmer?.programmerName || "").trim(),
+      String(activePanelState?.programmer?.mediaCompanyName || "").trim(),
+      String(activePanelState?.programmer?.programmerId || "").trim(),
+    ]);
+    const html = buildDegradationCheatSheetHtml({
+      title: `${programmerLabel} DEGRADATION Cheat Sheet`,
+      description:
+        "All documented DEGRADATION v3 calls for the active context, generated with a fresh bearer token and live target coverage.",
+      environmentLabel: String(getActiveAdobePassEnvironment()?.label || queryValues.adobePassEnvironmentLabel || "").trim(),
+      programmerLabel,
+      requestorId: queryValues.requestorId,
+      mvpd: queryValues.mvpd,
+      mvpdLabel: String(queryValues.mvpdLabel || queryValues.mvpd || "").trim(),
+      appName: String(authContext?.appInfo?.appName || authContext?.appInfo?.guid || "").trim(),
+      appGuid: String(authContext?.appInfo?.guid || "").trim(),
+      ttlSeconds: liveCoverage.ttlSeconds || 14400,
+      message,
+      resource: resolvedResource,
+      resourceSource: liveCoverage.resourceTargets.length > 0 ? "live" : "synthesized",
+      channel: resolvedChannel,
+      channelSource: liveCoverage.channelTargets.length > 0 ? "live" : "synthesized",
+      generatedAtLabel,
+      tokenExpiresLabel,
+      liveRowCount: Array.isArray(liveCoverage.rows) ? liveCoverage.rows.length : 0,
+      callCount: commands.length,
+      calls: commands,
+    });
+    const fileName = buildDegradationCheatSheetFileName(activePanelState.programmer);
+    await downloadBlobFile(new Blob([html], { type: "text/html;charset=utf-8" }), fileName);
+    degradationSetControllerStatus(
+      activePanelState,
+      `Generated ${fileName} with ${commands.length} fresh DEGRADATION cURL commands.`,
+      "success"
+    );
+    return {
+      fileName,
+      callCount: commands.length,
+      panelState: activePanelState,
+    };
+  } finally {
+    degradationSetBusy(activePanelState, false);
+  }
+}
+
+async function degradationBuildCurlCommand(panelState, options = {}) {
+  const activePanelState = panelState || getActiveDegradationWorkspaceState();
+  if (!activePanelState?.programmer?.programmerId) {
+    throw new Error("Select a media company with DEGRADATION access first.");
+  }
+  const queryValues = degradationCollectFormValues(activePanelState);
+  if (!queryValues.requestorId) {
+    throw new Error("Select RequestorId first or use QUICK SET.");
+  }
+
+  const endpointKey = firstNonEmptyString([
+    String(options?.endpointKey || "").trim().toLowerCase(),
+    String(queryValues.endpointKey || "").trim().toLowerCase(),
+    "all",
+  ]);
+  const endpointSpec = getDegradationStatusEndpointSpec(endpointKey);
+  if (!endpointSpec) {
+    throw new Error("Choose a valid DEGRADATION method.");
+  }
+
+  const selectedApp = degradationRefreshSelectedAppForRequest(activePanelState, {
+    requestorId: queryValues.requestorId,
+    requestScope: `degradation-curl:${endpointSpec.path}`,
+    targetWindowId: Number(activePanelState?.controllerWindowId || 0),
+  });
+  if (!selectedApp?.guid) {
+    throw new Error("No DEGRADATION scoped registered application is selected for this media company.");
+  }
+
+  const accessToken = await ensureDcrAccessToken(activePanelState.programmer.programmerId, selectedApp, false, {
+    service: "degradation-curl",
+    scope: `degradation-curl:${endpointSpec.path}`,
+    requestorId: queryValues.requestorId,
+    mvpd: String(queryValues.mvpd || "").trim(),
+    requiredServiceScope: getPreferredDegradationScopeForApp(selectedApp) || PREMIUM_SERVICE_SCOPE_BY_KEY.degradation,
+  });
+  const requestUrl = degradationBuildRequestUrl(activePanelState, endpointSpec, queryValues).toString();
+
+  return [
+    "curl --silent --show-error --location",
+    "--request GET",
+    `--url ${quoteShellArgument(requestUrl)}`,
+    `--header ${quoteShellArgument(`Authorization: Bearer ${String(accessToken || "").trim()}`)}`,
+    `--header ${quoteShellArgument("Accept: application/json")}`,
+    `--header ${quoteShellArgument(`api_version: ${DEGRADATION_API_VERSION}`)}`,
+  ].join(" \\\n  ");
+}
+
+async function degradationCopyCurlCommandFromUi(panelState, options = {}) {
+  const quickSetResult = await applyDegradationQuickSetPreset(panelState, String(panelState?.quickSetSelect?.value || "").trim(), {
+    endpointKey: firstNonEmptyString([String(options?.endpointKey || "").trim().toLowerCase(), String(panelState?.endpointSelect?.value || "").trim().toLowerCase(), "all"]),
+    setStatus: false,
+  });
+  const activePanelState = quickSetResult?.panelState || getActiveDegradationWorkspaceState() || panelState;
+  const command = await degradationBuildCurlCommand(activePanelState, {
+    endpointKey: firstNonEmptyString([
+      String(options?.endpointKey || "").trim().toLowerCase(),
+      String(activePanelState?.endpointSelect?.value || "").trim().toLowerCase(),
+      "all",
+    ]),
+  });
+  const copyResult = await copyTextToClipboard(command);
+  if (!copyResult?.ok) {
+    throw new Error(copyResult?.error || "Unable to copy DEGRADATION cURL.");
+  }
+  return {
+    command,
+    panelState: activePanelState,
+  };
 }
 
 function degradationRequireSelectedRequestor(panelState, queryValues = {}) {
@@ -45025,11 +46278,13 @@ async function degradationExecuteStatusRequest(panelState, endpointSpec, options
   });
 }
 
-function degradationBuildControllerHtml(programmer, appInfo) {
+function degradationBuildControllerHtml(programmer, appInfo, quickSetState = null) {
   const hasRequestor = Boolean(String(state.selectedRequestorId || "").trim());
   const goHiddenAttr = hasRequestor ? "" : " hidden";
   const requestorControlsHiddenAttr = hasRequestor ? "" : " hidden";
   const goButtonLabel = degradationBuildGoButtonLabel();
+  const resolvedQuickSetState = quickSetState && typeof quickSetState === "object" ? quickSetState : degradationBuildQuickSetState();
+  const quickSetDisabledAttr = resolvedQuickSetState.hasPresets ? "" : " disabled";
   return `
     <section class="degradation-controller-shell">
       <div class="degradation-runner-actions">
@@ -45070,6 +46325,28 @@ function degradationBuildControllerHtml(programmer, appInfo) {
           <button type="button" class="degradation-run-go-btn"${goHiddenAttr}>${escapeHtml(goButtonLabel)}</button>
         </div>
       </div>
+      <div class="degradation-quick-set-row">
+        <select class="degradation-quick-set-select" aria-label="DEGRADATION quick set preset"${quickSetDisabledAttr}>
+          ${resolvedQuickSetState.optionsHtml}
+        </select>
+        <button
+          type="button"
+          class="degradation-quick-set-btn"
+          title="Stamp the global Environment and Media Company pickers from a DEGRADATION preset"
+          aria-label="Stamp the global Environment and Media Company pickers from a DEGRADATION preset"${quickSetDisabledAttr}
+        >
+          QUICK SET
+        </button>
+        <button
+          type="button"
+          class="degradation-copy-curl-btn"
+          title="Generate a full DEGRADATION Cheat Sheet with fresh runnable cURL commands"
+          aria-label="Generate a full DEGRADATION Cheat Sheet with fresh runnable cURL commands"${quickSetDisabledAttr}
+        >
+          CHEAT
+        </button>
+      </div>
+      <p class="degradation-controller-status" aria-live="polite"></p>
     </section>
   `;
 }
@@ -45534,6 +46811,42 @@ function wireDegradationPanelInteractions(panelState, requestToken) {
     });
   }
 
+  if (panelState.quickSetButton) {
+    panelState.quickSetButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      void applyDegradationQuickSetPreset(panelState, String(panelState.quickSetSelect?.value || "").trim(), {
+        endpointKey: String(panelState.endpointSelect?.value || "").trim().toLowerCase(),
+        setStatus: true,
+      }).catch((error) => {
+        const activePanelState = getActiveDegradationWorkspaceState() || panelState;
+        degradationSetControllerStatus(
+          activePanelState,
+          error instanceof Error ? error.message : String(error),
+          "error"
+        );
+      });
+    });
+  }
+
+  if (panelState.copyCurlButton) {
+    panelState.copyCurlButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const endpointKey = String(panelState.endpointSelect?.value || "").trim().toLowerCase();
+      void degradationGenerateCheatSheetFromUi(panelState, {
+        endpointKey,
+      })
+        .catch((error) => {
+          const activePanelState = getActiveDegradationWorkspaceState() || panelState;
+          degradationSetControllerStatus(
+            activePanelState,
+            error instanceof Error ? error.message : String(error),
+            "error"
+          );
+        });
+    });
+  }
 }
 
 async function loadDegradationService(programmer, appInfo, section, contentElement, requestToken) {
@@ -45574,7 +46887,10 @@ async function loadDegradationService(programmer, appInfo, section, contentEleme
         '<div class="service-error">No properly scoped DEGRADATION software statement was found for this media company.</div>';
       return;
     }
-    contentElement.innerHTML = degradationBuildControllerHtml(programmer, resolvedInitialApp);
+    const quickSetState = degradationBuildQuickSetState({
+      programmer,
+    });
+    contentElement.innerHTML = degradationBuildControllerHtml(programmer, resolvedInitialApp, quickSetState);
     const panelState = {
       serviceType: "degradation",
       section,
@@ -45582,15 +46898,20 @@ async function loadDegradationService(programmer, appInfo, section, contentEleme
       programmer,
       appInfo: resolvedInitialApp,
       appCandidates: initialCandidates,
+      quickSetState,
       requestToken,
       controllerWindowId: Number(controllerWindowId || 0),
       busy: false,
       appLabelElement: contentElement.querySelector(".degradation-app-label"),
       runnerForm: contentElement.querySelector(".degradation-runner-form"),
       endpointSelect: contentElement.querySelector(".degradation-endpoint-select"),
+      quickSetSelect: contentElement.querySelector(".degradation-quick-set-select"),
       recordingToggleButton: contentElement.querySelector(".degradation-record-toggle-btn"),
       makeClickDgrButton: contentElement.querySelector(".degradation-make-clickdgr-btn"),
       runGoButton: contentElement.querySelector(".degradation-run-go-btn"),
+      quickSetButton: contentElement.querySelector(".degradation-quick-set-btn"),
+      copyCurlButton: contentElement.querySelector(".degradation-copy-curl-btn"),
+      statusElement: contentElement.querySelector(".degradation-controller-status"),
     };
     section.__underparDegradationState = panelState;
     setDegradationPanelActiveApp(panelState, resolvedInitialApp, {
