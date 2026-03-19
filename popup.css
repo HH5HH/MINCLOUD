@@ -1973,6 +1973,14 @@ select:disabled {
 
 .premium-service-section,
 .hr-context-section {
+  --service-header-stripe-width: 78px;
+  --service-header-stripe-gap: 8px;
+  --service-header-arrow-width: 14px;
+  --service-header-arrow-right: 16px;
+  --service-header-stripe-right: calc(
+    var(--service-header-arrow-right) + var(--service-header-arrow-width) + var(--service-header-stripe-gap)
+  );
+  --service-header-rail-reserve: calc(var(--service-header-stripe-width) + var(--service-header-stripe-right) + 14px);
   --service-zip-500: var(--service-rest-v2-zip-500);
   --service-zip-600: var(--service-rest-v2-zip-600);
   --service-zip-700: var(--service-rest-v2-zip-700);
@@ -2361,6 +2369,7 @@ select:disabled {
 .hr-context-section .metadata-header.service-box-header {
   position: relative;
   padding-left: 14px;
+  padding-right: var(--service-header-rail-reserve);
   background: var(--service-header-gradient);
 }
 
@@ -2427,17 +2436,23 @@ select:disabled {
 
 .premium-service-section .metadata-header .collapse-icon,
 .hr-context-section .metadata-header .collapse-icon {
+  position: absolute;
+  top: 50%;
+  right: var(--service-header-arrow-right);
+  min-width: var(--service-header-arrow-width);
+  text-align: center;
   color: var(--service-accent-ink);
+  text-shadow: 0 0 10px rgba(var(--service-zip-900), 0.22);
 }
 
 .premium-service-section .service-box-details[open] > .metadata-header .collapse-icon,
 .hr-context-section .service-box-details[open] > .metadata-header .collapse-icon {
-  transform: rotate(0deg);
+  transform: translateY(-50%) rotate(0deg);
 }
 
 .premium-service-section .service-box-details:not([open]) > .metadata-header .collapse-icon,
 .hr-context-section .service-box-details:not([open]) > .metadata-header .collapse-icon {
-  transform: rotate(-90deg);
+  transform: translateY(-50%) rotate(-90deg);
 }
 
 .premium-service-section .service-box-container,
@@ -5387,6 +5402,9 @@ select:disabled {
 .premium-service-section .metadata-header .collapse-icon,
 .hr-context-section .metadata-header .collapse-icon {
   color: rgb(var(--service-zip-1100));
+  text-shadow:
+    0 0 12px rgba(var(--service-zip-900), 0.3),
+    0 0 2px rgba(0, 0, 0, 0.2);
 }
 
 .premium-service-section .service-box-container,
@@ -5913,8 +5931,8 @@ body.underpar-up-tab .hr-context-section::after {
   content: "";
   position: absolute;
   top: 14px;
-  right: 18px;
-  width: 78px;
+  right: var(--service-header-stripe-right);
+  width: var(--service-header-stripe-width);
   height: 6px;
   border-radius: 999px;
   background: repeating-linear-gradient(
