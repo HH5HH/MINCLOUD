@@ -10582,6 +10582,8 @@ const state = {
   degradationWorkspaceTabId: 0,
   degradationWorkspaceWindowId: 0,
   degradationWorkspaceTabIdByWindowId: new Map(),
+  degradationWorkspaceReadyByWindowId: new Map(),
+  degradationWorkspaceReadyWaitersByWindowId: new Map(),
   degradationWorkspaceRuntimeListenerBound: false,
   degradationWorkspaceTabWatcherBound: false,
   degradationWorkspaceDebugFlowId: "",
@@ -39415,16 +39417,114 @@ function degradationWorkspaceBindWorkspaceTab(windowId, tabId) {
   }
 }
 
+function degradationWorkspaceMarkReady(windowId, tabId = 0) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId <= 0) {
+    return;
+  }
+  state.degradationWorkspaceReadyByWindowId.set(normalizedWindowId, {
+    tabId: normalizedTabId,
+    readyAt: Date.now(),
+  });
+  const waiters = state.degradationWorkspaceReadyWaitersByWindowId.get(normalizedWindowId);
+  if (Array.isArray(waiters) && waiters.length > 0) {
+    state.degradationWorkspaceReadyWaitersByWindowId.delete(normalizedWindowId);
+    waiters.forEach((waiter) => {
+      try {
+        if (waiter?.timerId) {
+          clearTimeout(waiter.timerId);
+        }
+      } catch {
+        // Ignore cleanup failures.
+      }
+      try {
+        waiter?.resolve?.(true);
+      } catch {
+        // Ignore waiter resolution failures.
+      }
+    });
+  }
+}
+
+function degradationWorkspaceInvalidateReady(windowId, tabId = 0) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId <= 0) {
+    return;
+  }
+  const existingReady = state.degradationWorkspaceReadyByWindowId.get(normalizedWindowId);
+  if (!existingReady) {
+    return;
+  }
+  if (!normalizedTabId || Number(existingReady?.tabId || 0) <= 0 || Number(existingReady?.tabId || 0) === normalizedTabId) {
+    state.degradationWorkspaceReadyByWindowId.delete(normalizedWindowId);
+  }
+}
+
+function degradationWorkspaceIsReady(windowId, tabId = 0) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId <= 0) {
+    return false;
+  }
+  const readyInfo = state.degradationWorkspaceReadyByWindowId.get(normalizedWindowId);
+  if (!readyInfo) {
+    return false;
+  }
+  if (normalizedTabId > 0 && Number(readyInfo?.tabId || 0) > 0 && Number(readyInfo.tabId) !== normalizedTabId) {
+    return false;
+  }
+  return true;
+}
+
+async function degradationWorkspaceWaitForReady(windowId, tabId = 0, timeoutMs = 2500) {
+  const normalizedWindowId = Number(windowId || 0);
+  const normalizedTabId = Number(tabId || 0);
+  if (normalizedWindowId <= 0) {
+    return false;
+  }
+  if (degradationWorkspaceIsReady(normalizedWindowId, normalizedTabId)) {
+    return true;
+  }
+  return new Promise((resolve) => {
+    const waiter = {
+      resolve,
+      timerId: setTimeout(() => {
+        const waiters = state.degradationWorkspaceReadyWaitersByWindowId.get(normalizedWindowId);
+        if (Array.isArray(waiters)) {
+          state.degradationWorkspaceReadyWaitersByWindowId.set(
+            normalizedWindowId,
+            waiters.filter((entry) => entry !== waiter)
+          );
+          if ((state.degradationWorkspaceReadyWaitersByWindowId.get(normalizedWindowId) || []).length === 0) {
+            state.degradationWorkspaceReadyWaitersByWindowId.delete(normalizedWindowId);
+          }
+        }
+        resolve(false);
+      }, Math.max(500, Number(timeoutMs || 0) || 2500)),
+    };
+    const existingWaiters = state.degradationWorkspaceReadyWaitersByWindowId.get(normalizedWindowId);
+    if (Array.isArray(existingWaiters)) {
+      existingWaiters.push(waiter);
+    } else {
+      state.degradationWorkspaceReadyWaitersByWindowId.set(normalizedWindowId, [waiter]);
+    }
+  });
+}
+
 function degradationWorkspaceUnbindWorkspaceTab(tabId) {
   const normalizedTabId = Number(tabId || 0);
   if (normalizedTabId > 0) {
     for (const [windowId, mappedTabId] of state.degradationWorkspaceTabIdByWindowId.entries()) {
       if (Number(mappedTabId || 0) === normalizedTabId) {
+        degradationWorkspaceInvalidateReady(windowId, normalizedTabId);
         state.degradationWorkspaceTabIdByWindowId.delete(windowId);
       }
     }
   }
   if (!normalizedTabId || Number(state.degradationWorkspaceTabId || 0) === normalizedTabId) {
+    degradationWorkspaceInvalidateReady(state.degradationWorkspaceWindowId, normalizedTabId);
     state.degradationWorkspaceTabId = 0;
     state.degradationWorkspaceWindowId = 0;
   }
@@ -39480,6 +39580,8 @@ async function degradationWorkspaceEnsureWorkspaceTab(options = {}) {
   const targetWindowId = requestedWindowId > 0 ? requestedWindowId : await esmWorkspaceGetCurrentWindowId();
   const useWindowFilter = targetWindowId > 0;
   let workspaceTab = null;
+  let createdWorkspaceTab = false;
+  let reusedReadyCandidate = false;
 
   const boundTabId = degradationWorkspaceGetBoundWorkspaceTabId(targetWindowId);
   if (boundTabId > 0) {
@@ -39498,6 +39600,7 @@ async function degradationWorkspaceEnsureWorkspaceTab(options = {}) {
     try {
       const allTabs = await chrome.tabs.query(useWindowFilter ? { windowId: targetWindowId } : { currentWindow: true });
       workspaceTab = allTabs.find((tab) => degradationWorkspaceIsWorkspaceTab(tab)) || null;
+      reusedReadyCandidate = String(workspaceTab?.status || "").trim().toLowerCase() === "complete";
     } catch {
       workspaceTab = null;
     }
@@ -39509,6 +39612,7 @@ async function degradationWorkspaceEnsureWorkspaceTab(options = {}) {
       active: shouldActivate,
       ...(useWindowFilter ? { windowId: targetWindowId } : {}),
     });
+    createdWorkspaceTab = Boolean(workspaceTab?.id);
   } else if (shouldActivate && workspaceTab.id) {
     try {
       workspaceTab = await chrome.tabs.update(workspaceTab.id, { active: true });
@@ -39521,6 +39625,11 @@ async function degradationWorkspaceEnsureWorkspaceTab(options = {}) {
   }
 
   degradationWorkspaceBindWorkspaceTab(workspaceTab?.windowId, workspaceTab?.id);
+  if (createdWorkspaceTab) {
+    degradationWorkspaceInvalidateReady(workspaceTab?.windowId, workspaceTab?.id);
+  } else if (reusedReadyCandidate || degradationWorkspaceIsReady(workspaceTab?.windowId, workspaceTab?.id)) {
+    degradationWorkspaceMarkReady(workspaceTab?.windowId, workspaceTab?.id);
+  }
   return workspaceTab;
 }
 
@@ -40104,6 +40213,7 @@ async function handleDegradationWorkspaceAction(message, sender = null) {
     if (senderWindowId > 0) {
       degradationWorkspaceBindWorkspaceTab(senderWindowId, senderTabId);
     }
+    degradationWorkspaceMarkReady(senderWindowId || state.degradationWorkspaceWindowId || 0, senderTabId);
     degradationWorkspaceBroadcastControllerState(selectedProgrammer, selectedServices, senderWindowId);
     degradationWorkspaceBroadcastReports(selectionContext.selectionKey, senderWindowId);
     return { ok: true };
@@ -45551,10 +45661,12 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
 
     const workspaceResult = await degradationOpenWorkspaceFromPanel(activePanelState, {
       activate: true,
+      syncReports: false,
     });
     const targetWindowId = Number(
       workspaceResult?.targetWindowId || workspaceResult?.workspaceTab?.windowId || state.degradationWorkspaceWindowId || 0
     );
+    const targetTabId = Number(workspaceResult?.workspaceTab?.id || 0);
 
     const downloadContext = await resolveClickDgrDownloadContext(activePanelState);
     if (!downloadContext) {
@@ -45638,6 +45750,16 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
     };
     cheatSheetPayload.setupItems = buildDegradationCheatSheetSetupItems(cheatSheetPayload);
     degradationWorkspaceStoreCheatSheet(cheatSheetPayload);
+    if (targetWindowId > 0) {
+      await degradationWorkspaceWaitForReady(targetWindowId, targetTabId, 3000).catch(() => false);
+    }
+    degradationWorkspaceBroadcastControllerState(
+      activePanelState?.programmer || null,
+      {
+        degradation: authContext?.appInfo || activePanelState?.appInfo || null,
+      },
+      targetWindowId
+    );
     degradationWorkspaceBroadcastReports(selectionContext.selectionKey, targetWindowId);
     if (targetWindowId > 0) {
       void degradationWorkspaceSendWorkspaceMessage("cheat-sheet-result", cheatSheetPayload, { targetWindowId });
@@ -46412,7 +46534,9 @@ async function degradationOpenWorkspaceFromPanel(panelState, options = {}) {
   };
   const selectionContext = degradationWorkspaceGetSelectionContext(panelState?.programmer || null, services);
   degradationWorkspaceBroadcastControllerState(panelState?.programmer || null, services, targetWindowId);
-  degradationWorkspaceBroadcastReports(selectionContext.selectionKey, targetWindowId);
+  if (options.syncReports !== false) {
+    degradationWorkspaceBroadcastReports(selectionContext.selectionKey, targetWindowId);
+  }
   emitDegradationWorkspaceDebugEvent(getActiveDegradationWorkspaceDebugFlowId(), {
     phase: "open-workspace",
     source: "sidepanel",
@@ -47615,6 +47739,8 @@ function resetWorkflowForLoggedOut() {
   state.degradationWorkspaceTabId = 0;
   state.degradationWorkspaceWindowId = 0;
   state.degradationWorkspaceTabIdByWindowId.clear();
+  state.degradationWorkspaceReadyByWindowId.clear();
+  state.degradationWorkspaceReadyWaitersByWindowId.clear();
   state.degradationWorkspaceLastSelectionKey = "";
   state.degradationWorkspaceReportsBySelectionKey.clear();
   state.degradationWorkspaceCheatSheetsBySelectionKey.clear();

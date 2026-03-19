@@ -32,6 +32,9 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
     /Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD/
   );
   assert.match(popupSource, /degradationWorkspaceStoreCheatSheet\(/);
+  assert.match(popupSource, /function degradationWorkspaceWaitForReady\(/);
+  assert.match(popupSource, /degradationWorkspaceMarkReady\(/);
+  assert.match(popupSource, /syncReports:\s*false/);
   assert.match(popupSource, /void degradationWorkspaceSendWorkspaceMessage\("cheat-sheet-result"/);
   assert.match(popupSource, /click CHEAT again to mint a new bearer token/);
   assert.ok(cheatSheetSpecBlock, "expected cheat-sheet call inventory to be declared");
