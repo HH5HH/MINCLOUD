@@ -158,6 +158,50 @@ function loadPopupImsAuthLaunchHelper() {
   return context.module.exports;
 }
 
+function loadPopupHeaderAuthClickHelper() {
+  const filePath = path.join(ROOT, "popup.js");
+  const source = fs.readFileSync(filePath, "utf8");
+  const script = [
+    "const state = { zipKeyImportPending: false, busy: false, sessionReady: false, loginData: null, restricted: false };",
+    "let promptCount = 0;",
+    "let signInCount = 0;",
+    "let toggleCount = 0;",
+    "function shouldShowZipKeyImportGate() { return false; }",
+    "function promptForZipKeyImport() { promptCount += 1; }",
+    "async function signInInteractive() { signInCount += 1; }",
+    "function toggleAvatarMenu() { toggleCount += 1; }",
+    extractFunctionSource(source, "onPrimarySignInClick"),
+    extractFunctionSource(source, "onAuthClick"),
+    "function setState(nextState = {}) { Object.assign(state, nextState || {}); }",
+    "function getCounts() { return { promptCount, signInCount, toggleCount }; }",
+    "module.exports = { onPrimarySignInClick, onAuthClick, setState, getCounts };",
+  ].join("\n\n");
+  const context = {
+    module: { exports: {} },
+    exports: {},
+  };
+  vm.runInNewContext(script, context, { filename: filePath });
+  return context.module.exports;
+}
+
+function loadPopupSilentBootstrapGateHelper() {
+  const filePath = path.join(ROOT, "popup.js");
+  const source = fs.readFileSync(filePath, "utf8");
+  const script = [
+    "const state = { sessionReady: false, restricted: false, zipKeyImportPending: false, manualSignOutHold: false };",
+    "function hasConfiguredUnderparImsClientId() { return true; }",
+    extractFunctionSource(source, "shouldAttemptSilentBootstrapSession"),
+    "function setState(nextState = {}) { Object.assign(state, nextState || {}); }",
+    "module.exports = { shouldAttemptSilentBootstrapSession, setState };",
+  ].join("\n\n");
+  const context = {
+    module: { exports: {} },
+    exports: {},
+  };
+  vm.runInNewContext(script, context, { filename: filePath });
+  return context.module.exports;
+}
+
 function loadPopupCmPrecheckResetHelper() {
   const filePath = path.join(ROOT, "popup.js");
   const source = fs.readFileSync(filePath, "utf8");
@@ -217,6 +261,44 @@ test("interactive UnderPAR IMS login uses chrome.identity.launchWebAuthFlow", as
   assert.equal(request.interactive, true);
   assert.equal(Object.prototype.hasOwnProperty.call(request, "abortOnLoadForNonInteractive"), false);
   assert.equal(Object.prototype.hasOwnProperty.call(request, "timeoutMsForNonInteractive"), false);
+});
+
+test("header UP button no longer launches sign-in when logged out", async () => {
+  const helpers = loadPopupHeaderAuthClickHelper();
+
+  helpers.setState({
+    zipKeyImportPending: false,
+    busy: false,
+    sessionReady: false,
+    loginData: null,
+    restricted: false,
+  });
+  await helpers.onAuthClick();
+  assert.equal(JSON.stringify(helpers.getCounts()), JSON.stringify({
+    promptCount: 0,
+    signInCount: 0,
+    toggleCount: 0,
+  }));
+
+  await helpers.onPrimarySignInClick();
+  assert.equal(JSON.stringify(helpers.getCounts()), JSON.stringify({
+    promptCount: 0,
+    signInCount: 1,
+    toggleCount: 0,
+  }));
+
+  helpers.setState({
+    sessionReady: true,
+    loginData: {
+      accessToken: "token",
+    },
+  });
+  await helpers.onAuthClick();
+  assert.equal(JSON.stringify(helpers.getCounts()), JSON.stringify({
+    promptCount: 0,
+    signInCount: 1,
+    toggleCount: 1,
+  }));
 });
 
 test("silent UnderPAR IMS login keeps non-interactive launchWebAuthFlow options", async () => {
@@ -570,6 +652,30 @@ test("post-ZIP.KEY logged-out flow silently probes for an existing Adobe session
   assert.match(finalizeZipKeySource, /await bootstrapSession\("zip-key-import"\);/);
   assert.match(bootstrapSource, /const silent = await attemptSilentBootstrapLogin\(\);/);
   assert.match(bootstrapSource, /silent-bootstrap:/);
+});
+
+test("manual sign-out suppresses silent bootstrap until the user explicitly signs in again", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const helpers = loadPopupSilentBootstrapGateHelper();
+  const applySessionSource = extractFunctionSource(popupSource, "applyActiveLoginSession");
+  const finalizeZipKeySource = extractFunctionSource(popupSource, "finalizeSuccessfulZipKeyImport");
+  const signOutSource = extractFunctionSource(popupSource, "signOutAndResetSession");
+
+  helpers.setState({
+    sessionReady: false,
+    restricted: false,
+    zipKeyImportPending: false,
+    manualSignOutHold: false,
+  });
+  assert.equal(helpers.shouldAttemptSilentBootstrapSession(), true);
+
+  helpers.setState({
+    manualSignOutHold: true,
+  });
+  assert.equal(helpers.shouldAttemptSilentBootstrapSession(), false);
+  assert.match(signOutSource, /persistManualSignOutHold\(true,\s*"manual-sign-out"\)/);
+  assert.match(applySessionSource, /persistManualSignOutHold\(false,\s*"session-activated"\)/);
+  assert.match(finalizeZipKeySource, /if \(!state\.manualSignOutHold\) \{\s*await bootstrapSession\("zip-key-import"\);/);
 });
 
 test("active CM bootstrap uses UnderPAR bearer-derived qualification instead of exc_app seeding", () => {

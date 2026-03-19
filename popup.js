@@ -186,6 +186,7 @@ function getRestV2DeviceIdStorageKey(environmentKey = getActiveAdobePassEnvironm
 }
 
 const STORAGE_KEY = "ims_login_data";
+const MANUAL_SIGN_OUT_HOLD_STORAGE_KEY = "underpar_manual_sign_out_hold_v1";
 const DEBUG_FLOW_STORAGE_INDEX_KEY = "underpardebug_flow_index_v1";
 const LEGACY_DEBUG_FLOW_STORAGE_INDEX_KEY = "minclouddebug_flow_index_v1";
 const DEBUG_FLOW_STORAGE_PREFIX = "underpardebug_flow_v1:";
@@ -10858,6 +10859,7 @@ const state = {
   passVaultCompilePromiseByProgrammerKey: new Map(),
   passVaultStorageListenerBound: false,
   manualZipKeyImportGate: false,
+  manualSignOutHold: false,
   debugConsoleCollapsed: true,
   debugCopyStatus: "",
   logs: [],
@@ -11069,7 +11071,7 @@ function registerCoreInteractionHandlers() {
 
   if (els.signInHeroBtn) {
     els.signInHeroBtn.addEventListener("click", () => {
-      void onAuthClick();
+      void onPrimarySignInClick();
     });
   }
 
@@ -12228,7 +12230,9 @@ async function finalizeSuccessfulZipKeyImport(result = null) {
   setStatus("", "info");
   setZipKeyImportFeedback(READY_ZIP_KEY_IMPORT_STATUS_MESSAGE, "success");
   render();
-  await bootstrapSession("zip-key-import");
+  if (!state.manualSignOutHold) {
+    await bootstrapSession("zip-key-import");
+  }
   focusPostZipKeyImportAction();
   return {
     ok: true,
@@ -12510,15 +12514,16 @@ function setBusy(isBusy, context = "") {
   state.busyContext = nextContext;
   syncGlobalNetworkActivityIndicator();
 
-  const shouldLockLoggedOutAuth = nextBusy && isInteractiveAuthBusyContext(context);
-  els.authBtn.disabled = state.sessionReady || state.restricted ? nextBusy : shouldLockLoggedOutAuth;
-  if (!state.sessionReady || state.restricted) {
-    const busyLabel = shouldLockLoggedOutAuth ? "Signing In..." : "Sign in to AdobePass";
+  const authMenuReady = Boolean(state.sessionReady && state.loginData && !state.restricted);
+  els.authBtn.disabled = authMenuReady ? nextBusy : true;
+  if (!authMenuReady) {
+    const busyLabel = nextBusy ? "UnderPAR activity" : "UnderPAR activity";
     els.authBtn.title = busyLabel;
     els.authBtn.setAttribute("aria-label", busyLabel);
     if (els.signInHeroBtn) {
-      els.signInHeroBtn.disabled = shouldLockLoggedOutAuth;
-      els.signInHeroBtn.textContent = shouldLockLoggedOutAuth ? "Signing In..." : "Sign In";
+      const shouldLockPrimarySignIn = nextBusy && isInteractiveAuthBusyContext(context);
+      els.signInHeroBtn.disabled = shouldLockPrimarySignIn;
+      els.signInHeroBtn.textContent = shouldLockPrimarySignIn ? "Signing In..." : "Sign In";
     }
     return;
   }
@@ -54740,6 +54745,7 @@ async function signOutAndResetSession() {
   clearRestV2ProfileHarvestSessionState();
 
   try {
+    await persistManualSignOutHold(true, "manual-sign-out");
     await revokeUnderparLoginTokensForLogout(state.loginData);
     await clearIdentityTokens();
     await clearDebugFlowStorageFromChromeStorage();
@@ -54747,6 +54753,7 @@ async function signOutAndResetSession() {
     purgeDcrCaches();
     await resetToSignedOutState({
       closeWorkspaceReason: "manual-sign-out",
+      statusMessage: "Signed out. Click Sign In when ready.",
     });
   } finally {
     setBusy(false);
@@ -54953,6 +54960,39 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
   );
 }
 
+async function loadManualSignOutHold() {
+  try {
+    const payload = await chrome.storage.local.get(MANUAL_SIGN_OUT_HOLD_STORAGE_KEY);
+    const storedValue = payload?.[MANUAL_SIGN_OUT_HOLD_STORAGE_KEY];
+    state.manualSignOutHold = Boolean(
+      storedValue === true || (storedValue && typeof storedValue === "object")
+    );
+  } catch {
+    state.manualSignOutHold = false;
+  }
+  return state.manualSignOutHold === true;
+}
+
+async function persistManualSignOutHold(enabled = false, reason = "") {
+  const nextEnabled = enabled === true;
+  state.manualSignOutHold = nextEnabled;
+  try {
+    if (nextEnabled) {
+      await chrome.storage.local.set({
+        [MANUAL_SIGN_OUT_HOLD_STORAGE_KEY]: {
+          at: Date.now(),
+          reason: String(reason || "manual-sign-out").trim() || "manual-sign-out",
+        },
+      });
+    } else {
+      await chrome.storage.local.remove(MANUAL_SIGN_OUT_HOLD_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore sign-out hold persistence failures.
+  }
+  return state.manualSignOutHold === true;
+}
+
 function resolveStoredSessionExpiresAt(loginData, tokenSession) {
   const storedExpiresAt = coercePositiveNumber(loginData?.expiresAt);
   const tokenExpiresAt = coercePositiveNumber(tokenSession?.expiresAt);
@@ -54971,6 +55011,9 @@ function resolveStoredSessionExpiresAt(loginData, tokenSession) {
 }
 
 async function loadStoredLoginData() {
+  if (state.manualSignOutHold === true) {
+    return null;
+  }
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   const loginData = stored?.[STORAGE_KEY] || null;
 
@@ -55573,6 +55616,9 @@ function shouldAllowTemporaryCmBootstrapTabForActivation(source = "", explicitAl
 async function applyActiveLoginSession(loginData, options = {}) {
   const persist = options.persist === true;
   const scheduleRefresh = options.scheduleRefresh !== false && Boolean(loginData?.accessToken);
+  if (state.manualSignOutHold === true) {
+    await persistManualSignOutHold(false, "session-activated");
+  }
   state.loginData = loginData;
   state.cmConsoleBootstrapQualified = false;
   state.cmLastHydratedAccessToken = normalizeBearerTokenValue(firstNonEmptyString([loginData?.cmConsoleAccessToken || ""]));
@@ -67441,9 +67487,10 @@ function render() {
     els.authBtn.classList.remove("avatar-loading");
     els.authBtn.style.backgroundImage = "";
     els.authBtn.textContent = "";
-    els.authBtn.setAttribute("aria-label", "Sign in to AdobePass");
+    els.authBtn.disabled = true;
+    els.authBtn.setAttribute("aria-label", "UnderPAR activity");
     if (!state.busy) {
-      els.authBtn.title = "Sign in to AdobePass";
+      els.authBtn.title = "UnderPAR activity";
     }
     renderRestrictedView();
     return;
@@ -67469,12 +67516,13 @@ function render() {
   els.workflow.hidden = !(state.sessionReady && state.loginData);
 
   if (!state.sessionReady || !state.loginData) {
-    const authActionLabel = "Sign in to AdobePass";
+    const authActionLabel = "UnderPAR activity";
     clearResolvedAvatar();
     closeAvatarMenu();
     els.authBtn.classList.add("avatar", "avatar-ready");
     els.authBtn.classList.remove("avatar-loading");
     els.authBtn.style.backgroundImage = "";
+    els.authBtn.disabled = true;
     els.authBtn.setAttribute("aria-label", authActionLabel);
     els.authBtn.textContent = "";
     if (!state.busy) {
@@ -67491,6 +67539,7 @@ function render() {
   els.authBtn.classList.add("avatar-ready");
   els.authBtn.style.backgroundImage = "";
   els.authBtn.textContent = "";
+  els.authBtn.disabled = Boolean(state.busy);
   els.authBtn.setAttribute("aria-label", `${getLoginDisplayName(state.loginData)} account menu`);
   if (!state.busy) {
     els.authBtn.title = "Account menu";
@@ -67800,13 +67849,8 @@ async function onRestrictedSignOut() {
   await signOutAndResetSession();
 }
 
-async function onAuthClick() {
-  if (state.zipKeyImportPending) {
-    return;
-  }
-  const allowInteractiveLoginWhileChecking =
-    state.busy && !state.sessionReady && !state.restricted && !isInteractiveAuthBusyContext(state.busyContext);
-  if (state.busy && !allowInteractiveLoginWhileChecking) {
+async function onPrimarySignInClick() {
+  if (state.zipKeyImportPending || state.busy || state.restricted) {
     return;
   }
 
@@ -67815,13 +67859,15 @@ async function onAuthClick() {
     return;
   }
 
-  if (state.restricted) {
-    await signInInteractive();
+  await signInInteractive();
+}
+
+async function onAuthClick() {
+  if (state.zipKeyImportPending || state.busy) {
     return;
   }
 
-  if (!state.sessionReady) {
-    await signInInteractive();
+  if (!state.sessionReady || !state.loginData || state.restricted) {
     return;
   }
 
@@ -67841,6 +67887,7 @@ function shouldAttemptSilentBootstrapSession() {
     !state.sessionReady &&
     !state.restricted &&
     !state.zipKeyImportPending &&
+    !state.manualSignOutHold &&
     hasConfiguredUnderparImsClientId()
   );
 }
@@ -68341,6 +68388,7 @@ async function init() {
   renderDebugConsole();
   resetWorkflowForLoggedOut();
   registerEventHandlers();
+  await settleUnderparInitStep("Manual sign-out hold load", () => loadManualSignOutHold());
   await settleUnderparInitStep("Initial shell render", () => render());
   let environment = resolveAdobePassEnvironment(DEFAULT_ADOBEPASS_ENVIRONMENT.key);
   try {
