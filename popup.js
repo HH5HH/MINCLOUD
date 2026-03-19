@@ -10913,6 +10913,132 @@ let megWorkspaceRuntimeTextCache = "";
 let clickDgrTemplateHtml = "";
 let clickDgrTemplatePromise = null;
 let debugCopyResetTimer = 0;
+let underparCoreInteractionHandlersBound = false;
+let underparEventHandlersBound = false;
+
+function registerCoreInteractionHandlers() {
+  if (underparCoreInteractionHandlersBound) {
+    return;
+  }
+  underparCoreInteractionHandlersBound = true;
+
+  if (els.authBtn) {
+    els.authBtn.addEventListener("click", () => {
+      void onAuthClick();
+    });
+  }
+
+  if (els.signInHeroBtn) {
+    els.signInHeroBtn.addEventListener("click", () => {
+      void onAuthClick();
+    });
+  }
+
+  if (els.signInZipKeyBtn) {
+    els.signInZipKeyBtn.addEventListener("click", () => {
+      openZipKeyImportGate();
+    });
+  }
+
+  if (els.debugToggleButton) {
+    els.debugToggleButton.addEventListener("click", (event) => {
+      if (event.shiftKey) {
+        setDebugConsoleCollapsed(!state.debugConsoleCollapsed);
+        return;
+      }
+      void copyDebugConsoleToClipboard();
+    });
+  }
+
+  if (els.zipKeyBrowseBtn) {
+    els.zipKeyBrowseBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      promptForZipKeyImport();
+    });
+  }
+
+  if (els.zipKeyContinueBtn) {
+    els.zipKeyContinueBtn.addEventListener("click", () => {
+      onZipKeyContinue();
+    });
+  }
+
+  if (els.zipKeyFileInput) {
+    els.zipKeyFileInput.addEventListener("change", (event) => {
+      const file = event?.target?.files?.[0] || null;
+      event.target.value = "";
+      if (!file) {
+        return;
+      }
+      void importZipKeyIntoVaultFromFile(file);
+    });
+  }
+
+  if (els.zipKeyDropzone) {
+    els.zipKeyDropzone.addEventListener("click", () => {
+      promptForZipKeyImport();
+    });
+    els.zipKeyDropzone.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") {
+        return;
+      }
+      event.preventDefault();
+      promptForZipKeyImport();
+    });
+    els.zipKeyDropzone.addEventListener("dragenter", (event) => {
+      event.preventDefault();
+      if (state.zipKeyImportPending) {
+        return;
+      }
+      state.zipKeyImportDragActive = true;
+      render();
+    });
+    els.zipKeyDropzone.addEventListener("dragover", (event) => {
+      event.preventDefault();
+      if (event.dataTransfer) {
+        event.dataTransfer.dropEffect = "copy";
+      }
+      if (state.zipKeyImportPending || state.zipKeyImportDragActive) {
+        return;
+      }
+      state.zipKeyImportDragActive = true;
+      render();
+    });
+    els.zipKeyDropzone.addEventListener("dragleave", (event) => {
+      event.preventDefault();
+      if (state.zipKeyImportPending) {
+        return;
+      }
+      const currentTarget = event.currentTarget;
+      const relatedTarget = event.relatedTarget;
+      if (currentTarget instanceof Node && relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) {
+        return;
+      }
+      state.zipKeyImportDragActive = false;
+      render();
+    });
+    els.zipKeyDropzone.addEventListener("drop", (event) => {
+      event.preventDefault();
+      if (state.zipKeyImportPending) {
+        return;
+      }
+      state.zipKeyImportDragActive = false;
+      render();
+      const file = event.dataTransfer?.files?.[0] || null;
+      if (!file) {
+        const message = "Drop a ZIP.KEY file to load Adobe IMS settings into VAULT.";
+        setZipKeyImportFeedback(message, "error");
+        setStatus(message, "error");
+        render();
+        return;
+      }
+      void importZipKeyIntoVaultFromFile(file);
+    });
+  }
+}
+
+registerCoreInteractionHandlers();
 
 function log(message, details = null) {
   const normalizedMessage = String(message || "").trim() || "(no message)";
@@ -11292,6 +11418,40 @@ function composeUnderparDebugConsoleOutput() {
   return lines.join("\n");
 }
 
+function composeUnderparDebugConsoleFallback(error = null) {
+  const fallbackLines = ["UnderPAR DEBUG INFO", ""];
+  const errorLabel = error instanceof Error ? `${error.name}: ${error.message}` : String(error || "").trim();
+  const recentActivityEntries = compactRecentActivityEntries(state.logs || []);
+
+  pushDebugSection(fallbackLines, "summary", [
+    `build=${String(chrome?.runtime?.getManifest?.()?.version || "n/a").trim() || "n/a"}`,
+    `view=${String(state.sessionReady && state.loginData ? "authenticated" : state.restricted ? "restricted" : "unauthenticated").trim()}`,
+    `busy=${state.busy ? String(state.busyContext || "yes").trim() || "yes" : "no"}`,
+    `zip_key_configured=${hasConfiguredUnderparImsClientId() ? "yes" : "no"}`,
+    `debug_panel=${state.debugConsoleCollapsed ? "collapsed" : "expanded"}`,
+    errorLabel ? `render_error=${redactSensitiveTokenValues(errorLabel)}` : "render_error=none",
+  ]);
+
+  pushDebugSection(
+    fallbackLines,
+    "recent_activity",
+    recentActivityEntries.length > 0
+      ? recentActivityEntries.map((entry, index) => `event_${String(index + 1).padStart(2, "0")}=${entry}`)
+      : ["event_01=Waiting for activity."]
+  );
+
+  return fallbackLines.join("\n");
+}
+
+function getUnderparDebugConsoleSnapshot() {
+  try {
+    return composeUnderparDebugConsoleOutput();
+  } catch (error) {
+    console.error("[UnderPAR] Unable to compose DEBUG INFO snapshot", error);
+    return composeUnderparDebugConsoleFallback(error);
+  }
+}
+
 function renderDebugConsole() {
   if (!els.debugConsole || !els.debugToggleButton || !els.logOutput) {
     return;
@@ -11321,7 +11481,7 @@ function renderDebugConsole() {
     els.debugToggleStatus.hidden = !state.debugCopyStatus;
     els.debugToggleStatus.textContent = state.debugCopyStatus || DEFAULT_DEBUG_COPY_STATUS;
   }
-  setTextOutput(els.logOutput, composeUnderparDebugConsoleOutput());
+  setTextOutput(els.logOutput, getUnderparDebugConsoleSnapshot());
 }
 
 function setDebugConsoleCollapsed(collapsed) {
@@ -11349,7 +11509,7 @@ function setDebugCopyStatus(message = "") {
 }
 
 async function copyDebugConsoleToClipboard() {
-  const snapshot = String(els.logOutput?.value || "").trim();
+  const snapshot = String(els.logOutput?.value || getUnderparDebugConsoleSnapshot()).trim();
   if (!snapshot) {
     return;
   }
@@ -66457,31 +66617,11 @@ async function bootstrapSession() {
 }
 
 function registerEventHandlers() {
-  els.authBtn.addEventListener("click", () => {
-    void onAuthClick();
-  });
-
-  if (els.signInHeroBtn) {
-    els.signInHeroBtn.addEventListener("click", () => {
-      void onAuthClick();
-    });
+  if (underparEventHandlersBound) {
+    return;
   }
-
-  if (els.signInZipKeyBtn) {
-    els.signInZipKeyBtn.addEventListener("click", () => {
-      openZipKeyImportGate();
-    });
-  }
-
-  if (els.debugToggleButton) {
-    els.debugToggleButton.addEventListener("click", (event) => {
-      if (event.shiftKey) {
-        setDebugConsoleCollapsed(!state.debugConsoleCollapsed);
-        return;
-      }
-      void copyDebugConsoleToClipboard();
-    });
-  }
+  underparEventHandlersBound = true;
+  registerCoreInteractionHandlers();
 
   if (els.signInUpdateIndicator) {
     els.signInUpdateIndicator.addEventListener("click", () => {
@@ -66527,93 +66667,6 @@ function registerEventHandlers() {
   if (els.getLatestBtn) {
     els.getLatestBtn.addEventListener("click", () => {
       void triggerGetLatestWorkflow();
-    });
-  }
-
-  if (els.zipKeyBrowseBtn) {
-    els.zipKeyBrowseBtn.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      promptForZipKeyImport();
-    });
-  }
-
-  if (els.zipKeyContinueBtn) {
-    els.zipKeyContinueBtn.addEventListener("click", () => {
-      onZipKeyContinue();
-    });
-  }
-
-  if (els.zipKeyFileInput) {
-    els.zipKeyFileInput.addEventListener("change", (event) => {
-      const file = event?.target?.files?.[0] || null;
-      event.target.value = "";
-      if (!file) {
-        return;
-      }
-      void importZipKeyIntoVaultFromFile(file);
-    });
-  }
-
-  if (els.zipKeyDropzone) {
-    els.zipKeyDropzone.addEventListener("click", () => {
-      promptForZipKeyImport();
-    });
-    els.zipKeyDropzone.addEventListener("keydown", (event) => {
-      if (event.key !== "Enter" && event.key !== " ") {
-        return;
-      }
-      event.preventDefault();
-      promptForZipKeyImport();
-    });
-    els.zipKeyDropzone.addEventListener("dragenter", (event) => {
-      event.preventDefault();
-      if (state.zipKeyImportPending) {
-        return;
-      }
-      state.zipKeyImportDragActive = true;
-      render();
-    });
-    els.zipKeyDropzone.addEventListener("dragover", (event) => {
-      event.preventDefault();
-      if (event.dataTransfer) {
-        event.dataTransfer.dropEffect = "copy";
-      }
-      if (state.zipKeyImportPending || state.zipKeyImportDragActive) {
-        return;
-      }
-      state.zipKeyImportDragActive = true;
-      render();
-    });
-    els.zipKeyDropzone.addEventListener("dragleave", (event) => {
-      event.preventDefault();
-      if (state.zipKeyImportPending) {
-        return;
-      }
-      const currentTarget = event.currentTarget;
-      const relatedTarget = event.relatedTarget;
-      if (currentTarget instanceof Node && relatedTarget instanceof Node && currentTarget.contains(relatedTarget)) {
-        return;
-      }
-      state.zipKeyImportDragActive = false;
-      render();
-    });
-    els.zipKeyDropzone.addEventListener("drop", (event) => {
-      event.preventDefault();
-      if (state.zipKeyImportPending) {
-        return;
-      }
-      state.zipKeyImportDragActive = false;
-      render();
-      const file = event.dataTransfer?.files?.[0] || null;
-      if (!file) {
-        const message = "Drop a ZIP.KEY file to load Adobe IMS settings into VAULT.";
-        setZipKeyImportFeedback(message, "error");
-        setStatus(message, "error");
-        render();
-        return;
-      }
-      void importZipKeyIntoVaultFromFile(file);
     });
   }
 
@@ -66862,14 +66915,34 @@ function registerEventHandlers() {
   );
 }
 
+async function settleUnderparInitStep(label = "", task = null, fallbackValue = null) {
+  if (typeof task !== "function") {
+    return fallbackValue;
+  }
+
+  try {
+    return await task();
+  } catch (error) {
+    const normalizedLabel = String(label || "UnderPAR init step").trim() || "UnderPAR init step";
+    log(`${normalizedLabel} failed`, {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return fallbackValue;
+  }
+}
+
 async function init() {
   if (ENABLE_IMS_AVATAR_RENDERING !== true) {
     purgeAvatarCaches();
   }
+  registerCoreInteractionHandlers();
   installGlobalNetworkFetchTracker();
   syncGlobalNetworkActivityIndicator();
   renderBuildInfo();
   renderDebugConsole();
+  resetWorkflowForLoggedOut();
+  registerEventHandlers();
+  await settleUnderparInitStep("Initial shell render", () => render());
   let environment = resolveAdobePassEnvironment(DEFAULT_ADOBEPASS_ENVIRONMENT.key);
   try {
     environment = await initializeAdobePassEnvironment();
@@ -66887,33 +66960,31 @@ async function init() {
       spBase: String(environment?.spBase || ""),
     },
   });
-  ensureEsmWorkspaceRuntimeListener();
-  ensureEsmWorkspaceWorkspaceTabWatcher();
-  ensureBlondieTimeWorkspaceRuntimeListener();
-  ensureBlondieTimeWorkspaceTabWatcher();
-  ensureMegWorkspaceRuntimeListener();
-  ensureMegWorkspaceWorkspaceTabWatcher();
-  ensureUpDevtoolsVaultActionListener();
-  ensureCmRuntimeListener();
-  ensureCmWorkspaceTabWatcher();
-  ensureMvpdWorkspaceRuntimeListener();
-  ensureMvpdWorkspaceTabWatcher();
-  ensureRestWorkspaceRuntimeListener();
-  ensureRestWorkspaceTabWatcher();
-  ensureDegradationWorkspaceRuntimeListener();
-  ensureDegradationWorkspaceTabWatcher();
-  ensureBobtoolsWorkspaceRuntimeListener();
-  ensureBobtoolsWorkspaceTabWatcher();
-  ensureRestV2LoginTabWatcher();
-  ensureRestV2BobtoolsRedirectWatcher();
-  registerAdobePassEnvironmentStorageListener();
-  registerPassVaultStorageListener();
-  registerUnderparEsmDeeplinkStorageListener();
-  await ensurePassVaultLoaded({ forceReload: false });
+  await settleUnderparInitStep("ESM workspace runtime listener", () => ensureEsmWorkspaceRuntimeListener());
+  await settleUnderparInitStep("ESM workspace tab watcher", () => ensureEsmWorkspaceWorkspaceTabWatcher());
+  await settleUnderparInitStep("BlondieTime workspace runtime listener", () => ensureBlondieTimeWorkspaceRuntimeListener());
+  await settleUnderparInitStep("BlondieTime workspace tab watcher", () => ensureBlondieTimeWorkspaceTabWatcher());
+  await settleUnderparInitStep("MEG workspace runtime listener", () => ensureMegWorkspaceRuntimeListener());
+  await settleUnderparInitStep("MEG workspace tab watcher", () => ensureMegWorkspaceWorkspaceTabWatcher());
+  await settleUnderparInitStep("UP Devtools VAULT action listener", () => ensureUpDevtoolsVaultActionListener());
+  await settleUnderparInitStep("CM runtime listener", () => ensureCmRuntimeListener());
+  await settleUnderparInitStep("CM workspace tab watcher", () => ensureCmWorkspaceTabWatcher());
+  await settleUnderparInitStep("MVPD workspace runtime listener", () => ensureMvpdWorkspaceRuntimeListener());
+  await settleUnderparInitStep("MVPD workspace tab watcher", () => ensureMvpdWorkspaceTabWatcher());
+  await settleUnderparInitStep("REST workspace runtime listener", () => ensureRestWorkspaceRuntimeListener());
+  await settleUnderparInitStep("REST workspace tab watcher", () => ensureRestWorkspaceTabWatcher());
+  await settleUnderparInitStep("Degradation workspace runtime listener", () => ensureDegradationWorkspaceRuntimeListener());
+  await settleUnderparInitStep("Degradation workspace tab watcher", () => ensureDegradationWorkspaceTabWatcher());
+  await settleUnderparInitStep("Bobtools workspace runtime listener", () => ensureBobtoolsWorkspaceRuntimeListener());
+  await settleUnderparInitStep("Bobtools workspace tab watcher", () => ensureBobtoolsWorkspaceTabWatcher());
+  await settleUnderparInitStep("REST V2 login tab watcher", () => ensureRestV2LoginTabWatcher());
+  await settleUnderparInitStep("REST V2 Bobtools redirect watcher", () => ensureRestV2BobtoolsRedirectWatcher());
+  await settleUnderparInitStep("AdobePASS environment storage listener", () => registerAdobePassEnvironmentStorageListener());
+  await settleUnderparInitStep("Pass VAULT storage listener", () => registerPassVaultStorageListener());
+  await settleUnderparInitStep("UnderPAR ESM deeplink storage listener", () => registerUnderparEsmDeeplinkStorageListener());
+  await settleUnderparInitStep("Pass VAULT load", () => ensurePassVaultLoaded({ forceReload: false }));
   void renderBuildInfo();
-  startSidepanelControllerBridge();
-  resetWorkflowForLoggedOut();
-  registerEventHandlers();
+  await settleUnderparInitStep("Sidepanel controller bridge", () => startSidepanelControllerBridge());
   render();
   void loadAvatarMenuUpdateState(false);
 }

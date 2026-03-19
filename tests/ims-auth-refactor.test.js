@@ -374,6 +374,25 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.match(fetchProgrammersSource, /Authorization: `Bearer \$\{accessToken\}`/);
 });
 
+test("DEBUG INFO and logged-out controls bind before async init and keep a safe fallback snapshot", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const initSource = extractFunctionSource(popupSource, "init");
+  const renderDebugSource = extractFunctionSource(popupSource, "renderDebugConsole");
+  const copyDebugSource = extractFunctionSource(popupSource, "copyDebugConsoleToClipboard");
+
+  assert.match(popupSource, /let underparCoreInteractionHandlersBound = false;/);
+  assert.match(popupSource, /function registerCoreInteractionHandlers\(\)/);
+  assert.match(popupSource, /registerCoreInteractionHandlers\(\);\s*\n\s*function log\(/);
+  assert.match(popupSource, /function composeUnderparDebugConsoleFallback\(/);
+  assert.match(popupSource, /function getUnderparDebugConsoleSnapshot\(/);
+  assert.match(renderDebugSource, /setTextOutput\(els\.logOutput,\s*getUnderparDebugConsoleSnapshot\(\)\);/);
+  assert.match(copyDebugSource, /els\.logOutput\?\.value \|\| getUnderparDebugConsoleSnapshot\(\)/);
+  assert.match(initSource, /registerCoreInteractionHandlers\(\);/);
+  assert.match(initSource, /registerEventHandlers\(\);/);
+  assert.match(initSource, /await settleUnderparInitStep\("Initial shell render", \(\) => render\(\)\);/);
+  assert.match(initSource, /await settleUnderparInitStep\("Pass VAULT load", \(\) => ensurePassVaultLoaded\(\{ forceReload: false \}\)\);/);
+});
+
 test("active CM bootstrap uses UnderPAR bearer-derived qualification instead of exc_app seeding", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const requestQualifiedSource = extractFunctionSource(popupSource, "requestQualifiedCmConsoleToken");
