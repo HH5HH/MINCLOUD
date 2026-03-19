@@ -55150,7 +55150,7 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     scheduleRefresh: true,
   });
   prefetchCmTenantsCatalogInBackground(`session-activated:${source}`, {
-    forceRefresh: true,
+    forceRefresh: false,
     allowTemporaryPageContextTab,
     preferredCmBootstrapTabId,
   });
@@ -63480,34 +63480,13 @@ async function ensureCmTenantsCatalog(options = {}) {
   const cachedCatalog =
     state.cmTenantsCatalog && Array.isArray(state.cmTenantsCatalog.tenants) ? state.cmTenantsCatalog : null;
 
-  // Global CM tenant catalog should be loaded once and reused until explicit refresh.
-  if (
-    !forceRefresh &&
-    cachedCatalog &&
-    Array.isArray(cachedCatalog.tenants) &&
-    cachedCatalog.tenants.length > 0 &&
-    state.cmTenantsCatalogRuntimeFresh === true
-  ) {
+  // Global CM tenant catalog should be loaded once, persisted in VAULT, and
+  // reused until an explicit refresh or purge. Session startup only needs to
+  // revalidate the user-scoped CM bearer, not re-fetch tenants every time.
+  if (!forceRefresh && cachedCatalog && Array.isArray(cachedCatalog.tenants) && cachedCatalog.tenants.length > 0) {
     syncCmConsoleBootstrapSummaryFromCatalog(cachedCatalog);
     emitCmDebugEvent({
-      phase: "cm-tenant-catalog-cache-hit",
-      sourceUrl: String(cachedCatalog.sourceUrl || ""),
-      tenantCount: Number(cachedCatalog.tenants?.length || 0),
-    });
-    return cachedCatalog;
-  }
-
-  // CM tenant catalog should be fetched once after login, then reused.
-  if (
-    !forceRefresh &&
-    state.cmTenantsCatalogFetchAttempted === true &&
-    cachedCatalog &&
-    Array.isArray(cachedCatalog.tenants) &&
-    cachedCatalog.tenants.length > 0
-  ) {
-    syncCmConsoleBootstrapSummaryFromCatalog(cachedCatalog);
-    emitCmDebugEvent({
-      phase: "cm-tenant-catalog-cache-reuse-after-first-fetch",
+      phase: state.cmTenantsCatalogRuntimeFresh === true ? "cm-tenant-catalog-cache-hit" : "cm-tenant-catalog-vault-hit",
       sourceUrl: String(cachedCatalog.sourceUrl || ""),
       tenantCount: Number(cachedCatalog.tenants?.length || 0),
     });
@@ -63516,13 +63495,13 @@ async function ensureCmTenantsCatalog(options = {}) {
 
   if (!forceRefresh) {
     const hydratedCatalog = await hydrateCmTenantsCatalogFromStorage({ forceReload: false });
-    if (
-      hydratedCatalog &&
-      Array.isArray(hydratedCatalog.tenants) &&
-      hydratedCatalog.tenants.length > 0 &&
-      state.cmTenantsCatalogRuntimeFresh === true
-    ) {
+    if (hydratedCatalog && Array.isArray(hydratedCatalog.tenants) && hydratedCatalog.tenants.length > 0) {
       syncCmConsoleBootstrapSummaryFromCatalog(hydratedCatalog);
+      emitCmDebugEvent({
+        phase: "cm-tenant-catalog-vault-hit",
+        sourceUrl: String(hydratedCatalog.sourceUrl || ""),
+        tenantCount: Number(hydratedCatalog.tenants?.length || 0),
+      });
       return hydratedCatalog;
     }
   }

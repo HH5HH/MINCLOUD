@@ -493,6 +493,23 @@ test("CM request path accepts the configured UnderPAR shell bearer before requir
   assert.match(reportHeadersSource, /AP-Request-Id/);
 });
 
+test("CM tenant catalog reuses the vaulted tenant list until explicit refresh instead of forcing per-session re-fetches", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const ensureCatalogSource = extractFunctionSource(popupSource, "ensureCmTenantsCatalog");
+  const activateSessionSource = extractFunctionSource(popupSource, "activateSession");
+
+  assert.match(
+    ensureCatalogSource,
+    /if \(!forceRefresh && cachedCatalog && Array\.isArray\(cachedCatalog\.tenants\) && cachedCatalog\.tenants\.length > 0\)/
+  );
+  assert.match(ensureCatalogSource, /phase: state\.cmTenantsCatalogRuntimeFresh === true \? "cm-tenant-catalog-cache-hit" : "cm-tenant-catalog-vault-hit"/);
+  assert.match(
+    ensureCatalogSource,
+    /const hydratedCatalog = await hydrateCmTenantsCatalogFromStorage\(\{ forceReload: false \}\);[\s\S]*phase: "cm-tenant-catalog-vault-hit"[\s\S]*return hydratedCatalog;/
+  );
+  assert.match(activateSessionSource, /prefetchCmTenantsCatalogInBackground\(`session-activated:\$\{source\}`,\s*\{[\s\S]*forceRefresh: false,/);
+});
+
 test("missing DCR credentials trigger on-demand pass vault compilation instead of requiring manual re-selection", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const ensureDcrSource = extractFunctionSource(popupSource, "ensureDcrAccessToken");
