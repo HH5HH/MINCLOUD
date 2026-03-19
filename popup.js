@@ -10711,6 +10711,7 @@ const state = {
   passVaultProgrammerStatusByKey: new Map(),
   passVaultCompilePromiseByProgrammerKey: new Map(),
   passVaultStorageListenerBound: false,
+  manualZipKeyImportGate: false,
   underparEsmDeeplinkStorageListenerBound: false,
   upDevtoolsVaultActionListenerBound: false,
   pendingUnderparEsmDeeplinkPromise: null,
@@ -10834,6 +10835,7 @@ const els = {
   pageEnvBadgeValue: document.getElementById("page-env-badge-value"),
   signInView: document.getElementById("sign-in-view"),
   signInHeroBtn: document.getElementById("sign-in-hero-btn"),
+  signInZipKeyBtn: document.getElementById("sign-in-zip-key-btn"),
   signInUpdateIndicator: document.getElementById("sign-in-update-indicator"),
   zipKeyImportView: document.getElementById("zip-key-import-view"),
   zipKeyImportCard: document.getElementById("zip-key-import-card"),
@@ -11118,7 +11120,7 @@ function hasConfiguredUnderparImsClientId(vault = state.passVault || null) {
 }
 
 function shouldShowZipKeyImportGate(vault = state.passVault || null) {
-  return !state.sessionReady && !state.restricted && !hasConfiguredUnderparImsClientId(vault);
+  return !state.sessionReady && !state.restricted && (state.manualZipKeyImportGate === true || !hasConfiguredUnderparImsClientId(vault));
 }
 
 function setZipKeyImportFeedback(message = "", type = "info") {
@@ -11223,6 +11225,32 @@ function promptForZipKeyImport() {
   }
 }
 
+function openZipKeyImportGate() {
+  if (state.sessionReady || state.restricted) {
+    return;
+  }
+  state.manualZipKeyImportGate = true;
+  render();
+  if (els.zipKeyDropzone && !els.zipKeyDropzone.hidden) {
+    els.zipKeyDropzone.focus();
+  }
+}
+
+function closeZipKeyImportGate() {
+  state.manualZipKeyImportGate = false;
+  state.zipKeyImportDragActive = false;
+  render();
+  window.setTimeout(() => {
+    if (els.signInHeroBtn && !els.signInHeroBtn.hidden) {
+      els.signInHeroBtn.focus();
+      return;
+    }
+    if (els.authBtn && !els.authBtn.hidden) {
+      els.authBtn.focus();
+    }
+  }, 0);
+}
+
 function readUnderparTextFile(file = null) {
   return new Promise((resolve, reject) => {
     if (!(file instanceof File)) {
@@ -11245,7 +11273,7 @@ function readUnderparTextFile(file = null) {
 
 function focusPostZipKeyImportAction() {
   window.setTimeout(() => {
-    if (els.zipKeyContinueBtn && !els.zipKeyContinueBtn.hidden) {
+    if (state.manualZipKeyImportGate === true && els.zipKeyContinueBtn && !els.zipKeyContinueBtn.hidden) {
       els.zipKeyContinueBtn.focus();
       return;
     }
@@ -66147,6 +66175,14 @@ async function onAuthClick() {
   toggleAvatarMenu();
 }
 
+function onZipKeyContinue() {
+  if (!hasConfiguredUnderparImsClientId()) {
+    promptForZipKeyImport();
+    return;
+  }
+  closeZipKeyImportGate();
+}
+
 function isBootstrapSessionCurrent(generation) {
   return Number(state.sessionBootstrapGeneration || 0) === Number(generation || 0);
 }
@@ -66235,6 +66271,12 @@ function registerEventHandlers() {
     });
   }
 
+  if (els.signInZipKeyBtn) {
+    els.signInZipKeyBtn.addEventListener("click", () => {
+      openZipKeyImportGate();
+    });
+  }
+
   if (els.signInUpdateIndicator) {
     els.signInUpdateIndicator.addEventListener("click", () => {
       void triggerGetLatestWorkflow();
@@ -66290,7 +66332,7 @@ function registerEventHandlers() {
 
   if (els.zipKeyContinueBtn) {
     els.zipKeyContinueBtn.addEventListener("click", () => {
-      void onAuthClick();
+      onZipKeyContinue();
     });
   }
 

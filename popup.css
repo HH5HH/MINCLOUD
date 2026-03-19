@@ -329,11 +329,24 @@ body.underpar-up-tab .sign-in-hero-btn {
   box-shadow: 0 14px 24px rgba(17, 17, 17, 0.14);
 }
 
+body.underpar-up-tab .sign-in-secondary-btn {
+  border-color: rgba(var(--underpar-gray-300-rgb), 0.8);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 243, 243, 0.98));
+  color: rgb(var(--underpar-gray-900-rgb));
+  box-shadow: 0 12px 22px rgba(17, 17, 17, 0.08);
+}
+
 body.underpar-up-tab .sign-in-hero-btn:hover:not(:disabled) {
   box-shadow: 0 18px 28px rgba(17, 17, 17, 0.18);
 }
 
+body.underpar-up-tab .sign-in-secondary-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, rgba(248, 248, 248, 0.98), rgba(236, 236, 236, 0.98));
+  box-shadow: 0 16px 26px rgba(17, 17, 17, 0.12);
+}
+
 body.underpar-up-tab .sign-in-hero-btn:focus-visible,
+body.underpar-up-tab .sign-in-secondary-btn:focus-visible,
 body.underpar-up-tab .sign-in-update-indicator:focus-visible {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.9), 0 0 0 5px rgba(var(--underpar-payne-gray-rgb), 0.18);
 }
@@ -909,13 +922,39 @@ body[aria-busy="true"] .auth-btn::before {
   transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
 }
 
+.sign-in-secondary-btn {
+  min-width: 132px;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.08)),
+    linear-gradient(160deg, rgba(13, 17, 24, 0.88), rgba(25, 31, 43, 0.84));
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: 0 12px 20px rgba(0, 0, 0, 0.18);
+  cursor: pointer;
+  transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease, background 120ms ease;
+}
+
 .sign-in-hero-btn:hover:not(:disabled) {
   transform: translateY(-1px);
   filter: saturate(1.05);
   box-shadow: 0 18px 28px rgba(255, 166, 0, 0.28);
 }
 
-.sign-in-hero-btn:focus-visible {
+.sign-in-secondary-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  filter: saturate(1.02);
+  box-shadow: 0 18px 28px rgba(0, 0, 0, 0.22);
+}
+
+.sign-in-hero-btn:focus-visible,
+.sign-in-secondary-btn:focus-visible {
   outline: none;
   box-shadow: 0 0 0 2px rgba(255, 235, 183, 0.84), 0 0 0 5px rgba(255, 166, 0, 0.18);
 }

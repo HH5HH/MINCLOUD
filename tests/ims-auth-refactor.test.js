@@ -409,6 +409,7 @@ test("missing-client-id flow renders a standalone ZIP.KEY gate before sign-in", 
   const popupHtml = fs.readFileSync(path.join(ROOT, "popup.html"), "utf8");
   const sidepanelHtml = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const shouldShowGateSource = extractFunctionSource(popupSource, "shouldShowZipKeyImportGate");
   const syncZipKeyImportViewSource = extractFunctionSource(popupSource, "syncZipKeyImportView");
   const renderSource = extractFunctionSource(popupSource, "render");
 
@@ -416,6 +417,7 @@ test("missing-client-id flow renders a standalone ZIP.KEY gate before sign-in", 
   assert.match(sidepanelHtml, /id="zip-key-import-view" class="zip-key-import-view zip-key-import-view--gate"/);
   assert.ok(popupHtml.indexOf('id="zip-key-import-view"') < popupHtml.indexOf('id="sign-in-view"'));
   assert.match(popupSource, /function shouldShowZipKeyImportGate\(/);
+  assert.match(shouldShowGateSource, /state\.manualZipKeyImportGate === true \|\| !hasConfiguredUnderparImsClientId/);
   assert.match(syncZipKeyImportViewSource, /const show = shouldShowZipKeyImportGate\(\);/);
   assert.match(renderSource, /const showZipKeyImportGate = shouldShowZipKeyImportGate\(\);/);
   assert.match(renderSource, /els\.authBtn\.hidden = showZipKeyImportGate;/);
@@ -441,8 +443,14 @@ test("build label renders immediately from the manifest version with a placehold
 
 test("sidepanel ships the same logged-out sign-in hero after ZIP.KEY import", () => {
   const sidepanelHtml = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
+  const popupHtml = fs.readFileSync(path.join(ROOT, "popup.html"), "utf8");
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
 
   assert.match(sidepanelHtml, /id="sign-in-view"/);
   assert.match(sidepanelHtml, /id="sign-in-hero-btn"/);
+  assert.match(sidepanelHtml, /id="sign-in-zip-key-btn"/);
+  assert.match(popupHtml, /id="sign-in-zip-key-btn"/);
+  assert.match(popupSource, /function openZipKeyImportGate\(/);
+  assert.match(popupSource, /manualZipKeyImportGate: false/);
   assert.ok(sidepanelHtml.indexOf('id="zip-key-import-view"') < sidepanelHtml.indexOf('id="sign-in-view"'));
 });
