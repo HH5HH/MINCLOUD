@@ -7508,6 +7508,7 @@ function resetPassVaultRuntimeStatePreservingProgrammers(controllerReason = "up-
   state.cmTenantsCatalogHydrationPromise = null;
   state.cmTenantsCatalogRuntimeFresh = false;
   state.cmTenantsCatalogFetchAttempted = false;
+  state.cmTenantsPrecheckPromise = null;
   state.cmTenantsPrecheckPending = false;
   state.cmTenantsPrecheckComplete = false;
   state.cmTenantsPrecheckLastError = "";
@@ -10816,6 +10817,7 @@ const state = {
   cmTenantsCatalogHydrationPromise: null,
   cmTenantsCatalogRuntimeFresh: false,
   cmTenantsCatalogFetchAttempted: false,
+  cmTenantsPrecheckPromise: null,
   cmTenantsPrecheckPending: false,
   cmTenantsPrecheckComplete: false,
   cmTenantsPrecheckLastError: "",
@@ -49164,6 +49166,7 @@ function resetWorkflowForLoggedOut() {
   state.cmTenantsCatalogHydrationPromise = null;
   state.cmTenantsCatalogRuntimeFresh = false;
   state.cmTenantsCatalogFetchAttempted = false;
+  state.cmTenantsPrecheckPromise = null;
   state.cmTenantsPrecheckPending = false;
   state.cmTenantsPrecheckComplete = false;
   state.cmTenantsPrecheckLastError = "";
@@ -55002,7 +55005,8 @@ function scheduleNoTouchRefresh() {
 }
 
 function resetCmTenantsPrecheckState() {
-  state.cmTenantsPrecheckPending = true;
+  state.cmTenantsPrecheckPromise = null;
+  state.cmTenantsPrecheckPending = false;
   state.cmTenantsPrecheckComplete = false;
   state.cmTenantsPrecheckLastError = "";
   state.cmTenantsCatalog = null;
@@ -55012,6 +55016,14 @@ function resetCmTenantsPrecheckState() {
   state.cmTenantsCatalogRuntimeFresh = false;
   state.cmTenantsCatalogFetchAttempted = false;
   syncMediaCompanySelectAvailability();
+}
+
+function shouldAllowTemporaryCmBootstrapTabForActivation(source = "", explicitAllow = false) {
+  if (explicitAllow === true) {
+    return true;
+  }
+  const normalizedSource = String(source || "").trim().toLowerCase();
+  return normalizedSource === "stored" || normalizedSource.startsWith("silent-bootstrap:");
 }
 
 async function applyActiveLoginSession(loginData, options = {}) {
@@ -55047,6 +55059,10 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   const activationStartedAt = Date.now();
   const allowDeniedRecovery = options.allowDeniedRecovery !== false;
   const allowTemporaryPageContextTab = options.allowTemporaryPageContextTab === true;
+  const allowBackgroundTemporaryPageContextTab = shouldAllowTemporaryCmBootstrapTabForActivation(
+    source,
+    allowTemporaryPageContextTab
+  );
   const preferredCmBootstrapTabId = Number(options.preferredCmBootstrapTabId || getRetainedAuthPopupBootstrapTabId() || 0);
   const enforced = await enforceAdobePassAccess(sessionData);
   if (!enforced.allowed || !enforced.loginData) {
@@ -55151,7 +55167,7 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   });
   prefetchCmTenantsCatalogInBackground(`session-activated:${source}`, {
     forceRefresh: false,
-    allowTemporaryPageContextTab,
+    allowTemporaryPageContextTab: allowBackgroundTemporaryPageContextTab,
     preferredCmBootstrapTabId,
   });
   prefetchCmConsoleBootstrapSummaryInBackground(`session-activated:${source}`, {
@@ -55185,7 +55201,7 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     org: resolvedLoginData.adobePassOrg,
     programmersCount: Number(state.programmers.length || 0),
     criticalPathMs: Math.max(0, Date.now() - activationStartedAt),
-    cmHydrationMode: "background",
+    cmHydrationMode: allowBackgroundTemporaryPageContextTab ? "background-temporary-tab-allowed" : "background",
   });
   return true;
 }
@@ -55530,6 +55546,9 @@ async function ensureCmTenantsPrecheckForActiveSession(reason = "session", optio
   if (state.restricted || !state.loginData) {
     return null;
   }
+  if (!forceRefresh && state.cmTenantsPrecheckPromise) {
+    return state.cmTenantsPrecheckPromise;
+  }
   const preferredCmBootstrapTab = preferredCmBootstrapTabId > 0 ? await getTabByIdSafe(preferredCmBootstrapTabId) : null;
   const effectiveAllowTemporaryPageContextTab =
     allowTemporaryPageContextTab ||
@@ -55547,86 +55566,94 @@ async function ensureCmTenantsPrecheckForActiveSession(reason = "session", optio
     return state.cmTenantsCatalog;
   }
 
-  state.cmTenantsPrecheckPending = true;
-  state.cmTenantsPrecheckComplete = false;
-  state.cmTenantsPrecheckLastError = "";
-  syncMediaCompanySelectAvailability();
+  let precheckPromise = null;
+  precheckPromise = (async () => {
+    state.cmTenantsPrecheckPending = true;
+    state.cmTenantsPrecheckComplete = false;
+    state.cmTenantsPrecheckLastError = "";
+    syncMediaCompanySelectAvailability();
 
-  try {
-    let hydratedToken = normalizeBearerTokenValue(
-      await hydrateGlobalCmConsoleBootstrapForActiveSession(reason, {
-        forceRefresh,
-        allowTemporaryPageContextTab: effectiveAllowTemporaryPageContextTab,
-        preferredCmBootstrapTabId,
-      })
-    );
-    const catalog = await ensureCmTenantsCatalog({
-      forceRefresh,
-      accessToken: hydratedToken,
-      skipBootstrap: Boolean(hydratedToken),
-      allowTemporaryPageContextTab: effectiveAllowTemporaryPageContextTab,
-      preferredCmBootstrapTabId,
-    });
-    if (!hasCmTenantsCatalogEntries(catalog)) {
-      throw new Error("CM tenants load failed: tenant catalog returned no tenants.");
-    }
-    if (!hydratedToken || !tokenSupportsCmConsoleRequests(hydratedToken)) {
-      hydratedToken = normalizeBearerTokenValue(getPreferredCmRequestAccessTokenCandidate());
-    }
-    if (!hydratedToken || !tokenSupportsCmConsoleRequests(hydratedToken)) {
-      hydratedToken = normalizeBearerTokenValue(
-        await ensureCmApiAccessToken({
+    try {
+      let hydratedToken = normalizeBearerTokenValue(
+        await hydrateGlobalCmConsoleBootstrapForActiveSession(reason, {
           forceRefresh,
-          freshLeewayMs: 45 * 1000,
           allowTemporaryPageContextTab: effectiveAllowTemporaryPageContextTab,
           preferredCmBootstrapTabId,
-        }).catch(() => "")
+        })
       );
-    }
-    if (!hydratedToken || !tokenSupportsCmConsoleRequests(hydratedToken)) {
+      const catalog = await ensureCmTenantsCatalog({
+        forceRefresh,
+        accessToken: hydratedToken,
+        skipBootstrap: Boolean(hydratedToken),
+        allowTemporaryPageContextTab: effectiveAllowTemporaryPageContextTab,
+        preferredCmBootstrapTabId,
+      });
+      if (!hasCmTenantsCatalogEntries(catalog)) {
+        throw new Error("CM tenants load failed: tenant catalog returned no tenants.");
+      }
+      if (!hydratedToken || !tokenSupportsCmConsoleRequests(hydratedToken)) {
+        hydratedToken = normalizeBearerTokenValue(getPreferredCmRequestAccessTokenCandidate());
+      }
+      if (!hydratedToken || !tokenSupportsCmConsoleRequests(hydratedToken)) {
+        hydratedToken = normalizeBearerTokenValue(
+          await ensureCmApiAccessToken({
+            forceRefresh,
+            freshLeewayMs: 45 * 1000,
+            allowTemporaryPageContextTab: effectiveAllowTemporaryPageContextTab,
+            preferredCmBootstrapTabId,
+          }).catch(() => "")
+        );
+      }
+      if (!hydratedToken || !tokenSupportsCmConsoleRequests(hydratedToken)) {
+        emitCmDebugEvent({
+          phase: "cm-tenant-precheck-token-missing",
+          reason: String(reason || ""),
+          tenantCount: Number(catalog?.tenants?.length || 0),
+          sourceUrl: String(catalog?.sourceUrl || ""),
+        });
+        throw new Error(
+          "CM token hydrate failed: UnderPAR could not auto-hydrate a cm-console-ui bearer for CMU usage."
+        );
+      }
+      await persistResolvedCmGlobalAuthState(hydratedToken, `tenant-precheck:${reason}`).catch(() => null);
+      state.cmTenantsPrecheckComplete = true;
+      state.cmConsoleBootstrapQualified = true;
+      state.cmTenantsPrecheckLastError = "";
       emitCmDebugEvent({
-        phase: "cm-tenant-precheck-token-missing",
+        phase: "cm-tenant-precheck-complete",
         reason: String(reason || ""),
         tenantCount: Number(catalog?.tenants?.length || 0),
         sourceUrl: String(catalog?.sourceUrl || ""),
+        tokenClientId: String(parseJwtPayload(hydratedToken)?.client_id || ""),
       });
-      throw new Error(
-        "CM token hydrate failed: UnderPAR could not auto-hydrate a cm-console-ui bearer for CMU usage."
+      await maybeReleaseRetainedAuthPopupBootstrapContext(
+        preferredCmBootstrapTabId,
+        `cm-global-hydrate-complete:${reason}`
       );
+      return catalog;
+    } catch (error) {
+      const resolvedError = error instanceof Error ? error : new Error(String(error));
+      state.cmTenantsPrecheckLastError = resolvedError.message;
+      emitCmDebugEvent({
+        phase: "cm-tenant-precheck-error",
+        reason: String(reason || ""),
+        error: resolvedError.message,
+      });
+      throw resolvedError;
+    } finally {
+      state.cmTenantsPrecheckPending = false;
+      syncMediaCompanySelectAvailability();
+      if (state.avatarMenuOpen) {
+        renderAvatarMenu();
+      }
+      if (state.cmTenantsPrecheckPromise === precheckPromise) {
+        state.cmTenantsPrecheckPromise = null;
+      }
     }
-    await persistResolvedCmGlobalAuthState(hydratedToken, `tenant-precheck:${reason}`).catch(() => null);
-    state.cmTenantsPrecheckComplete = true;
-    state.cmConsoleBootstrapQualified = true;
-    state.cmTenantsPrecheckLastError = "";
-    // Automatic login bootstrap stops once CMU globals are ready.
-    emitCmDebugEvent({
-      phase: "cm-tenant-precheck-complete",
-      reason: String(reason || ""),
-      tenantCount: Number(catalog?.tenants?.length || 0),
-      sourceUrl: String(catalog?.sourceUrl || ""),
-      tokenClientId: String(parseJwtPayload(hydratedToken)?.client_id || ""),
-    });
-    await maybeReleaseRetainedAuthPopupBootstrapContext(
-      preferredCmBootstrapTabId,
-      `cm-global-hydrate-complete:${reason}`
-    );
-    return catalog;
-  } catch (error) {
-    const resolvedError = error instanceof Error ? error : new Error(String(error));
-    state.cmTenantsPrecheckLastError = resolvedError.message;
-    emitCmDebugEvent({
-      phase: "cm-tenant-precheck-error",
-      reason: String(reason || ""),
-      error: resolvedError.message,
-    });
-    throw resolvedError;
-  } finally {
-    state.cmTenantsPrecheckPending = false;
-    syncMediaCompanySelectAvailability();
-    if (state.avatarMenuOpen) {
-      renderAvatarMenu();
-    }
-  }
+  })();
+
+  state.cmTenantsPrecheckPromise = precheckPromise;
+  return precheckPromise;
 }
 
 async function persistResolvedCmGlobalAuthState(accessToken = "", source = "unknown") {
@@ -62236,7 +62263,7 @@ function prefetchCmTenantsCatalogInBackground(reason = "background", options = {
   if (state.restricted || !state.sessionReady) {
     return;
   }
-  if (!forceRefresh && (state.cmTenantsCatalogPromise || state.cmTenantsPrecheckPending)) {
+  if (!forceRefresh && (state.cmTenantsCatalogPromise || state.cmTenantsPrecheckPromise)) {
     return;
   }
   const cachedCatalog = state.cmTenantsCatalog;

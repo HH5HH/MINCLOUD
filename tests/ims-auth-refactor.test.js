@@ -123,6 +123,42 @@ function loadPopupLogoutClientIdHelper() {
   return context.module.exports;
 }
 
+function loadPopupCmActivationHelper() {
+  const filePath = path.join(ROOT, "popup.js");
+  const source = fs.readFileSync(filePath, "utf8");
+  const script = [
+    extractFunctionSource(source, "shouldAllowTemporaryCmBootstrapTabForActivation"),
+    "module.exports = { shouldAllowTemporaryCmBootstrapTabForActivation };",
+  ].join("\n\n");
+  const context = {
+    module: { exports: {} },
+    exports: {},
+  };
+  vm.runInNewContext(script, context, { filename: filePath });
+  return context.module.exports;
+}
+
+function loadPopupCmPrecheckResetHelper() {
+  const filePath = path.join(ROOT, "popup.js");
+  const source = fs.readFileSync(filePath, "utf8");
+  const script = [
+    "const state = { cmTenantsPrecheckPromise: 'pending', cmTenantsPrecheckPending: true, cmTenantsPrecheckComplete: true, cmTenantsPrecheckLastError: 'boom', cmTenantsCatalog: { tenants: [1] }, cmTenantsCatalogPromise: Promise.resolve(null), cmTenantsCatalogHydrated: true, cmTenantsCatalogHydrationPromise: Promise.resolve(null), cmTenantsCatalogRuntimeFresh: true, cmTenantsCatalogFetchAttempted: true };",
+    "let syncCalls = 0;",
+    "function syncMediaCompanySelectAvailability() { syncCalls += 1; }",
+    extractFunctionSource(source, "resetCmTenantsPrecheckState"),
+    "function getStateSnapshot() { return { ...state }; }",
+    "function getSyncCalls() { return syncCalls; }",
+    "module.exports = { resetCmTenantsPrecheckState, getStateSnapshot, getSyncCalls };",
+  ].join("\n\n");
+  const context = {
+    module: { exports: {} },
+    exports: {},
+    Promise,
+  };
+  vm.runInNewContext(script, context, { filename: filePath });
+  return context.module.exports;
+}
+
 test("runtime source no longer hard-codes debugger client or legacy redirect host", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const backgroundSource = fs.readFileSync(path.join(ROOT, "background.js"), "utf8");
@@ -750,4 +786,47 @@ test("sidepanel exposes LoginButton-style DEBUG INFO controls backed by popup ru
   assert.match(composeDebugSource, /UnderPAR DEBUG INFO/);
   assert.match(composeDebugSource, /"recent_activity"/);
   assert.match(composeDebugSource, /precheck_pending/);
+});
+
+test("stored and silent session activation allow the bounded CM bootstrap tab when needed", () => {
+  const helpers = loadPopupCmActivationHelper();
+
+  assert.equal(helpers.shouldAllowTemporaryCmBootstrapTabForActivation("stored", false), true);
+  assert.equal(helpers.shouldAllowTemporaryCmBootstrapTabForActivation("silent-bootstrap:startup", false), true);
+  assert.equal(helpers.shouldAllowTemporaryCmBootstrapTabForActivation("interactive", false), false);
+  assert.equal(helpers.shouldAllowTemporaryCmBootstrapTabForActivation("manual-refresh", true), true);
+});
+
+test("CM precheck reset clears stale pending state before background bootstrap begins", () => {
+  const helpers = loadPopupCmPrecheckResetHelper();
+
+  helpers.resetCmTenantsPrecheckState();
+  const stateSnapshot = helpers.getStateSnapshot();
+
+  assert.equal(stateSnapshot.cmTenantsPrecheckPromise, null);
+  assert.equal(stateSnapshot.cmTenantsPrecheckPending, false);
+  assert.equal(stateSnapshot.cmTenantsPrecheckComplete, false);
+  assert.equal(stateSnapshot.cmTenantsPrecheckLastError, "");
+  assert.equal(stateSnapshot.cmTenantsCatalog, null);
+  assert.equal(stateSnapshot.cmTenantsCatalogPromise, null);
+  assert.equal(stateSnapshot.cmTenantsCatalogHydrated, false);
+  assert.equal(stateSnapshot.cmTenantsCatalogHydrationPromise, null);
+  assert.equal(stateSnapshot.cmTenantsCatalogRuntimeFresh, false);
+  assert.equal(stateSnapshot.cmTenantsCatalogFetchAttempted, false);
+  assert.equal(helpers.getSyncCalls(), 1);
+});
+
+test("CM tenant background prefetch is guarded by the shared precheck promise instead of a stale pending flag", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const prefetchSource = extractFunctionSource(popupSource, "prefetchCmTenantsCatalogInBackground");
+  const precheckSource = extractFunctionSource(popupSource, "ensureCmTenantsPrecheckForActiveSession");
+  const activateSessionSource = extractFunctionSource(popupSource, "activateSession");
+
+  assert.match(prefetchSource, /state\.cmTenantsCatalogPromise \|\| state\.cmTenantsPrecheckPromise/);
+  assert.match(precheckSource, /if \(!forceRefresh && state\.cmTenantsPrecheckPromise\)/);
+  assert.match(precheckSource, /state\.cmTenantsPrecheckPromise = precheckPromise/);
+  assert.match(
+    activateSessionSource,
+    /allowTemporaryPageContextTab:\s*allowBackgroundTemporaryPageContextTab/
+  );
 });
