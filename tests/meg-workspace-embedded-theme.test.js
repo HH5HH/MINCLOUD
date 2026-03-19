@@ -6,7 +6,7 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const css = fs.readFileSync(path.join(ROOT, "meg-workspace.css"), "utf8");
 
-test("embedded MEG workspace stays monochrome while SAVE QUERY remains the only gold action", () => {
+test("embedded MEG workspace stays monochrome while MEG save actions remain gold", () => {
   assert.match(
     css,
     /:root\s*\{[\s\S]*?color-scheme:\s*light;[\s\S]*?--meg-rerun-bg:\s*linear-gradient\(180deg,\s*#f4f4f4\s*0%,\s*#c7c7c7\s*100%\);[\s\S]*?--meg-rerun-text:\s*#000000;[\s\S]*?--meg-row-hover-accent:\s*#111111;[\s\S]*?--meg-row-hover-text:\s*#ffffff;/i
@@ -17,11 +17,19 @@ test("embedded MEG workspace stays monochrome while SAVE QUERY remains the only 
   );
   assert.match(
     css,
+    /body:not\(\.meg-standalone-mode\) \.meg-export-pack-button--modern\.meg-export-pack-button--icon\s*\{[\s\S]*?background:\s*var\(--meg-save-button-bg\);[\s\S]*?color:\s*var\(--meg-save-button-text\);/i
+  );
+  assert.match(
+    css,
     /body:not\(\.meg-standalone-mode\) #meg-modern-shell #RAW_TBL tbody tr:hover\s*\{[\s\S]*?background-color:\s*var\(--meg-row-hover-accent\);[\s\S]*?color:\s*var\(--meg-row-hover-text\);/i
   );
   assert.doesNotMatch(
     css,
     /body:not\(\.meg-standalone-mode\) #meg-modern-shell #DD_TBL tbody tr:hover/i
+  );
+  assert.doesNotMatch(
+    css,
+    /body:not\(\.meg-standalone-mode\) \.meg-export-pack-button--modern\s*\{[\s\S]*?background:\s*var\(--meg-save-button-bg\);/i
   );
   assert.doesNotMatch(css, /:root,\s*body\.meg-standalone-mode\[data-theme="modern"\]/i);
 });

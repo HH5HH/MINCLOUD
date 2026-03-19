@@ -1359,6 +1359,19 @@ body:not(.meg-standalone-mode) #btnSaveQuery:active:not(:disabled) {
   color: var(--meg-save-button-hover-text);
 }
 
+body:not(.meg-standalone-mode) .meg-export-pack-button--modern.meg-export-pack-button--icon {
+  border-color: var(--meg-save-button-border);
+  background: var(--meg-save-button-bg);
+  color: var(--meg-save-button-text);
+}
+
+body:not(.meg-standalone-mode) .meg-export-pack-button--modern.meg-export-pack-button--icon:hover:not(:disabled),
+body:not(.meg-standalone-mode) .meg-export-pack-button--modern.meg-export-pack-button--icon:active:not(:disabled) {
+  border-color: var(--meg-save-button-hover-border);
+  background: var(--meg-save-button-hover-bg);
+  color: var(--meg-save-button-hover-text);
+}
+
 .meg-saved-query-name.meg-save-query-cued,
 .meg-saved-query-btn.meg-save-query-cued {
   box-shadow: 0 0 0 2px var(--meg-save-query-cue-ring), 0 0 0 5px var(--meg-save-query-cue-halo);
