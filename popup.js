@@ -45099,6 +45099,17 @@ async function degradationHarvestCheatSheetTargetCoverage(panelState, queryValue
   };
 }
 
+function degradationBuildCheatSheetFallbackCoverage(error = null) {
+  return {
+    report: null,
+    rows: [],
+    resourceTargets: [],
+    channelTargets: [],
+    ttlSeconds: 14400,
+    warning: error instanceof Error ? error.message : String(error || "").trim(),
+  };
+}
+
 function degradationBuildCheatSheetCommands(panelState, context = {}) {
   const accessToken = String(context.accessToken || "").trim();
   return DEGRADATION_CHEAT_SHEET_CALL_SPECS.map((callSpec) => {
@@ -45145,12 +45156,19 @@ function buildDegradationCheatSheetAppLabel(context = {}) {
 function buildDegradationCheatSheetSetupItems(context = {}) {
   const contextEnvelope = buildDegradationCheatSheetContextEnvelope(context);
   const appLabel = buildDegradationCheatSheetAppLabel(context);
-  return [
+  const items = [
     `Confirm the runtime context before using these commands: ${contextEnvelope || "Environment | Media Company | Requestor x MVPD"}.`,
     `This export minted a fresh bearer token on ${String(context.generatedAtLabel || "").trim() || "generation time"} for ${appLabel}. Expected token expiry: ${String(context.tokenExpiresLabel || "unknown").trim() || "unknown"}.`,
     'If the bearer token is stale, "no bueno", or you get HTTP 401/403, reopen UnderPAR, keep the same global RequestorId and MVPD selected, and click CHEAT again to mint a new bearer token.',
     "After regeneration, use only the newest cheat sheet or freshly copied commands. Older exports can carry expired bearer tokens.",
   ];
+  const harvestWarning = String(context.harvestWarning || "").trim();
+  if (harvestWarning) {
+    items.push(
+      `Live /all harvest was unavailable (${harvestWarning}). UnderPAR generated the cheat sheet with fallback TTL, resource, and channel defaults instead.`
+    );
+  }
+  return items;
 }
 
 function buildDegradationCheatSheetHtml(context = {}) {
@@ -45650,6 +45668,7 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
   }
 
   degradationSetBusy(activePanelState, true);
+  let targetWindowId = 0;
   try {
     const queryValues = degradationCollectFormValues(activePanelState);
     if (!queryValues.requestorId) {
@@ -45663,10 +45682,19 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
       activate: true,
       syncReports: false,
     });
-    const targetWindowId = Number(
+    targetWindowId = Number(
       workspaceResult?.targetWindowId || workspaceResult?.workspaceTab?.windowId || state.degradationWorkspaceWindowId || 0
     );
     const targetTabId = Number(workspaceResult?.workspaceTab?.id || 0);
+    if (targetWindowId > 0) {
+      void degradationWorkspaceSendWorkspaceMessage(
+        "cheat-sheet-start",
+        {
+          message: "Generating DEGRADATION Cheat Sheet...",
+        },
+        { targetWindowId }
+      );
+    }
 
     const downloadContext = await resolveClickDgrDownloadContext(activePanelState);
     if (!downloadContext) {
@@ -45680,7 +45708,26 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
       normalizeUnderparVaultDcrCache(
         loadDcrCache(String(activePanelState?.programmer?.programmerId || ""), String(authContext?.appInfo?.guid || "")) || null
       ) || {};
-    const liveCoverage = await degradationHarvestCheatSheetTargetCoverage(activePanelState, queryValues);
+    let liveCoverage = degradationBuildCheatSheetFallbackCoverage();
+    let harvestWarning = "";
+    try {
+      liveCoverage = await degradationHarvestCheatSheetTargetCoverage(activePanelState, queryValues);
+    } catch (error) {
+      liveCoverage = degradationBuildCheatSheetFallbackCoverage(error);
+      harvestWarning = String(liveCoverage.warning || "").trim();
+      if (targetWindowId > 0) {
+        void degradationWorkspaceSendWorkspaceMessage(
+          "cheat-sheet-progress",
+          {
+            message: harvestWarning
+              ? `Live /all harvest failed. Building cheat sheet with fallback defaults. ${harvestWarning}`
+              : "Live /all harvest failed. Building cheat sheet with fallback defaults.",
+            type: "info",
+          },
+          { targetWindowId }
+        );
+      }
+    }
     const targetSeed = sanitizeDownloadFileSegment(
       [queryValues.requestorId, queryValues.mvpd].filter(Boolean).join("-"),
       "degradation"
@@ -45744,6 +45791,7 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
       generatedAt: generatedAt.getTime(),
       generatedAtLabel,
       tokenExpiresLabel,
+      harvestWarning,
       liveRowCount: Array.isArray(liveCoverage.rows) ? liveCoverage.rows.length : 0,
       callCount: commands.length,
       calls: commands,
@@ -45775,6 +45823,17 @@ async function degradationGenerateCheatSheetFromUi(panelState, options = {}) {
       targetWindowId,
       panelState: activePanelState,
     };
+  } catch (error) {
+    if (targetWindowId > 0) {
+      void degradationWorkspaceSendWorkspaceMessage(
+        "cheat-sheet-error",
+        {
+          message: error instanceof Error ? error.message : String(error),
+        },
+        { targetWindowId }
+      );
+    }
+    throw error;
   } finally {
     degradationSetBusy(activePanelState, false);
   }

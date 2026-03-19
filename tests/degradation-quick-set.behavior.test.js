@@ -35,6 +35,11 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(popupSource, /function degradationWorkspaceWaitForReady\(/);
   assert.match(popupSource, /degradationWorkspaceMarkReady\(/);
   assert.match(popupSource, /syncReports:\s*false/);
+  assert.match(popupSource, /function degradationBuildCheatSheetFallbackCoverage\(/);
+  assert.match(popupSource, /Live \/all harvest failed\. Building cheat sheet with fallback defaults\./);
+  assert.match(popupSource, /"cheat-sheet-start"/);
+  assert.match(popupSource, /"cheat-sheet-progress"/);
+  assert.match(popupSource, /"cheat-sheet-error"/);
   assert.match(popupSource, /void degradationWorkspaceSendWorkspaceMessage\("cheat-sheet-result"/);
   assert.match(popupSource, /click CHEAT again to mint a new bearer token/);
   assert.ok(cheatSheetSpecBlock, "expected cheat-sheet call inventory to be declared");
@@ -56,6 +61,12 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
 
   assert.match(workspaceSource, /function renderCheatSheetCard\(/);
   assert.match(workspaceSource, /function handleCheatSheetResult\(/);
+  assert.match(workspaceSource, /function handleCheatSheetStart\(/);
+  assert.match(workspaceSource, /function handleCheatSheetError\(/);
+  assert.match(workspaceSource, /Generating DEGRADATION Cheat Sheet/);
+  assert.match(workspaceSource, /event === "cheat-sheet-start"/);
+  assert.match(workspaceSource, /event === "cheat-sheet-progress"/);
+  assert.match(workspaceSource, /event === "cheat-sheet-error"/);
   assert.match(workspaceSource, /event === "cheat-sheet-result"/);
   assert.match(workspaceSource, /data-action="copy-cheat-all"/);
   assert.match(workspaceSource, /data-action="copy-cheat-command"/);

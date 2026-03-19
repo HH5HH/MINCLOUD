@@ -37,6 +37,8 @@ const state = {
   selectionKey: "",
   appGuid: "",
   appName: "",
+  cheatSheetLoading: false,
+  cheatSheetLoadingMessage: "",
   cheatSheets: [],
   reports: [],
   batchRunning: false,
@@ -1608,6 +1610,8 @@ function upsertCheatSheet(cheatSheet = null) {
 }
 
 function clearWorkspaceCards() {
+  state.cheatSheetLoading = false;
+  state.cheatSheetLoadingMessage = "";
   state.cheatSheets = [];
   state.reports = [];
   renderWorkspaceCards();
@@ -1632,6 +1636,8 @@ function handleReportsSync(payload = {}) {
       parts.push(`${reports.length} DEGRADATION report${reports.length === 1 ? "" : "s"}`);
     }
     setStatus(`Loaded ${parts.join(" and ")} in workspace.`, "success");
+  } else if (state.cheatSheetLoading === true) {
+    setStatus(state.cheatSheetLoadingMessage || "Generating DEGRADATION Cheat Sheet...", "info");
   } else {
     setStatus("No DEGRADATION reports or cheat sheets are cached in this workspace.", "info");
   }
@@ -1655,11 +1661,31 @@ function handleCheatSheetResult(payload = {}) {
   if (!cheatSheet) {
     return;
   }
+  state.cheatSheetLoading = false;
+  state.cheatSheetLoadingMessage = "";
   upsertCheatSheet(cheatSheet);
   setStatus(
     `Loaded DEGRADATION Cheat Sheet with ${Math.max(0, Number(cheatSheet.callCount || cheatSheet.calls?.length || 0))} commands.`,
     "success"
   );
+}
+
+function handleCheatSheetStart(payload = {}) {
+  state.cheatSheetLoading = true;
+  state.cheatSheetLoadingMessage = String(payload?.message || "Generating DEGRADATION Cheat Sheet...").trim();
+  setStatus(state.cheatSheetLoadingMessage, "info");
+}
+
+function handleCheatSheetProgress(payload = {}) {
+  state.cheatSheetLoading = true;
+  state.cheatSheetLoadingMessage = String(payload?.message || "Generating DEGRADATION Cheat Sheet...").trim();
+  setStatus(state.cheatSheetLoadingMessage, String(payload?.type || "info").trim() || "info");
+}
+
+function handleCheatSheetError(payload = {}) {
+  state.cheatSheetLoading = false;
+  state.cheatSheetLoadingMessage = "";
+  setStatus(String(payload?.message || "Unable to generate the DEGRADATION cheat sheet.").trim(), "error");
 }
 
 function handleWorkspaceEvent(eventName, payload = {}) {
@@ -1677,6 +1703,18 @@ function handleWorkspaceEvent(eventName, payload = {}) {
   }
   if (event === "report-result") {
     handleReportResult(payload);
+    return;
+  }
+  if (event === "cheat-sheet-start") {
+    handleCheatSheetStart(payload);
+    return;
+  }
+  if (event === "cheat-sheet-progress") {
+    handleCheatSheetProgress(payload);
+    return;
+  }
+  if (event === "cheat-sheet-error") {
+    handleCheatSheetError(payload);
     return;
   }
   if (event === "cheat-sheet-result") {
