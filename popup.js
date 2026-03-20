@@ -56654,7 +56654,12 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     consoleShellTokenResult
   );
   const consoleAccessToken = normalizeBearerTokenValue(
-    firstNonEmptyString([consoleShellTokenResult?.accessToken, consoleScopedLoginData?.accessToken])
+    firstNonEmptyString([
+      consoleShellTokenResult?.accessToken,
+      consoleScopedLoginData?.experienceCloudAccessToken,
+      getPreferredExperienceCloudConsoleAccessTokenCandidate(),
+      consoleScopedLoginData?.accessToken,
+    ])
   );
   const normalizedLoginDataPromise = resolveNormalizedLoginData(consoleScopedLoginData, {
     fetchProfile: true,
@@ -58584,7 +58589,7 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
 
 async function ensureConsoleBootstrapState(accessToken = "", options = {}) {
   const normalizedAccessToken = normalizeBearerTokenValue(
-    firstNonEmptyString([accessToken, getPreferredPrimaryImsAccessTokenCandidate()])
+    firstNonEmptyString([accessToken, getPreferredAdobeConsoleAccessTokenCandidate()])
   );
   if (!normalizedAccessToken || !isProbablyJwt(normalizedAccessToken)) {
     setUnderparDiagnosticMarker("console_bootstrap", {
@@ -58871,10 +58876,15 @@ async function fetchAdobeConsoleJsonWithAuthVariants(urlCandidates, contextLabel
   const getHeaderVariants = () => {
     const explicitAuthorization = firstNonEmptyString([customHeaders.Authorization, customHeaders.authorization]);
     const explicitAccessToken = normalizeBearerTokenValue(explicitAuthorization.replace(/^Bearer\s+/i, ""));
-    const activeAccessToken = firstNonEmptyString([explicitAccessToken, state.loginData?.accessToken]);
+    const activeAccessToken = firstNonEmptyString([
+      explicitAccessToken,
+      getPreferredAdobeConsoleAccessTokenCandidate(),
+      state.loginData?.accessToken,
+    ]);
     const variants = [];
     if (activeAccessToken && preferAuthenticatedHeaders) {
       variants.push(getAdobeConsoleRequestHeaders(activeAccessToken));
+      variants.push(getAdobeConsoleRequestHeaders(""));
     }
     if (!activeAccessToken || preferAuthenticatedHeaders === false) {
       variants.push(getAdobeConsoleRequestHeaders(""));
@@ -59134,7 +59144,7 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
     return cachedApplications;
   }
 
-  const activeAccessToken = normalizeBearerTokenValue(getPreferredPrimaryImsAccessTokenCandidate());
+  const activeAccessToken = normalizeBearerTokenValue(getPreferredAdobeConsoleAccessTokenCandidate());
   if (activeAccessToken) {
     await ensureConsoleBootstrapState(activeAccessToken, {
       forceRefresh: false,
@@ -62436,6 +62446,15 @@ function getPreferredPrimaryImsAccessTokenCandidate() {
     return "";
   }
   return token;
+}
+
+function getPreferredAdobeConsoleAccessTokenCandidate() {
+  return normalizeBearerTokenValue(
+    firstNonEmptyString([
+      getPreferredExperienceCloudConsoleAccessTokenCandidate(),
+      getPreferredPrimaryImsAccessTokenCandidate(),
+    ])
+  );
 }
 
 function getPreferredCmRequestAccessTokenCandidate() {
@@ -68393,7 +68412,14 @@ function responseLooksLikeExperienceCloudSignIn(response, responseBody = "") {
 }
 
 async function fetchProgrammersFromApi(options = {}) {
-  let accessToken = normalizeBearerTokenValue(firstNonEmptyString([options.accessToken, state.loginData?.accessToken]));
+  let accessToken = normalizeBearerTokenValue(
+    firstNonEmptyString([
+      options.accessToken,
+      state.loginData?.experienceCloudAccessToken,
+      getPreferredExperienceCloudConsoleAccessTokenCandidate(),
+      state.loginData?.accessToken,
+    ])
+  );
   const requireEntities = options.requireEntities !== false;
   if (!accessToken || !isProbablyJwt(accessToken)) {
     throw createProgrammersError("Media company load requires a valid UnderPAR Adobe bearer.", "PROGRAMMERS_ACCESS_DENIED");
@@ -68410,81 +68436,96 @@ async function fetchProgrammersFromApi(options = {}) {
   let silentRefreshAttempted = false;
   for (const endpoint of endpoints) {
     try {
-      const baseHeaders = getAdobeConsoleRequestHeaders(accessToken);
+      const buildHeaderVariants = () =>
+        uniquePreserveOrder([
+          accessToken ? getAdobeConsoleRequestHeaders(accessToken) : null,
+          getAdobeConsoleRequestHeaders(""),
+        ].filter(Boolean)).map((headers) => ({ headers }));
 
-      for (let round = 0; round < 2; round += 1) {
-        const response = await fetchWithAbortTimeout(
-          endpoint,
-          {
-            method: "GET",
-            credentials: "include",
-            mode: "cors",
-            headers: baseHeaders,
-          },
-          PROGRAMMERS_FETCH_TIMEOUT_MS
-        );
-        captureAdobeConsoleResponseState(response);
+      let headerVariants = buildHeaderVariants();
+      headersLoop: for (let headerIndex = 0; headerIndex < headerVariants.length; headerIndex += 1) {
+        const baseHeaders = headerVariants[headerIndex]?.headers || getAdobeConsoleRequestHeaders("");
 
-        const responseText = await response.text().catch(() => "");
-        const payload = parseJsonText(responseText, null);
-        if (
-          isAdobeConsoleTokenExpiredResponse(response.status, payload, responseText) &&
-          !silentRefreshAttempted &&
-          firstNonEmptyString([state.loginData?.accessToken])
-        ) {
-          silentRefreshAttempted = true;
-          const refreshed = await refreshSessionNoTouch();
-          if (refreshed) {
-            accessToken = normalizeBearerTokenValue(firstNonEmptyString([options.accessToken, state.loginData?.accessToken]));
-            if (accessToken) {
-              baseHeaders.Authorization = `Bearer ${accessToken}`;
-              continue;
+        for (let round = 0; round < 2; round += 1) {
+          const response = await fetchWithAbortTimeout(
+            endpoint,
+            {
+              method: "GET",
+              credentials: "include",
+              mode: "cors",
+              headers: baseHeaders,
+            },
+            PROGRAMMERS_FETCH_TIMEOUT_MS
+          );
+          captureAdobeConsoleResponseState(response);
+
+          const responseText = await response.text().catch(() => "");
+          const payload = parseJsonText(responseText, null);
+          if (
+            isAdobeConsoleTokenExpiredResponse(response.status, payload, responseText) &&
+            !silentRefreshAttempted &&
+            firstNonEmptyString([state.loginData?.accessToken])
+          ) {
+            silentRefreshAttempted = true;
+            const refreshed = await refreshSessionNoTouch();
+            if (refreshed) {
+              accessToken = normalizeBearerTokenValue(
+                firstNonEmptyString([
+                  options.accessToken,
+                  state.loginData?.experienceCloudAccessToken,
+                  getPreferredExperienceCloudConsoleAccessTokenCandidate(),
+                  state.loginData?.accessToken,
+                ])
+              );
+              headerVariants = buildHeaderVariants();
+              headerIndex = -1;
+              continue headersLoop;
             }
           }
-        }
 
-        if (responseLooksLikeExperienceCloudSignIn(response, responseText)) {
-          denied = true;
-          lastError = createProgrammersError(
-            `Media company access denied (${response.status || 0})`,
-            "PROGRAMMERS_ACCESS_DENIED"
-          );
-          break;
-        }
-
-        if (!response.ok) {
-          const accessDeniedResponse = isAdobeConsoleAccessDeniedResponse(response.status, payload, responseText);
-          if (response.status === 401 || response.status === 403 || accessDeniedResponse) {
+          if (responseLooksLikeExperienceCloudSignIn(response, responseText)) {
             denied = true;
+            lastError = createProgrammersError(
+              `Media company access denied (${response.status || 0})`,
+              "PROGRAMMERS_ACCESS_DENIED"
+            );
+            break;
           }
-          lastError = createProgrammersError(
-            `Endpoint ${endpoint} failed (${response.status}): ${responseText || response.statusText}`,
-            accessDeniedResponse ? "PROGRAMMERS_ACCESS_DENIED" : "PROGRAMMERS_ENDPOINT_FAILED"
-          );
-          break;
-        }
 
-        if (payload === null) {
-          lastError = createProgrammersError(
-            `Endpoint ${endpoint} returned non-JSON payload (${response.status}).`,
-            "PROGRAMMERS_ENDPOINT_FAILED"
-          );
-          break;
-        }
-        const normalizedEntities = normalizeProgrammersResponse(payload);
-        if (requireEntities && normalizedEntities.length === 0) {
-          lastError = createProgrammersError(`Endpoint ${endpoint} returned no media companies.`, "PROGRAMMERS_EMPTY");
-          break;
-        }
+          if (!response.ok) {
+            const accessDeniedResponse = isAdobeConsoleAccessDeniedResponse(response.status, payload, responseText);
+            if (response.status === 401 || response.status === 403 || accessDeniedResponse) {
+              denied = true;
+            }
+            lastError = createProgrammersError(
+              `Endpoint ${endpoint} failed (${response.status}): ${responseText || response.statusText}`,
+              accessDeniedResponse ? "PROGRAMMERS_ACCESS_DENIED" : "PROGRAMMERS_ENDPOINT_FAILED"
+            );
+            break;
+          }
 
-        if (normalizedEntities.length > Number(bestEntities?.length || 0)) {
-          bestEntities = normalizedEntities;
-          bestEndpoint = endpoint;
-        }
+          if (payload === null) {
+            lastError = createProgrammersError(
+              `Endpoint ${endpoint} returned non-JSON payload (${response.status}).`,
+              "PROGRAMMERS_ENDPOINT_FAILED"
+            );
+            break;
+          }
+          const normalizedEntities = normalizeProgrammersResponse(payload);
+          if (requireEntities && normalizedEntities.length === 0) {
+            lastError = createProgrammersError(`Endpoint ${endpoint} returned no media companies.`, "PROGRAMMERS_EMPTY");
+            break;
+          }
 
-        if (normalizedEntities.length > 1) {
-          state.programmersApiEndpoint = endpoint;
-          return normalizedEntities;
+          if (normalizedEntities.length > Number(bestEntities?.length || 0)) {
+            bestEntities = normalizedEntities;
+            bestEndpoint = endpoint;
+          }
+
+          if (normalizedEntities.length > 1) {
+            state.programmersApiEndpoint = endpoint;
+            return normalizedEntities;
+          }
         }
       }
     } catch (error) {
@@ -68505,7 +68546,9 @@ async function fetchProgrammersFromApi(options = {}) {
 }
 
 async function loadProgrammersData(accessToken = "", options = {}) {
-  const normalizedAccessToken = normalizeBearerTokenValue(firstNonEmptyString([accessToken, state.loginData?.accessToken]));
+  const normalizedAccessToken = normalizeBearerTokenValue(
+    firstNonEmptyString([accessToken, getPreferredAdobeConsoleAccessTokenCandidate(), state.loginData?.accessToken])
+  );
   const allowRestrictedSession = options.allowRestrictedSession === true;
   if ((!state.loginData && !normalizedAccessToken) || (state.restricted && !allowRestrictedSession)) {
     setUnderparDiagnosticMarker("programmers", {

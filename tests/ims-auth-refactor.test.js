@@ -506,13 +506,17 @@ test("activation qualifies an Experience Cloud shell token before console progra
   const activateSource = extractFunctionSource(popupSource, "activateSession");
   const qualifyShellTokenSource = extractFunctionSource(popupSource, "requestQualifiedExperienceCloudConsoleToken");
   const mergeShellTokenSource = extractFunctionSource(popupSource, "mergeExperienceCloudConsoleTokenIntoLoginData");
+  const consoleTokenPreferenceSource = extractFunctionSource(popupSource, "getPreferredAdobeConsoleAccessTokenCandidate");
 
   assert.match(qualifyShellTokenSource, /requestExperienceCloudConsoleTokenViaValidateToken/);
   assert.match(qualifyShellTokenSource, /requestExperienceCloudConsoleTokenViaImsCheck/);
   assert.match(qualifyShellTokenSource, /qualified:existing-experience-cloud/);
+  assert.match(consoleTokenPreferenceSource, /getPreferredExperienceCloudConsoleAccessTokenCandidate\(\)/);
+  assert.match(consoleTokenPreferenceSource, /getPreferredPrimaryImsAccessTokenCandidate\(\)/);
   assert.match(mergeShellTokenSource, /experienceCloudAccessToken: accessToken/);
   assert.match(activateSource, /const consoleShellTokenResult = await requestQualifiedExperienceCloudConsoleToken/);
   assert.match(activateSource, /const consoleScopedLoginData = mergeExperienceCloudConsoleTokenIntoLoginData/);
+  assert.match(activateSource, /consoleScopedLoginData\?\.experienceCloudAccessToken/);
   assert.match(activateSource, /await loadProgrammersData\(consoleAccessToken/);
   assert.match(activateSource, /resetBootstrapTokens: !Boolean\(consoleShellTokenResult\?\.accessToken\)/);
 });
@@ -668,6 +672,8 @@ test("console configuration version is sourced dynamically from console bootstra
   const fetchProgrammersSource = extractFunctionSource(popupSource, "fetchProgrammersFromApi");
   const fetchBootstrapSource = extractFunctionSource(popupSource, "fetchAdobeConsoleBootstrapState");
   const configVersionSource = extractFunctionSource(popupSource, "getKnownAdobeConsoleConfigurationVersion");
+  const bootstrapEnsureSource = extractFunctionSource(popupSource, "ensureConsoleBootstrapState");
+  const fetchConsoleSource = extractFunctionSource(popupSource, "fetchAdobeConsoleJsonWithAuthVariants");
 
   assert.equal(/configurationVersion=3522/.test(popupSource), false);
   assert.match(popupSource, /function appendAdobeConsoleConfigurationVersion/);
@@ -675,6 +681,7 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.match(popupSource, /let underparStateRef = null;/);
   assert.match(popupSource, /underparStateRef = state;/);
   assert.doesNotMatch(configVersionSource, /typeof state/);
+  assert.match(bootstrapEnsureSource, /getPreferredAdobeConsoleAccessTokenCandidate\(\)/);
   assert.match(loadProgrammersSource, /bootstrapState = await ensureConsoleBootstrapState/);
   assert.match(loadProgrammersSource, /allowInteractiveAuthBootstrap: options\.allowInteractiveAuthBootstrap === true/);
   assert.match(fetchBootstrapSource, /Promise\.allSettled\(/);
@@ -682,7 +689,11 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.doesNotMatch(loadProgrammersSource, /configurationVersion <= 0/);
   assert.match(loadProgrammersSource, /!bootstrapState \|\| !bootstrapState\.extendedProfile/);
   assert.match(loadProgrammersSource, /grantedAuthorities\.length > 0 && !hasAdobeConsoleProgrammerAccess\(grantedAuthorities\)/);
-  assert.match(fetchProgrammersSource, /const baseHeaders = getAdobeConsoleRequestHeaders\(accessToken\)/);
+  assert.match(fetchConsoleSource, /variants\.push\(getAdobeConsoleRequestHeaders\(""\)\)/);
+  assert.match(fetchProgrammersSource, /state\.loginData\?\.experienceCloudAccessToken/);
+  assert.match(fetchProgrammersSource, /getPreferredExperienceCloudConsoleAccessTokenCandidate\(\)/);
+  assert.match(fetchProgrammersSource, /const buildHeaderVariants = \(\) =>/);
+  assert.match(fetchProgrammersSource, /getAdobeConsoleRequestHeaders\(""\)/);
 });
 
 test("programmer endpoint access_denied responses stay on the auth-denied recovery path", () => {
