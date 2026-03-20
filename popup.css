@@ -5085,6 +5085,12 @@ select:disabled {
   justify-content: flex-end;
 }
 
+.degradation-utility-row .degradation-make-clickdgr-btn.esm-workspace-toolbar-icon-btn--tearsheet {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+}
+
 .degradation-quick-set-select {
   flex: 1 1 220px;
   width: auto;
@@ -5103,6 +5109,32 @@ select:disabled {
 .degradation-make-clickdgr-btn:disabled {
   opacity: 0.68;
   cursor: default;
+}
+
+.service-degradation .degradation-make-clickdgr-btn.esm-workspace-toolbar-icon-btn--tearsheet {
+  border-color: var(--service-action-border);
+  background: var(--service-action-bg);
+  color: #ffffff;
+  box-shadow: var(--service-action-shadow);
+}
+
+.service-degradation .degradation-make-clickdgr-btn.esm-workspace-toolbar-icon-btn--tearsheet:hover:not(:disabled) {
+  border-color: var(--service-action-border-hover);
+  background: var(--service-action-bg-hover);
+  color: #ffffff;
+  box-shadow: var(--service-action-shadow-hover);
+}
+
+.service-degradation .degradation-make-clickdgr-btn.esm-workspace-toolbar-icon-btn--tearsheet:active:not(:disabled) {
+  border-color: var(--service-action-border-active);
+  background: var(--service-action-bg-active);
+  color: #ffffff;
+  box-shadow: var(--service-action-shadow-active);
+}
+
+.service-degradation .degradation-make-clickdgr-btn.esm-workspace-toolbar-icon-btn--tearsheet:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--service-accent-soft), var(--service-action-shadow);
 }
 
 .degradation-recording-status {

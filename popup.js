@@ -48569,11 +48569,11 @@ function degradationBuildControllerHtml(programmer, appInfo) {
       <div class="degradation-cheat-sheet-row degradation-utility-row"${requestorControlsHiddenAttr}>
         <button
           type="button"
-          class="degradation-make-clickdgr-btn degradation-utility-btn"
+          class="degradation-make-clickdgr-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"
           title="Click to generate DEGRADATION Tearsheet ( clickDGR )"
           aria-label="Click to generate DEGRADATION Tearsheet ( clickDGR )"
         >
-          <span class="degradation-utility-btn-icon" aria-hidden="true">
+          <span class="esm-workspace-toolbar-icon esm-workspace-toolbar-icon--tearsheet" aria-hidden="true">
             <svg viewBox="0 0 24 24" focusable="false">
               <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
               <path d="M14.25 3.75V8.5H19" />
@@ -48581,7 +48581,6 @@ function degradationBuildControllerHtml(programmer, appInfo) {
               <path d="M14 12.25 14.3 13.1 15.2 13.4 14.3 13.7 14 14.55 13.7 13.7 12.8 13.4 13.7 13.1 14 12.25Z" />
             </svg>
           </span>
-          <span class="degradation-utility-btn-label">DGR TEARSHEET</span>
         </button>
         <button
           type="button"

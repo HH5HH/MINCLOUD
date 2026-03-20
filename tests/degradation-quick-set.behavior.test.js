@@ -22,9 +22,11 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(popupSource, /class="degradation-cheat-sheet-row\b[^"]*"/);
   assert.match(popupSource, /class="degradation-cheat-sheet-row degradation-utility-row"/);
   assert.match(popupSource, /class="degradation-copy-curl-btn"/);
-  assert.match(popupSource, /class="degradation-make-clickdgr-btn degradation-utility-btn"/);
+  assert.match(
+    popupSource,
+    /class="degradation-make-clickdgr-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"/
+  );
   assert.match(popupSource, />\s*CHEAT SHEET\s*</);
-  assert.match(popupSource, />\s*DGR TEARSHEET\s*</);
   assert.match(popupSource, /function degradationHasQualifiedCheatSheetContext\(/);
   assert.match(popupSource, /function degradationSyncCheatSheetButton\(/);
   assert.match(popupSource, /Select Environment x Media Company, RequestorId, and MVPD first/);
@@ -110,7 +112,10 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
 
   assert.match(popupCss, /\.degradation-cheat-sheet-row\s*\{/);
   assert.match(popupCss, /\.degradation-utility-row\s*\{/);
-  assert.match(popupCss, /\.degradation-utility-btn\s*\{/);
+  assert.match(
+    popupCss,
+    /\.service-degradation \.degradation-make-clickdgr-btn\.esm-workspace-toolbar-icon-btn--tearsheet\s*\{/
+  );
   assert.match(popupCss, /\.degradation-copy-curl-btn\s*\{/);
 
   assert.match(workspaceSource, /function renderCheatSheetCard\(/);
