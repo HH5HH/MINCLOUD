@@ -984,7 +984,6 @@ test("build label renders immediately from the manifest version with a placehold
 test("popup and sidepanel ship the same sparse logged-out sign-in surface after ZIP.KEY import", () => {
   const sidepanelHtml = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
   const popupHtml = fs.readFileSync(path.join(ROOT, "popup.html"), "utf8");
-  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
 
   assert.match(sidepanelHtml, /id="sign-in-view"/);
   assert.match(popupHtml, /id="sign-in-view"/);
@@ -997,6 +996,31 @@ test("popup and sidepanel ship the same sparse logged-out sign-in surface after 
   assert.doesNotMatch(sidepanelHtml, /class="sign-in-view-card"/);
   assert.doesNotMatch(popupHtml, /class="sign-in-view-card"/);
   assert.ok(sidepanelHtml.indexOf('id="zip-key-import-view"') < sidepanelHtml.indexOf('id="sign-in-view"'));
+});
+
+test("popup and sidepanel both ship the AdobePass restricted recovery picker surface", () => {
+  const sidepanelHtml = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
+  const popupHtml = fs.readFileSync(path.join(ROOT, "popup.html"), "utf8");
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const renderRestrictedSource = extractFunctionSource(popupSource, "renderRestrictedView");
+
+  for (const htmlSource of [popupHtml, sidepanelHtml]) {
+    assert.match(htmlSource, /id="restricted-view"/);
+    assert.match(htmlSource, /class="restricted-view-card"/);
+    assert.match(htmlSource, /id="restricted-org-select"/);
+    assert.match(htmlSource, /id="restricted-org-hint"/);
+    assert.match(htmlSource, /id="restricted-org-switch-btn"/);
+    assert.match(htmlSource, /id="restricted-sign-in-btn"/);
+    assert.match(htmlSource, /id="restricted-sign-out-btn"/);
+    assert.match(htmlSource, /Adobe Org Profile/);
+    assert.match(htmlSource, /Sign In Again/);
+    assert.match(htmlSource, /Sign Out/);
+  }
+
+  assert.match(renderRestrictedSource, /!els\.restrictedOrgSelect/);
+  assert.match(renderRestrictedSource, /!els\.restrictedOrgSwitchBtn/);
+  assert.match(renderRestrictedSource, /!els\.restrictedSignInBtn/);
+  assert.match(renderRestrictedSource, /!els\.restrictedSignOutBtn/);
 });
 
 test("sidepanel requestor picker spans the same full workflow width as media company and MVPD", () => {

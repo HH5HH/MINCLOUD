@@ -71,7 +71,47 @@
         </section>
 
         <section id="restricted-view" class="restricted-view" hidden>
-          <p>For @AdobePass only</p>
+          <div class="restricted-view-card">
+            <p class="restricted-view-title">For @AdobePass only</p>
+            <p class="restricted-view-copy">
+              UnderPAR auto-attempts a switch to @AdobePass. If access is still denied, switch manually below.
+            </p>
+
+            <div class="restricted-view-context">
+              <p id="restricted-login-state" class="restricted-view-context-line"></p>
+              <p id="restricted-org-state" class="restricted-view-context-line"></p>
+              <p id="restricted-recovery-state" class="restricted-view-context-line"></p>
+            </div>
+
+            <div class="field restricted-org-field">
+              <label for="restricted-org-select">Adobe Org Profile</label>
+              <select id="restricted-org-select" disabled>
+                <option value="">-- No organizations available --</option>
+              </select>
+            </div>
+
+            <p id="restricted-org-hint" class="restricted-view-hint"></p>
+
+            <div class="restricted-view-actions">
+              <button id="restricted-org-switch-btn" type="button" class="restricted-action-btn" disabled>
+                Switch Org
+              </button>
+              <button
+                id="restricted-sign-in-btn"
+                type="button"
+                class="restricted-action-btn restricted-action-btn-secondary"
+              >
+                Sign In Again
+              </button>
+              <button
+                id="restricted-sign-out-btn"
+                type="button"
+                class="restricted-action-btn restricted-action-btn-secondary"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
         </section>
 
         <section id="workflow" class="workflow" hidden>
