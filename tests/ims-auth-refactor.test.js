@@ -583,6 +583,7 @@ test("console configuration version is sourced dynamically from console bootstra
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const loadProgrammersSource = extractFunctionSource(popupSource, "loadProgrammersData");
   const fetchProgrammersSource = extractFunctionSource(popupSource, "fetchProgrammersFromApi");
+  const fetchBootstrapSource = extractFunctionSource(popupSource, "fetchAdobeConsoleBootstrapState");
   const configVersionSource = extractFunctionSource(popupSource, "getKnownAdobeConsoleConfigurationVersion");
 
   assert.equal(/configurationVersion=3522/.test(popupSource), false);
@@ -593,8 +594,11 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.doesNotMatch(configVersionSource, /typeof state/);
   assert.match(loadProgrammersSource, /bootstrapState = await ensureConsoleBootstrapState/);
   assert.match(loadProgrammersSource, /allowInteractiveAuthBootstrap: options\.allowInteractiveAuthBootstrap === true/);
+  assert.match(fetchBootstrapSource, /Promise\.allSettled\(/);
   assert.match(loadProgrammersSource, /const configurationVersion = mvpdWorkspaceExtractConfigurationVersion\(bootstrapState, 0\)/);
-  assert.match(loadProgrammersSource, /hasAdobeConsoleProgrammerAccess\(bootstrapState\.grantedAuthorities\)/);
+  assert.doesNotMatch(loadProgrammersSource, /configurationVersion <= 0/);
+  assert.match(loadProgrammersSource, /!bootstrapState \|\| !bootstrapState\.extendedProfile/);
+  assert.match(loadProgrammersSource, /grantedAuthorities\.length > 0 && !hasAdobeConsoleProgrammerAccess\(grantedAuthorities\)/);
   assert.match(fetchProgrammersSource, /const baseHeaders = getAdobeConsoleRequestHeaders\(accessToken\)/);
 });
 

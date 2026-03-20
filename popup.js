@@ -57970,7 +57970,7 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
     },
   };
 
-  const [extendedProfileResponse, maintenanceStatusResponse, configurationVersionResponse] = await Promise.all([
+  const [extendedProfileResult, maintenanceStatusResult, configurationVersionResult] = await Promise.allSettled([
     fetchAdobeConsoleJsonWithAuthVariants(
       [`${ADOBE_CONSOLE_BASE}/rest/api/user/extendedProfile`],
       "Console extended profile",
@@ -57987,6 +57987,16 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
       commonRequestOptions
     ),
   ]);
+
+  if (extendedProfileResult.status !== "fulfilled") {
+    throw extendedProfileResult.reason instanceof Error
+      ? extendedProfileResult.reason
+      : new Error(String(extendedProfileResult.reason || "Console extended profile failed."));
+  }
+
+  const extendedProfileResponse = extendedProfileResult.value;
+  const maintenanceStatusResponse = maintenanceStatusResult.status === "fulfilled" ? maintenanceStatusResult.value : null;
+  const configurationVersionResponse = configurationVersionResult.status === "fulfilled" ? configurationVersionResult.value : null;
 
   const configurationVersion = mvpdWorkspaceExtractConfigurationVersion(configurationVersionResponse?.parsed, 0);
   return {
@@ -67621,7 +67631,7 @@ async function loadProgrammersData(accessToken = "", options = {}) {
   }
 
   const configurationVersion = mvpdWorkspaceExtractConfigurationVersion(bootstrapState, 0);
-  if (!bootstrapState || configurationVersion <= 0) {
+  if (!bootstrapState || !bootstrapState.extendedProfile) {
     applyProgrammerEntities([]);
     setUnderparDiagnosticMarker("programmers", {
       status: "error",
@@ -67633,7 +67643,8 @@ async function loadProgrammersData(accessToken = "", options = {}) {
       "PROGRAMMERS_LOAD_FAILED"
     );
   }
-  if (!hasAdobeConsoleProgrammerAccess(bootstrapState.grantedAuthorities)) {
+  const grantedAuthorities = Array.isArray(bootstrapState.grantedAuthorities) ? bootstrapState.grantedAuthorities : [];
+  if (grantedAuthorities.length > 0 && !hasAdobeConsoleProgrammerAccess(grantedAuthorities)) {
     applyProgrammerEntities([]);
     setUnderparDiagnosticMarker("programmers", {
       status: "denied",
