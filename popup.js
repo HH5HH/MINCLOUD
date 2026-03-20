@@ -9360,6 +9360,97 @@ function captureAdobePassEnvironmentSwitchSelectionSnapshot() {
   };
 }
 
+function hasProgrammerSelectionSnapshot(snapshot = null) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return false;
+  }
+  return Boolean(
+    firstNonEmptyString([snapshot.programmerId, snapshot.programmerName, snapshot.mediaCompanyName]).trim()
+  );
+}
+
+function getProgrammerSelectionSnapshotIdentity(snapshot = null) {
+  if (!snapshot || typeof snapshot !== "object") {
+    return "";
+  }
+  return String(
+    firstNonEmptyString([snapshot.programmerId, snapshot.programmerName, snapshot.mediaCompanyName]).trim().toLowerCase()
+  );
+}
+
+function buildLastSelectedProgrammerSelectionSnapshotFromPassVault() {
+  let latestProgrammer = null;
+  let latestSelectedAt = 0;
+
+  for (const programmer of Array.isArray(state.programmers) ? state.programmers : []) {
+    const programmerId = String(programmer?.programmerId || "").trim();
+    if (!programmerId) {
+      continue;
+    }
+    const lastSelectedAt = Number(getPassVaultMediaCompanyRecord(programmerId)?.lastSelectedAt || 0);
+    if (!Number.isFinite(lastSelectedAt) || lastSelectedAt <= latestSelectedAt) {
+      continue;
+    }
+    latestSelectedAt = lastSelectedAt;
+    latestProgrammer = programmer;
+  }
+
+  if (!latestProgrammer?.programmerId) {
+    return null;
+  }
+
+  return {
+    programmerId: String(latestProgrammer.programmerId || "").trim(),
+    programmerName: String(latestProgrammer.programmerName || "").trim(),
+    mediaCompanyName: String(latestProgrammer.mediaCompanyName || latestProgrammer.programmerName || "").trim(),
+    requestorId: "",
+    mvpdId: "",
+  };
+}
+
+async function restorePreferredProgrammerSelectionForActivation(previousSelectionSnapshot = null, source = "unknown") {
+  const normalizedSource = String(source || "unknown").trim() || "unknown";
+  const controllerReason = `session-activated:${normalizedSource}`;
+  const snapshots = [];
+
+  if (hasProgrammerSelectionSnapshot(previousSelectionSnapshot)) {
+    snapshots.push(previousSelectionSnapshot);
+  }
+
+  const passVaultSelectionSnapshot = buildLastSelectedProgrammerSelectionSnapshotFromPassVault();
+  if (hasProgrammerSelectionSnapshot(passVaultSelectionSnapshot)) {
+    const passVaultIdentity = getProgrammerSelectionSnapshotIdentity(passVaultSelectionSnapshot);
+    if (!snapshots.some((snapshot) => getProgrammerSelectionSnapshotIdentity(snapshot) === passVaultIdentity)) {
+      snapshots.push(passVaultSelectionSnapshot);
+    }
+  }
+
+  for (const snapshot of snapshots) {
+    const restoreResult = await applyGlobalSelectionSnapshot(snapshot, {
+      controllerReason,
+      mvpdControllerReason: `${controllerReason}-mvpd-restore`,
+    }).catch(() => null);
+    if (restoreResult?.programmerRestored) {
+      return {
+        programmer: resolveSelectedProgrammer(),
+        hydrated: true,
+      };
+    }
+  }
+
+  if (state.programmers.length === 1) {
+    return {
+      programmer: selectProgrammerForController(state.programmers[0], controllerReason),
+      hydrated: false,
+    };
+  }
+
+  return {
+    programmer: null,
+    hydrated: false,
+  };
+}
+
 function findProgrammerForEnvironmentSwitchSnapshot(snapshot = null) {
   if (!snapshot || typeof snapshot !== "object" || !Array.isArray(state.programmers) || state.programmers.length === 0) {
     return null;
@@ -50161,8 +50252,9 @@ function renderPremiumServices(services, programmer = null, options = {}) {
       profiles: [],
       updatedAt: Date.now(),
     });
-    els.premiumServicesContainer.innerHTML =
-      '<p class="metadata-empty">No premium scoped applications loaded yet.</p>';
+    els.premiumServicesContainer.innerHTML = programmer?.programmerId
+      ? '<p class="metadata-empty">No premium scoped applications loaded yet.</p>'
+      : '<p class="metadata-empty">Select a Media Company to load premium scoped applications.</p>';
     return;
   }
   const availableKeys = getDetectedPremiumServiceKeys(services);
@@ -57063,6 +57155,7 @@ async function applyActiveLoginSession(loginData, options = {}) {
 async function activateSession(sessionData, source = "unknown", options = {}) {
   const activationStartedAt = Date.now();
   const normalizedSource = String(source || "unknown").trim() || "unknown";
+  const activationSelectionSnapshot = captureAdobePassEnvironmentSwitchSelectionSnapshot();
   const allowDeniedRecovery = options.allowDeniedRecovery !== false;
   const allowTemporaryPageContextTab = options.allowTemporaryPageContextTab === true;
   const allowInteractiveConsoleBootstrap = shouldAllowInteractiveConsoleBootstrapForActivation(
@@ -57242,12 +57335,12 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   prefetchCmConsoleBootstrapSummaryInBackground(`session-activated:${source}`, {
     forceRefresh: false,
   });
-  const selectedProgrammerForHydration =
-    resolveSelectedProgrammer() ||
-    (state.programmers.length === 1
-      ? selectProgrammerForController(state.programmers[0], `session-activated:${source}`)
-      : null);
-  if (selectedProgrammerForHydration?.programmerId) {
+  const preferredProgrammerSelection = await restorePreferredProgrammerSelectionForActivation(
+    activationSelectionSnapshot,
+    normalizedSource
+  );
+  const selectedProgrammerForHydration = preferredProgrammerSelection?.programmer || null;
+  if (selectedProgrammerForHydration?.programmerId && preferredProgrammerSelection?.hydrated !== true) {
     void refreshProgrammerPanels({
       controllerReason: `session-activated:${source}`,
       skipCmBootstrap: true,
@@ -70612,7 +70705,7 @@ async function signInInteractive(options = {}) {
         profileMs: Math.max(0, profileResolvedAt - authCompletedAt),
         activationMs: Math.max(0, Date.now() - profileResolvedAt),
         totalMs: Math.max(0, Date.now() - signInStartedAt),
-        cmHydrationMode: "blocking-until-ready",
+        cmHydrationMode: "selection-driven",
       });
     }
 
@@ -70712,7 +70805,7 @@ async function refreshSessionManual() {
         profileMs: Math.max(0, profileResolvedAt - authCompletedAt),
         activationMs: Math.max(0, Date.now() - profileResolvedAt),
         totalMs: Math.max(0, Date.now() - refreshStartedAt),
-        cmHydrationMode: "blocking-until-ready",
+        cmHydrationMode: "selection-driven",
       });
     }
 

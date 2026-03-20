@@ -1270,13 +1270,28 @@ test("selected programmer hydration is primed early and reused by panel render i
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const refreshSource = extractFunctionSource(popupSource, "refreshProgrammerPanels");
   const activateSessionSource = extractFunctionSource(popupSource, "activateSession");
+  const restoreSelectionSource = extractFunctionSource(popupSource, "restorePreferredProgrammerSelectionForActivation");
 
   assert.match(popupSource, /async function primeProgrammerServiceHydration\(/);
   assert.match(refreshSource, /backgroundHydrationPromise = primeProgrammerServiceHydration\(programmer, cachedServices/);
   assert.match(refreshSource, /backgroundHydrationPromise =\s*backgroundHydrationPromise \|\|[\s\S]*primeProgrammerServiceHydration\(programmer, initialMergedServices/);
-  assert.match(activateSessionSource, /selectProgrammerForController\(state\.programmers\[0\], `session-activated:\$\{source\}`\)/);
+  assert.match(activateSessionSource, /restorePreferredProgrammerSelectionForActivation\(\s*activationSelectionSnapshot,\s*normalizedSource\s*\)/);
+  assert.match(restoreSelectionSource, /applyGlobalSelectionSnapshot\(snapshot,\s*\{/);
+  assert.match(restoreSelectionSource, /buildLastSelectedProgrammerSelectionSnapshotFromPassVault\(\)/);
+  assert.match(restoreSelectionSource, /state\.programmers\.length === 1/);
+  assert.match(restoreSelectionSource, /selectProgrammerForController\(state\.programmers\[0\], controllerReason\)/);
   assert.match(activateSessionSource, /refreshProgrammerPanels\(\{[\s\S]*skipCmBootstrap: true/);
   assert.doesNotMatch(activateSessionSource, /primeProgrammerServiceHydration\(\s*selectedProgrammerForHydration/);
+});
+
+test("no-selection authenticated state tells the user to choose a Media Company instead of implying hydration failure", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const renderPremiumServicesSource = extractFunctionSource(popupSource, "renderPremiumServices");
+
+  assert.match(
+    renderPremiumServicesSource,
+    /programmer\?\.programmerId[\s\S]*No premium scoped applications loaded yet\.[\s\S]*Select a Media Company to load premium scoped applications\./
+  );
 });
 
 test("ESM, CM, and DEGRADATION panel loaders wait for in-flight programmer hydration before surfacing missing-service state", () => {
