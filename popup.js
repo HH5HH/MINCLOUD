@@ -56275,7 +56275,7 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
     "interactive-auto-switch-recovery",
     {
       allowDeniedRecovery: false,
-      allowTemporaryPageContextTab: false,
+      allowTemporaryPageContextTab: true,
     }
   );
 }
@@ -57059,6 +57059,8 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
       allowInteractiveAuthBootstrap: allowInteractiveConsoleBootstrap,
       allowRestrictedSession: true,
       forceRefresh: false,
+      allowTemporaryPageContextTab: allowBackgroundTemporaryPageContextTab,
+      preferredTabId: preferredCmBootstrapTabId,
     });
   } catch (error) {
     const accessDenied = error?.code === "PROGRAMMERS_ACCESS_DENIED";
@@ -58936,6 +58938,7 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
 
   const timeoutMs = Math.max(1000, Number(options.timeoutMs || PROGRAMMERS_FETCH_TIMEOUT_MS));
   const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
+  const allowTemporaryPageContextTab = options.allowTemporaryPageContextTab === true;
   let shellSnapshot = null;
   let extendedProfileResponse = null;
   let maintenanceStatusResponse = null;
@@ -58945,7 +58948,7 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
     fetchAdobeConsoleJsonViaShellPageContext(endpoint, {
       accessToken: normalizedAccessToken,
       preferredTabId,
-      allowTemporaryTab: true,
+      allowTemporaryTab: allowTemporaryPageContextTab,
       timeoutMs,
     }).catch(() => null);
 
@@ -64091,12 +64094,32 @@ async function openTemporaryAdobePageContextTarget(targetUrl = "") {
   }
 
   let temporaryTarget = null;
-  if (chrome.windows?.create) {
+  if (chrome.tabs?.create) {
+    try {
+      const createdTab = await chrome.tabs.create({
+        url: normalizedUrl,
+        active: false,
+      });
+      const tabId = Number(createdTab?.id || 0);
+      if (tabId > 0) {
+        temporaryTarget = {
+          tab: createdTab,
+          tabId,
+          windowId: Number(createdTab?.windowId || 0),
+          ownsWindow: false,
+        };
+      }
+    } catch {
+      temporaryTarget = null;
+    }
+  }
+
+  if (!temporaryTarget && chrome.windows?.create) {
     try {
       const createdWindow = await chrome.windows.create({
         url: normalizedUrl,
+        type: "popup",
         focused: false,
-        state: "normal",
         width: 480,
         height: 640,
       });
@@ -64112,26 +64135,6 @@ async function openTemporaryAdobePageContextTarget(targetUrl = "") {
           tabId,
           windowId,
           ownsWindow: true,
-        };
-      }
-    } catch {
-      temporaryTarget = null;
-    }
-  }
-
-  if (!temporaryTarget && chrome.tabs?.create) {
-    try {
-      const createdTab = await chrome.tabs.create({
-        url: normalizedUrl,
-        active: false,
-      });
-      const tabId = Number(createdTab?.id || 0);
-      if (tabId > 0) {
-        temporaryTarget = {
-          tab: createdTab,
-          tabId,
-          windowId: Number(createdTab?.windowId || 0),
-          ownsWindow: false,
         };
       }
     } catch {
@@ -64180,6 +64183,67 @@ async function resolveReusableAdobePageContextTab(preferredTabId = 0) {
   return null;
 }
 
+function getAdobeConsolePageContextBootstrapUrl(requestUrl = "") {
+  const normalizedUrl = String(requestUrl || "").trim();
+  const isProgrammersRequest = /\/entity\/Programmer(?:[/?#]|$)/i.test(normalizedUrl);
+  return firstNonEmptyString([
+    isProgrammersRequest ? getActiveAdobePassEnvironment()?.consoleProgrammersUrl : "",
+    getActiveAdobePassEnvironment()?.consoleShellUrl,
+    `${String(CM_CONSOLE_APP_ORIGIN || "").trim().replace(/\/+$/, "")}/`,
+  ]);
+}
+
+async function resolveAdobeConsolePageContextTarget(requestUrl = "", options = {}) {
+  const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
+  const allowTemporaryTab = options.allowTemporaryTab === true;
+
+  let tab = await resolveReusableAdobePageContextTab(preferredTabId);
+  if (!tab?.id) {
+    tab = await findExistingExperienceCloudAdobeTab();
+  }
+
+  let temporaryTarget = null;
+  if (!tab?.id && allowTemporaryTab) {
+    temporaryTarget = await openTemporaryAdobePageContextTarget(
+      getAdobeConsolePageContextBootstrapUrl(requestUrl)
+    );
+    tab = temporaryTarget?.tab || null;
+  }
+
+  return {
+    tab: tab || null,
+    tabId: Number(tab?.id || 0),
+    temporaryTarget,
+  };
+}
+
+async function withAdobeConsolePageContextTarget(requestUrl = "", options = {}, work = null) {
+  const handler = typeof work === "function" ? work : null;
+  if (!handler) {
+    return null;
+  }
+
+  const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
+  const allowTemporaryTab = options.allowTemporaryTab === true;
+  const target = await resolveAdobeConsolePageContextTarget(requestUrl, {
+    preferredTabId,
+    allowTemporaryTab,
+  }).catch(() => null);
+  const resolvedTabId = Number(target?.tabId || 0);
+
+  try {
+    return await handler({
+      preferredTabId: resolvedTabId > 0 ? resolvedTabId : preferredTabId,
+      allowTemporaryPageContextTab: resolvedTabId > 0 ? false : allowTemporaryTab,
+      temporaryTarget: target?.temporaryTarget || null,
+    });
+  } finally {
+    if (target?.temporaryTarget) {
+      await closeTemporaryAdobePageContextTarget(target.temporaryTarget);
+    }
+  }
+}
+
 async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options = {}) {
   if (!chrome.scripting?.executeScript) {
     return null;
@@ -64190,7 +64254,6 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
     return null;
   }
 
-  const isProgrammersRequest = /\/entity\/Programmer(?:[/?#]|$)/i.test(normalizedUrl);
   const allowTemporaryTab = options.allowTemporaryTab !== false;
   const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
   const timeoutMs = Math.max(2000, Number(options.timeoutMs || PROGRAMMERS_FETCH_TIMEOUT_MS));
@@ -64203,23 +64266,12 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
   }
   headerVariants.push(getAdobeConsoleRequestHeaders(""));
 
-  let tab = await resolveReusableAdobePageContextTab(preferredTabId);
-  if (!tab?.id) {
-    tab = await findExistingExperienceCloudAdobeTab();
-  }
-
-  let temporaryTarget = null;
-  if (!tab?.id && allowTemporaryTab) {
-    const shellUrl = firstNonEmptyString([
-      isProgrammersRequest ? getActiveAdobePassEnvironment()?.consoleProgrammersUrl : "",
-      getActiveAdobePassEnvironment()?.consoleShellUrl,
-      `${String(CM_CONSOLE_APP_ORIGIN || "").trim().replace(/\/+$/, "")}/`,
-    ]);
-    temporaryTarget = await openTemporaryAdobePageContextTarget(shellUrl);
-    tab = temporaryTarget?.tab || null;
-  }
-
-  const tabId = Number(tab?.id || 0);
+  const target = await resolveAdobeConsolePageContextTarget(normalizedUrl, {
+    preferredTabId,
+    allowTemporaryTab,
+  }).catch(() => null);
+  const temporaryTarget = target?.temporaryTarget || null;
+  const tabId = Number(target?.tabId || 0);
   if (tabId <= 0) {
     return null;
   }
@@ -69564,6 +69616,7 @@ async function fetchProgrammersFromApi(options = {}) {
   );
   const requireEntities = options.requireEntities !== false;
   const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
+  const allowTemporaryPageContextTab = options.allowTemporaryPageContextTab === true;
   if (!accessToken || !isProbablyJwt(accessToken)) {
     throw createProgrammersError("Media company load requires a valid UnderPAR Adobe bearer.", "PROGRAMMERS_ACCESS_DENIED");
   }
@@ -69582,7 +69635,7 @@ async function fetchProgrammersFromApi(options = {}) {
       const pageContextResult = await fetchAdobeConsoleJsonViaShellPageContext(endpoint, {
         accessToken,
         preferredTabId,
-        allowTemporaryTab: true,
+        allowTemporaryTab: allowTemporaryPageContextTab,
         timeoutMs: PROGRAMMERS_FETCH_TIMEOUT_MS,
       }).catch(() => null);
 
@@ -69740,6 +69793,8 @@ async function loadProgrammersData(accessToken = "", options = {}) {
     firstNonEmptyString([accessToken, getPreferredAdobeConsoleAccessTokenCandidate(), state.loginData?.accessToken])
   );
   const allowRestrictedSession = options.allowRestrictedSession === true;
+  const allowTemporaryPageContextTab = options.allowTemporaryPageContextTab === true;
+  const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
   if ((!state.loginData && !normalizedAccessToken) || (state.restricted && !allowRestrictedSession)) {
     setUnderparDiagnosticMarker("programmers", {
       status: "skipped",
@@ -69749,113 +69804,142 @@ async function loadProgrammersData(accessToken = "", options = {}) {
     return;
   }
 
-  setUnderparDiagnosticMarker("programmers", {
-    status: "pending",
-    phase: "console-bootstrap",
-    forceRefresh: options.forceRefresh === true,
-    allowInteractiveAuthBootstrap: options.allowInteractiveAuthBootstrap === true,
-  });
+  const runProgrammerLoad = async (pageContextOptions = {}) => {
+    const resolvedPreferredTabId = Number(pageContextOptions.preferredTabId || preferredTabId || 0);
+    const resolvedAllowTemporaryPageContextTab = pageContextOptions.allowTemporaryPageContextTab === true;
 
-  let bootstrapState = null;
-  try {
-    bootstrapState = await ensureConsoleBootstrapState(normalizedAccessToken, {
+    setUnderparDiagnosticMarker("programmers", {
+      status: "pending",
+      phase: "console-bootstrap",
       forceRefresh: options.forceRefresh === true,
       allowInteractiveAuthBootstrap: options.allowInteractiveAuthBootstrap === true,
     });
-  } catch (error) {
-    applyProgrammerEntities([]);
-    const bootstrapError = error instanceof Error ? error : new Error(String(error));
-    setUnderparDiagnosticMarker("programmers", {
-      status: isAdobeConsoleAccessDeniedMessage(bootstrapError.message) ? "denied" : "error",
-      phase: "console-bootstrap-failed",
-      error: bootstrapError.message,
-      code: isAdobeConsoleAccessDeniedMessage(bootstrapError.message) ? "PROGRAMMERS_ACCESS_DENIED" : "PROGRAMMERS_LOAD_FAILED",
-    });
-    if (isAdobeConsoleAccessDeniedMessage(bootstrapError.message)) {
-      throw createProgrammersError(bootstrapError.message, "PROGRAMMERS_ACCESS_DENIED");
-    }
-    throw bootstrapError;
-  }
 
-  const configurationVersion = mvpdWorkspaceExtractConfigurationVersion(bootstrapState, 0);
-  if (!bootstrapState || !bootstrapState.extendedProfile) {
-    applyProgrammerEntities([]);
+    let bootstrapState = null;
+    try {
+      bootstrapState = await ensureConsoleBootstrapState(normalizedAccessToken, {
+        forceRefresh: options.forceRefresh === true,
+        allowInteractiveAuthBootstrap: options.allowInteractiveAuthBootstrap === true,
+        allowTemporaryPageContextTab: resolvedAllowTemporaryPageContextTab,
+        preferredTabId: resolvedPreferredTabId,
+      });
+    } catch (error) {
+      applyProgrammerEntities([]);
+      const bootstrapError = error instanceof Error ? error : new Error(String(error));
+      setUnderparDiagnosticMarker("programmers", {
+        status: isAdobeConsoleAccessDeniedMessage(bootstrapError.message) ? "denied" : "error",
+        phase: "console-bootstrap-failed",
+        error: bootstrapError.message,
+        code: isAdobeConsoleAccessDeniedMessage(bootstrapError.message) ? "PROGRAMMERS_ACCESS_DENIED" : "PROGRAMMERS_LOAD_FAILED",
+      });
+      if (isAdobeConsoleAccessDeniedMessage(bootstrapError.message)) {
+        throw createProgrammersError(bootstrapError.message, "PROGRAMMERS_ACCESS_DENIED");
+      }
+      throw bootstrapError;
+    }
+
+    const configurationVersion = mvpdWorkspaceExtractConfigurationVersion(bootstrapState, 0);
+    if (!bootstrapState || !bootstrapState.extendedProfile) {
+      applyProgrammerEntities([]);
+      setUnderparDiagnosticMarker("programmers", {
+        status: "error",
+        phase: "console-bootstrap-incomplete",
+        code: "PROGRAMMERS_LOAD_FAILED",
+      });
+      throw createProgrammersError(
+        "UnderPAR could not complete Adobe Pass console bootstrap before loading media companies.",
+        "PROGRAMMERS_LOAD_FAILED"
+      );
+    }
+    const grantedAuthorities = Array.isArray(bootstrapState.grantedAuthorities) ? bootstrapState.grantedAuthorities : [];
+    if (grantedAuthorities.length > 0 && !hasAdobeConsoleProgrammerAccess(grantedAuthorities)) {
+      applyProgrammerEntities([]);
+      setUnderparDiagnosticMarker("programmers", {
+        status: "denied",
+        phase: "authority-check",
+        code: "PROGRAMMERS_ACCESS_DENIED",
+      });
+      throw createProgrammersError("Adobe Pass console access is denied for this account.", "PROGRAMMERS_ACCESS_DENIED");
+    }
+
+    const resolvedConsoleAccessToken = normalizeBearerTokenValue(
+      firstNonEmptyString([bootstrapState?.accessToken, normalizedAccessToken])
+    );
+    let entities = [];
+    let programmersLoadError = null;
+    try {
+      entities = await fetchProgrammersFromApi({
+        accessToken: resolvedConsoleAccessToken,
+        requireEntities: false,
+        preferredTabId: resolvedPreferredTabId,
+        allowTemporaryPageContextTab: resolvedAllowTemporaryPageContextTab,
+      });
+    } catch (error) {
+      programmersLoadError = error instanceof Error ? error : new Error(String(error));
+    }
+
+    if (programmersLoadError) {
+      if (programmersLoadError?.code === "PROGRAMMERS_ACCESS_DENIED") {
+        const vault = await ensurePassVaultLoaded({ forceReload: false }).catch(() => state.passVault || null);
+        const vaultedProgrammers = buildProgrammerEntitiesFromPassVault(vault, getActiveAdobePassEnvironmentKey());
+        if (vaultedProgrammers.length > 0) {
+          applyProgrammerEntities(vaultedProgrammers);
+          setUnderparDiagnosticMarker("programmers", {
+            status: "warning",
+            phase: "vault-fallback",
+            count: Number(state.programmers.length || 0),
+            code: String(programmersLoadError?.code || "").trim(),
+            error: programmersLoadError.message,
+          });
+          setStatus("Adobe console denied live media-company access. Using vaulted media companies.", "info");
+          return true;
+        }
+      }
+      log("Media company load failed", programmersLoadError);
+      applyProgrammerEntities([]);
+      setUnderparDiagnosticMarker("programmers", {
+        status: programmersLoadError?.code === "PROGRAMMERS_ACCESS_DENIED" ? "denied" : "error",
+        phase: "entity-fetch",
+        endpoint: String(state.programmersApiEndpoint || "").trim(),
+        code: String(programmersLoadError?.code || "").trim(),
+        error: programmersLoadError.message,
+      });
+      throw programmersLoadError;
+    }
+
+    applyProgrammerEntities(entities);
     setUnderparDiagnosticMarker("programmers", {
-      status: "error",
-      phase: "console-bootstrap-incomplete",
-      code: "PROGRAMMERS_LOAD_FAILED",
+      status: state.programmers.length > 0 ? "success" : "empty",
+      phase: "loaded",
+      count: Number(state.programmers.length || 0),
+      endpoint: String(state.programmersApiEndpoint || "").trim(),
+      configurationVersion,
     });
-    throw createProgrammersError(
-      "UnderPAR could not complete Adobe Pass console bootstrap before loading media companies.",
-      "PROGRAMMERS_LOAD_FAILED"
+    if (state.programmers.length === 0) {
+      setStatus("No media company records were returned for this account.", "error");
+    }
+    return true;
+  };
+
+  if (allowTemporaryPageContextTab) {
+    return withAdobeConsolePageContextTarget(
+      `${ADOBE_CONSOLE_BASE}/rest/api/entity/Programmer`,
+      {
+        preferredTabId,
+        allowTemporaryTab: true,
+      },
+      async (pageContextOptions) =>
+        runProgrammerLoad({
+          preferredTabId: pageContextOptions?.preferredTabId || preferredTabId,
+          allowTemporaryPageContextTab: pageContextOptions?.allowTemporaryPageContextTab === true,
+        })
     );
   }
-  const grantedAuthorities = Array.isArray(bootstrapState.grantedAuthorities) ? bootstrapState.grantedAuthorities : [];
-  if (grantedAuthorities.length > 0 && !hasAdobeConsoleProgrammerAccess(grantedAuthorities)) {
-    applyProgrammerEntities([]);
-    setUnderparDiagnosticMarker("programmers", {
-      status: "denied",
-      phase: "authority-check",
-      code: "PROGRAMMERS_ACCESS_DENIED",
-    });
-    throw createProgrammersError("Adobe Pass console access is denied for this account.", "PROGRAMMERS_ACCESS_DENIED");
-  }
 
-  const resolvedConsoleAccessToken = normalizeBearerTokenValue(
-    firstNonEmptyString([bootstrapState?.accessToken, normalizedAccessToken])
-  );
-  let entities = [];
-  let programmersLoadError = null;
-  try {
-    entities = await fetchProgrammersFromApi({
-      accessToken: resolvedConsoleAccessToken,
-      requireEntities: false,
-    });
-  } catch (error) {
-    programmersLoadError = error instanceof Error ? error : new Error(String(error));
-  }
-
-  if (programmersLoadError) {
-    if (programmersLoadError?.code === "PROGRAMMERS_ACCESS_DENIED") {
-      const vault = await ensurePassVaultLoaded({ forceReload: false }).catch(() => state.passVault || null);
-      const vaultedProgrammers = buildProgrammerEntitiesFromPassVault(vault, getActiveAdobePassEnvironmentKey());
-      if (vaultedProgrammers.length > 0) {
-        applyProgrammerEntities(vaultedProgrammers);
-        setUnderparDiagnosticMarker("programmers", {
-          status: "warning",
-          phase: "vault-fallback",
-          count: Number(state.programmers.length || 0),
-          code: String(programmersLoadError?.code || "").trim(),
-          error: programmersLoadError.message,
-        });
-        setStatus("Adobe console denied live media-company access. Using vaulted media companies.", "info");
-        return true;
-      }
-    }
-    log("Media company load failed", programmersLoadError);
-    applyProgrammerEntities([]);
-    setUnderparDiagnosticMarker("programmers", {
-      status: programmersLoadError?.code === "PROGRAMMERS_ACCESS_DENIED" ? "denied" : "error",
-      phase: "entity-fetch",
-      endpoint: String(state.programmersApiEndpoint || "").trim(),
-      code: String(programmersLoadError?.code || "").trim(),
-      error: programmersLoadError.message,
-    });
-    throw programmersLoadError;
-  }
-
-  applyProgrammerEntities(entities);
-  setUnderparDiagnosticMarker("programmers", {
-    status: state.programmers.length > 0 ? "success" : "empty",
-    phase: "loaded",
-    count: Number(state.programmers.length || 0),
-    endpoint: String(state.programmersApiEndpoint || "").trim(),
-    configurationVersion,
+  return runProgrammerLoad({
+    preferredTabId,
+    allowTemporaryPageContextTab: false,
   });
-  if (state.programmers.length === 0) {
-    setStatus("No media company records were returned for this account.", "error");
-  }
-  return true;
 }
 
 function applyProgrammerEntities(entities) {
@@ -70185,7 +70269,7 @@ async function signInInteractive(options = {}) {
       ),
       "interactive",
       {
-        allowTemporaryPageContextTab: false,
+        allowTemporaryPageContextTab: true,
       }
     );
 
@@ -70286,7 +70370,7 @@ async function refreshSessionManual() {
       ),
       usedInteractiveLogin ? "manual-refresh-interactive" : "manual-refresh",
       {
-        allowTemporaryPageContextTab: false,
+        allowTemporaryPageContextTab: true,
       }
     );
 
@@ -70395,7 +70479,7 @@ async function onRestrictedOrgSwitch() {
       "restricted-org-switch",
       {
         allowDeniedRecovery: false,
-        allowTemporaryPageContextTab: false,
+        allowTemporaryPageContextTab: true,
       }
     );
     if (activated) {

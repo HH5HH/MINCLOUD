@@ -572,7 +572,7 @@ test("interactive Adobe auth popup no longer attaches the debugger or retains th
   assert.equal(/keepAuthWindowOpenForBootstrap/.test(signInSource), false);
 });
 
-test("interactive login and org switching no longer block on a temporary CM bootstrap tab", () => {
+test("interactive login and org switching allow a temporary shared shell page context when needed", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const signInSource = extractFunctionSource(popupSource, "signInInteractive");
   const refreshSource = extractFunctionSource(popupSource, "refreshSessionManual");
@@ -590,10 +590,10 @@ test("interactive login and org switching no longer block on a temporary CM boot
   assert.match(signInSource, /await awaitCmBootstrapForExplicitActivation\("interactive"/);
   assert.match(refreshSource, /await awaitCmBootstrapForExplicitActivation\(/);
   assert.match(restrictedSwitchSource, /await awaitCmBootstrapForExplicitActivation\("restricted-org-switch"/);
-  assert.match(signInSource, /allowTemporaryPageContextTab:\s*false/);
-  assert.match(refreshSource, /allowTemporaryPageContextTab:\s*false/);
-  assert.match(restrictedSwitchSource, /allowTemporaryPageContextTab:\s*false/);
-  assert.match(recoverySource, /allowTemporaryPageContextTab:\s*false/);
+  assert.match(signInSource, /allowTemporaryPageContextTab:\s*true/);
+  assert.match(refreshSource, /allowTemporaryPageContextTab:\s*true/);
+  assert.match(restrictedSwitchSource, /allowTemporaryPageContextTab:\s*true/);
+  assert.match(recoverySource, /allowTemporaryPageContextTab:\s*true/);
 });
 
 test("session activation defers CM tenant hydration and unlocks Media Company selection immediately", () => {
@@ -853,12 +853,22 @@ test("experience cloud auth redirect detection accepts plain-object headers from
 
 test("shell page context harvests the unified shell IMS session before console entity fetches", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const bootstrapUrlSource = extractFunctionSource(popupSource, "getAdobeConsolePageContextBootstrapUrl");
+  const resolveTargetSource = extractFunctionSource(popupSource, "resolveAdobeConsolePageContextTarget");
+  const withTargetSource = extractFunctionSource(popupSource, "withAdobeConsolePageContextTarget");
   const shellFetchSource = extractFunctionSource(popupSource, "fetchAdobeConsoleJsonViaShellPageContext");
   const shellMergeSource = extractFunctionSource(popupSource, "mergeExperienceCloudShellSnapshotIntoLoginData");
   const activationSource = extractFunctionSource(popupSource, "activateSession");
+  const loadProgrammersSource = extractFunctionSource(popupSource, "loadProgrammersData");
   const tempTargetSource = extractFunctionSource(popupSource, "openTemporaryAdobePageContextTarget");
 
-  assert.match(shellFetchSource, /isProgrammersRequest \? getActiveAdobePassEnvironment\(\)\?\.consoleProgrammersUrl/);
+  assert.match(bootstrapUrlSource, /isProgrammersRequest \? getActiveAdobePassEnvironment\(\)\?\.consoleProgrammersUrl/);
+  assert.match(resolveTargetSource, /resolveReusableAdobePageContextTab/);
+  assert.match(resolveTargetSource, /findExistingExperienceCloudAdobeTab/);
+  assert.match(resolveTargetSource, /openTemporaryAdobePageContextTarget\(\s*getAdobeConsolePageContextBootstrapUrl\(requestUrl\)/);
+  assert.match(withTargetSource, /resolveAdobeConsolePageContextTarget\(requestUrl,\s*\{/);
+  assert.match(withTargetSource, /closeTemporaryAdobePageContextTarget\(target\.temporaryTarget\)/);
+  assert.match(shellFetchSource, /const target = await resolveAdobeConsolePageContextTarget\(normalizedUrl,\s*\{/);
   assert.match(shellFetchSource, /target: \{ tabId, allFrames: true \ }|target: \{ tabId, allFrames: true \}/);
   assert.match(shellFetchSource, /const shellSnapshot = await waitForShellSnapshot\(\);/);
   assert.match(shellFetchSource, /window\.__shellConfiguration/);
@@ -871,7 +881,13 @@ test("shell page context harvests the unified shell IMS session before console e
   assert.match(shellMergeSource, /organizations: mergedOrganizations/);
   assert.match(activationSource, /mergeExperienceCloudShellSnapshotIntoLoginData\(/);
   assert.match(activationSource, /state\.consoleBootstrapState\?\.shellSnapshot/);
-  assert.match(tempTargetSource, /state: "normal"/);
+  assert.match(loadProgrammersSource, /return withAdobeConsolePageContextTarget\(/);
+  assert.match(loadProgrammersSource, /allowTemporaryPageContextTab:\s*pageContextOptions\?\.allowTemporaryPageContextTab === true/);
+  assert.match(tempTargetSource, /chrome\.tabs\?\.create/);
+  assert.match(tempTargetSource, /active:\s*false/);
+  assert.match(tempTargetSource, /chrome\.windows\?\.create/);
+  assert.match(tempTargetSource, /type:\s*"popup"/);
+  assert.doesNotMatch(tempTargetSource, /state:\s*"normal"/);
 });
 
 test("restricted org labels collapse duplicate AdobePass segments", () => {
