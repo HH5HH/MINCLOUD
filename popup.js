@@ -48553,6 +48553,17 @@ function degradationBuildControllerHtml(programmer, appInfo) {
   return `
     <section class="degradation-controller-shell">
       <div class="degradation-runner-actions">
+        <div class="degradation-runner-form"${requestorControlsHiddenAttr}>
+          <div class="degradation-method-row">
+            <select class="degradation-endpoint-select" aria-label="DEGRADATION method">
+              <option value="all">GET ALL</option>
+              <option value="authnall">authN ALL</option>
+              <option value="authzall">authZ ALL</option>
+              <option value="authznone">authZ NONE</option>
+            </select>
+            <button type="button" class="degradation-run-go-btn"${goHiddenAttr}>${escapeHtml(goButtonLabel)}</button>
+          </div>
+        </div>
         <button
           type="button"
           class="degradation-record-toggle-btn"
@@ -48564,18 +48575,6 @@ function degradationBuildControllerHtml(programmer, appInfo) {
           <span class="degradation-record-btn-label">DEGRADATION</span>
         </button>
       </div>
-      <div class="degradation-runner-form"${requestorControlsHiddenAttr}>
-        <div class="degradation-method-row">
-          <select class="degradation-endpoint-select" aria-label="DEGRADATION method">
-            <option value="all">GET ALL</option>
-            <option value="authnall">authN ALL</option>
-            <option value="authzall">authZ ALL</option>
-            <option value="authznone">authZ NONE</option>
-          </select>
-          <button type="button" class="degradation-run-go-btn"${goHiddenAttr}>${escapeHtml(goButtonLabel)}</button>
-        </div>
-      </div>
-      <p class="degradation-controller-status" aria-live="polite"></p>
       <div class="degradation-cheat-sheet-row degradation-utility-row"${requestorControlsHiddenAttr}>
         <button
           type="button"
@@ -49216,7 +49215,6 @@ async function loadDegradationService(programmer, appInfo, section, contentEleme
       runGoButton: contentElement.querySelector(".degradation-run-go-btn"),
       copyCurlButton: contentElement.querySelector(".degradation-copy-curl-btn"),
       cheatSheetRow: contentElement.querySelector(".degradation-cheat-sheet-row"),
-      statusElement: contentElement.querySelector(".degradation-controller-status"),
     };
     section.__underparDegradationState = panelState;
     setDegradationPanelActiveApp(panelState, resolvedInitialApp, {

@@ -29,8 +29,9 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(popupSource, />\s*CHEAT SHEET\s*</);
   assert.match(
     popupSource,
-    /<p class="degradation-controller-status" aria-live="polite"><\/p>\s*<div class="degradation-cheat-sheet-row degradation-utility-row"[\s\S]*?class="degradation-copy-curl-btn"[\s\S]*?CHEAT SHEET[\s\S]*?class="degradation-make-clickdgr-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"/
+    /<div class="degradation-runner-actions">[\s\S]*?<div class="degradation-runner-form"[\s\S]*?class="degradation-endpoint-select"[\s\S]*?class="degradation-run-go-btn"[\s\S]*?class="degradation-record-toggle-btn"[\s\S]*?<\/div>\s*<div class="degradation-cheat-sheet-row degradation-utility-row"[\s\S]*?class="degradation-copy-curl-btn"[\s\S]*?CHEAT SHEET[\s\S]*?class="degradation-make-clickdgr-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"/
   );
+  assert.doesNotMatch(popupSource, /class="degradation-controller-status"/);
   assert.match(popupSource, /function degradationHasQualifiedCheatSheetContext\(/);
   assert.match(popupSource, /function degradationSyncCheatSheetButton\(/);
   assert.match(popupSource, /Select Environment x Media Company, RequestorId, and MVPD first/);
@@ -117,7 +118,18 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(popupCss, /\.degradation-cheat-sheet-row\s*\{/);
   assert.match(popupCss, /\.degradation-utility-row\s*\{/);
   assert.match(popupCss, /\.degradation-utility-row\s*\{[\s\S]*?justify-content:\s*flex-end;[\s\S]*?margin-top:\s*auto;[\s\S]*?width:\s*100%;/);
-  assert.match(popupCss, /\.degradation-runner-actions\s*\{[\s\S]*?justify-content:\s*flex-end;/);
+  assert.match(
+    popupCss,
+    /\.degradation-runner-form\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-width:\s*0;[\s\S]*?flex-direction:\s*row;[\s\S]*?margin-top:\s*0;/
+  );
+  assert.match(
+    popupCss,
+    /\.degradation-runner-form \.degradation-endpoint-select\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?width:\s*auto;[\s\S]*?min-width:\s*0;/
+  );
+  assert.match(
+    popupCss,
+    /\.degradation-runner-actions\s*\{[\s\S]*?display:\s*flex;[\s\S]*?flex-wrap:\s*nowrap;[\s\S]*?justify-content:\s*flex-end;[\s\S]*?align-items:\s*center;/
+  );
   assert.match(
     popupCss,
     /\.degradation-utility-row \.degradation-make-clickdgr-btn\.esm-workspace-toolbar-icon-btn--tearsheet\s*\{[\s\S]*?width:\s*32px;[\s\S]*?height:\s*32px;/
