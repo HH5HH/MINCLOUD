@@ -666,7 +666,7 @@ test("interactive Adobe auth popup no longer attaches the debugger or retains th
   assert.equal(/keepAuthWindowOpenForBootstrap/.test(signInSource), false);
 });
 
-test("interactive login and org switching allow a temporary shared shell page context when needed", () => {
+test("interactive login and org switching keep normal activation on the retained auth context instead of opening extra temp tabs", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const signInSource = extractFunctionSource(popupSource, "signInInteractive");
   const refreshSource = extractFunctionSource(popupSource, "refreshSessionManual");
@@ -684,9 +684,9 @@ test("interactive login and org switching allow a temporary shared shell page co
   assert.doesNotMatch(signInSource, /await awaitCmBootstrapForExplicitActivation\("interactive"/);
   assert.doesNotMatch(refreshSource, /await awaitCmBootstrapForExplicitActivation\(/);
   assert.doesNotMatch(restrictedSwitchSource, /await awaitCmBootstrapForExplicitActivation\("restricted-org-switch"/);
-  assert.match(signInSource, /allowTemporaryPageContextTab:\s*true/);
-  assert.match(refreshSource, /allowTemporaryPageContextTab:\s*true/);
-  assert.match(restrictedSwitchSource, /allowTemporaryPageContextTab:\s*true/);
+  assert.match(signInSource, /allowTemporaryPageContextTab:\s*false/);
+  assert.match(refreshSource, /allowTemporaryPageContextTab:\s*false/);
+  assert.match(restrictedSwitchSource, /allowTemporaryPageContextTab:\s*false/);
   assert.match(recoverySource, /allowTemporaryPageContextTab:\s*true/);
 });
 
@@ -739,13 +739,32 @@ test("selected media company refresh primes CM tenant precheck before CM service
 
   assert.match(refreshPanelsSource, /const skipCmBootstrap = options\.skipCmBootstrap === true;/);
   assert.match(refreshPanelsSource, /ensureCmTenantsPrecheckForActiveSession\(`panel-selection:\$\{programmer\.programmerId\}`/);
+  assert.ok(
+    refreshPanelsSource.indexOf("await cmSelectionBootstrapPromise;") <
+      refreshPanelsSource.indexOf("const premiumAppsPromise = ensurePremiumAppsForProgrammer(")
+  );
   assert.match(refreshPanelsSource, /allowTemporaryPageContextTab:\s*false/);
+  assert.doesNotMatch(refreshPanelsSource, /withAdobeConsolePageContextTarget\(/);
   assert.match(refreshPanelsSource, /const cmServicePromise = skipCmBootstrap/);
   assert.match(refreshPanelsSource, /const cmMvpdServicePromise = skipCmBootstrap/);
+  assert.match(refreshPanelsSource, /const premiumAppsPromise = ensurePremiumAppsForProgrammer\(/);
   assert.match(refreshPanelsSource, /selectPreferredCmRuntimeService\(currentServices\?\.cm,\s*resolvedCmService\)/);
   assert.match(refreshPanelsSource, /selectPreferredCmRuntimeService\(currentServices\?\.cmMvpd,\s*resolvedCmMvpdService\)/);
   assert.match(selectPreferredCmRuntimeServiceSource, /resolvedVisible && !currentVisible/);
   assert.match(selectPreferredCmRuntimeServiceSource, /currentRetry && !resolvedRetry/);
+});
+
+test("programmer application hydration prefers bounded bulk retrieve and degrades to vault or empty state before raw applications list fallbacks", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const fetchApplicationsSource = extractFunctionSource(popupSource, "fetchApplicationsForProgrammer");
+
+  assert.match(fetchApplicationsSource, /const shouldUseBoundedBulkRetrieve = Boolean\(bulkRetrieveRequest && expectedCount > 0\);/);
+  assert.match(fetchApplicationsSource, /if \(!shouldUseBoundedBulkRetrieve\) \{/);
+  assert.match(fetchApplicationsSource, /const vaultRecord = getPassVaultMediaCompanyRecord\(programmerId\);/);
+  assert.match(fetchApplicationsSource, /const vaultApplications = buildPassVaultApplicationsSnapshotFromRegisteredApplications\(/);
+  assert.match(fetchApplicationsSource, /phase: "premium-applications-vault-fallback"/);
+  assert.match(fetchApplicationsSource, /phase: "premium-applications-empty-fallback"/);
+  assert.match(fetchApplicationsSource, /return \{\};/);
 });
 
 test("environment switch reactivation allows temporary CM bootstrap context recovery", () => {
@@ -1088,7 +1107,7 @@ test("shell page context harvests the unified shell IMS session before console e
   assert.doesNotMatch(tempTargetSource, /type:\s*"popup"/);
 });
 
-test("media company selection reuses AdobePass shell page context for application hydration", () => {
+test("media company selection keeps CM-first bounded application hydration without temporary Adobe tab recovery", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const withTargetSource = extractFunctionSource(popupSource, "withAdobeConsolePageContextTarget");
   const pageContextVariantsSource = extractFunctionSource(popupSource, "fetchAdobeConsoleJsonWithShellPageContextVariants");
@@ -1115,6 +1134,8 @@ test("media company selection reuses AdobePass shell page context for applicatio
   assert.match(fetchApplicationsSource, /buildRegisteredApplicationBulkRetrieveRequest/);
   assert.match(fetchApplicationsSource, /fetchAdobeConsoleJsonWithShellPageContextVariants\(\[bulkRetrieveRequest\.url\], "Applications load"/);
   assert.match(fetchApplicationsSource, /fetchAdobeConsoleJsonWithAuthVariants\(\[bulkRetrieveRequest\.url\], "Applications load"/);
+  assert.match(fetchApplicationsSource, /const shouldUseBoundedBulkRetrieve = Boolean\(bulkRetrieveRequest && expectedCount > 0\);/);
+  assert.match(fetchApplicationsSource, /if \(!shouldUseBoundedBulkRetrieve\) \{/);
   assert.doesNotMatch(fetchApplicationsSource, /entity\/RegisteredApplication\?programmer=/);
   assert.doesNotMatch(fetchApplicationsSource, /registeredApplications\?programmer=/);
   assert.doesNotMatch(fetchApplicationsSource, /registered-applications\?programmer=/);
@@ -1134,16 +1155,19 @@ test("media company selection reuses AdobePass shell page context for applicatio
   assert.match(ensurePremiumAppsSource, /allowTemporaryPageContextTab:\s*false/);
   assert.match(ensurePremiumAppsSource, /const preferredTabId = Number\(options\.preferredTabId \|\| getRetainedAuthPopupBootstrapTabId\(\) \|\| 0\);/);
   assert.match(hydrateScopesSource, /const allowTemporaryPageContextTab = options\.allowTemporaryPageContextTab === true;/);
-  assert.match(refreshPanelsSource, /withAdobeConsolePageContextTarget\(/);
-  assert.match(refreshPanelsSource, /\/rest\/api\/applications\?programmer=/);
-  assert.match(refreshPanelsSource, /const shouldOpenTemporaryAdobePageContextTab =/);
-  assert.match(refreshPanelsSource, /allowTemporaryTab:\s*shouldOpenTemporaryAdobePageContextTab/);
-  assert.match(refreshPanelsSource, /ensurePremiumAppsForProgrammer\(programmer,\s*\{/);
-  assert.match(refreshPanelsSource, /allowTemporaryPageContextTab:\s*pageContextOptions\?\.allowTemporaryPageContextTab === true/);
-  assert.match(
-    refreshPanelsSource,
-    /preferredTabId:\s*Number\(pageContextOptions\?\.preferredTabId \|\| 0\) \|\| getRetainedAuthPopupBootstrapTabId\(\) \|\| 0/
+  assert.ok(
+    refreshPanelsSource.indexOf("await cmSelectionBootstrapPromise;") <
+      refreshPanelsSource.indexOf("const premiumAppsPromise = ensurePremiumAppsForProgrammer(")
   );
+  assert.match(refreshPanelsSource, /ensurePremiumAppsForProgrammer\(programmer,\s*\{/);
+  assert.match(refreshPanelsSource, /allowTemporaryPageContextTab:\s*false/);
+  assert.match(refreshPanelsSource, /const retainedConsoleTabId = Number\(getRetainedAuthPopupBootstrapTabId\(\) \|\| 0\);/);
+  assert.match(refreshPanelsSource, /preferredTabId:\s*retainedConsoleTabId/);
+  assert.match(refreshPanelsSource, /renderPremiumServices\(initialMergedServices, programmer, \{ controllerReason \}\);/);
+  assert.match(refreshPanelsSource, /const suppressAccessDeniedStatus =/);
+  assert.match(refreshPanelsSource, /clearStatusUnlessCmTenantsPrecheckBlocked\(\);/);
+  assert.doesNotMatch(refreshPanelsSource, /withAdobeConsolePageContextTarget\(/);
+  assert.doesNotMatch(refreshPanelsSource, /shouldOpenTemporaryAdobePageContextTab/);
   assert.match(refreshPanelsSource, /const allowBackgroundCredentialCompilation = options\?\.allowBackgroundCredentialCompilation === true;/);
   assert.doesNotMatch(refreshPanelsSource, /backgroundHydrationPromise = primeProgrammerServiceHydration\(programmer, cachedServices/);
 });

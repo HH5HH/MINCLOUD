@@ -58293,57 +58293,38 @@ async function refreshProgrammerPanels(options = {}) {
         !hasCmTenantsCatalogEntries() ||
         !tokenSupportsCmConsoleRequests(getPreferredCmRequestAccessTokenCandidate()) ||
         shouldRetryCachedCmService(cachedCmSelectionService));
-    const shouldOpenTemporaryAdobePageContextTab =
-      forcePremiumRefresh ||
-      !cachedServices ||
-      !getCurrentProgrammerApplicationsSnapshot(programmer.programmerId);
     const cmSelectionBootstrapPromise = shouldPrimeCmSelectionBootstrap
       ? ensureCmTenantsPrecheckForActiveSession(`panel-selection:${programmer.programmerId}`, {
           forceRefresh: forcePremiumRefresh,
           allowTemporaryPageContextTab: false,
         }).catch(() => null)
       : Promise.resolve(state.cmTenantsCatalog);
-    const premiumAppsPromise = withAdobeConsolePageContextTarget(
-      `${ADOBE_CONSOLE_BASE}/rest/api/applications?programmer=${encodeURIComponent(
-        String(programmer?.programmerId || "")
-      )}`,
-      {
-        preferredTabId: getRetainedAuthPopupBootstrapTabId() || 0,
-        allowTemporaryTab: shouldOpenTemporaryAdobePageContextTab,
-      },
-      async (pageContextOptions) =>
-        ensurePremiumAppsForProgrammer(programmer, {
-          forceRefresh: forcePremiumRefresh,
-          allowTemporaryPageContextTab: pageContextOptions?.allowTemporaryPageContextTab === true,
-          preferredTabId:
-            Number(pageContextOptions?.preferredTabId || 0) || getRetainedAuthPopupBootstrapTabId() || 0,
-        })
-    );
+    if (!skipCmBootstrap) {
+      // Media Company selection must honor the CM-first activation contract.
+      await cmSelectionBootstrapPromise;
+      if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
+        return;
+      }
+    }
+
+    const retainedConsoleTabId = Number(getRetainedAuthPopupBootstrapTabId() || 0);
+    const premiumAppsPromise = ensurePremiumAppsForProgrammer(programmer, {
+      forceRefresh: forcePremiumRefresh,
+      allowTemporaryPageContextTab: false,
+      preferredTabId: retainedConsoleTabId,
+    });
     const cmServicePromise = skipCmBootstrap
       ? Promise.resolve(cachedCmSelectionService)
-      : Promise.resolve(cmSelectionBootstrapPromise)
-          .then(() =>
-            ensureCmServiceForProgrammer(programmer, {
-              forceRefresh: forcePremiumRefresh,
-            })
-          )
-          .catch(() => null);
+      : ensureCmServiceForProgrammer(programmer, {
+          forceRefresh: forcePremiumRefresh,
+        }).catch(() => null);
     const cmMvpdServicePromise = skipCmBootstrap
       ? Promise.resolve(
           cmMvpdSelectionKey ? state.cmServiceByMvpdSelectionKey.get(cmMvpdSelectionKey) || null : null
         )
-      : Promise.resolve(cmSelectionBootstrapPromise)
-          .then(() =>
-            ensureCmServiceForSelectedMvpd(programmer, {
-              forceRefresh: forcePremiumRefresh,
-            })
-          )
-          .catch(() => null);
-
-    const premiumApps = await premiumAppsPromise;
-    if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
-      return;
-    }
+      : ensureCmServiceForSelectedMvpd(programmer, {
+          forceRefresh: forcePremiumRefresh,
+        }).catch(() => null);
 
     const cachedCmService = state.cmServiceByProgrammerId.get(programmer.programmerId) || null;
     const cachedCmMvpdService = cmMvpdSelectionKey
@@ -58358,20 +58339,36 @@ async function refreshProgrammerPanels(options = {}) {
     }
 
     const initialMergedServices = {
-      ...(premiumApps && typeof premiumApps === "object" ? premiumApps : {}),
+      ...(cachedServices && typeof cachedServices === "object" ? cachedServices : {}),
       cm: initialCmService,
       cmMvpd: initialCmMvpdService,
       cmMvpdSelectionKey,
     };
     setCurrentPremiumAppsSnapshot(programmer.programmerId, initialMergedServices);
     provisionalServices = initialMergedServices;
-    const cmHydrationPromise = !skipCmBootstrap && shouldShowCmService(initialMergedServices?.cm)
-      ? ensureCmHydratedForProgrammer(programmer, initialMergedServices, {
+    emitPremiumServiceDecisionLogs(programmer, initialMergedServices);
+    renderPremiumServices(initialMergedServices, programmer, { controllerReason });
+
+    const premiumApps = await premiumAppsPromise;
+    if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
+      return;
+    }
+
+    const mergedPremiumServices = {
+      ...(premiumApps && typeof premiumApps === "object" ? premiumApps : {}),
+      cm: initialCmService,
+      cmMvpd: initialCmMvpdService,
+      cmMvpdSelectionKey,
+    };
+    setCurrentPremiumAppsSnapshot(programmer.programmerId, mergedPremiumServices);
+    provisionalServices = mergedPremiumServices;
+    const cmHydrationPromise = !skipCmBootstrap && shouldShowCmService(mergedPremiumServices?.cm)
+      ? ensureCmHydratedForProgrammer(programmer, mergedPremiumServices, {
           forceRefresh: forcePremiumRefresh,
           reason: "panel-selection",
         }).catch(() => null)
       : Promise.resolve(null);
-    let renderReadyServices = initialMergedServices;
+    let renderReadyServices = mergedPremiumServices;
     const initialVaultCredentialsReady = hasPassVaultCredentialCoverageForServices(
       programmer.programmerId,
       renderReadyServices
@@ -58383,11 +58380,9 @@ async function refreshProgrammerPanels(options = {}) {
         !isPassVaultProgrammerHydrated(programmer.programmerId) ||
         !isPassVaultBackedValue(renderReadyServices) ||
         !initialVaultCredentialsReady);
-    emitPremiumServiceDecisionLogs(programmer, renderReadyServices);
-    renderPremiumServices(renderReadyServices, programmer, { controllerReason });
     let runtimeServices = renderReadyServices;
     if (shouldCompileVaultCredentials) {
-      const backgroundHydrationPromise = primeProgrammerServiceHydration(programmer, initialMergedServices, {
+      const backgroundHydrationPromise = primeProgrammerServiceHydration(programmer, mergedPremiumServices, {
         forceRefresh: forcePremiumRefresh,
         controllerReason,
         requestToken,
@@ -58463,7 +58458,15 @@ async function refreshProgrammerPanels(options = {}) {
       return;
     }
     if (provisionalServices && typeof provisionalServices === "object") {
-      setStatus(error instanceof Error ? error.message : String(error), "error");
+      const message = error instanceof Error ? error.message : String(error);
+      const suppressAccessDeniedStatus =
+        isAdobeConsoleAccessDeniedMessage(message) &&
+        (shouldShowCmService(provisionalServices?.cm) || shouldShowCmService(provisionalServices?.cmMvpd));
+      if (suppressAccessDeniedStatus) {
+        clearStatusUnlessCmTenantsPrecheckBlocked();
+      } else {
+        setStatus(message, "error");
+      }
       emitPremiumServiceDecisionLogs(programmer, provisionalServices);
       renderPremiumServices(provisionalServices, programmer, { controllerReason });
       return;
@@ -59994,6 +59997,7 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
   );
   const expectedCount = expectedGuidSet.size;
   const bulkRetrieveRequest = buildRegisteredApplicationBulkRetrieveRequest(expectedEntityRefs);
+  const shouldUseBoundedBulkRetrieve = Boolean(bulkRetrieveRequest && expectedCount > 0);
 
   emitPremiumDecisionDebugEvent(
     {
@@ -60092,64 +60096,97 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
     }
   }
 
-  for (const lookupUrl of uniqueUrlCandidates) {
-    if (expectedCount > 0 && Object.keys(byGuid).length >= expectedCount) {
-      break;
-    }
-    let payload = null;
-    try {
-      payload =
-        (await fetchAdobeConsoleJsonWithShellPageContextVariants([lookupUrl], "Applications load", {
-          timeoutMs: requestTimeoutMs,
-          accessToken: activeAccessToken,
-          preferredTabId,
-          allowTemporaryPageContextTab,
-        }).catch(() => null)) ||
-        (await fetchAdobeConsoleJsonWithAuthVariants([lookupUrl], "Applications load", {
-          timeoutMs: requestTimeoutMs,
-          preferAuthenticatedHeaders: true,
-        }));
-      successCount += 1;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+  if (!shouldUseBoundedBulkRetrieve) {
+    for (const lookupUrl of uniqueUrlCandidates) {
+      if (expectedCount > 0 && Object.keys(byGuid).length >= expectedCount) {
+        break;
+      }
+      let payload = null;
+      try {
+        payload =
+          (await fetchAdobeConsoleJsonWithShellPageContextVariants([lookupUrl], "Applications load", {
+            timeoutMs: requestTimeoutMs,
+            accessToken: activeAccessToken,
+            preferredTabId,
+            allowTemporaryPageContextTab,
+          }).catch(() => null)) ||
+          (await fetchAdobeConsoleJsonWithAuthVariants([lookupUrl], "Applications load", {
+            timeoutMs: requestTimeoutMs,
+            preferAuthenticatedHeaders: true,
+          }));
+        successCount += 1;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        emitPremiumDecisionDebugEvent(
+          {
+            phase: "premium-applications-endpoint-error",
+            programmerId: String(programmerId || ""),
+            method: "GET",
+            url: String(lookupUrl || ""),
+            error: lastError.message,
+          },
+          {
+            programmer: resolvedProgrammer,
+          }
+        );
+        continue;
+      }
+
       emitPremiumDecisionDebugEvent(
         {
-          phase: "premium-applications-endpoint-error",
+          phase: "premium-applications-response",
           programmerId: String(programmerId || ""),
           method: "GET",
-          url: String(lookupUrl || ""),
-          error: lastError.message,
+          status: Number(payload?.status || 0),
+          url: String(payload?.url || lookupUrl || ""),
         },
         {
           programmer: resolvedProgrammer,
         }
       );
-      continue;
-    }
 
-    emitPremiumDecisionDebugEvent(
-      {
-        phase: "premium-applications-response",
-        programmerId: String(programmerId || ""),
-        method: "GET",
-        status: Number(payload?.status || 0),
-        url: String(payload?.url || lookupUrl || ""),
-      },
-      {
-        programmer: resolvedProgrammer,
-      }
-    );
-
-    const items = normalizeApplicationsResponse(payload?.parsed || payload);
-    let mergedCount = 0;
-    for (const item of items) {
-      if (mergeApplicationEntity(item)) {
-        mergedCount += 1;
+      const items = normalizeApplicationsResponse(payload?.parsed || payload);
+      let mergedCount = 0;
+      for (const item of items) {
+        if (mergeApplicationEntity(item)) {
+          mergedCount += 1;
+        }
       }
     }
   }
 
   if (successCount === 0) {
+    const vaultRecord = getPassVaultMediaCompanyRecord(programmerId);
+    const vaultApplications = buildPassVaultApplicationsSnapshotFromRegisteredApplications(
+      getPassVaultRegisteredApplicationsByGuid(vaultRecord)
+    );
+    if (Object.keys(vaultApplications).length > 0) {
+      emitPremiumDecisionDebugEvent(
+        {
+          phase: "premium-applications-vault-fallback",
+          programmerId: String(programmerId || ""),
+          applicationCount: Object.keys(vaultApplications).length,
+        },
+        {
+          programmer: resolvedProgrammer,
+        }
+      );
+      return vaultApplications;
+    }
+    if (shouldUseBoundedBulkRetrieve && (state.cmTenantsPrecheckComplete === true || state.cmConsoleBootstrapQualified === true)) {
+      emitPremiumDecisionDebugEvent(
+        {
+          phase: "premium-applications-empty-fallback",
+          programmerId: String(programmerId || ""),
+          expectedCount,
+          error: lastError instanceof Error ? lastError.message : String(lastError || ""),
+        },
+        {
+          programmer: resolvedProgrammer,
+        }
+      );
+      return {};
+    }
     const reason = lastError instanceof Error ? lastError.message : String(lastError || "Request failed.");
     emitPremiumDecisionDebugEvent(
       {
@@ -70971,7 +71008,7 @@ async function signInInteractive(options = {}) {
       ),
       "interactive",
       {
-        allowTemporaryPageContextTab: true,
+        allowTemporaryPageContextTab: false,
       }
     );
 
@@ -71071,7 +71108,7 @@ async function refreshSessionManual() {
       ),
       usedInteractiveLogin ? "manual-refresh-interactive" : "manual-refresh",
       {
-        allowTemporaryPageContextTab: true,
+        allowTemporaryPageContextTab: false,
       }
     );
 
@@ -71174,7 +71211,7 @@ async function onRestrictedOrgSwitch() {
       "restricted-org-switch",
       {
         allowDeniedRecovery: false,
-        allowTemporaryPageContextTab: true,
+        allowTemporaryPageContextTab: false,
       }
     );
     if (activated) {
