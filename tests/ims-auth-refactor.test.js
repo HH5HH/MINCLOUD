@@ -746,6 +746,10 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.match(fetchProgrammersSource, /const buildHeaderVariants = \(\) =>/);
   assert.match(fetchProgrammersSource, /getAdobeConsoleRequestHeaders\(""\)/);
   assert.match(fetchProgrammersSource, /fetchAdobeConsoleJsonViaShellPageContext/);
+  assert.match(fetchBootstrapSource, /grantedAuthorities\.length === 0 \|\| !tokenSupportsExperienceCloudConsole\(normalizedAccessToken\)/);
+  assert.match(fetchBootstrapSource, /mergeExperienceCloudShellSnapshotIntoLoginData\(state\.loginData,\s*shellSnapshot\)/);
+  assert.match(loadProgrammersSource, /const resolvedConsoleAccessToken = normalizeBearerTokenValue\(/);
+  assert.match(loadProgrammersSource, /firstNonEmptyString\(\[bootstrapState\?\.accessToken,\s*normalizedAccessToken\]\)/);
 });
 
 test("programmer endpoint access_denied responses stay on the auth-denied recovery path", () => {
@@ -848,6 +852,22 @@ test("experience cloud auth redirect detection accepts plain-object headers from
     ),
     true
   );
+});
+
+test("shell page context harvests the unified shell IMS session before console entity fetches", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const shellFetchSource = extractFunctionSource(popupSource, "fetchAdobeConsoleJsonViaShellPageContext");
+  const shellMergeSource = extractFunctionSource(popupSource, "mergeExperienceCloudShellSnapshotIntoLoginData");
+  const activationSource = extractFunctionSource(popupSource, "activateSession");
+
+  assert.match(shellFetchSource, /isProgrammersRequest \? getActiveAdobePassEnvironment\(\)\?\.consoleProgrammersUrl/);
+  assert.match(shellFetchSource, /const shellSnapshot = await waitForShellSnapshot\(\);/);
+  assert.match(shellFetchSource, /if \(isJwt\(shellSnapshot\?\.imsToken\)\) \{\s*pushVariant\(\{\s*Authorization: `Bearer \$\{shellSnapshot\.imsToken\}`,/);
+  assert.match(shellFetchSource, /shell: normalizedShellSnapshot/);
+  assert.match(shellMergeSource, /tokenSupportsExperienceCloudConsole\(normalizedShellSnapshot\.imsToken\)/);
+  assert.match(shellMergeSource, /organizations: mergedOrganizations/);
+  assert.match(activationSource, /mergeExperienceCloudShellSnapshotIntoLoginData\(/);
+  assert.match(activationSource, /state\.consoleBootstrapState\?\.shellSnapshot/);
 });
 
 test("restricted org labels collapse duplicate AdobePass segments", () => {

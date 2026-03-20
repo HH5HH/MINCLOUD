@@ -57105,7 +57105,16 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     }
   }
 
-  const resolvedLoginData = await normalizedLoginDataPromise;
+  const resolvedLoginData = buildNormalizedLoginData(
+    mergeExperienceCloudShellSnapshotIntoLoginData(
+      await normalizedLoginDataPromise,
+      state.consoleBootstrapState?.shellSnapshot || null
+    ),
+    {
+      resetBootstrapTokens: false,
+      fallbackAdobePassOrg: enforced.loginData.adobePassOrg || getDefaultAdobePassOrgDescriptor(),
+    }
+  );
 
   const sessionProfileCompleteness = getSessionProfileCompleteness(resolvedLoginData);
   if (!sessionProfileCompleteness.complete) {
@@ -58974,8 +58983,9 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
   const maintenanceStatusResponse = maintenanceStatusResult.status === "fulfilled" ? maintenanceStatusResult.value : null;
   const configurationVersionResponse = configurationVersionResult.status === "fulfilled" ? configurationVersionResult.value : null;
   let grantedAuthorities = extractAdobeConsoleGrantedAuthorities(extendedProfileResponse?.parsed);
+  let shellSnapshot = null;
 
-  if (grantedAuthorities.length === 0) {
+  if (grantedAuthorities.length === 0 || !tokenSupportsExperienceCloudConsole(normalizedAccessToken)) {
     const shellPageExtendedProfile = await fetchAdobeConsoleJsonViaShellPageContext(
       `${ADOBE_CONSOLE_BASE}/rest/api/user/extendedProfile`,
       {
@@ -58985,6 +58995,10 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
         timeoutMs,
       }
     ).catch(() => null);
+    shellSnapshot = normalizeExperienceCloudShellSnapshot(shellPageExtendedProfile?.shell);
+    if (shellSnapshot && state.loginData) {
+      state.loginData = mergeExperienceCloudShellSnapshotIntoLoginData(state.loginData, shellSnapshot);
+    }
     const shellPageAuthorities = extractAdobeConsoleGrantedAuthorities(shellPageExtendedProfile?.parsed);
     if (shellPageAuthorities.length > grantedAuthorities.length) {
       extendedProfileResponse = shellPageExtendedProfile;
@@ -58994,13 +59008,14 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
 
   const configurationVersion = mvpdWorkspaceExtractConfigurationVersion(configurationVersionResponse?.parsed, 0);
   return {
-    accessToken: normalizedAccessToken,
+    accessToken: firstNonEmptyString([shellSnapshot?.imsToken, normalizedAccessToken]),
     fetchedAt: Date.now(),
     extendedProfile:
       extendedProfileResponse?.parsed && typeof extendedProfileResponse.parsed === "object"
         ? extendedProfileResponse.parsed
         : null,
     grantedAuthorities,
+    shellSnapshot,
     maintenanceStatus:
       maintenanceStatusResponse?.parsed && typeof maintenanceStatusResponse.parsed === "object"
         ? maintenanceStatusResponse.parsed
@@ -63393,6 +63408,196 @@ function mergeExperienceCloudConsoleTokenIntoLoginData(loginData = {}, tokenResu
   };
 }
 
+function normalizeExperienceCloudShellOrganizations(rawOrganizations = []) {
+  const normalizedOrganizations = [];
+  const seen = new Set();
+  flattenOrganizations(rawOrganizations).forEach((entry, index) => {
+    if (!entry || typeof entry !== "object") {
+      return;
+    }
+
+    const orgId = firstNonEmptyString([entry.value, entry.id, entry.code, extractOrgId(entry)]);
+    const label = firstNonEmptyString([
+      entry.label,
+      entry.name,
+      entry.displayName,
+      extractOrgName(entry),
+      orgId ? `Adobe IMS Org ${orgId}` : "",
+    ]);
+    const userId = firstNonEmptyString([
+      entry.userId,
+      entry.user_id,
+      entry.profileGuid,
+      entry.profileId,
+      extractUserId(entry),
+    ]);
+    if (!orgId && !label) {
+      return;
+    }
+
+    const key = buildRestrictedOrgOptionKey({ orgId, userId, name: label }) || `shell-org-${index}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    normalizedOrganizations.push({
+      id: orgId,
+      value: orgId,
+      label,
+      userId,
+    });
+  });
+  return normalizedOrganizations;
+}
+
+function normalizeExperienceCloudShellProfile(profilePayload = null) {
+  const profile = profilePayload && typeof profilePayload === "object" ? profilePayload : null;
+  if (!profile) {
+    return null;
+  }
+
+  const displayName = firstNonEmptyString([profile.displayName, profile.name]);
+  const email = firstNonEmptyString([profile.email, profile.login_email, profile.username]);
+  const avatarUrl = normalizeAvatarCandidate(
+    firstNonEmptyString([profile.avatar, profile.avatarUrl, profile.user_image_url, profile.imageUrl])
+  );
+  const userId = firstNonEmptyString([profile.userId, profile.user_id, profile.sub, profile.id]);
+  if (!displayName && !email && !avatarUrl && !userId) {
+    return null;
+  }
+
+  return {
+    ...(displayName ? { displayName } : {}),
+    ...(email ? { email } : {}),
+    ...(avatarUrl ? { avatar: avatarUrl, avatarUrl } : {}),
+    ...(userId ? { userId } : {}),
+  };
+}
+
+function normalizeExperienceCloudShellSnapshot(shellSnapshot = null) {
+  const raw = shellSnapshot && typeof shellSnapshot === "object" ? shellSnapshot : null;
+  if (!raw) {
+    return null;
+  }
+
+  const imsToken = normalizeBearerTokenValue(firstNonEmptyString([raw.imsToken, raw.accessToken, raw.token]));
+  const tokenClaims = parseJwtPayload(imsToken) || {};
+  const imsOrgs = normalizeExperienceCloudShellOrganizations(
+    Array.isArray(raw.imsOrgs)
+      ? raw.imsOrgs
+      : Array.isArray(raw.organizations)
+        ? raw.organizations
+        : Array.isArray(raw.orgs)
+          ? raw.orgs
+          : []
+  );
+  const imsOrg = firstNonEmptyString([
+    raw.imsOrg,
+    raw.orgId,
+    raw.org_id,
+    raw.organizationId,
+    raw.organization,
+    raw.value,
+  ]);
+  const imsOrgName = firstNonEmptyString([
+    raw.imsOrgName,
+    raw.orgName,
+    raw.org_name,
+    raw.organizationName,
+    raw.organization_name,
+    imsOrgs.find((entry) => normalizeOrganizationIdentifier(entry?.value) === normalizeOrganizationIdentifier(imsOrg))?.label,
+  ]);
+  const imsClientId = firstNonEmptyString([raw.imsClientId, raw.clientId, tokenClaims.client_id, tokenClaims.clientId]);
+  const imsProfile = normalizeExperienceCloudShellProfile(
+    raw.imsProfile && typeof raw.imsProfile === "object"
+      ? raw.imsProfile
+      : raw.profile && typeof raw.profile === "object"
+        ? raw.profile
+        : raw.user && typeof raw.user === "object"
+          ? raw.user
+          : null
+  );
+  const scope = firstNonEmptyString([raw.scope, tokenClaims.scope]);
+  const sourcePath = firstNonEmptyString([raw.sourcePath, raw.path, raw.source]);
+
+  if (!imsToken && !imsOrg && imsOrgs.length === 0 && !imsProfile) {
+    return null;
+  }
+
+  return {
+    imsToken,
+    imsClientId,
+    imsOrg,
+    imsOrgName,
+    imsOrgs,
+    imsProfile,
+    scope,
+    sourcePath,
+  };
+}
+
+function mergeExperienceCloudShellSnapshotIntoLoginData(loginData = {}, shellSnapshot = null) {
+  const current = loginData && typeof loginData === "object" ? loginData : {};
+  const normalizedShellSnapshot = normalizeExperienceCloudShellSnapshot(shellSnapshot);
+  if (!normalizedShellSnapshot) {
+    return current;
+  }
+
+  const experienceCloudTokenResult =
+    normalizedShellSnapshot.imsToken && tokenSupportsExperienceCloudConsole(normalizedShellSnapshot.imsToken)
+      ? {
+          accessToken: normalizedShellSnapshot.imsToken,
+          expiresAt: coercePositiveNumber(resolveAuthResponseExpiry(normalizedShellSnapshot.imsToken, 0)?.expiresAt),
+          scope: normalizedShellSnapshot.scope,
+          imsSession: {
+            clientId: firstNonEmptyString([normalizedShellSnapshot.imsClientId]),
+            userId: firstNonEmptyString([normalizedShellSnapshot.imsProfile?.userId]),
+            orgId: firstNonEmptyString([normalizedShellSnapshot.imsOrg]),
+            orgName: firstNonEmptyString([normalizedShellSnapshot.imsOrgName]),
+          },
+        }
+      : null;
+
+  const withConsoleToken = experienceCloudTokenResult
+    ? mergeExperienceCloudConsoleTokenIntoLoginData(current, experienceCloudTokenResult)
+    : { ...current };
+  const mergedProfile = normalizedShellSnapshot.imsProfile
+    ? mergeProfilePayloads(resolveLoginProfile(withConsoleToken), normalizedShellSnapshot.imsProfile)
+    : resolveLoginProfile(withConsoleToken);
+  const mergedExperienceCloudSession = mergeImsSessionSnapshots(
+    withConsoleToken?.experienceCloudImsSession && typeof withConsoleToken.experienceCloudImsSession === "object"
+      ? withConsoleToken.experienceCloudImsSession
+      : null,
+    {
+      clientId: firstNonEmptyString([normalizedShellSnapshot.imsClientId]),
+      userId: firstNonEmptyString([normalizedShellSnapshot.imsProfile?.userId]),
+      orgId: firstNonEmptyString([normalizedShellSnapshot.imsOrg]),
+      orgName: firstNonEmptyString([normalizedShellSnapshot.imsOrgName]),
+    }
+  );
+  const mergedOrganizations = normalizedShellSnapshot.imsOrgs.length > 0
+    ? normalizedShellSnapshot.imsOrgs
+    : withConsoleToken?.organizations || null;
+  const nextAdobePassOrg =
+    matchesAdobePassOrg({ orgId: normalizedShellSnapshot.imsOrg, name: normalizedShellSnapshot.imsOrgName }) ||
+    normalizedShellSnapshot.imsOrgs.some((entry) => matchesAdobePassOrg(entry))
+      ? {
+          orgId: firstNonEmptyString([normalizedShellSnapshot.imsOrg, current?.adobePassOrg?.orgId, ADOBEPASS_ORG_HANDLE]),
+          userId: firstNonEmptyString([normalizedShellSnapshot.imsProfile?.userId, current?.adobePassOrg?.userId]),
+          name: firstNonEmptyString([normalizedShellSnapshot.imsOrgName, current?.adobePassOrg?.name, "@AdobePass"]),
+          avatarUrl: firstNonEmptyString([normalizedShellSnapshot.imsProfile?.avatarUrl, current?.adobePassOrg?.avatarUrl]),
+        }
+      : current?.adobePassOrg || null;
+
+  return {
+    ...withConsoleToken,
+    profile: mergedProfile,
+    organizations: mergedOrganizations,
+    experienceCloudImsSession: mergedExperienceCloudSession || withConsoleToken?.experienceCloudImsSession || null,
+    adobePassOrg: nextAdobePassOrg,
+  };
+}
+
 async function requestQualifiedCmConsoleToken(options = {}) {
   const requireFresh = options.requireFresh === true;
   const allowSilentAuth = options.allowSilentAuth !== false;
@@ -63980,6 +64185,7 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
     return null;
   }
 
+  const isProgrammersRequest = /\/entity\/Programmer(?:[/?#]|$)/i.test(normalizedUrl);
   const allowTemporaryTab = options.allowTemporaryTab !== false;
   const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
   const timeoutMs = Math.max(2000, Number(options.timeoutMs || PROGRAMMERS_FETCH_TIMEOUT_MS));
@@ -64000,6 +64206,7 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
   let temporaryTarget = null;
   if (!tab?.id && allowTemporaryTab) {
     const shellUrl = firstNonEmptyString([
+      isProgrammersRequest ? getActiveAdobePassEnvironment()?.consoleProgrammersUrl : "",
       getActiveAdobePassEnvironment()?.consoleShellUrl,
       `${String(CM_CONSOLE_APP_ORIGIN || "").trim().replace(/\/+$/, "")}/`,
     ]);
@@ -64020,6 +64227,7 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
         {
           requestUrl: normalizedUrl,
           timeoutMs,
+          accessToken,
           headerVariants: headerVariants.map((headers) =>
             headers && typeof headers === "object" ? { ...headers } : {}
           ),
@@ -64027,6 +64235,7 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
       ],
       func: async (config) => {
         const normalize = (value) => String(value || "").trim();
+        const isJwt = (value) => /^[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}$/.test(normalize(value));
         const parseJson = (text) => {
           try {
             return JSON.parse(String(text || ""));
@@ -64034,19 +64243,269 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
             return null;
           }
         };
-        const fetchJson = async (headers = {}) => {
+        const safeGetProperty = (container, key) => {
+          try {
+            return container?.[key];
+          } catch {
+            return undefined;
+          }
+        };
+        const normalizeShellOrganizations = (value) =>
+          (Array.isArray(value) ? value : [])
+            .map((entry) => {
+              if (!entry || typeof entry !== "object") {
+                return null;
+              }
+              const organizationId = normalize(entry.value || entry.id || entry.code || entry.orgId || entry.organizationId);
+              const label = normalize(entry.label || entry.name || entry.displayName || entry.orgName || entry.organizationName);
+              const userId = normalize(entry.userId || entry.user_id || entry.profileGuid || entry.profileId);
+              if (!organizationId && !label) {
+                return null;
+              }
+              return {
+                value: organizationId,
+                id: organizationId,
+                label,
+                userId,
+              };
+            })
+            .filter(Boolean);
+        const normalizeShellProfile = (value) => {
+          if (!value || typeof value !== "object") {
+            return null;
+          }
+          const displayName = normalize(value.displayName || value.name);
+          const email = normalize(value.email || value.login_email || value.username);
+          const avatar = normalize(value.avatar || value.avatarUrl || value.user_image_url || value.imageUrl);
+          const userId = normalize(value.userId || value.user_id || value.sub || value.id);
+          if (!displayName && !email && !avatar && !userId) {
+            return null;
+          }
+          return {
+            ...(displayName ? { displayName } : {}),
+            ...(email ? { email } : {}),
+            ...(avatar ? { avatar } : {}),
+            ...(userId ? { userId } : {}),
+          };
+        };
+        const buildShellCandidate = (value, sourcePath = "") => {
+          if (!value || typeof value !== "object") {
+            return null;
+          }
+          let imsToken = "";
+          let imsOrg = "";
+          let imsOrgName = "";
+          let imsOrgs = [];
+          let imsClientId = "";
+          let imsProfile = null;
+          try {
+            const nestedToken = safeGetProperty(value, "token");
+            imsToken = normalize(
+              safeGetProperty(value, "imsToken") ||
+                safeGetProperty(value, "accessToken") ||
+                safeGetProperty(value, "access_token") ||
+                (nestedToken && typeof nestedToken === "object"
+                  ? safeGetProperty(nestedToken, "imsToken") ||
+                    safeGetProperty(nestedToken, "accessToken") ||
+                    safeGetProperty(nestedToken, "access_token")
+                  : "") ||
+                safeGetProperty(value, "authorization") ||
+                safeGetProperty(value, "Authorization") ||
+                ""
+            );
+            imsOrg = normalize(
+              safeGetProperty(value, "imsOrg") ||
+                safeGetProperty(value, "ims_org") ||
+                safeGetProperty(value, "orgId") ||
+                safeGetProperty(value, "org_id") ||
+                safeGetProperty(value, "organizationId") ||
+                safeGetProperty(value, "organization") ||
+                ""
+            );
+            imsOrgName = normalize(
+              safeGetProperty(value, "imsOrgName") ||
+                safeGetProperty(value, "ims_org_name") ||
+                safeGetProperty(value, "orgName") ||
+                safeGetProperty(value, "org_name") ||
+                safeGetProperty(value, "organizationName") ||
+                safeGetProperty(value, "organization_name") ||
+                safeGetProperty(value, "label") ||
+                ""
+            );
+            imsOrgs = normalizeShellOrganizations(
+              Array.isArray(safeGetProperty(value, "imsOrgs"))
+                ? safeGetProperty(value, "imsOrgs")
+                : Array.isArray(safeGetProperty(value, "organizations"))
+                  ? safeGetProperty(value, "organizations")
+                  : Array.isArray(safeGetProperty(value, "orgs"))
+                    ? safeGetProperty(value, "orgs")
+                    : []
+            );
+            imsClientId = normalize(
+              safeGetProperty(value, "imsClientId") || safeGetProperty(value, "clientId") || safeGetProperty(value, "imsClientID") || ""
+            );
+            const imsProfileValue = safeGetProperty(value, "imsProfile");
+            const profileValue = safeGetProperty(value, "profile");
+            const userValue = safeGetProperty(value, "user");
+            imsProfile = normalizeShellProfile(
+              imsProfileValue && typeof imsProfileValue === "object"
+                ? imsProfileValue
+                : profileValue && typeof profileValue === "object"
+                  ? profileValue
+                  : userValue && typeof userValue === "object"
+                    ? userValue
+                    : null
+            );
+          } catch {
+            return null;
+          }
+          if (!imsToken && !imsOrg && !imsOrgName && imsOrgs.length === 0 && !imsProfile) {
+            return null;
+          }
+          const score =
+            (isJwt(imsToken) ? 120 : imsToken ? 60 : 0) +
+            (imsOrg ? 24 : 0) +
+            (imsOrgName ? 18 : 0) +
+            (imsOrgs.length > 0 ? 16 : 0) +
+            (imsProfile?.userId ? 12 : 0) +
+            (imsProfile?.email ? 8 : 0) +
+            (/shell/i.test(sourcePath) ? 12 : 0);
+          return {
+            imsToken,
+            imsOrg,
+            imsOrgName,
+            imsOrgs,
+            imsClientId,
+            imsProfile,
+            sourcePath,
+            score,
+          };
+        };
+        const findBestShellSnapshot = () => {
+          const namedWindowEntries = Object.keys(window)
+            .filter((key) => /shell|ims|adobe|profile/i.test(String(key || "")))
+            .slice(0, 80)
+            .map((key) => [`window.${key}`, safeGetProperty(window, key)]);
+          const rootEntries = [
+            ["window.__shellConfiguration", window.__shellConfiguration],
+            ["window.shellConfiguration", window.shellConfiguration],
+            ["window.__excShellConfiguration", window.__excShellConfiguration],
+            ["window.__adobeShellConfiguration", window.__adobeShellConfiguration],
+            ["window.__INITIAL_STATE__", window.__INITIAL_STATE__],
+            ["window.__PRELOADED_STATE__", window.__PRELOADED_STATE__],
+            ["window.__APOLLO_STATE__", window.__APOLLO_STATE__],
+            ["window.__data__", window.__data__],
+            ["window.adobeIMS", window.adobeIMS],
+            ["window.adobeid", window.adobeid],
+            ...namedWindowEntries,
+          ];
+          const visited = new WeakSet();
+          const candidates = [];
+          let visitedCount = 0;
+          const shouldSkipObject = (value) => {
+            if (!value || typeof value !== "object") {
+              return true;
+            }
+            if (visited.has(value)) {
+              return true;
+            }
+            if (typeof Window !== "undefined" && value instanceof Window) {
+              return true;
+            }
+            if (typeof Document !== "undefined" && value instanceof Document) {
+              return true;
+            }
+            if (typeof Element !== "undefined" && value instanceof Element) {
+              return true;
+            }
+            if (typeof Node !== "undefined" && value instanceof Node) {
+              return true;
+            }
+            return false;
+          };
+          const visit = (value, sourcePath = "", depth = 0) => {
+            if (depth > 4 || visitedCount >= 400 || shouldSkipObject(value)) {
+              return;
+            }
+            visited.add(value);
+            visitedCount += 1;
+            const candidate = buildShellCandidate(value, sourcePath);
+            if (candidate) {
+              candidates.push(candidate);
+            }
+            Object.keys(value)
+              .slice(0, 60)
+              .forEach((key) => {
+                const child = safeGetProperty(value, key);
+                if (!child || typeof child !== "object") {
+                  return;
+                }
+                visit(child, sourcePath ? `${sourcePath}.${key}` : key, depth + 1);
+              });
+          };
+          rootEntries.forEach(([sourcePath, value]) => visit(value, String(sourcePath || ""), 0));
+          candidates.sort((left, right) => Number(right?.score || 0) - Number(left?.score || 0));
+          return candidates[0] || null;
+        };
+        const waitForShellSnapshot = async () => {
+          const maxWaitMs = Math.max(250, Math.min(5000, Math.floor(Math.max(0, Number(config?.timeoutMs || 0)) / 2)));
+          const deadline = Date.now() + maxWaitMs;
+          let bestSnapshot = findBestShellSnapshot();
+          while ((!bestSnapshot || !isJwt(bestSnapshot.imsToken)) && Date.now() < deadline) {
+            await new Promise((resolve) => window.setTimeout(resolve, 120));
+            bestSnapshot = findBestShellSnapshot();
+          }
+          return bestSnapshot || findBestShellSnapshot();
+        };
+        const buildHeaderVariants = (shellSnapshot = null) => {
+          const variants = [];
+          const seen = new Set();
+          const pushVariant = (headers = {}) => {
+            const requestHeaders = {
+              Accept: "application/json, text/plain, */*",
+              ...(headers && typeof headers === "object" ? headers : {}),
+            };
+            if (!normalize(requestHeaders.Authorization || requestHeaders.authorization)) {
+              delete requestHeaders.Authorization;
+              delete requestHeaders.authorization;
+            }
+            delete requestHeaders.Origin;
+            delete requestHeaders.origin;
+            delete requestHeaders.Referer;
+            delete requestHeaders.referer;
+            const dedupeKey = JSON.stringify(
+              Object.entries(requestHeaders)
+                .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+                .map(([key, value]) => [key, normalize(value)])
+            );
+            if (seen.has(dedupeKey)) {
+              return;
+            }
+            seen.add(dedupeKey);
+            variants.push(requestHeaders);
+          };
+          if (isJwt(shellSnapshot?.imsToken)) {
+            pushVariant({
+              Authorization: `Bearer ${shellSnapshot.imsToken}`,
+            });
+          }
+          const explicitVariants = Array.isArray(config?.headerVariants) ? config.headerVariants : [{}];
+          explicitVariants.forEach((headers) => pushVariant(headers));
+          const configuredAccessToken = normalize(config?.accessToken || "");
+          if (isJwt(configuredAccessToken)) {
+            pushVariant({
+              Authorization: `Bearer ${configuredAccessToken}`,
+            });
+          }
+          if (variants.length === 0) {
+            pushVariant({});
+          }
+          return variants;
+        };
+        const fetchJson = async (headers = {}, shellSnapshot = null) => {
           const requestHeaders = {
-            Accept: "application/json, text/plain, */*",
             ...(headers && typeof headers === "object" ? headers : {}),
           };
-          if (!normalize(requestHeaders.Authorization || requestHeaders.authorization)) {
-            delete requestHeaders.Authorization;
-            delete requestHeaders.authorization;
-          }
-          delete requestHeaders.Origin;
-          delete requestHeaders.origin;
-          delete requestHeaders.Referer;
-          delete requestHeaders.referer;
 
           const controller = new AbortController();
           const timerId = window.setTimeout(
@@ -64073,6 +64532,7 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
               text,
               parsed: parseJson(text),
               headers: responseHeaders,
+              shell: shellSnapshot,
             };
           } catch (error) {
             return {
@@ -64083,16 +64543,18 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
               text: "",
               parsed: null,
               headers: {},
+              shell: shellSnapshot,
             };
           } finally {
             window.clearTimeout(timerId);
           }
         };
 
+        const shellSnapshot = await waitForShellSnapshot();
         let lastResult = null;
-        const variants = Array.isArray(config?.headerVariants) ? config.headerVariants : [{}];
+        const variants = buildHeaderVariants(shellSnapshot);
         for (const headers of variants) {
-          const result = await fetchJson(headers);
+          const result = await fetchJson(headers, shellSnapshot);
           if (result?.ok === true) {
             return result;
           }
@@ -64119,6 +64581,20 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
       state.consoleCsrfToken = csrfToken;
     }
 
+    const normalizedShellSnapshot = normalizeExperienceCloudShellSnapshot(result.shell);
+    if (normalizedShellSnapshot) {
+      state.consoleBootstrapState = {
+        ...(state.consoleBootstrapState && typeof state.consoleBootstrapState === "object"
+          ? state.consoleBootstrapState
+          : {}),
+        shellSnapshot: normalizedShellSnapshot,
+        accessToken: firstNonEmptyString([
+          normalizedShellSnapshot.imsToken,
+          state.consoleBootstrapState?.accessToken,
+        ]),
+      };
+    }
+
     return {
       ok: result.ok === true,
       status: Number(result.status || 0),
@@ -64127,6 +64603,7 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
       text: String(result.text || ""),
       parsed: result.parsed,
       headers: responseHeaders,
+      shell: normalizedShellSnapshot,
     };
   } catch {
     return null;
@@ -69277,11 +69754,14 @@ async function loadProgrammersData(accessToken = "", options = {}) {
     throw createProgrammersError("Adobe Pass console access is denied for this account.", "PROGRAMMERS_ACCESS_DENIED");
   }
 
+  const resolvedConsoleAccessToken = normalizeBearerTokenValue(
+    firstNonEmptyString([bootstrapState?.accessToken, normalizedAccessToken])
+  );
   let entities = [];
   let programmersLoadError = null;
   try {
     entities = await fetchProgrammersFromApi({
-      accessToken: normalizedAccessToken,
+      accessToken: resolvedConsoleAccessToken,
       requireEntities: false,
     });
   } catch (error) {
