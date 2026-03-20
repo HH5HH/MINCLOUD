@@ -57221,7 +57221,13 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     });
   } catch (error) {
     const accessDenied = error?.code === "PROGRAMMERS_ACCESS_DENIED";
-    const deniedSessionData = enforced.loginData || sessionData;
+    const deniedSessionData = mergeCmConsoleBootstrapIntoLoginData(
+      mergeExperienceCloudShellSnapshotIntoLoginData(
+        enforced.loginData || sessionData,
+        state.consoleBootstrapState?.shellSnapshot || null
+      ),
+      state.loginData
+    );
     const deniedAccessToken = firstNonEmptyString([enforced.loginData?.accessToken, sessionData?.accessToken]);
 
     if (accessDenied) {

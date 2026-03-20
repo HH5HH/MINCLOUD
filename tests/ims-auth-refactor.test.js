@@ -1625,7 +1625,12 @@ test("programmer access denial drops into the org picker instead of auto-restart
   const activationSource = extractFunctionSource(popupSource, "activateSession");
 
   assert.doesNotMatch(activationSource, /attemptInteractiveAdobePassRecovery/);
+  assert.match(
+    activationSource,
+    /const deniedSessionData = mergeCmConsoleBootstrapIntoLoginData\(\s*mergeExperienceCloudShellSnapshotIntoLoginData\(\s*enforced\.loginData \|\| sessionData,\s*state\.consoleBootstrapState\?\.shellSnapshot \|\| null\s*\),\s*state\.loginData\s*\);/
+  );
   assert.match(activationSource, /ensureRestrictedOrgOptionsFromToken\(\s*deniedAccessToken,[\s\S]*deniedSessionData/);
+  assert.match(activationSource, /updateRestrictedContext\(deniedSessionData,/);
 });
 
 test("logged-out popup and sidepanel surfaces expose ZIP.KEY import controls", () => {
