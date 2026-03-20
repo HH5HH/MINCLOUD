@@ -686,7 +686,7 @@ test("selected media company refresh primes CM tenant precheck before CM service
 
   assert.match(refreshPanelsSource, /const skipCmBootstrap = options\.skipCmBootstrap === true;/);
   assert.match(refreshPanelsSource, /ensureCmTenantsPrecheckForActiveSession\(`panel-selection:\$\{programmer\.programmerId\}`/);
-  assert.match(refreshPanelsSource, /allowTemporaryPageContextTab:\s*true/);
+  assert.match(refreshPanelsSource, /allowTemporaryPageContextTab:\s*false/);
   assert.match(refreshPanelsSource, /const cmServicePromise = skipCmBootstrap/);
   assert.match(refreshPanelsSource, /const cmMvpdServicePromise = skipCmBootstrap/);
   assert.match(refreshPanelsSource, /selectPreferredCmRuntimeService\(currentServices\?\.cm,\s*resolvedCmService\)/);
@@ -1052,18 +1052,25 @@ test("media company selection reuses AdobePass shell page context for applicatio
   assert.match(fetchApplicationsSource, /fetchAdobeConsoleJsonWithShellPageContextVariants\(\[lookupUrl\], "Applications load"/);
   assert.match(fetchApplicationDetailsSource, /fetchAdobeConsoleJsonWithShellPageContextVariants\(urlCandidates, "Application detail"/);
   assert.match(fetchApplicationRawSource, /fetchAdobeConsoleJsonWithShellPageContextVariants\(urlCandidates, "Application raw fetch"/);
+  assert.match(fetchApplicationsSource, /const skipDetailBackfill = options\.skipDetailBackfill !== false;/);
   assert.match(ensurePremiumAppsSource, /const allowTemporaryPageContextTab = options\.allowTemporaryPageContextTab === true;/);
+  assert.match(ensurePremiumAppsSource, /const eagerScopeHydration = options\.eagerScopeHydration === true;/);
+  assert.match(ensurePremiumAppsSource, /skipDetailBackfill:\s*!eagerScopeHydration/);
+  assert.match(ensurePremiumAppsSource, /schedulePremiumAppScopeHydration\(programmer,\s*\{/);
+  assert.match(ensurePremiumAppsSource, /allowTemporaryPageContextTab:\s*false/);
   assert.match(ensurePremiumAppsSource, /const preferredTabId = Number\(options\.preferredTabId \|\| getRetainedAuthPopupBootstrapTabId\(\) \|\| 0\);/);
   assert.match(hydrateScopesSource, /const allowTemporaryPageContextTab = options\.allowTemporaryPageContextTab === true;/);
   assert.match(refreshPanelsSource, /withAdobeConsolePageContextTarget\(/);
   assert.match(refreshPanelsSource, /\/rest\/api\/applications\?programmer=/);
-  assert.match(refreshPanelsSource, /allowTemporaryTab:\s*true/);
+  assert.match(refreshPanelsSource, /allowTemporaryTab:\s*false/);
   assert.match(refreshPanelsSource, /ensurePremiumAppsForProgrammer\(programmer,\s*\{/);
   assert.match(refreshPanelsSource, /allowTemporaryPageContextTab:\s*pageContextOptions\?\.allowTemporaryPageContextTab === true/);
   assert.match(
     refreshPanelsSource,
     /preferredTabId:\s*Number\(pageContextOptions\?\.preferredTabId \|\| 0\) \|\| getRetainedAuthPopupBootstrapTabId\(\) \|\| 0/
   );
+  assert.match(refreshPanelsSource, /const allowBackgroundCredentialCompilation = options\?\.allowBackgroundCredentialCompilation === true;/);
+  assert.doesNotMatch(refreshPanelsSource, /backgroundHydrationPromise = primeProgrammerServiceHydration\(programmer, cachedServices/);
 });
 
 test("single resolved media company is not auto-selected after programmer hydration", () => {
@@ -1333,8 +1340,9 @@ test("activation leaves the global selectors user-owned and premium hydration st
   const passVaultRecordSource = extractFunctionSource(popupSource, "buildPassVaultProgrammerRecord");
 
   assert.match(popupSource, /async function primeProgrammerServiceHydration\(/);
-  assert.match(refreshSource, /backgroundHydrationPromise = primeProgrammerServiceHydration\(programmer, cachedServices/);
-  assert.match(refreshSource, /backgroundHydrationPromise =\s*backgroundHydrationPromise \|\|[\s\S]*primeProgrammerServiceHydration\(programmer, initialMergedServices/);
+  assert.doesNotMatch(refreshSource, /primeProgrammerServiceHydration\(programmer,\s*cachedServices/);
+  assert.match(refreshSource, /const allowBackgroundCredentialCompilation = options\?\.allowBackgroundCredentialCompilation === true;/);
+  assert.match(refreshSource, /hydrationStatus:\s*UNDERPAR_VAULT_STATUS_PENDING/);
   assert.doesNotMatch(activateSessionSource, /restorePreferredProgrammerSelectionForActivation\(/);
   assert.doesNotMatch(activateSessionSource, /captureAdobePassEnvironmentSwitchSelectionSnapshot\(\)/);
   assert.doesNotMatch(activateSessionSource, /selectProgrammerForController\(/);
