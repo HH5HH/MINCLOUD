@@ -68801,11 +68801,14 @@ async function fetchProgrammersFromApi(options = {}) {
   let silentRefreshAttempted = false;
   for (const endpoint of endpoints) {
     try {
-      const buildHeaderVariants = () =>
-        uniquePreserveOrder([
-          accessToken ? getAdobeConsoleRequestHeaders(accessToken) : null,
-          getAdobeConsoleRequestHeaders(""),
-        ].filter(Boolean)).map((headers) => ({ headers }));
+      const buildHeaderVariants = () => {
+        const variants = [];
+        if (accessToken) {
+          variants.push({ headers: getAdobeConsoleRequestHeaders(accessToken) });
+        }
+        variants.push({ headers: getAdobeConsoleRequestHeaders("") });
+        return variants;
+      };
 
       let headerVariants = buildHeaderVariants();
       headersLoop: for (let headerIndex = 0; headerIndex < headerVariants.length; headerIndex += 1) {

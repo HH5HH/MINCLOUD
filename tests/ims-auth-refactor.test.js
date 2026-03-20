@@ -755,6 +755,15 @@ test("programmer discovery keeps configurationVersion=0 on Adobe console entity 
   ]);
 });
 
+test("programmer discovery keeps fetch header variants as plain header objects", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const fetchProgrammersSource = extractFunctionSource(popupSource, "fetchProgrammersFromApi");
+
+  assert.match(fetchProgrammersSource, /if \(accessToken\) \{\s*variants\.push\(\{ headers: getAdobeConsoleRequestHeaders\(accessToken\) \}\);/);
+  assert.match(fetchProgrammersSource, /variants\.push\(\{ headers: getAdobeConsoleRequestHeaders\(""\) \}\);/);
+  assert.doesNotMatch(fetchProgrammersSource, /uniquePreserveOrder\(\s*\[\s*accessToken \? getAdobeConsoleRequestHeaders/);
+});
+
 test("console endpoint bootstrap initializes underparStateRef before top-level programmer endpoint construction", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const stateRefIndex = popupSource.indexOf("let underparStateRef = null;");
