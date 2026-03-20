@@ -32,6 +32,7 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
     /<div class="degradation-runner-actions">[\s\S]*?<div class="degradation-runner-form"[\s\S]*?class="degradation-endpoint-select"[\s\S]*?class="degradation-run-go-btn"[\s\S]*?class="degradation-record-toggle-btn"[\s\S]*?<\/div>\s*<div class="degradation-cheat-sheet-row degradation-utility-row"[\s\S]*?class="degradation-copy-curl-btn"[\s\S]*?CHEAT SHEET[\s\S]*?class="degradation-make-clickdgr-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"/
   );
   assert.doesNotMatch(popupSource, /class="degradation-controller-status"/);
+  assert.doesNotMatch(popupSource, /class="degradation-controller-shell"/);
   assert.match(popupSource, /function degradationHasQualifiedCheatSheetContext\(/);
   assert.match(popupSource, /function degradationSyncCheatSheetButton\(/);
   assert.match(popupSource, /Select Environment x Media Company, RequestorId, and MVPD first/);
@@ -117,7 +118,15 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
 
   assert.match(popupCss, /\.degradation-cheat-sheet-row\s*\{/);
   assert.match(popupCss, /\.degradation-utility-row\s*\{/);
-  assert.match(popupCss, /\.degradation-utility-row\s*\{[\s\S]*?justify-content:\s*flex-end;[\s\S]*?margin-top:\s*auto;[\s\S]*?width:\s*100%;/);
+  assert.doesNotMatch(popupCss, /\.degradation-controller-shell\s*\{/);
+  assert.match(
+    popupCss,
+    /\.degradation-cheat-sheet-row\s*\{[\s\S]*?display:\s*flex;[\s\S]*?align-items:\s*center;[\s\S]*?gap:\s*8px;[\s\S]*?flex-wrap:\s*nowrap;/
+  );
+  assert.match(
+    popupCss,
+    /\.degradation-utility-row\s*\{[\s\S]*?justify-content:\s*space-between;[\s\S]*?margin-top:\s*2px;[\s\S]*?width:\s*100%;/
+  );
   assert.match(
     popupCss,
     /\.degradation-runner-form\s*\{[\s\S]*?flex:\s*1 1 auto;[\s\S]*?min-width:\s*0;[\s\S]*?flex-direction:\s*row;[\s\S]*?margin-top:\s*0;/
@@ -142,6 +151,14 @@ test("DEGRADATION controller exposes a workspace cheat-sheet flow without quick-
   assert.match(
     popupCss,
     /\.degradation-quick-set-btn,\s*\.degradation-copy-curl-btn\s*\{[\s\S]*?height:\s*32px;[\s\S]*?display:\s*inline-flex;[\s\S]*?align-items:\s*center;[\s\S]*?justify-content:\s*center;/
+  );
+  assert.match(
+    popupCss,
+    /\.degradation-copy-curl-btn\s*\{[\s\S]*?flex:\s*0 1 auto;[\s\S]*?min-width:\s*0;[\s\S]*?border-color:\s*var\(--service-action-border\);[\s\S]*?background:\s*var\(--service-action-bg\);[\s\S]*?color:\s*#ffffff;[\s\S]*?box-shadow:\s*var\(--service-action-shadow\);/
+  );
+  assert.match(
+    popupCss,
+    /\.degradation-copy-curl-btn:hover:not\(:disabled\)\s*\{[\s\S]*?border-color:\s*var\(--service-action-border-hover\);[\s\S]*?background:\s*var\(--service-action-bg-hover\);[\s\S]*?color:\s*#ffffff;[\s\S]*?box-shadow:\s*var\(--service-action-shadow-hover\);/
   );
 
   assert.match(workspaceSource, /function renderCheatSheetCard\(/);

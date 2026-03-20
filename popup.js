@@ -48551,56 +48551,54 @@ function degradationBuildControllerHtml(programmer, appInfo) {
   const requestorControlsHiddenAttr = hasRequestor ? "" : " hidden";
   const goButtonLabel = degradationBuildGoButtonLabel();
   return `
-    <section class="degradation-controller-shell">
-      <div class="degradation-runner-actions">
-        <div class="degradation-runner-form"${requestorControlsHiddenAttr}>
-          <div class="degradation-method-row">
-            <select class="degradation-endpoint-select" aria-label="DEGRADATION method">
-              <option value="all">GET ALL</option>
-              <option value="authnall">authN ALL</option>
-              <option value="authzall">authZ ALL</option>
-              <option value="authznone">authZ NONE</option>
-            </select>
-            <button type="button" class="degradation-run-go-btn"${goHiddenAttr}>${escapeHtml(goButtonLabel)}</button>
-          </div>
+    <div class="degradation-runner-actions">
+      <div class="degradation-runner-form"${requestorControlsHiddenAttr}>
+        <div class="degradation-method-row">
+          <select class="degradation-endpoint-select" aria-label="DEGRADATION method">
+            <option value="all">GET ALL</option>
+            <option value="authnall">authN ALL</option>
+            <option value="authzall">authZ ALL</option>
+            <option value="authznone">authZ NONE</option>
+          </select>
+          <button type="button" class="degradation-run-go-btn"${goHiddenAttr}>${escapeHtml(goButtonLabel)}</button>
         </div>
-        <button
-          type="button"
-          class="degradation-record-toggle-btn"
-          ${requestorControlsHiddenAttr}
-          title="Record DEGRADATION"
-          aria-label="Record DEGRADATION"
-        >
-          <span class="degradation-record-btn-icon degradation-record-btn-icon--record" aria-hidden="true"></span>
-          <span class="degradation-record-btn-label">DEGRADATION</span>
-        </button>
       </div>
-      <div class="degradation-cheat-sheet-row degradation-utility-row"${requestorControlsHiddenAttr}>
-        <button
-          type="button"
-          class="degradation-copy-curl-btn"
-          title="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
-          aria-label="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
-        >
-          CHEAT SHEET
-        </button>
-        <button
-          type="button"
-          class="degradation-make-clickdgr-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"
-          title="Click to generate DEGRADATION Tearsheet ( clickDGR )"
-          aria-label="Click to generate DEGRADATION Tearsheet ( clickDGR )"
-        >
-          <span class="esm-workspace-toolbar-icon esm-workspace-toolbar-icon--tearsheet" aria-hidden="true">
-            <svg viewBox="0 0 24 24" focusable="false">
-              <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
-              <path d="M14.25 3.75V8.5H19" />
-              <path d="M9.5 12.75 10 14.25 11.5 14.75 10 15.25 9.5 16.75 9 15.25 7.5 14.75 9 14.25 9.5 12.75Z" />
-              <path d="M14 12.25 14.3 13.1 15.2 13.4 14.3 13.7 14 14.55 13.7 13.7 12.8 13.4 13.7 13.1 14 12.25Z" />
-            </svg>
-          </span>
-        </button>
-      </div>
-    </section>
+      <button
+        type="button"
+        class="degradation-record-toggle-btn"
+        ${requestorControlsHiddenAttr}
+        title="Record DEGRADATION"
+        aria-label="Record DEGRADATION"
+      >
+        <span class="degradation-record-btn-icon degradation-record-btn-icon--record" aria-hidden="true"></span>
+        <span class="degradation-record-btn-label">DEGRADATION</span>
+      </button>
+    </div>
+    <div class="degradation-cheat-sheet-row degradation-utility-row"${requestorControlsHiddenAttr}>
+      <button
+        type="button"
+        class="degradation-copy-curl-btn"
+        title="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
+        aria-label="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
+      >
+        CHEAT SHEET
+      </button>
+      <button
+        type="button"
+        class="degradation-make-clickdgr-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"
+        title="Click to generate DEGRADATION Tearsheet ( clickDGR )"
+        aria-label="Click to generate DEGRADATION Tearsheet ( clickDGR )"
+      >
+        <span class="esm-workspace-toolbar-icon esm-workspace-toolbar-icon--tearsheet" aria-hidden="true">
+          <svg viewBox="0 0 24 24" focusable="false">
+            <path d="M7 3.75h7.25L19 8.5v11.75A1.75 1.75 0 0 1 17.25 22H7A1.75 1.75 0 0 1 5.25 20.25V5.5A1.75 1.75 0 0 1 7 3.75Z" />
+            <path d="M14.25 3.75V8.5H19" />
+            <path d="M9.5 12.75 10 14.25 11.5 14.75 10 15.25 9.5 16.75 9 15.25 7.5 14.75 9 14.25 9.5 12.75Z" />
+            <path d="M14 12.25 14.3 13.1 15.2 13.4 14.3 13.7 14 14.55 13.7 13.7 12.8 13.4 13.7 13.1 14 12.25Z" />
+          </svg>
+        </span>
+      </button>
+    </div>
   `;
 }
 
