@@ -923,13 +923,15 @@ test("shell page context harvests the unified shell IMS session before console e
 
   assert.match(bootstrapUrlSource, /const isProgrammersRequest =/);
   assert.match(bootstrapUrlSource, /const isApplicationsRequest =/);
-  assert.match(bootstrapUrlSource, /isProgrammersRequest \|\| isApplicationsRequest \? getActiveAdobePassEnvironment\(\)\?\.consoleProgrammersUrl/);
+  assert.match(bootstrapUrlSource, /const isProgrammersRuntimeRequest =/);
+  assert.match(bootstrapUrlSource, /isProgrammersRuntimeRequest \? getActiveAdobePassEnvironment\(\)\?\.consoleShellUrl/);
   assert.match(resolveTargetSource, /resolveReusableAdobePageContextTab/);
   assert.match(resolveTargetSource, /findExistingExperienceCloudAdobeTab/);
   assert.match(resolveTargetSource, /openTemporaryAdobePageContextTarget\(\s*getAdobeConsolePageContextBootstrapUrl\(requestUrl\)/);
   assert.match(withTargetSource, /resolveAdobeConsolePageContextTarget\(requestUrl,\s*\{/);
   assert.match(withTargetSource, /closeTemporaryAdobePageContextTarget\(target\.temporaryTarget\)/);
   assert.match(shellFetchSource, /const target = await resolveAdobeConsolePageContextTarget\(normalizedUrl,\s*\{/);
+  assert.match(shellFetchSource, /const shouldWaitForProgrammersFrame =/);
   assert.match(shellFetchSource, /const isExplicitShellRoot = \/window\\\.\(\?:__shellConfiguration\|shellConfiguration\|__excShellConfiguration\|__adobeShellConfiguration\)\$\/i/);
   assert.match(shellFetchSource, /if \(preferShellAccessToken && variants\.length > 0\) \{\s*return variants;/);
   assert.match(shellFetchSource, /target: \{ tabId, allFrames: true \ }|target: \{ tabId, allFrames: true \}/);
@@ -939,8 +941,12 @@ test("shell page context harvests the unified shell IMS session before console e
   );
   assert.match(shellFetchSource, /const shellSnapshot = await waitForShellSnapshot\(\);/);
   assert.match(shellFetchSource, /const isAdobePassConsoleFrame =\s*\/cdn\\\.experience\\\.adobe\\\.net\\\/solutions\\\/AdobePass-adobepass-unifiedshell-console-client\\\//);
+  assert.match(shellFetchSource, /const isAdobePassProgrammersFrame =/);
   assert.match(shellFetchSource, /const normalizeExecutionResults = \(executionResults = \[\]\) =>/);
-  assert.match(shellFetchSource, /const preferredFrameWaitDeadline = Date\.now\(\) \+ Math\.max\(1200, Math\.min\(timeoutMs, 6000\)\)/);
+  assert.match(shellFetchSource, /const preferredFrameWaitDeadline = Date\.now\(\) \+ Math\.max\(1800, Math\.min\(timeoutMs, shouldWaitForProgrammersFrame \? 9000 : 6000\)\)/);
+  assert.match(shellFetchSource, /const programmersFrameResults = normalizedResults\.filter\(\(entry\) => entry\.isAdobePassProgrammersFrame\)/);
+  assert.match(shellFetchSource, /const successfulProgrammersFrameResult = programmersFrameResults\.find\(\(entry\) => entry\.result\?\.ok === true\) \|\| null/);
+  assert.match(shellFetchSource, /const readyProgrammersFrameResult = programmersFrameResults\.find\(\(entry\) => entry\.frameReady\) \|\| null/);
   assert.match(shellFetchSource, /const preferredFrameResults = normalizedResults\.filter\(\(entry\) => entry\.isAdobePassConsoleFrame\)/);
   assert.match(shellFetchSource, /await new Promise\(\(resolve\) => setTimeout\(resolve, 180\)\)/);
   assert.match(shellFetchSource, /window\.__shellConfiguration/);
@@ -954,6 +960,8 @@ test("shell page context harvests the unified shell IMS session before console e
   assert.match(activationSource, /mergeExperienceCloudShellSnapshotIntoLoginData\(/);
   assert.match(activationSource, /state\.consoleBootstrapState\?\.shellSnapshot/);
   assert.match(loadProgrammersSource, /return withAdobeConsolePageContextTarget\(/);
+  assert.match(loadProgrammersSource, /fetchAdobeConsoleJsonViaShellPageContext\(/);
+  assert.match(loadProgrammersSource, /\/rest\/api\/config\/history/);
   assert.match(loadProgrammersSource, /allowTemporaryPageContextTab:\s*pageContextOptions\?\.allowTemporaryPageContextTab === true/);
   assert.match(tempTargetSource, /chrome\.tabs\?\.create/);
   assert.match(tempTargetSource, /active:\s*false/);

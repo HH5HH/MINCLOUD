@@ -64368,8 +64368,12 @@ function getAdobeConsolePageContextBootstrapUrl(requestUrl = "") {
     /\/entity\/RegisteredApplication(?:[/?#]|$)/i.test(normalizedUrl) ||
     /\/registeredApplications(?:[/?#]|$)/i.test(normalizedUrl) ||
     /\/registered-applications(?:[/?#]|$)/i.test(normalizedUrl);
+  const isProgrammersRuntimeRequest =
+    isProgrammersRequest ||
+    isApplicationsRequest ||
+    /\/config\/history(?:[/?#]|$)/i.test(normalizedUrl);
   return firstNonEmptyString([
-    isProgrammersRequest || isApplicationsRequest ? getActiveAdobePassEnvironment()?.consoleProgrammersUrl : "",
+    isProgrammersRuntimeRequest ? getActiveAdobePassEnvironment()?.consoleShellUrl : "",
     getActiveAdobePassEnvironment()?.consoleShellUrl,
     `${String(CM_CONSOLE_APP_ORIGIN || "").trim().replace(/\/+$/, "")}/`,
   ]);
@@ -64439,6 +64443,10 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
   const allowTemporaryTab = options.allowTemporaryTab !== false;
   const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
   const timeoutMs = Math.max(2000, Number(options.timeoutMs || PROGRAMMERS_FETCH_TIMEOUT_MS));
+  const shouldWaitForProgrammersFrame =
+    /\/entity\/Programmer(?:[/?#]|$)|\/applications(?:[/?#]|$)|\/entity\/RegisteredApplication(?:[/?#]|$)|\/registeredApplications(?:[/?#]|$)|\/registered-applications(?:[/?#]|$)|\/config\/history(?:[/?#]|$)/i.test(
+      normalizedUrl
+    );
   const accessToken = normalizeBearerTokenValue(
     firstNonEmptyString([options?.accessToken, getPreferredAdobeConsoleAccessTokenCandidate()])
   );
@@ -64840,6 +64848,11 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
         const isAdobePassConsoleFrame =
           /cdn\.experience\.adobe\.net\/solutions\/AdobePass-adobepass-unifiedshell-console-client\//i.test(frameUrl) ||
           /#\/@adobepass\/pass\/authentication\//i.test(frameUrl);
+        const isAdobePassProgrammersFrame =
+          /cdn\.experience\.adobe\.net\/solutions\/AdobePass-adobepass-unifiedshell-console-client\/[^/?#]+\/programmers(?:[/?#]|$)/i.test(
+            frameUrl
+          ) ||
+          /#\/@adobepass\/pass\/authentication\/[^/?#]+\/programmers(?:[/?#]|$)/i.test(frameUrl);
         let lastResult = null;
         const variants = buildHeaderVariants(shellSnapshot);
         for (const headers of variants) {
@@ -64851,6 +64864,7 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
               frameOrigin,
               documentReadyState,
               isAdobePassConsoleFrame,
+              isAdobePassProgrammersFrame,
             };
           }
           lastResult = {
@@ -64859,6 +64873,7 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
             frameOrigin,
             documentReadyState,
             isAdobePassConsoleFrame,
+            isAdobePassProgrammersFrame,
           };
         }
 
@@ -64879,10 +64894,17 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
           result.isAdobePassConsoleFrame === true ||
           /cdn\.experience\.adobe\.net\/solutions\/AdobePass-adobepass-unifiedshell-console-client\//i.test(frameUrl) ||
           /#\/@adobepass\/pass\/authentication\//i.test(frameUrl);
+        const isAdobePassProgrammersFrame =
+          result.isAdobePassProgrammersFrame === true ||
+          /cdn\.experience\.adobe\.net\/solutions\/AdobePass-adobepass-unifiedshell-console-client\/[^/?#]+\/programmers(?:[/?#]|$)/i.test(
+            frameUrl
+          ) ||
+          /#\/@adobepass\/pass\/authentication\/[^/?#]+\/programmers(?:[/?#]|$)/i.test(frameUrl);
         const frameReady =
           String(result.documentReadyState || "").trim().toLowerCase() === "complete" ||
           Boolean(normalizedShellSnapshot?.imsToken);
         const score =
+          (shouldWaitForProgrammersFrame && isAdobePassProgrammersFrame ? 1800 : 0) +
           (isAdobePassConsoleFrame ? 1400 : 0) +
           (result.ok === true ? 1000 : 0) +
           (normalizedShellSnapshot?.imsToken ? 320 : 0) +
@@ -64897,6 +64919,7 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
           shellSnapshot: normalizedShellSnapshot,
           frameUrl,
           isAdobePassConsoleFrame,
+          isAdobePassProgrammersFrame,
           frameReady,
           score,
         };
@@ -64904,10 +64927,10 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
       .filter(Boolean)
       .sort((left, right) => Number(right?.score || 0) - Number(left?.score || 0));
 
-    const shouldWaitForPreferredFrame = /\/entity\/Programmer|\/user\/extendedProfile|\/config\/latestActivatedConsoleConfigurationVersion|\/admin\/maintenance\/status/i.test(
+    const shouldWaitForPreferredFrame = /\/entity\/Programmer|\/user\/extendedProfile|\/config\/latestActivatedConsoleConfigurationVersion|\/admin\/maintenance\/status|\/config\/history|\/applications|\/entity\/RegisteredApplication/i.test(
       normalizedUrl
     );
-    const preferredFrameWaitDeadline = Date.now() + Math.max(1200, Math.min(timeoutMs, 6000));
+    const preferredFrameWaitDeadline = Date.now() + Math.max(1800, Math.min(timeoutMs, shouldWaitForProgrammersFrame ? 9000 : 6000));
     let normalizedResults = [];
     let bestResult = null;
 
@@ -64915,19 +64938,34 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
       const executionResults = await executeAcrossFrames();
       normalizedResults = normalizeExecutionResults(executionResults);
       const preferredFrameResults = normalizedResults.filter((entry) => entry.isAdobePassConsoleFrame);
+      const programmersFrameResults = normalizedResults.filter((entry) => entry.isAdobePassProgrammersFrame);
+      const successfulProgrammersFrameResult = programmersFrameResults.find((entry) => entry.result?.ok === true) || null;
       const successfulPreferredFrameResult = preferredFrameResults.find((entry) => entry.result?.ok === true) || null;
       const successfulAnyFrameResult = normalizedResults.find((entry) => entry.result?.ok === true) || null;
+      const readyProgrammersFrameResult = programmersFrameResults.find((entry) => entry.frameReady) || null;
       const readyPreferredFrameResult = preferredFrameResults.find((entry) => entry.frameReady) || null;
+      const requiredReadyFrameResult = shouldWaitForProgrammersFrame
+        ? readyProgrammersFrameResult
+        : readyPreferredFrameResult;
 
-      bestResult = successfulPreferredFrameResult || successfulAnyFrameResult || readyPreferredFrameResult || normalizedResults[0] || null;
+      bestResult =
+        successfulProgrammersFrameResult ||
+        successfulPreferredFrameResult ||
+        successfulAnyFrameResult ||
+        requiredReadyFrameResult ||
+        normalizedResults[0] ||
+        null;
 
-      if (successfulPreferredFrameResult) {
+      if (successfulProgrammersFrameResult) {
         break;
       }
-      if (successfulAnyFrameResult && (!shouldWaitForPreferredFrame || readyPreferredFrameResult)) {
+      if (successfulPreferredFrameResult && (!shouldWaitForProgrammersFrame || readyProgrammersFrameResult)) {
         break;
       }
-      if (!shouldWaitForPreferredFrame || readyPreferredFrameResult || Date.now() >= preferredFrameWaitDeadline) {
+      if (successfulAnyFrameResult && (!shouldWaitForPreferredFrame || requiredReadyFrameResult)) {
+        break;
+      }
+      if (!shouldWaitForPreferredFrame || requiredReadyFrameResult || Date.now() >= preferredFrameWaitDeadline) {
         break;
       }
       await new Promise((resolve) => setTimeout(resolve, 180));
@@ -70145,6 +70183,13 @@ async function loadProgrammersData(accessToken = "", options = {}) {
     let entities = [];
     let programmersLoadError = null;
     try {
+      await fetchAdobeConsoleJsonViaShellPageContext(`${ADOBE_CONSOLE_BASE}/rest/api/config/history`, {
+        accessToken: resolvedConsoleAccessToken,
+        preferredTabId: resolvedPreferredTabId,
+        preferShellAccessToken: true,
+        allowTemporaryTab: resolvedAllowTemporaryPageContextTab,
+        timeoutMs: PROGRAMMERS_FETCH_TIMEOUT_MS,
+      }).catch(() => null);
       entities = await fetchProgrammersFromApi({
         accessToken: resolvedConsoleAccessToken,
         requireEntities: false,
