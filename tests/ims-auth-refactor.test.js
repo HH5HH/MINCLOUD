@@ -84,11 +84,12 @@ function loadPopupImsHelpers() {
     extractFunctionSource(source, "sanitizeUnderparImsScopeForCredential"),
     extractFunctionSource(source, "buildPreferredUnderparRequestedScope"),
     extractFunctionSource(source, "buildUnderparRequestedScopePlan"),
+    extractFunctionSource(source, "resolveInteractiveUnderparRequestedScope"),
     extractFunctionSource(source, "normalizeUnderparVaultImsRuntimeConfigRecord"),
     extractFunctionSource(source, "extractUnderparImsRuntimeConfigFromZipKeyText"),
     extractFunctionSource(source, "buildUnderparImsAuthorizationCodeUrl"),
     extractFunctionSource(source, "buildUnderparImsLogoutUrl"),
-    "module.exports = { normalizeImsScopeList, normalizeImsScopeToken, tokenizeImsScopeList, resolveGrantedUnderparImsScope, getMissingUnderparImsScopeTokens, sanitizeUnderparImsScopeForCredential, buildPreferredUnderparRequestedScope, buildUnderparRequestedScopePlan, normalizeUnderparVaultImsRuntimeConfigRecord, extractUnderparImsRuntimeConfigFromZipKeyText, buildUnderparImsAuthorizationCodeUrl, buildUnderparImsLogoutUrl };",
+    "module.exports = { normalizeImsScopeList, normalizeImsScopeToken, tokenizeImsScopeList, resolveGrantedUnderparImsScope, getMissingUnderparImsScopeTokens, sanitizeUnderparImsScopeForCredential, buildPreferredUnderparRequestedScope, buildUnderparRequestedScopePlan, resolveInteractiveUnderparRequestedScope, normalizeUnderparVaultImsRuntimeConfigRecord, extractUnderparImsRuntimeConfigFromZipKeyText, buildUnderparImsAuthorizationCodeUrl, buildUnderparImsLogoutUrl };",
   ].join("\n\n");
   const context = {
     module: { exports: {} },
@@ -587,6 +588,25 @@ test("interactive IMS scope planning matches LoginButton's org-discovery-first r
       "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function",
       "openid profile AdobeID offline_access additional_info.projectedProductContext additional_info.job_function",
     ]
+  );
+});
+
+test("interactive sign-in promotes narrow ZIP.KEY scope settings to the full LoginButton consent bundle", () => {
+  const helpers = loadPopupImsHelpers();
+
+  assert.equal(
+    helpers.resolveInteractiveUnderparRequestedScope("openid profile AdobeID"),
+    "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function"
+  );
+  assert.equal(
+    helpers.resolveInteractiveUnderparRequestedScope("openid profile offline_access additional_info.projectedProductContext"),
+    "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function"
+  );
+  assert.equal(
+    helpers.resolveInteractiveUnderparRequestedScope(
+      "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function"
+    ),
+    "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function"
   );
 });
 
@@ -1300,7 +1320,8 @@ test("interactive recovery paths force Adobe IMS to show the login chooser witho
   assert.doesNotMatch(autoSwitchSource, /minimumGrantedScope/);
   assert.match(signInAgainSource, /await signInInteractive\(\{[\s\S]*prompt: "login",[\s\S]*forceBrowserLogout: true,[\s\S]*\}\);/);
   assert.doesNotMatch(signInAgainSource, /targetOrganization/);
-  assert.match(retrySource, /const scopePlan = buildUnderparRequestedScopePlan\(configuredScope\);/);
+  assert.match(retrySource, /const effectiveConfiguredScope = interactive \? resolveInteractiveUnderparRequestedScope\(configuredScope\) : configuredScope;/);
+  assert.match(retrySource, /const scopePlan = buildUnderparRequestedScopePlan\(effectiveConfiguredScope\);/);
   assert.match(retrySource, /"preferred-org-discovery-scope"/);
   assert.match(retrySource, /"configured-scope-fallback"/);
   assert.match(retrySource, /return await runAttempt\(IMS_IDENTITY_SCOPE, "identity-scope-fallback"\);/);

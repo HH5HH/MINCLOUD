@@ -1220,6 +1220,15 @@ function buildUnderparRequestedScopePlan(configuredScope = IMS_SCOPE) {
   return uniquePreserveOrder([preferredScope, normalizedConfiguredScope]);
 }
 
+function resolveInteractiveUnderparRequestedScope(configuredScope = IMS_SCOPE) {
+  const normalizedConfiguredScope = normalizeImsScopeList(configuredScope, IMS_SCOPE);
+  const sanitizedConfiguredScope = sanitizeUnderparImsScopeForCredential(normalizedConfiguredScope, IMS_SCOPE).scope;
+  if (getMissingUnderparImsScopeTokens(sanitizedConfiguredScope, IMS_SCOPE).length === 0) {
+    return sanitizedConfiguredScope;
+  }
+  return IMS_SCOPE;
+}
+
 function normalizeConfiguredOrganizationsSource(value) {
   if (Array.isArray(value) || (value && typeof value === "object")) {
     return value;
@@ -51658,24 +51667,28 @@ async function runUnderparPkceLogin(options = {}) {
   };
 
   const configuredScope = normalizeImsScopeList(firstNonEmptyString([runtimeConfig.scope, IMS_SCOPE]), IMS_SCOPE);
-  const scopePlan = buildUnderparRequestedScopePlan(configuredScope);
+  const effectiveConfiguredScope = interactive ? resolveInteractiveUnderparRequestedScope(configuredScope) : configuredScope;
+  const scopePlan = buildUnderparRequestedScopePlan(effectiveConfiguredScope);
   let lastError = null;
   for (const [index, requestedScope] of scopePlan.entries()) {
     try {
       return await runAttempt(
         requestedScope,
         index === 0
-          ? requestedScope === configuredScope
+          ? requestedScope === effectiveConfiguredScope
             ? "configured-scope"
             : "preferred-org-discovery-scope"
           : "configured-scope-fallback"
       );
     } catch (error) {
       lastError = error;
-      if (shouldRetryUnderparImsLoginWithConfiguredScope(error, requestedScope, configuredScope) && index < scopePlan.length - 1) {
+      if (
+        shouldRetryUnderparImsLoginWithConfiguredScope(error, requestedScope, effectiveConfiguredScope) &&
+        index < scopePlan.length - 1
+      ) {
         continue;
       }
-      if (!shouldRetryUnderparImsLoginWithIdentityScope(error, configuredScope)) {
+      if (!shouldRetryUnderparImsLoginWithIdentityScope(error, effectiveConfiguredScope)) {
         throw error;
       }
       break;
