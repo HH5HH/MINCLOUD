@@ -5083,11 +5083,13 @@ select:disabled {
 
 .degradation-utility-row {
   justify-content: flex-end;
+  margin-top: auto;
+  width: 100%;
 }
 
 .degradation-utility-row .degradation-make-clickdgr-btn.esm-workspace-toolbar-icon-btn--tearsheet {
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   flex: 0 0 auto;
 }
 
@@ -5270,7 +5272,7 @@ select:disabled {
 
 .degradation-runner-actions {
   display: flex;
-  justify-content: flex-start;
+  justify-content: flex-end;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
@@ -5371,6 +5373,9 @@ select:disabled {
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.02em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   transition: transform 120ms ease, box-shadow 120ms ease, background 120ms ease, border-color 120ms ease;
   box-shadow: var(--service-action-shadow);
@@ -5454,15 +5459,7 @@ select:disabled {
 
 @media (max-width: 460px) {
   .degradation-runner-actions {
-    justify-content: flex-start;
-  }
-
-  .degradation-utility-row {
-    justify-content: stretch;
-  }
-
-  .degradation-utility-row > * {
-    flex: 1 1 100%;
+    justify-content: flex-end;
   }
 }
 

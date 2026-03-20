@@ -48575,7 +48575,16 @@ function degradationBuildControllerHtml(programmer, appInfo) {
           <button type="button" class="degradation-run-go-btn"${goHiddenAttr}>${escapeHtml(goButtonLabel)}</button>
         </div>
       </div>
+      <p class="degradation-controller-status" aria-live="polite"></p>
       <div class="degradation-cheat-sheet-row degradation-utility-row"${requestorControlsHiddenAttr}>
+        <button
+          type="button"
+          class="degradation-copy-curl-btn"
+          title="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
+          aria-label="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
+        >
+          CHEAT SHEET
+        </button>
         <button
           type="button"
           class="degradation-make-clickdgr-btn esm-workspace-toolbar-icon-btn esm-workspace-toolbar-icon-btn--tearsheet"
@@ -48591,16 +48600,7 @@ function degradationBuildControllerHtml(programmer, appInfo) {
             </svg>
           </span>
         </button>
-        <button
-          type="button"
-          class="degradation-copy-curl-btn"
-          title="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
-          aria-label="Open the DEGRADATION Cheat Sheet in the workspace using the current global RequestorId and MVPD"
-        >
-          CHEAT SHEET
-        </button>
       </div>
-      <p class="degradation-controller-status" aria-live="polite"></p>
     </section>
   `;
 }
