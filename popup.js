@@ -6740,6 +6740,74 @@ function buildProgrammerEntitiesFromPassVault(vault = null, environmentKey = get
   return entities;
 }
 
+function buildProgrammerEntitiesFromConsoleBootstrap(bootstrapState = null) {
+  const extendedProfile =
+    bootstrapState?.extendedProfile && typeof bootstrapState.extendedProfile === "object"
+      ? bootstrapState.extendedProfile
+      : bootstrapState && typeof bootstrapState === "object"
+        ? bootstrapState
+        : null;
+  const accessibleRootEntities =
+    extendedProfile?.accessibleRootEntities && typeof extendedProfile.accessibleRootEntities === "object"
+      ? extendedProfile.accessibleRootEntities
+      : null;
+  if (!accessibleRootEntities) {
+    return [];
+  }
+
+  const entities = [];
+  const seen = new Set();
+  Object.entries(accessibleRootEntities).forEach(([entityType, entityMap]) => {
+    if (!/programmer/i.test(String(entityType || "").trim())) {
+      return;
+    }
+    if (!entityMap || typeof entityMap !== "object" || Array.isArray(entityMap)) {
+      return;
+    }
+
+    Object.entries(entityMap).forEach(([entityKey, accessLevel]) => {
+      const normalizedEntityKey = String(entityKey || "").trim();
+      if (!normalizedEntityKey) {
+        return;
+      }
+
+      const programmerMatch = normalizedEntityKey.match(/^@?Programmer:(.+)$/i);
+      const programmerId = String(programmerMatch ? programmerMatch[1] : normalizedEntityKey)
+        .replace(/^@+/, "")
+        .trim();
+      if (!programmerId || programmerId === "*" || programmerId.toLowerCase() === "all") {
+        return;
+      }
+
+      const dedupeKey = programmerId.toLowerCase();
+      if (seen.has(dedupeKey)) {
+        return;
+      }
+      seen.add(dedupeKey);
+
+      const permission = String(accessLevel || "").trim().toUpperCase();
+      entities.push({
+        key: normalizedEntityKey || `Programmer:${programmerId}`,
+        entityData: {
+          id: programmerId,
+          displayName: programmerId,
+          mediaCompanyName: programmerId,
+          contentProviders: [],
+          applications: [],
+          permissions: permission ? [permission] : [],
+        },
+      });
+    });
+  });
+
+  entities.sort((left, right) => {
+    const leftId = String(left?.entityData?.id || "").trim();
+    const rightId = String(right?.entityData?.id || "").trim();
+    return leftId.localeCompare(rightId, undefined, { sensitivity: "base" });
+  });
+  return entities;
+}
+
 function getPassVaultRegisteredApplicationRecord(programmerId = "", appGuid = "", environmentKey = getActiveAdobePassEnvironmentKey()) {
   const normalizedAppGuid = String(appGuid || "").trim();
   if (!normalizedAppGuid) {
@@ -69984,6 +70052,7 @@ async function loadProgrammersData(accessToken = "", options = {}) {
     const resolvedConsoleAccessToken = normalizeBearerTokenValue(
       firstNonEmptyString([bootstrapState?.accessToken, normalizedAccessToken])
     );
+    const bootstrapProgrammers = buildProgrammerEntitiesFromConsoleBootstrap(bootstrapState);
     let entities = [];
     let programmersLoadError = null;
     try {
@@ -69998,6 +70067,18 @@ async function loadProgrammersData(accessToken = "", options = {}) {
     }
 
     if (programmersLoadError) {
+      if (programmersLoadError?.code === "PROGRAMMERS_ACCESS_DENIED" && bootstrapProgrammers.length > 0) {
+        applyProgrammerEntities(bootstrapProgrammers);
+        setUnderparDiagnosticMarker("programmers", {
+          status: "warning",
+          phase: "bootstrap-accessible-entities",
+          count: Number(state.programmers.length || 0),
+          code: String(programmersLoadError?.code || "").trim(),
+          configurationVersion,
+          error: programmersLoadError.message,
+        });
+        return true;
+      }
       if (programmersLoadError?.code === "PROGRAMMERS_ACCESS_DENIED") {
         const vault = await ensurePassVaultLoaded({ forceReload: false }).catch(() => state.passVault || null);
         const vaultedProgrammers = buildProgrammerEntitiesFromPassVault(vault, getActiveAdobePassEnvironmentKey());
@@ -70024,6 +70105,18 @@ async function loadProgrammersData(accessToken = "", options = {}) {
         error: programmersLoadError.message,
       });
       throw programmersLoadError;
+    }
+
+    if (entities.length === 0 && bootstrapProgrammers.length > 0) {
+      applyProgrammerEntities(bootstrapProgrammers);
+      setUnderparDiagnosticMarker("programmers", {
+        status: "warning",
+        phase: "bootstrap-accessible-entities",
+        count: Number(state.programmers.length || 0),
+        endpoint: String(state.programmersApiEndpoint || "").trim(),
+        configurationVersion,
+      });
+      return true;
     }
 
     applyProgrammerEntities(entities);

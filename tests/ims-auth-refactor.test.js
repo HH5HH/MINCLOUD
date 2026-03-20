@@ -214,6 +214,21 @@ function loadPopupRestrictedOrgLabelHelper() {
   return context.module.exports;
 }
 
+function loadPopupBootstrapProgrammersHelper() {
+  const filePath = path.join(ROOT, "popup.js");
+  const source = fs.readFileSync(filePath, "utf8");
+  const script = [
+    extractFunctionSource(source, "buildProgrammerEntitiesFromConsoleBootstrap"),
+    "module.exports = { buildProgrammerEntitiesFromConsoleBootstrap };",
+  ].join("\n\n");
+  const context = {
+    module: { exports: {} },
+    exports: {},
+  };
+  vm.runInNewContext(script, context, { filename: filePath });
+  return context.module.exports;
+}
+
 function loadPopupImsAuthLaunchHelper() {
   const filePath = path.join(ROOT, "popup.js");
   const source = fs.readFileSync(filePath, "utf8");
@@ -769,13 +784,53 @@ test("programmer access denial can fall back to vaulted media companies", () => 
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const vaultBuilderSource = extractFunctionSource(popupSource, "buildProgrammerEntitiesFromPassVault");
   const loadProgrammersSource = extractFunctionSource(popupSource, "loadProgrammersData");
+  const bootstrapFallbackIndex = loadProgrammersSource.indexOf("buildProgrammerEntitiesFromConsoleBootstrap");
+  const vaultFallbackIndex = loadProgrammersSource.indexOf("buildProgrammerEntitiesFromPassVault");
 
   assert.match(vaultBuilderSource, /normalizeUnderparPassVaultProgrammerRecord/);
   assert.match(vaultBuilderSource, /buildPassVaultApplicationsSnapshotFromRegisteredApplications/);
   assert.match(vaultBuilderSource, /contentProviders: requestorIds/);
+  assert.ok(bootstrapFallbackIndex !== -1);
+  assert.ok(vaultFallbackIndex !== -1);
+  assert.ok(bootstrapFallbackIndex < vaultFallbackIndex, "bootstrap fallback should run before vault fallback");
   assert.match(loadProgrammersSource, /buildProgrammerEntitiesFromPassVault\(vault, getActiveAdobePassEnvironmentKey\(\)\)/);
   assert.match(loadProgrammersSource, /phase: "vault-fallback"/);
   assert.match(loadProgrammersSource, /Using vaulted media companies/);
+});
+
+test("console bootstrap accessible root entities can seed media companies when Programmer listing is denied", () => {
+  const { buildProgrammerEntitiesFromConsoleBootstrap } = loadPopupBootstrapProgrammersHelper();
+
+  assert.equal(
+    JSON.stringify(
+      buildProgrammerEntitiesFromConsoleBootstrap({
+        extendedProfile: {
+          accessibleRootEntities: {
+            "com.adobe.pass.model.olca.actor.Programmer": {
+              "Programmer:Adobe": "WRITE",
+              "Programmer:*": "READ",
+            },
+            "com.adobe.pass.model.olca.actor.Mvpd": {
+              "Mvpd:*": "READ",
+            },
+          },
+        },
+      })
+    ),
+    JSON.stringify([
+      {
+        key: "Programmer:Adobe",
+        entityData: {
+          id: "Adobe",
+          displayName: "Adobe",
+          mediaCompanyName: "Adobe",
+          contentProviders: [],
+          applications: [],
+          permissions: ["WRITE"],
+        },
+      },
+    ])
+  );
 });
 
 test("programmer discovery stays on deterministic entity endpoints and console role extraction handles authority objects", () => {
