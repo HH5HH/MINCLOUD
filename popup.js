@@ -9436,6 +9436,9 @@ function selectProgrammerForController(programmer = null, controllerReason = "me
   if (resolvedProgrammer?.programmerId) {
     setProgrammerWorkspaceHydrationReady(resolvedProgrammer.programmerId, false);
   }
+  state.selectedMediaCompany = String(
+    resolvedProgrammer?.mediaCompanyName || resolvedProgrammer?.programmerName || resolvedProgrammer?.programmerId || ""
+  ).trim();
   state.selectedProgrammerKey = String(resolvedProgrammer?.key || "").trim();
   state.selectedRequestorId = "";
   state.selectedMvpdId = "";
@@ -57236,26 +57239,19 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     persist: true,
     scheduleRefresh: true,
   });
-  prefetchCmTenantsCatalogInBackground(`session-activated:${source}`, {
-    forceRefresh: false,
-    allowTemporaryPageContextTab: allowBackgroundTemporaryPageContextTab,
-    preferredCmBootstrapTabId,
-  });
   prefetchCmConsoleBootstrapSummaryInBackground(`session-activated:${source}`, {
     forceRefresh: false,
   });
-  const selectedProgrammerForHydration = resolveSelectedProgrammer();
+  const selectedProgrammerForHydration =
+    resolveSelectedProgrammer() ||
+    (state.programmers.length === 1
+      ? selectProgrammerForController(state.programmers[0], `session-activated:${source}`)
+      : null);
   if (selectedProgrammerForHydration?.programmerId) {
-    void primeProgrammerServiceHydration(
-      selectedProgrammerForHydration,
-      getCurrentPremiumAppsSnapshot(selectedProgrammerForHydration.programmerId),
-      {
-        forceRefresh: false,
-        controllerReason: `session-activated:${source}`,
-        requestToken: state.premiumPanelRequestToken,
-        requestorId: String(state.selectedRequestorId || "").trim(),
-      }
-    ).catch(() => null);
+    void refreshProgrammerPanels({
+      controllerReason: `session-activated:${source}`,
+      skipCmBootstrap: true,
+    });
   }
   if (programmersLoadError) {
     const message = String(programmersLoadError?.message || "").trim();
@@ -58051,6 +58047,7 @@ function settlePromiseWithin(promise, timeoutMs = 0, fallbackValue = null) {
 async function refreshProgrammerPanels(options = {}) {
   const programmer = resolveSelectedProgrammer();
   const forcePremiumRefresh = options.forcePremiumRefresh === true;
+  const skipCmBootstrap = options.skipCmBootstrap === true;
   const controllerReason = String(options?.controllerReason || "").trim();
   const requestToken = ++state.premiumPanelRequestToken;
   const selectedRequestorId = String(state.selectedRequestorId || "").trim();
@@ -58210,10 +58207,11 @@ async function refreshProgrammerPanels(options = {}) {
       buildPassVaultRuntimeCmServiceSnapshot(getPassVaultMediaCompanyRecord(programmer.programmerId)) ||
       null;
     const shouldPrimeCmSelectionBootstrap =
-      forcePremiumRefresh ||
-      !hasCmTenantsCatalogEntries() ||
-      !tokenSupportsCmConsoleRequests(getPreferredCmRequestAccessTokenCandidate()) ||
-      shouldRetryCachedCmService(cachedCmSelectionService);
+      !skipCmBootstrap &&
+      (forcePremiumRefresh ||
+        !hasCmTenantsCatalogEntries() ||
+        !tokenSupportsCmConsoleRequests(getPreferredCmRequestAccessTokenCandidate()) ||
+        shouldRetryCachedCmService(cachedCmSelectionService));
     const cmSelectionBootstrapPromise = shouldPrimeCmSelectionBootstrap
       ? ensureCmTenantsPrecheckForActiveSession(`panel-selection:${programmer.programmerId}`, {
           forceRefresh: forcePremiumRefresh,
@@ -58236,20 +58234,26 @@ async function refreshProgrammerPanels(options = {}) {
             Number(pageContextOptions?.preferredTabId || 0) || getRetainedAuthPopupBootstrapTabId() || 0,
         })
     );
-    const cmServicePromise = Promise.resolve(cmSelectionBootstrapPromise)
-      .then(() =>
-        ensureCmServiceForProgrammer(programmer, {
-          forceRefresh: forcePremiumRefresh,
-        })
-      )
-      .catch(() => null);
-    const cmMvpdServicePromise = Promise.resolve(cmSelectionBootstrapPromise)
-      .then(() =>
-        ensureCmServiceForSelectedMvpd(programmer, {
-          forceRefresh: forcePremiumRefresh,
-        })
-      )
-      .catch(() => null);
+    const cmServicePromise = skipCmBootstrap
+      ? Promise.resolve(cachedCmSelectionService)
+      : Promise.resolve(cmSelectionBootstrapPromise)
+          .then(() =>
+            ensureCmServiceForProgrammer(programmer, {
+              forceRefresh: forcePremiumRefresh,
+            })
+          )
+          .catch(() => null);
+    const cmMvpdServicePromise = skipCmBootstrap
+      ? Promise.resolve(
+          cmMvpdSelectionKey ? state.cmServiceByMvpdSelectionKey.get(cmMvpdSelectionKey) || null : null
+        )
+      : Promise.resolve(cmSelectionBootstrapPromise)
+          .then(() =>
+            ensureCmServiceForSelectedMvpd(programmer, {
+              forceRefresh: forcePremiumRefresh,
+            })
+          )
+          .catch(() => null);
 
     const premiumApps = await premiumAppsPromise;
     if (requestToken !== state.premiumPanelRequestToken || resolveSelectedProgrammer()?.programmerId !== programmer.programmerId) {
@@ -58276,7 +58280,7 @@ async function refreshProgrammerPanels(options = {}) {
     };
     setCurrentPremiumAppsSnapshot(programmer.programmerId, initialMergedServices);
     provisionalServices = initialMergedServices;
-    const cmHydrationPromise = shouldShowCmService(initialMergedServices?.cm)
+    const cmHydrationPromise = !skipCmBootstrap && shouldShowCmService(initialMergedServices?.cm)
       ? ensureCmHydratedForProgrammer(programmer, initialMergedServices, {
           forceRefresh: forcePremiumRefresh,
           reason: "panel-selection",
@@ -64291,34 +64295,6 @@ async function openTemporaryAdobePageContextTarget(targetUrl = "") {
     }
   }
 
-  if (!temporaryTarget && chrome.windows?.create) {
-    try {
-      const createdWindow = await chrome.windows.create({
-        url: normalizedUrl,
-        type: "popup",
-        focused: false,
-        width: 480,
-        height: 640,
-      });
-      const windowId = Number(createdWindow?.id || 0);
-      const tab =
-        Array.isArray(createdWindow?.tabs)
-          ? createdWindow.tabs.find((candidate) => Number(candidate?.id || 0) > 0) || null
-          : null;
-      const tabId = Number(tab?.id || 0);
-      if (windowId > 0 && tabId > 0) {
-        temporaryTarget = {
-          tab,
-          tabId,
-          windowId,
-          ownsWindow: true,
-        };
-      }
-    } catch {
-      temporaryTarget = null;
-    }
-  }
-
   if (!temporaryTarget?.tabId) {
     return null;
   }
@@ -64372,9 +64348,11 @@ function getAdobeConsolePageContextBootstrapUrl(requestUrl = "") {
     isProgrammersRequest ||
     isApplicationsRequest ||
     /\/config\/history(?:[/?#]|$)/i.test(normalizedUrl);
+  const environment = getActiveAdobePassEnvironment();
   return firstNonEmptyString([
-    isProgrammersRuntimeRequest ? getActiveAdobePassEnvironment()?.consoleShellUrl : "",
-    getActiveAdobePassEnvironment()?.consoleShellUrl,
+    isProgrammersRuntimeRequest ? environment?.consoleProgrammersUrl : "",
+    isProgrammersRuntimeRequest ? environment?.consoleShellUrl : "",
+    environment?.consoleShellUrl,
     `${String(CM_CONSOLE_APP_ORIGIN || "").trim().replace(/\/+$/, "")}/`,
   ]);
 }
@@ -70624,9 +70602,6 @@ async function signInInteractive(options = {}) {
     );
 
     if (activated) {
-      await awaitCmBootstrapForExplicitActivation("interactive", {
-        allowTemporaryPageContextTab: false,
-      });
       setUnderparDiagnosticMarker("auth", {
         status: "success",
         mode: "interactive",
@@ -70725,12 +70700,6 @@ async function refreshSessionManual() {
     );
 
     if (activated) {
-      await awaitCmBootstrapForExplicitActivation(
-        usedInteractiveLogin ? "manual-refresh-interactive" : "manual-refresh",
-        {
-          allowTemporaryPageContextTab: false,
-        }
-      );
       setUnderparDiagnosticMarker("auth", {
         status: "success",
         mode: "manual-refresh",
@@ -70833,9 +70802,6 @@ async function onRestrictedOrgSwitch() {
       }
     );
     if (activated) {
-      await awaitCmBootstrapForExplicitActivation("restricted-org-switch", {
-        allowTemporaryPageContextTab: false,
-      });
       setUnderparDiagnosticMarker("auth", {
         status: "success",
         mode: "restricted-org-switch",

@@ -604,9 +604,9 @@ test("interactive login and org switching allow a temporary shared shell page co
   assert.doesNotMatch(refreshSource, /withTemporaryCmConsoleBootstrapContext/);
   assert.doesNotMatch(restrictedSwitchSource, /withTemporaryCmConsoleBootstrapContext/);
   assert.doesNotMatch(recoverySource, /withTemporaryCmConsoleBootstrapContext/);
-  assert.match(signInSource, /await awaitCmBootstrapForExplicitActivation\("interactive"/);
-  assert.match(refreshSource, /await awaitCmBootstrapForExplicitActivation\(/);
-  assert.match(restrictedSwitchSource, /await awaitCmBootstrapForExplicitActivation\("restricted-org-switch"/);
+  assert.doesNotMatch(signInSource, /await awaitCmBootstrapForExplicitActivation\("interactive"/);
+  assert.doesNotMatch(refreshSource, /await awaitCmBootstrapForExplicitActivation\(/);
+  assert.doesNotMatch(restrictedSwitchSource, /await awaitCmBootstrapForExplicitActivation\("restricted-org-switch"/);
   assert.match(signInSource, /allowTemporaryPageContextTab:\s*true/);
   assert.match(refreshSource, /allowTemporaryPageContextTab:\s*true/);
   assert.match(restrictedSwitchSource, /allowTemporaryPageContextTab:\s*true/);
@@ -621,7 +621,7 @@ test("session activation defers CM tenant hydration and unlocks Media Company se
   const mediaCompanyLabelSource = extractFunctionSource(popupSource, "getMediaCompanySelectDefaultLabel");
   const prefetchSource = extractFunctionSource(popupSource, "prefetchCmTenantsCatalogInBackground");
 
-  assert.match(activateSource, /prefetchCmTenantsCatalogInBackground/);
+  assert.doesNotMatch(activateSource, /prefetchCmTenantsCatalogInBackground/);
   assert.match(activateSource, /prefetchCmConsoleBootstrapSummaryInBackground/);
   assert.match(activateSource, /allowRestrictedSession:\s*true/);
   assert.doesNotMatch(activateSource, /await ensureCmTenantsPrecheckForActiveSession/);
@@ -645,10 +645,11 @@ test("selected media company refresh primes CM tenant precheck before CM service
   const refreshPanelsSource = extractFunctionSource(popupSource, "refreshProgrammerPanels");
   const selectPreferredCmRuntimeServiceSource = extractFunctionSource(popupSource, "selectPreferredCmRuntimeService");
 
+  assert.match(refreshPanelsSource, /const skipCmBootstrap = options\.skipCmBootstrap === true;/);
   assert.match(refreshPanelsSource, /ensureCmTenantsPrecheckForActiveSession\(`panel-selection:\$\{programmer\.programmerId\}`/);
   assert.match(refreshPanelsSource, /allowTemporaryPageContextTab:\s*true/);
-  assert.match(refreshPanelsSource, /const cmServicePromise = Promise\.resolve\(cmSelectionBootstrapPromise\)/);
-  assert.match(refreshPanelsSource, /const cmMvpdServicePromise = Promise\.resolve\(cmSelectionBootstrapPromise\)/);
+  assert.match(refreshPanelsSource, /const cmServicePromise = skipCmBootstrap/);
+  assert.match(refreshPanelsSource, /const cmMvpdServicePromise = skipCmBootstrap/);
   assert.match(refreshPanelsSource, /selectPreferredCmRuntimeService\(currentServices\?\.cm,\s*resolvedCmService\)/);
   assert.match(refreshPanelsSource, /selectPreferredCmRuntimeService\(currentServices\?\.cmMvpd,\s*resolvedCmMvpdService\)/);
   assert.match(selectPreferredCmRuntimeServiceSource, /resolvedVisible && !currentVisible/);
@@ -924,7 +925,8 @@ test("shell page context harvests the unified shell IMS session before console e
   assert.match(bootstrapUrlSource, /const isProgrammersRequest =/);
   assert.match(bootstrapUrlSource, /const isApplicationsRequest =/);
   assert.match(bootstrapUrlSource, /const isProgrammersRuntimeRequest =/);
-  assert.match(bootstrapUrlSource, /isProgrammersRuntimeRequest \? getActiveAdobePassEnvironment\(\)\?\.consoleShellUrl/);
+  assert.match(bootstrapUrlSource, /const environment = getActiveAdobePassEnvironment\(\);/);
+  assert.match(bootstrapUrlSource, /isProgrammersRuntimeRequest \? environment\?\.consoleProgrammersUrl/);
   assert.match(resolveTargetSource, /resolveReusableAdobePageContextTab/);
   assert.match(resolveTargetSource, /findExistingExperienceCloudAdobeTab/);
   assert.match(resolveTargetSource, /openTemporaryAdobePageContextTarget\(\s*getAdobeConsolePageContextBootstrapUrl\(requestUrl\)/);
@@ -970,9 +972,8 @@ test("shell page context harvests the unified shell IMS session before console e
   assert.match(loadProgrammersSource, /allowTemporaryPageContextTab:\s*pageContextOptions\?\.allowTemporaryPageContextTab === true/);
   assert.match(tempTargetSource, /chrome\.tabs\?\.create/);
   assert.match(tempTargetSource, /active:\s*false/);
-  assert.match(tempTargetSource, /chrome\.windows\?\.create/);
-  assert.match(tempTargetSource, /type:\s*"popup"/);
-  assert.doesNotMatch(tempTargetSource, /state:\s*"normal"/);
+  assert.doesNotMatch(tempTargetSource, /chrome\.windows\?\.create/);
+  assert.doesNotMatch(tempTargetSource, /type:\s*"popup"/);
 });
 
 test("media company selection reuses AdobePass shell page context for application hydration", () => {
@@ -1252,7 +1253,7 @@ test("CM tenant catalog reuses the vaulted tenant list until explicit refresh in
     ensureCatalogSource,
     /const hydratedCatalog = await hydrateCmTenantsCatalogFromStorage\(\{ forceReload: false \}\);[\s\S]*phase: "cm-tenant-catalog-vault-hit"[\s\S]*return hydratedCatalog;/
   );
-  assert.match(activateSessionSource, /prefetchCmTenantsCatalogInBackground\(`session-activated:\$\{source\}`,\s*\{[\s\S]*forceRefresh: false,/);
+  assert.doesNotMatch(activateSessionSource, /prefetchCmTenantsCatalogInBackground\(`session-activated:\$\{source\}`,\s*\{/);
 });
 
 test("missing DCR credentials trigger on-demand pass vault compilation instead of requiring manual re-selection", () => {
@@ -1273,7 +1274,9 @@ test("selected programmer hydration is primed early and reused by panel render i
   assert.match(popupSource, /async function primeProgrammerServiceHydration\(/);
   assert.match(refreshSource, /backgroundHydrationPromise = primeProgrammerServiceHydration\(programmer, cachedServices/);
   assert.match(refreshSource, /backgroundHydrationPromise =\s*backgroundHydrationPromise \|\|[\s\S]*primeProgrammerServiceHydration\(programmer, initialMergedServices/);
-  assert.match(activateSessionSource, /primeProgrammerServiceHydration\(\s*selectedProgrammerForHydration/);
+  assert.match(activateSessionSource, /selectProgrammerForController\(state\.programmers\[0\], `session-activated:\$\{source\}`\)/);
+  assert.match(activateSessionSource, /refreshProgrammerPanels\(\{[\s\S]*skipCmBootstrap: true/);
+  assert.doesNotMatch(activateSessionSource, /primeProgrammerServiceHydration\(\s*selectedProgrammerForHydration/);
 });
 
 test("ESM, CM, and DEGRADATION panel loaders wait for in-flight programmer hydration before surfacing missing-service state", () => {
