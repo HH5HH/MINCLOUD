@@ -64737,6 +64737,12 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
           const variants = [];
           const seen = new Set();
           const preferShellAccessToken = config?.preferShellAccessToken === true;
+          const stripAuthorizationHeaders = (headers = {}) => {
+            const nextHeaders = headers && typeof headers === "object" ? { ...headers } : {};
+            delete nextHeaders.Authorization;
+            delete nextHeaders.authorization;
+            return nextHeaders;
+          };
           const pushVariant = (headers = {}) => {
             const requestHeaders = {
               Accept: "application/json, text/plain, */*",
@@ -64762,26 +64768,21 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
             variants.push(requestHeaders);
           };
           const explicitVariants = Array.isArray(config?.headerVariants) ? config.headerVariants : [{}];
+          explicitVariants.forEach((headers) => pushVariant(stripAuthorizationHeaders(headers)));
           if (preferShellAccessToken && isJwt(shellSnapshot?.imsToken)) {
             explicitVariants.forEach((headers) =>
               pushVariant({
-                ...(headers && typeof headers === "object" ? headers : {}),
+                ...stripAuthorizationHeaders(headers),
                 Authorization: `Bearer ${shellSnapshot.imsToken}`,
               })
             );
-            if (variants.length > 0) {
-              return variants;
-            }
+            return variants;
           }
           if (isJwt(shellSnapshot?.imsToken)) {
             pushVariant({
               Authorization: `Bearer ${shellSnapshot.imsToken}`,
             });
           }
-          if (preferShellAccessToken && variants.length > 0) {
-            return variants;
-          }
-          explicitVariants.forEach((headers) => pushVariant(headers));
           const configuredAccessToken = normalize(config?.accessToken || "");
           if (isJwt(configuredAccessToken)) {
             pushVariant({
@@ -69991,10 +69992,10 @@ async function fetchProgrammersFromApi(options = {}) {
 
       const buildHeaderVariants = () => {
         const variants = [];
+        variants.push({ headers: getAdobeConsoleRequestHeaders("") });
         if (accessToken) {
           variants.push({ headers: getAdobeConsoleRequestHeaders(accessToken) });
         }
-        variants.push({ headers: getAdobeConsoleRequestHeaders("") });
         return variants;
       };
 
@@ -70325,6 +70326,9 @@ function applyProgrammerEntities(entities) {
   clearRestV2PreparedLoginState();
   clearCmWorkspaceActivityDebugFlow("programmer-entities-reset", { stopFlow: true });
   populateMediaCompanySelect();
+  if (state.programmers.length === 1) {
+    selectProgrammerForController(state.programmers[0], "single-programmer-auto-select");
+  }
   // Post-login stays GLOBALS-only. Per-company VAULT/runtime restore remains lazy
   // until explicit Media Company selection or environment restore.
 }

@@ -886,8 +886,8 @@ test("programmer discovery keeps fetch header variants as plain header objects",
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const fetchProgrammersSource = extractFunctionSource(popupSource, "fetchProgrammersFromApi");
 
-  assert.match(fetchProgrammersSource, /if \(accessToken\) \{\s*variants\.push\(\{ headers: getAdobeConsoleRequestHeaders\(accessToken\) \}\);/);
   assert.match(fetchProgrammersSource, /variants\.push\(\{ headers: getAdobeConsoleRequestHeaders\(""\) \}\);/);
+  assert.match(fetchProgrammersSource, /if \(accessToken\) \{\s*variants\.push\(\{ headers: getAdobeConsoleRequestHeaders\(accessToken\) \}\);/);
   assert.doesNotMatch(fetchProgrammersSource, /uniquePreserveOrder\(\s*\[\s*accessToken \? getAdobeConsoleRequestHeaders/);
 });
 
@@ -933,12 +933,17 @@ test("shell page context harvests the unified shell IMS session before console e
   assert.match(shellFetchSource, /const target = await resolveAdobeConsolePageContextTarget\(normalizedUrl,\s*\{/);
   assert.match(shellFetchSource, /const shouldWaitForProgrammersFrame =/);
   assert.match(shellFetchSource, /const isExplicitShellRoot = \/window\\\.\(\?:__shellConfiguration\|shellConfiguration\|__excShellConfiguration\|__adobeShellConfiguration\)\$\/i/);
-  assert.match(shellFetchSource, /if \(preferShellAccessToken && variants\.length > 0\) \{\s*return variants;/);
+  assert.match(shellFetchSource, /const stripAuthorizationHeaders = \(headers = \{\}\) =>/);
+  assert.match(shellFetchSource, /delete nextHeaders\.Authorization;/);
+  assert.match(shellFetchSource, /delete nextHeaders\.authorization;/);
+  assert.match(shellFetchSource, /explicitVariants\.forEach\(\(headers\) => pushVariant\(stripAuthorizationHeaders\(headers\)\)\);/);
   assert.match(shellFetchSource, /target: \{ tabId, allFrames: true \ }|target: \{ tabId, allFrames: true \}/);
   assert.match(
     shellFetchSource,
-    /\.\.\.\(headers && typeof headers === "object" \? headers : \{\}\),\s*Authorization: `Bearer \$\{shellSnapshot\.imsToken\}`/
+    /\.\.\.stripAuthorizationHeaders\(headers\),\s*Authorization: `Bearer \$\{shellSnapshot\.imsToken\}`/
   );
+  assert.match(shellFetchSource, /if \(preferShellAccessToken && isJwt\(shellSnapshot\?\.imsToken\)\) \{/);
+  assert.match(shellFetchSource, /return variants;/);
   assert.match(shellFetchSource, /const shellSnapshot = await waitForShellSnapshot\(\);/);
   assert.match(shellFetchSource, /const isAdobePassConsoleFrame =\s*\/cdn\\\.experience\\\.adobe\\\.net\\\/solutions\\\/AdobePass-adobepass-unifiedshell-console-client\\\//);
   assert.match(shellFetchSource, /const isAdobePassProgrammersFrame =/);
@@ -999,6 +1004,13 @@ test("media company selection reuses AdobePass shell page context for applicatio
     refreshPanelsSource,
     /preferredTabId:\s*Number\(pageContextOptions\?\.preferredTabId \|\| 0\) \|\| getRetainedAuthPopupBootstrapTabId\(\) \|\| 0/
   );
+});
+
+test("single resolved media company is auto-selected after programmer hydration", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const applyProgrammersSource = extractFunctionSource(popupSource, "applyProgrammerEntities");
+
+  assert.match(applyProgrammersSource, /if \(state\.programmers\.length === 1\) \{\s*selectProgrammerForController\(state\.programmers\[0\], "single-programmer-auto-select"\);/);
 });
 
 test("restricted org labels collapse duplicate AdobePass segments", () => {
