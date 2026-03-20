@@ -12108,10 +12108,12 @@ function syncZipKeyImportView() {
   const hasClientId = Boolean(runtimeConfig?.clientId);
   const pending = state.zipKeyImportPending === true;
   const dragActive = state.zipKeyImportDragActive === true;
+  const explicitStateMessage = String(state.zipKeyImportMessage || "").trim();
   const stateMessage = pending
     ? PENDING_ZIP_KEY_IMPORT_STATUS_MESSAGE
-    : String(state.zipKeyImportMessage || "").trim() || (hasClientId ? READY_ZIP_KEY_IMPORT_STATUS_MESSAGE : DEFAULT_ZIP_KEY_IMPORT_STATUS_MESSAGE);
+    : explicitStateMessage || (hasClientId ? READY_ZIP_KEY_IMPORT_STATUS_MESSAGE : "");
   const stateType = pending ? "info" : String(state.zipKeyImportMessageType || "info").trim().toLowerCase();
+  const hasStateMessage = Boolean(stateMessage);
 
   if (els.zipKeyImportCard) {
     els.zipKeyImportCard.classList.toggle("is-ready", hasClientId);
@@ -12142,10 +12144,10 @@ function syncZipKeyImportView() {
     els.zipKeyBrowseBtn.textContent = pending ? "LOADING..." : "CHOOSE KEY";
   }
   if (els.zipKeyImportState) {
-    els.zipKeyImportState.hidden = false;
+    els.zipKeyImportState.hidden = !hasStateMessage;
     els.zipKeyImportState.textContent = stateMessage;
     els.zipKeyImportState.classList.remove("error", "success", "info");
-    if (stateMessage) {
+    if (hasStateMessage) {
       els.zipKeyImportState.classList.add(
         stateType === "error" || stateType === "success" ? stateType : "info"
       );
@@ -12161,10 +12163,6 @@ function promptForZipKeyImport() {
     return;
   }
   setStatus("", "info");
-  if (!String(state.zipKeyImportMessage || "").trim()) {
-    setZipKeyImportFeedback(DEFAULT_ZIP_KEY_IMPORT_STATUS_MESSAGE, "info");
-    render();
-  }
   if (els.zipKeyFileInput) {
     els.zipKeyFileInput.value = "";
     els.zipKeyFileInput.click();

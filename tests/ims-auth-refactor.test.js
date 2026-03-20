@@ -885,6 +885,7 @@ test("PKCE authorization URL ignores auth-envelope overrides from extra params",
 test("logged-out popup and sidepanel surfaces expose ZIP.KEY import controls", () => {
   const popupHtml = fs.readFileSync(path.join(ROOT, "popup.html"), "utf8");
   const sidepanelHtml = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
+  const popupCss = fs.readFileSync(path.join(ROOT, "popup.css"), "utf8");
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
 
   for (const htmlSource of [popupHtml, sidepanelHtml]) {
@@ -894,9 +895,13 @@ test("logged-out popup and sidepanel surfaces expose ZIP.KEY import controls", (
     assert.match(htmlSource, /id="zip-key-browse-btn"/);
     assert.match(htmlSource, />LOAD KEY</);
     assert.match(htmlSource, />CHOOSE KEY</);
-    assert.match(htmlSource, />Drop key\.</);
+    assert.match(htmlSource, /id="zip-key-import-state" class="zip-key-import-state" hidden/);
+    assert.doesNotMatch(htmlSource, />Drop key\.</);
   }
 
+  assert.match(popupCss, /\.zip-key-import-card\s*\{[\s\S]*width: 100%;[\s\S]*padding: 0;[\s\S]*border: none;[\s\S]*background: none;[\s\S]*box-shadow: none;/);
+  assert.match(popupCss, /\.zip-key-dropzone\s*\{[\s\S]*width: 100%;[\s\S]*max-width: none;[\s\S]*min-height: min\(48vh, 320px\);/);
+  assert.match(popupCss, /body\.underpar-up-tab \.zip-key-import-view--gate\s*\{[\s\S]*width: 100%;[\s\S]*max-width: 100%;[\s\S]*align-self: stretch;/);
   assert.match(popupSource, /promptForZipKeyImport/);
   assert.match(popupSource, /importZipKeyIntoVaultFromFile/);
 });
@@ -919,6 +924,9 @@ test("missing-client-id flow renders a standalone ZIP.KEY gate before sign-in", 
   assert.match(popupSource, /function shouldShowZipKeyImportGate\(/);
   assert.match(shouldShowGateSource, /state\.manualZipKeyImportGate === true \|\| !hasConfiguredUnderparImsClientId/);
   assert.match(syncZipKeyImportViewSource, /const show = shouldShowZipKeyImportGate\(\);/);
+  assert.match(syncZipKeyImportViewSource, /const explicitStateMessage = String\(state\.zipKeyImportMessage \|\| ""\)\.trim\(\);/);
+  assert.match(syncZipKeyImportViewSource, /hasClientId \? READY_ZIP_KEY_IMPORT_STATUS_MESSAGE : ""/);
+  assert.match(syncZipKeyImportViewSource, /els\.zipKeyImportState\.hidden = !hasStateMessage;/);
   assert.match(renderSource, /const showZipKeyImportGate = shouldShowZipKeyImportGate\(\);/);
   assert.match(renderSource, /els\.authBtn\.hidden = showZipKeyImportGate;/);
 });
