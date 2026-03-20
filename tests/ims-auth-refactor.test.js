@@ -51,6 +51,8 @@ function loadPopupImsHelpers() {
   const source = fs.readFileSync(filePath, "utf8");
   const script = [
     'const IMS_SCOPE = "openid profile offline_access additional_info.projectedProductContext read_organizations";',
+    'const UNDERPAR_ACTIVATION_REQUIRED_SCOPE = "openid profile additional_info.projectedProductContext";',
+    'const UNDERPAR_RECOVERY_REQUIRED_SCOPE = "openid profile additional_info.projectedProductContext read_organizations";',
     'const IMS_ORGANIZATION_SCOPE = "openid profile read_organizations";',
     'const IMS_DEFAULT_AUTHORIZATION_ENDPOINT = "https://ims-na1.adobelogin.com/ims/authorize/v2";',
     'const IMS_DEFAULT_LOGOUT_ENDPOINT = "https://ims-na1.adobelogin.com/ims/logout";',
@@ -63,13 +65,20 @@ function loadPopupImsHelpers() {
     "function decodeZipKeyPayloadBase64(value = '') { const compact = String(value || '').replace(/\\s+/g, '').replace(/-/g, '+').replace(/_/g, '/'); if (!compact) { return ''; } const remainder = compact.length % 4; const padded = remainder === 0 ? compact : `${compact}${'='.repeat(4 - remainder)}`; const binary = atob(padded); try { const bytes = Uint8Array.from(binary, (entry) => entry.charCodeAt(0)); return new TextDecoder().decode(bytes); } catch { return binary; } }",
     "function parseKeyValueText(rawText = '') { const payload = {}; String(rawText || '').split(/\\r?\\n/).forEach((line) => { const match = line.match(/^\\s*([^=:\\s]+)\\s*[:=]\\s*(.+)\\s*$/); if (!match) { return; } payload[String(match[1] || '').trim()] = String(match[2] || '').trim(); }); return payload; }",
     "function parseZipKeyPayload(rawText = '') { const raw = String(rawText || '').trim(); if (!raw) { throw new Error('ZIP.KEY payload is empty.'); } const prefix = 'ZIPKEY1:'; let payloadText = raw; if (raw.slice(0, prefix.length).toUpperCase() === prefix) { payloadText = raw.slice(prefix.length).trim(); } if (!payloadText) { throw new Error('ZIP.KEY payload is empty.'); } if (payloadText.startsWith('{')) { try { const parsed = JSON.parse(payloadText); if (parsed && typeof parsed === 'object') { return parsed; } } catch { throw new Error('ZIP.KEY JSON payload could not be parsed.'); } } try { const decoded = decodeZipKeyPayloadBase64(payloadText).trim(); if (decoded.startsWith('{')) { const parsed = JSON.parse(decoded); if (parsed && typeof parsed === 'object') { return parsed; } } } catch { } const fromKeyValue = parseKeyValueText(payloadText); if (Object.keys(fromKeyValue).length > 0) { return fromKeyValue; } throw new Error('Unknown ZIP.KEY format. Use ZIPKEY1 base64 JSON, raw JSON, or KEY=VALUE lines.'); }",
+    "function uniquePreserveOrder(values = []) { const seen = new Set(); const output = []; for (const value of Array.isArray(values) ? values : []) { const text = String(value || '').trim(); if (!text || seen.has(text)) { continue; } seen.add(text); output.push(text); } return output; }",
+    "function parseJwtPayload() { return {}; }",
+    "function extractScopeValuesFromTokenClaims() { return []; }",
     extractFunctionSource(source, "normalizeImsScopeList"),
+    extractFunctionSource(source, "normalizeImsScopeToken"),
+    extractFunctionSource(source, "tokenizeImsScopeList"),
+    extractFunctionSource(source, "resolveGrantedUnderparImsScope"),
+    extractFunctionSource(source, "getMissingUnderparImsScopeTokens"),
     extractFunctionSource(source, "sanitizeUnderparImsScopeForCredential"),
     extractFunctionSource(source, "normalizeUnderparVaultImsRuntimeConfigRecord"),
     extractFunctionSource(source, "extractUnderparImsRuntimeConfigFromZipKeyText"),
     extractFunctionSource(source, "buildUnderparImsAuthorizationCodeUrl"),
     extractFunctionSource(source, "buildUnderparImsLogoutUrl"),
-    "module.exports = { normalizeImsScopeList, sanitizeUnderparImsScopeForCredential, normalizeUnderparVaultImsRuntimeConfigRecord, extractUnderparImsRuntimeConfigFromZipKeyText, buildUnderparImsAuthorizationCodeUrl, buildUnderparImsLogoutUrl };",
+    "module.exports = { normalizeImsScopeList, normalizeImsScopeToken, tokenizeImsScopeList, resolveGrantedUnderparImsScope, getMissingUnderparImsScopeTokens, sanitizeUnderparImsScopeForCredential, normalizeUnderparVaultImsRuntimeConfigRecord, extractUnderparImsRuntimeConfigFromZipKeyText, buildUnderparImsAuthorizationCodeUrl, buildUnderparImsLogoutUrl };",
   ].join("\n\n");
   const context = {
     module: { exports: {} },
@@ -690,23 +699,36 @@ test("interactive recovery paths force Adobe IMS to show the login chooser and r
   const signInAgainSource = extractFunctionSource(popupSource, "onRestrictedSignInAgain");
   const logoutSource = extractFunctionSource(popupSource, "runUnderparImsBrowserLogout");
   const organizationsSource = extractFunctionSource(popupSource, "fetchOrganizations");
+  const activationSource = extractFunctionSource(popupSource, "activateSession");
 
   assert.match(popupSource, /const IMS_SCOPE = "openid profile offline_access additional_info\.projectedProductContext read_organizations";/);
+  assert.match(popupSource, /const UNDERPAR_ACTIVATION_REQUIRED_SCOPE = "openid profile additional_info\.projectedProductContext";/);
+  assert.match(popupSource, /const UNDERPAR_RECOVERY_REQUIRED_SCOPE = "openid profile additional_info\.projectedProductContext read_organizations";/);
   assert.match(popupSource, /const IMS_ORGANIZATION_SCOPE = "openid profile read_organizations";/);
   assert.match(popupSource, /const IMS_DEFAULT_LOGOUT_ENDPOINT = `\$\{IMS_ISSUER_URL\}\/ims\/logout`;/);
   assert.match(signInSource, /prompt: normalizeUnderparImsPrompt\(loginOptions\?\.prompt \|\| "login", true\)/);
   assert.match(signInSource, /if \(loginOptions\?\.forceBrowserLogout === true\)/);
   assert.match(signInSource, /await runUnderparImsBrowserLogout\(/);
+  assert.match(signInSource, /minimumGrantedScope: normalizeImsScopeList\(/);
+  assert.match(signInSource, /loginOptions\?\.forceBrowserLogout === true \|\| state\.restricted \? UNDERPAR_RECOVERY_REQUIRED_SCOPE : UNDERPAR_ACTIVATION_REQUIRED_SCOPE/);
   assert.match(switchSource, /prompt: "login"/);
+  assert.match(switchSource, /minimumGrantedScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE/);
   assert.match(autoSwitchSource, /const prompt = normalizeUnderparImsPrompt\(options\?\.prompt \|\| \(interactive \? "login" : ""\), interactive\);/);
-  assert.match(signInAgainSource, /await signInInteractive\(\{ prompt: "login", forceBrowserLogout: true \}\);/);
+  assert.match(autoSwitchSource, /minimumGrantedScope: firstNonEmptyString\(\[options\?\.minimumGrantedScope\]\)/);
+  assert.match(signInAgainSource, /await signInInteractive\(\{[\s\S]*prompt: "login",[\s\S]*forceBrowserLogout: true,[\s\S]*minimumGrantedScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE,[\s\S]*requiredActivationScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE,[\s\S]*\}\);/);
   assert.match(retrySource, /scope: IMS_ORGANIZATION_SCOPE,\s*reason: "org-scope-fallback"/);
+  assert.match(retrySource, /const minimumGrantedScope = normalizeImsScopeList\(firstNonEmptyString\(\[options\?\.minimumGrantedScope\]\), ""\);/);
+  assert.match(retrySource, /const missingGrantedScopeTokens =/);
+  assert.match(retrySource, /error\.code = "INSUFFICIENT_IMS_SCOPE";/);
   assert.match(logoutSource, /buildUnderparImsLogoutUrl\(/);
   assert.match(logoutSource, /await launchUnderparImsAuthorizationFlow\(logoutUrl, interactive\);/);
   assert.match(organizationsSource, /const clientIdCandidates = getUnderparImsClientIdCandidates\(normalizedAccessToken\);/);
   assert.match(organizationsSource, /credentials: "include"/);
   assert.match(organizationsSource, /headers: buildImsProfileHeaders\(normalizedAccessToken, endpoint\.clientId\)/);
   assert.match(organizationsSource, /const payloadScore = flattenOrganizations\(parsed\)\.length;/);
+  assert.match(activationSource, /const requiredActivationScope = normalizeImsScopeList\(/);
+  assert.match(activationSource, /const missingActivationScopeTokens = getMissingUnderparImsScopeTokens/);
+  assert.match(activationSource, /phase: "insufficient-ims-scope"/);
 });
 
 test("vault purge path forces a durable start-shell reset and clears in-memory vault state", () => {
@@ -946,6 +968,41 @@ test("IMS logout URL carries the browser reset parameters needed for recovery re
   assert.equal(parsed.searchParams.get("access_token"), "ims-access-token");
   assert.equal(parsed.searchParams.get("redirect_uri"), "https://example.chromiumapp.org/ims-callback");
   assert.equal(parsed.searchParams.get("client_id"), "underpar-client-id");
+});
+
+test("granted IMS scope merges response and claims tokens before activation checks", () => {
+  const helpers = loadPopupImsHelpers();
+
+  assert.equal(
+    helpers.resolveGrantedUnderparImsScope(
+      "",
+      "openid profile",
+      "additional_info.projectedProductContext read_organizations"
+    ),
+    "openid profile additional_info.projectedproductcontext read_organizations"
+  );
+  assert.equal(
+    JSON.stringify(
+      helpers.getMissingUnderparImsScopeTokens(
+        "openid profile additional_info.projectedproductcontext",
+        "openid profile additional_info.projectedProductContext read_organizations"
+      )
+    ),
+    JSON.stringify(["read_organizations"])
+  );
+});
+
+test("restricted org extraction accepts shell-style label and value records", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const extractOrgIdSource = extractFunctionSource(popupSource, "extractOrgId");
+  const extractOrgNameSource = extractFunctionSource(popupSource, "extractOrgName");
+  const extractUserIdSource = extractFunctionSource(popupSource, "extractUserId");
+
+  assert.match(extractOrgIdSource, /org\?\.value/);
+  assert.match(extractOrgIdSource, /org\?\.organization/);
+  assert.match(extractOrgNameSource, /org\?\.label/);
+  assert.match(extractUserIdSource, /org\?\.profileGuid/);
+  assert.match(extractUserIdSource, /org\?\.userGuid/);
 });
 
 test("logged-out popup and sidepanel surfaces expose ZIP.KEY import controls", () => {
