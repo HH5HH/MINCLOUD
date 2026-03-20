@@ -666,17 +666,26 @@ test("environment switch reactivation allows temporary CM bootstrap context reco
   assert.match(environmentSwitchSource, /activateSession\(retainedLoginData,\s*"environment-switch",\s*\{/);
   assert.match(environmentSwitchSource, /activateSession\(silent,\s*"environment-switch",\s*\{/);
   assert.match(environmentSwitchSource, /allowTemporaryPageContextTab:\s*true/);
-  assert.match(environmentSwitchSource, /const shouldRestoreSelection = options\?\.restoreSelection === true;/);
+  assert.match(
+    environmentSwitchSource,
+    /const shouldRestoreSelection =[\s\S]*options\?\.restoreSelection !== false[\s\S]*state\.sessionReady === true[\s\S]*Boolean\(state\.loginData\)[\s\S]*state\.restricted !== true;/
+  );
   assert.match(environmentSwitchSource, /if \(shouldRestoreSelection && hasProgrammerSelectionSnapshot\(selectionSnapshot\)\)/);
 });
 
-test("environment-switch selection restore is opt-in and only explicit context-driving flows enable it", () => {
+test("environment-switch selection restore preserves current globals by default and explicit context-driving flows can bypass it", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const quickSetSource = extractFunctionSource(popupSource, "applyDegradationQuickSetPreset");
   const storageListenerSource = extractFunctionSource(popupSource, "registerAdobePassEnvironmentStorageListener");
+  const esmDeeplinkSource = extractFunctionSource(popupSource, "consumePendingUnderparEsmDeeplink");
+  const degradationDeeplinkSource = extractFunctionSource(popupSource, "activateDegradationWorkspaceDeeplinkContext");
+  const devtoolsRehydrateSource = extractFunctionSource(popupSource, "rehydratePassVaultMediaCompanyFromDevtools");
 
   assert.match(quickSetSource, /restoreSelection:\s*true/);
-  assert.doesNotMatch(storageListenerSource, /restoreSelection:\s*true/);
+  assert.match(storageListenerSource, /restoreSelection:\s*true/);
+  assert.match(esmDeeplinkSource, /restoreSelection:\s*false/);
+  assert.match(degradationDeeplinkSource, /restoreSelection:\s*false/);
+  assert.match(devtoolsRehydrateSource, /restoreSelection:\s*false/);
 });
 
 test("PassVault storage changes re-seed runtime without force-overwriting active service snapshots", () => {

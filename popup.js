@@ -7713,6 +7713,7 @@ async function rehydratePassVaultMediaCompanyFromDevtools(environmentKey = "", p
   if (normalizeEnvironmentKey(targetEnvironmentKey) !== normalizeEnvironmentKey(currentEnvironmentKey)) {
     await switchAdobePassEnvironmentInPlace(targetEnvironmentKey, {
       source: "up-devtools-vault-rehydrate",
+      restoreSelection: false,
     });
   }
 
@@ -10029,7 +10030,11 @@ async function switchAdobePassEnvironmentInPlace(environment = null, options = {
   }
 
   const switchPromise = (async () => {
-    const shouldRestoreSelection = options?.restoreSelection === true;
+    const shouldRestoreSelection =
+      options?.restoreSelection !== false &&
+      state.sessionReady === true &&
+      Boolean(state.loginData) &&
+      state.restricted !== true;
     const selectionSnapshot = shouldRestoreSelection
       ? options?.selectionSnapshot && typeof options.selectionSnapshot === "object"
         ? {
@@ -10203,6 +10208,7 @@ function registerAdobePassEnvironmentStorageListener() {
     }
     void switchAdobePassEnvironmentInPlace(nextEnvironmentKey, {
       source: "storage-change",
+      restoreSelection: true,
     }).catch((error) => {
       setStatus(error instanceof Error ? error.message : String(error), "error");
     });
@@ -33485,7 +33491,9 @@ async function consumePendingUnderparEsmDeeplink() {
         const pendingEnvironmentKey =
           String(pendingLaunch.environmentKey || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim() || DEFAULT_ADOBEPASS_ENVIRONMENT.key;
         if (pendingEnvironmentKey !== String(getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim()) {
-          const switchResult = await switchAdobePassEnvironmentInPlace(pendingEnvironmentKey);
+          const switchResult = await switchAdobePassEnvironmentInPlace(pendingEnvironmentKey, {
+            restoreSelection: false,
+          });
           if (!switchResult?.ok) {
             throw new Error(`Unable to switch UnderPAR to ${pendingLaunch.environmentLabel || pendingEnvironmentKey}.`);
           }
@@ -42212,6 +42220,7 @@ async function activateDegradationWorkspaceDeeplinkContext(input = null, options
   if (targetEnvironmentKey !== String(getActiveAdobePassEnvironmentKey() || DEFAULT_ADOBEPASS_ENVIRONMENT.key).trim()) {
     const switchResult = await switchAdobePassEnvironmentInPlace(targetEnvironmentKey, {
       source: "degradation-deeplink",
+      restoreSelection: false,
     });
     if (!switchResult?.ok || switchResult?.requiresSignIn) {
       const environmentLabel = firstNonEmptyString([deeplink.environmentLabel, targetEnvironmentKey]);
