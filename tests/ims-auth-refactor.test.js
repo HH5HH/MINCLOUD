@@ -50,13 +50,14 @@ function loadPopupImsHelpers() {
   const filePath = path.join(ROOT, "popup.js");
   const source = fs.readFileSync(filePath, "utf8");
   const script = [
-    'const IMS_SCOPE = "openid profile offline_access additional_info.projectedProductContext read_organizations";',
+    'const IMS_SCOPE = "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function";',
     'const UNDERPAR_ACTIVATION_REQUIRED_SCOPE = "openid profile additional_info.projectedProductContext";',
     'const UNDERPAR_RECOVERY_REQUIRED_SCOPE = "openid profile additional_info.projectedProductContext read_organizations";',
-    'const IMS_ORGANIZATION_SCOPE = "openid profile read_organizations";',
+    'const IMS_ORG_DISCOVERY_SCOPE = "read_organizations";',
+    'const IMS_ORGANIZATION_SCOPE = "openid profile AdobeID read_organizations additional_info.projectedProductContext additional_info.job_function";',
     'const IMS_DEFAULT_AUTHORIZATION_ENDPOINT = "https://ims-na1.adobelogin.com/ims/authorize/v2";',
     'const IMS_DEFAULT_LOGOUT_ENDPOINT = "https://ims-na1.adobelogin.com/ims/logout";',
-    'const IMS_CONSOLE_ALLOWED_SCOPES = ["openid","profile","offline_access","additional_info.projectedProductContext","AdobeID","read_organizations","additional_info.job_function"];',
+    'const IMS_CONSOLE_ALLOWED_SCOPES = ["openid","profile","AdobeID","read_organizations","offline_access","additional_info.projectedProductContext","additional_info.job_function"];',
     'const IMS_LEGACY_SCOPE_MIGRATION_TOKENS = ["avatar","session","additional_info.account_type","additional_info.roles","additional_info.user_image_url","analytics_services"];',
     "function firstNonEmptyString(values = []) { for (const value of Array.isArray(values) ? values : []) { const text = String(value || '').trim(); if (text) { return text; } } return ''; }",
     "function uniqueSorted(values = []) { return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean))].sort(); }",
@@ -80,11 +81,13 @@ function loadPopupImsHelpers() {
     extractFunctionSource(source, "resolveGrantedUnderparImsScope"),
     extractFunctionSource(source, "getMissingUnderparImsScopeTokens"),
     extractFunctionSource(source, "sanitizeUnderparImsScopeForCredential"),
+    extractFunctionSource(source, "buildPreferredUnderparRequestedScope"),
+    extractFunctionSource(source, "buildUnderparRequestedScopePlan"),
     extractFunctionSource(source, "normalizeUnderparVaultImsRuntimeConfigRecord"),
     extractFunctionSource(source, "extractUnderparImsRuntimeConfigFromZipKeyText"),
     extractFunctionSource(source, "buildUnderparImsAuthorizationCodeUrl"),
     extractFunctionSource(source, "buildUnderparImsLogoutUrl"),
-    "module.exports = { normalizeImsScopeList, normalizeImsScopeToken, tokenizeImsScopeList, resolveGrantedUnderparImsScope, getMissingUnderparImsScopeTokens, sanitizeUnderparImsScopeForCredential, normalizeUnderparVaultImsRuntimeConfigRecord, extractUnderparImsRuntimeConfigFromZipKeyText, buildUnderparImsAuthorizationCodeUrl, buildUnderparImsLogoutUrl };",
+    "module.exports = { normalizeImsScopeList, normalizeImsScopeToken, tokenizeImsScopeList, resolveGrantedUnderparImsScope, getMissingUnderparImsScopeTokens, sanitizeUnderparImsScopeForCredential, buildPreferredUnderparRequestedScope, buildUnderparRequestedScopePlan, normalizeUnderparVaultImsRuntimeConfigRecord, extractUnderparImsRuntimeConfigFromZipKeyText, buildUnderparImsAuthorizationCodeUrl, buildUnderparImsLogoutUrl };",
   ].join("\n\n");
   const context = {
     module: { exports: {} },
@@ -531,7 +534,10 @@ test("legacy IMS scope bundles clamp to the LoginButton-style PKCE default scope
     "AdobeID,openid,avatar,session,read_organizations,additional_info.job_function,additional_info.projectedProductContext,analytics_services"
   );
 
-  assert.equal(result.scope, "openid profile offline_access additional_info.projectedProductContext read_organizations");
+  assert.equal(
+    result.scope,
+    "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function"
+  );
   assert.deepEqual([...result.droppedScopes].sort(), ["analytics_services", "avatar", "session"].sort());
 });
 
@@ -544,9 +550,29 @@ test("supported Adobe IMS org scopes survive ZIP.KEY normalization order", () =>
 
   assert.equal(
     result.scope,
-    "openid additional_info.projectedProductContext AdobeID read_organizations additional_info.job_function"
+    "openid AdobeID read_organizations additional_info.projectedProductContext additional_info.job_function"
   );
   assert.deepEqual([...result.droppedScopes], []);
+});
+
+test("interactive IMS scope planning matches LoginButton's org-discovery-first request order", () => {
+  const helpers = loadPopupImsHelpers();
+
+  assert.equal(
+    helpers.buildPreferredUnderparRequestedScope(
+      "openid profile AdobeID offline_access additional_info.projectedProductContext additional_info.job_function"
+    ),
+    "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function"
+  );
+  assert.deepEqual(
+    [...helpers.buildUnderparRequestedScopePlan(
+      "openid profile AdobeID offline_access additional_info.projectedProductContext additional_info.job_function"
+    )],
+    [
+      "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function",
+      "openid profile AdobeID offline_access additional_info.projectedProductContext additional_info.job_function",
+    ]
+  );
 });
 
 test("primary IMS client-id candidates come from the token and ZIP.KEY runtime config only", () => {
@@ -1216,8 +1242,11 @@ test("interactive recovery paths force Adobe IMS to show the login chooser witho
   const organizationsSource = extractFunctionSource(popupSource, "fetchOrganizations");
   const activationSource = extractFunctionSource(popupSource, "activateSession");
 
-  assert.match(popupSource, /const IMS_SCOPE = "openid profile offline_access additional_info\.projectedProductContext read_organizations";/);
-  assert.match(popupSource, /const IMS_ORGANIZATION_SCOPE = "openid profile read_organizations";/);
+  assert.match(
+    popupSource,
+    /const IMS_SCOPE =\s*"openid profile AdobeID read_organizations offline_access additional_info\.projectedProductContext additional_info\.job_function";/
+  );
+  assert.match(popupSource, /const IMS_ORG_DISCOVERY_SCOPE = "read_organizations";/);
   assert.match(popupSource, /const IMS_DEFAULT_LOGOUT_ENDPOINT = `\$\{IMS_ISSUER_URL\}\/ims\/logout`;/);
   assert.match(signInSource, /prompt: normalizeUnderparImsPrompt\(loginOptions\?\.prompt \|\| "login", true\)/);
   assert.match(signInSource, /if \(loginOptions\?\.forceBrowserLogout === true\)/);
@@ -1232,7 +1261,10 @@ test("interactive recovery paths force Adobe IMS to show the login chooser witho
   assert.doesNotMatch(autoSwitchSource, /minimumGrantedScope/);
   assert.match(signInAgainSource, /await signInInteractive\(\{[\s\S]*prompt: "login",[\s\S]*forceBrowserLogout: true,[\s\S]*\}\);/);
   assert.doesNotMatch(signInAgainSource, /targetOrganization/);
-  assert.match(retrySource, /scope: IMS_ORGANIZATION_SCOPE,\s*reason: "org-scope-fallback"/);
+  assert.match(retrySource, /const scopePlan = buildUnderparRequestedScopePlan\(configuredScope\);/);
+  assert.match(retrySource, /"preferred-org-discovery-scope"/);
+  assert.match(retrySource, /"configured-scope-fallback"/);
+  assert.match(retrySource, /return await runAttempt\(IMS_IDENTITY_SCOPE, "identity-scope-fallback"\);/);
   assert.doesNotMatch(retrySource, /minimumGrantedScope/);
   assert.doesNotMatch(retrySource, /INSUFFICIENT_IMS_SCOPE/);
   assert.match(logoutSource, /buildUnderparImsLogoutUrl\(/);

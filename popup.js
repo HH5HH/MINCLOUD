@@ -1,13 +1,15 @@
 const IMS_IDENTITY_SCOPE = "openid profile";
-const IMS_ORGANIZATION_SCOPE = "openid profile read_organizations";
-const IMS_SCOPE = "openid profile offline_access additional_info.projectedProductContext read_organizations";
+const IMS_ORG_DISCOVERY_SCOPE = "read_organizations";
+const IMS_ORGANIZATION_SCOPE = "openid profile AdobeID read_organizations additional_info.projectedProductContext additional_info.job_function";
+const IMS_SCOPE =
+  "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function";
 const IMS_CONSOLE_ALLOWED_SCOPES = Object.freeze([
   "openid",
   "profile",
-  "offline_access",
-  "additional_info.projectedProductContext",
   "AdobeID",
   "read_organizations",
+  "offline_access",
+  "additional_info.projectedProductContext",
   "additional_info.job_function",
 ]);
 const IMS_LEGACY_SCOPE_MIGRATION_TOKENS = Object.freeze([
@@ -1197,6 +1199,24 @@ function sanitizeUnderparImsScopeForCredential(scopeValue = "", fallbackScope = 
     scope: effectiveScope,
     droppedScopes,
   };
+}
+
+function buildPreferredUnderparRequestedScope(configuredScope = IMS_SCOPE) {
+  const normalizedConfiguredScope = normalizeImsScopeList(configuredScope, IMS_SCOPE);
+  if (getMissingUnderparImsScopeTokens(normalizedConfiguredScope, IMS_ORG_DISCOVERY_SCOPE).length === 0) {
+    return normalizedConfiguredScope;
+  }
+
+  return sanitizeUnderparImsScopeForCredential(
+    `${normalizedConfiguredScope} ${IMS_ORG_DISCOVERY_SCOPE}`,
+    normalizedConfiguredScope
+  ).scope;
+}
+
+function buildUnderparRequestedScopePlan(configuredScope = IMS_SCOPE) {
+  const normalizedConfiguredScope = normalizeImsScopeList(configuredScope, IMS_SCOPE);
+  const preferredScope = buildPreferredUnderparRequestedScope(normalizedConfiguredScope);
+  return uniquePreserveOrder([preferredScope, normalizedConfiguredScope]);
 }
 
 function normalizeConfiguredOrganizationsSource(value) {
@@ -51430,6 +51450,14 @@ function shouldRetryUnderparImsLoginWithIdentityScope(error, configuredScope = "
   return message.includes("invalid_scope") && normalizeImsScopeList(configuredScope, IMS_SCOPE) !== IMS_IDENTITY_SCOPE;
 }
 
+function shouldRetryUnderparImsLoginWithConfiguredScope(error, attemptedScope = "", configuredScope = "") {
+  const message = String(error?.message || error || "").toLowerCase();
+  return (
+    message.includes("invalid_scope") &&
+    normalizeImsScopeList(attemptedScope, IMS_SCOPE) !== normalizeImsScopeList(configuredScope, IMS_SCOPE)
+  );
+}
+
 function isExpectedUnderparSilentAuthMiss(error) {
   const message = String(error?.message || error || "").toLowerCase();
   return [
@@ -51625,39 +51653,35 @@ async function runUnderparPkceLogin(options = {}) {
   };
 
   const configuredScope = normalizeImsScopeList(firstNonEmptyString([runtimeConfig.scope, IMS_SCOPE]), IMS_SCOPE);
-  const retryAttempts = [
-    {
-      scope: IMS_ORGANIZATION_SCOPE,
-      reason: "org-scope-fallback",
-    },
-    {
-      scope: IMS_IDENTITY_SCOPE,
-      reason: "identity-scope-fallback",
-    },
-  ].filter(({ scope }) => normalizeImsScopeList(scope, IMS_SCOPE) !== configuredScope);
-
+  const scopePlan = buildUnderparRequestedScopePlan(configuredScope);
   let lastError = null;
-  try {
-    return await runAttempt(configuredScope, "configured-scope");
-  } catch (error) {
-    lastError = error;
-    if (!shouldRetryUnderparImsLoginWithIdentityScope(error, configuredScope)) {
-      throw error;
-    }
-  }
-
-  for (const attempt of retryAttempts) {
+  for (const [index, requestedScope] of scopePlan.entries()) {
     try {
-      return await runAttempt(attempt.scope, attempt.reason);
+      return await runAttempt(
+        requestedScope,
+        index === 0
+          ? requestedScope === configuredScope
+            ? "configured-scope"
+            : "preferred-org-discovery-scope"
+          : "configured-scope-fallback"
+      );
     } catch (error) {
       lastError = error;
-      if (!shouldRetryUnderparImsLoginWithIdentityScope(error, attempt.scope)) {
+      if (shouldRetryUnderparImsLoginWithConfiguredScope(error, requestedScope, configuredScope) && index < scopePlan.length - 1) {
+        continue;
+      }
+      if (!shouldRetryUnderparImsLoginWithIdentityScope(error, configuredScope)) {
         throw error;
       }
+      break;
     }
   }
 
-  throw lastError || new Error("Adobe IMS login failed.");
+  try {
+    return await runAttempt(IMS_IDENTITY_SCOPE, "identity-scope-fallback");
+  } catch (error) {
+    throw error || lastError || new Error("Adobe IMS login failed.");
+  }
 }
 
 async function startLogin(options = {}) {
