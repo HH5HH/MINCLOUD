@@ -58220,11 +58220,22 @@ async function refreshProgrammerPanels(options = {}) {
           allowTemporaryPageContextTab: true,
         }).catch(() => null)
       : Promise.resolve(state.cmTenantsCatalog);
-    const premiumAppsPromise = ensurePremiumAppsForProgrammer(programmer, {
-      forceRefresh: forcePremiumRefresh,
-      allowTemporaryPageContextTab: true,
-      preferredTabId: getRetainedAuthPopupBootstrapTabId() || 0,
-    });
+    const premiumAppsPromise = withAdobeConsolePageContextTarget(
+      `${ADOBE_CONSOLE_BASE}/rest/api/applications?programmer=${encodeURIComponent(
+        String(programmer?.programmerId || "")
+      )}`,
+      {
+        preferredTabId: getRetainedAuthPopupBootstrapTabId() || 0,
+        allowTemporaryTab: true,
+      },
+      async (pageContextOptions) =>
+        ensurePremiumAppsForProgrammer(programmer, {
+          forceRefresh: forcePremiumRefresh,
+          allowTemporaryPageContextTab: pageContextOptions?.allowTemporaryPageContextTab === true,
+          preferredTabId:
+            Number(pageContextOptions?.preferredTabId || 0) || getRetainedAuthPopupBootstrapTabId() || 0,
+        })
+    );
     const cmServicePromise = Promise.resolve(cmSelectionBootstrapPromise)
       .then(() =>
         ensureCmServiceForProgrammer(programmer, {

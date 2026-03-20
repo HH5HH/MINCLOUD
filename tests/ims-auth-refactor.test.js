@@ -964,6 +964,7 @@ test("shell page context harvests the unified shell IMS session before console e
 
 test("media company selection reuses AdobePass shell page context for application hydration", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const withTargetSource = extractFunctionSource(popupSource, "withAdobeConsolePageContextTarget");
   const pageContextVariantsSource = extractFunctionSource(popupSource, "fetchAdobeConsoleJsonWithShellPageContextVariants");
   const fetchApplicationsSource = extractFunctionSource(popupSource, "fetchApplicationsForProgrammer");
   const fetchApplicationDetailsSource = extractFunctionSource(popupSource, "fetchApplicationDetailsByGuid");
@@ -972,6 +973,7 @@ test("media company selection reuses AdobePass shell page context for applicatio
   const hydrateScopesSource = extractFunctionSource(popupSource, "hydrateApplicationScopesForProgrammer");
   const refreshPanelsSource = extractFunctionSource(popupSource, "refreshProgrammerPanels");
 
+  assert.match(withTargetSource, /allowTemporaryPageContextTab:\s*resolvedTabId > 0 \? false : allowTemporaryTab/);
   assert.match(pageContextVariantsSource, /fetchAdobeConsoleJsonViaShellPageContext/);
   assert.match(pageContextVariantsSource, /allowTemporaryPageContextTab === true/);
   assert.match(fetchApplicationsSource, /fetchAdobeConsoleJsonWithShellPageContextVariants\(\[lookupUrl\], "Applications load"/);
@@ -980,8 +982,15 @@ test("media company selection reuses AdobePass shell page context for applicatio
   assert.match(ensurePremiumAppsSource, /const allowTemporaryPageContextTab = options\.allowTemporaryPageContextTab === true;/);
   assert.match(ensurePremiumAppsSource, /const preferredTabId = Number\(options\.preferredTabId \|\| getRetainedAuthPopupBootstrapTabId\(\) \|\| 0\);/);
   assert.match(hydrateScopesSource, /const allowTemporaryPageContextTab = options\.allowTemporaryPageContextTab === true;/);
+  assert.match(refreshPanelsSource, /withAdobeConsolePageContextTarget\(/);
+  assert.match(refreshPanelsSource, /\/rest\/api\/applications\?programmer=/);
+  assert.match(refreshPanelsSource, /allowTemporaryTab:\s*true/);
   assert.match(refreshPanelsSource, /ensurePremiumAppsForProgrammer\(programmer,\s*\{/);
-  assert.match(refreshPanelsSource, /allowTemporaryPageContextTab:\s*true/);
+  assert.match(refreshPanelsSource, /allowTemporaryPageContextTab:\s*pageContextOptions\?\.allowTemporaryPageContextTab === true/);
+  assert.match(
+    refreshPanelsSource,
+    /preferredTabId:\s*Number\(pageContextOptions\?\.preferredTabId \|\| 0\) \|\| getRetainedAuthPopupBootstrapTabId\(\) \|\| 0/
+  );
 });
 
 test("restricted org labels collapse duplicate AdobePass segments", () => {
