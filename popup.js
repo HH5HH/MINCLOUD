@@ -1008,6 +1008,20 @@ function readZipKeyValue(payload = null, candidates = []) {
   return "";
 }
 
+function readZipKeyRawValue(payload = null, candidates = []) {
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    const value = getZipKeyValueByPath(payload, candidate);
+    if (value === undefined || value === null) {
+      continue;
+    }
+    if (typeof value === "string" && !value.trim()) {
+      continue;
+    }
+    return value;
+  }
+  return null;
+}
+
 function decodeZipKeyPayloadBase64(value = "") {
   const compact = String(value || "")
     .replace(/\s+/g, "")
@@ -1183,6 +1197,169 @@ function sanitizeUnderparImsScopeForCredential(scopeValue = "", fallbackScope = 
   };
 }
 
+function normalizeConfiguredOrganizationsSource(value) {
+  if (Array.isArray(value) || (value && typeof value === "object")) {
+    return value;
+  }
+
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (raw.startsWith("[") || raw.startsWith("{")) {
+    const parsed = parseJsonText(raw, null);
+    if (Array.isArray(parsed) || (parsed && typeof parsed === "object")) {
+      return parsed;
+    }
+  }
+
+  return raw
+    .split(/[;\n]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const separatorMatch = entry.match(/^([^|:=]+)\s*(?:\||:|=)\s*(.+)$/);
+      if (separatorMatch) {
+        return {
+          id: separatorMatch[1],
+          label: separatorMatch[2],
+        };
+      }
+
+      return {
+        id: entry,
+        label: entry,
+      };
+    });
+}
+
+function collectConfiguredOrganizationEntriesByPrefix(sourcePayload = {}) {
+  if (!sourcePayload || typeof sourcePayload !== "object") {
+    return [];
+  }
+
+  const candidatePrefixes = [
+    "services.adobe.ims.organizations.",
+    "services.adobe.ims.organization.",
+    "services.adobe.ims.orgs.",
+    "services.adobe.ims.org.",
+    "adobe.ims.organizations.",
+    "adobe.ims.organization.",
+    "adobe.ims.orgs.",
+    "adobe.ims.org.",
+    "ims.organizations.",
+    "ims.organization.",
+    "ims.orgs.",
+    "ims.org.",
+    "organizations.",
+    "organization.",
+    "orgs.",
+    "org.",
+  ];
+  const entries = [];
+
+  for (const [key, value] of Object.entries(sourcePayload)) {
+    const normalizedKey = String(key || "").trim();
+    if (!normalizedKey) {
+      continue;
+    }
+
+    const matchedPrefix = candidatePrefixes.find((prefix) => normalizedKey.startsWith(prefix));
+    if (!matchedPrefix) {
+      continue;
+    }
+
+    const organizationId = normalizedKey.slice(matchedPrefix.length).trim();
+    const organizationLabel = String(value ?? "").trim();
+    if (!organizationId || !organizationLabel) {
+      continue;
+    }
+
+    entries.push({
+      id: organizationId,
+      label: organizationLabel,
+    });
+  }
+
+  return entries;
+}
+
+function normalizeConfiguredOrganizationEntry(entry, index = 0) {
+  const payload =
+    typeof entry === "string"
+      ? {
+          id: entry,
+          label: entry,
+        }
+      : entry && typeof entry === "object"
+        ? entry
+        : null;
+  if (!payload) {
+    return null;
+  }
+
+  const id = firstNonEmptyString([
+    payload.id,
+    payload.orgId,
+    payload.orgID,
+    payload.org_id,
+    payload.organizationId,
+    payload.organizationID,
+    payload.organization_id,
+    payload.customerOrgId,
+    payload.customer_org_id,
+    payload.value,
+  ]);
+  const label = firstNonEmptyString([
+    payload.label,
+    payload.name,
+    payload.title,
+    payload.displayName,
+    payload.organizationName,
+    payload.organization_name,
+    id,
+  ]);
+  if (!id || !label) {
+    return null;
+  }
+
+  return {
+    key: `target-org:${String(id).trim().toLowerCase() || index}`,
+    id: String(id).trim(),
+    label: String(label).trim(),
+  };
+}
+
+function normalizeConfiguredOrganizations(value, additionalEntries = []) {
+  const sourceValue = normalizeConfiguredOrganizationsSource(value);
+  if (!sourceValue && (!Array.isArray(additionalEntries) || additionalEntries.length === 0)) {
+    return [];
+  }
+
+  const rawEntries = [
+    ...(Array.isArray(sourceValue)
+      ? sourceValue
+      : sourceValue && typeof sourceValue === "object"
+        ? Object.entries(sourceValue).map(([id, label]) => ({ id, label }))
+        : []),
+    ...(Array.isArray(additionalEntries) ? additionalEntries : []),
+  ];
+  const organizations = [];
+  const seen = new Set();
+
+  rawEntries.forEach((entry, index) => {
+    const normalized = normalizeConfiguredOrganizationEntry(entry, index);
+    if (!normalized || seen.has(normalized.key)) {
+      return;
+    }
+    seen.add(normalized.key);
+    organizations.push(normalized);
+  });
+
+  return organizations;
+}
+
 function normalizeUnderparVaultImsRuntimeConfigRecord(value = null) {
   const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   const isRuntimeRecord =
@@ -1218,11 +1395,24 @@ function normalizeUnderparVaultImsRuntimeConfigRecord(value = null) {
     ]) || ""
   ).trim();
   const sanitizedScope = sanitizeUnderparImsScopeForCredential(rawScope || IMS_SCOPE);
+  const organizations = normalizeConfiguredOrganizations(
+    isRuntimeRecord ? source?.organizations : readZipKeyRawValue(source, [
+      "services.adobe.ims.organizations",
+      "services.adobe.ims.orgs",
+      "adobe.ims.organizations",
+      "adobe.ims.orgs",
+      "ims.organizations",
+      "ims.orgs",
+      "organizations",
+      "orgs",
+    ]),
+    collectConfiguredOrganizationEntriesByPrefix(source)
+  );
   const sourceLabel = String(source?.source || (clientId ? "ZIP.KEY" : "defaults") || "").trim() || "defaults";
   const importedAt = String(source?.importedAt || "").trim();
   const updatedAt = Math.max(0, Number(source?.updatedAt || 0));
 
-  if (!clientId && !rawScope && !importedAt && !updatedAt && sourceLabel === "defaults") {
+  if (!clientId && !rawScope && organizations.length === 0 && !importedAt && !updatedAt && sourceLabel === "defaults") {
     return null;
   }
 
@@ -1234,6 +1424,7 @@ function normalizeUnderparVaultImsRuntimeConfigRecord(value = null) {
     droppedScopes: Array.isArray(source?.droppedScopes)
       ? uniqueSorted(source.droppedScopes)
       : sanitizedScope.droppedScopes,
+    organizations,
     source: sourceLabel,
     importedAt,
     updatedAt: updatedAt || Date.now(),
@@ -50455,6 +50646,7 @@ function getActiveUnderparImsRuntimeConfig(vault = state?.passVault || null) {
       scope: IMS_SCOPE,
       rawScope: IMS_SCOPE,
       droppedScopes: [],
+      organizations: [],
       source: "defaults",
       importedAt: "",
       updatedAt: 0,
@@ -51790,17 +51982,24 @@ function resolveCachedOrganizationsFromLoginData(loginData) {
 function extractOrgId(org) {
   const candidates = [
     org?.orgId,
+    org?.orgID,
     org?.organizationId,
+    org?.organizationID,
     org?.organization_id,
     org?.tenantId,
     org?.tenant_id,
     org?.imsOrgId,
     org?.ims_org_id,
+    org?.customerOrgId,
+    org?.customer_org_id,
+    org?.companyId,
+    org?.company_id,
     org?.value,
     org?.org,
     org?.organization,
     org?.tenant,
     org?.id,
+    org?.code,
   ];
   return candidates.find((value) => value !== undefined && value !== null && value !== "") || null;
 }
@@ -51826,11 +52025,19 @@ function extractUserId(org) {
 function extractOrgName(org) {
   const candidates = [
     org?.orgName,
+    org?.org_name,
     org?.organizationName,
     org?.organization_name,
+    org?.imsOrgName,
+    org?.ims_org_name,
     org?.label,
     org?.displayName,
     org?.display_name,
+    org?.companyName,
+    org?.company_name,
+    org?.tenantName,
+    org?.tenant_name,
+    org?.title,
     org?.name,
   ];
   return candidates.find((value) => typeof value === "string" && value.trim()) || "";
@@ -51952,6 +52159,371 @@ function toAdobePassOrgDescriptor(org, profile = null) {
   };
 }
 
+function normalizeOrganizationIdentifier(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function extractStrongOrganizationId(value) {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  return firstNonEmptyString([
+    value.organizationId,
+    value.organizationID,
+    value.organization_id,
+    value.orgId,
+    value.orgID,
+    value.org_id,
+    value.imsOrgId,
+    value.ims_org_id,
+    value.tenantId,
+    value.tenant_id,
+    value.companyId,
+    value.company_id,
+    value.customerOrgId,
+    value.customer_org_id,
+  ]);
+}
+
+function looksLikeOrganizationObject(value, path = "") {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  if (/(projectedproductcontext|organization|org|tenant|company)/i.test(path)) {
+    return true;
+  }
+
+  return Boolean(
+    extractStrongOrganizationId(value) ||
+      firstNonEmptyString([
+        value.organizationName,
+        value.organization_name,
+        value.orgName,
+        value.org_name,
+        value.imsOrgName,
+        value.ims_org_name,
+        value.companyName,
+        value.company_name,
+        value.tenantName,
+        value.tenant_name,
+      ])
+  );
+}
+
+function extractOrganizationId(value) {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  return firstNonEmptyString([
+    extractStrongOrganizationId(value),
+    extractOrgId(value),
+    looksLikeOrganizationObject(value) ? firstNonEmptyString([value.id, value.code]) : "",
+  ]);
+}
+
+function extractOrganizationName(value) {
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  return firstNonEmptyString([
+    value.organizationName,
+    value.organization_name,
+    value.orgName,
+    value.org_name,
+    value.imsOrgName,
+    value.ims_org_name,
+    value.companyName,
+    value.company_name,
+    value.tenantName,
+    value.tenant_name,
+    extractOrgName(value),
+    looksLikeOrganizationObject(value) ? firstNonEmptyString([value.displayName, value.name, value.title]) : "",
+  ]);
+}
+
+function buildRestrictedOrgCandidateMergeKey({ orgId, name }) {
+  const normalizedId = normalizeOrganizationIdentifier(orgId);
+  if (normalizedId) {
+    return `org:${normalizedId}`;
+  }
+
+  const normalizedName = normalizeOrganizationIdentifier(name);
+  return normalizedName ? `name:${normalizedName}` : "";
+}
+
+function buildRestrictedOrgOptionKey({ orgId, userId, name }) {
+  const keyBase = [
+    normalizeOrganizationIdentifier(orgId),
+    normalizeOrganizationIdentifier(userId),
+    normalizeOrganizationIdentifier(name),
+  ]
+    .filter(Boolean)
+    .join("::");
+  return keyBase || "";
+}
+
+function buildRestrictedOrgOptionLabel({ name, orgId, userId }) {
+  const labelSegments = [];
+  if (name) {
+    labelSegments.push(name);
+  }
+  if (orgId) {
+    labelSegments.push(orgId);
+  }
+  if (userId) {
+    labelSegments.push(`user ${userId}`);
+  }
+
+  return labelSegments.join(" | ");
+}
+
+function choosePreferredOrganizationName(currentName, nextName, organizationId = "") {
+  const current = firstNonEmptyString([currentName]);
+  const next = firstNonEmptyString([nextName]);
+  if (!current) {
+    return next;
+  }
+  if (!next) {
+    return current;
+  }
+  if (isGeneratedOrganizationName(current, organizationId) && !isGeneratedOrganizationName(next, organizationId)) {
+    return next;
+  }
+  if (isGeneratedOrganizationName(next, organizationId) && !isGeneratedOrganizationName(current, organizationId)) {
+    return current;
+  }
+
+  return next.length > current.length ? next : current;
+}
+
+function isGeneratedOrganizationName(name, organizationId = "") {
+  const normalizedId = String(organizationId || "").trim();
+  if (!normalizedId) {
+    return false;
+  }
+
+  return normalizeOrganizationIdentifier(name) === normalizeOrganizationIdentifier(`Adobe IMS Org ${normalizedId}`);
+}
+
+function rankRestrictedOrganizationSource(source = "") {
+  const normalizedSource = String(source || "").trim();
+  if (!normalizedSource) {
+    return 99;
+  }
+  if (/^organizations\[\d+\]/.test(normalizedSource)) {
+    return 0;
+  }
+  if (/^runtimeConfig\.organizations\[\d+\]/.test(normalizedSource)) {
+    return 1;
+  }
+  if (/projectedProductContext/i.test(normalizedSource)) {
+    return 2;
+  }
+  if (/^profile/.test(normalizedSource)) {
+    return 3;
+  }
+  if (/^idClaims/.test(normalizedSource)) {
+    return 4;
+  }
+  if (/^accessClaims/.test(normalizedSource)) {
+    return 5;
+  }
+
+  return 6;
+}
+
+function collectOrganizationObjects(value, path = "payload", results = [], seen = new WeakSet()) {
+  if (!value || typeof value !== "object") {
+    return results;
+  }
+  if (seen.has(value)) {
+    return results;
+  }
+  seen.add(value);
+
+  if (looksLikeOrganizationObject(value, path)) {
+    results.push({ value, source: path });
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => {
+      collectOrganizationObjects(entry, `${path}[${index}]`, results, seen);
+    });
+    return results;
+  }
+
+  for (const [key, entry] of Object.entries(value)) {
+    if (entry && typeof entry === "object") {
+      collectOrganizationObjects(entry, `${path}.${key}`, results, seen);
+    }
+  }
+
+  return results;
+}
+
+function collectRestrictedOrganizationCandidates({
+  profile,
+  accessClaims,
+  idClaims,
+  organizations = [],
+  configuredOrganizations = [],
+}) {
+  const candidateMap = new Map();
+  const idIndex = new Map();
+  const nameIndex = new Map();
+  const orgIdHints = [];
+
+  const upsertCandidate = (value, source) => {
+    if (!value || typeof value !== "object") {
+      return;
+    }
+
+    const orgId = extractOrganizationId(value);
+    const name = extractOrganizationName(value);
+    const userId = firstNonEmptyString([extractUserId(value)]);
+    if (!orgId && !name) {
+      return;
+    }
+
+    const normalizedId = normalizeOrganizationIdentifier(orgId);
+    const normalizedName = normalizeOrganizationIdentifier(name);
+    let existingKey = normalizedId ? idIndex.get(normalizedId) : "";
+    if (!existingKey && normalizedName) {
+      existingKey = nameIndex.get(normalizedName) || "";
+    }
+
+    if (!existingKey) {
+      const mergeKey = buildRestrictedOrgCandidateMergeKey({ orgId, name });
+      if (!mergeKey) {
+        return;
+      }
+
+      candidateMap.set(mergeKey, {
+        mergeKey,
+        orgId,
+        userId,
+        name,
+        source,
+        sources: source ? [source] : [],
+        isAdobePass: matchesAdobePassOrg(value),
+        raw: value,
+      });
+      if (normalizedId) {
+        idIndex.set(normalizedId, mergeKey);
+      }
+      if (normalizedName) {
+        nameIndex.set(normalizedName, mergeKey);
+      }
+      return;
+    }
+
+    const existingCandidate = candidateMap.get(existingKey);
+    if (!existingCandidate) {
+      return;
+    }
+
+    existingCandidate.orgId = firstNonEmptyString([existingCandidate.orgId, orgId]);
+    existingCandidate.userId = firstNonEmptyString([existingCandidate.userId, userId]);
+    existingCandidate.name = choosePreferredOrganizationName(
+      existingCandidate.name,
+      name,
+      existingCandidate.orgId || orgId
+    );
+    existingCandidate.isAdobePass = existingCandidate.isAdobePass || matchesAdobePassOrg(value);
+    if (source && !existingCandidate.sources.includes(source)) {
+      existingCandidate.sources.push(source);
+    }
+    if (
+      !existingCandidate.source ||
+      rankRestrictedOrganizationSource(source) < rankRestrictedOrganizationSource(existingCandidate.source)
+    ) {
+      existingCandidate.source = source;
+      existingCandidate.raw = value;
+    }
+
+    const mergedId = normalizeOrganizationIdentifier(existingCandidate.orgId);
+    const mergedName = normalizeOrganizationIdentifier(existingCandidate.name);
+    if (mergedId) {
+      idIndex.set(mergedId, existingCandidate.mergeKey);
+    }
+    if (mergedName) {
+      nameIndex.set(mergedName, existingCandidate.mergeKey);
+    }
+  };
+
+  const collectCandidatesFromValue = (value, sourceRoot) => {
+    collectOrganizationObjects(value, sourceRoot).forEach((entry) => {
+      const orgId = extractOrganizationId(entry.value);
+      if (orgId) {
+        orgIdHints.push(orgId);
+      }
+      upsertCandidate(entry.value, entry.source);
+    });
+  };
+
+  organizations.forEach((organization, index) => upsertCandidate(organization, `organizations[${index}]`));
+  configuredOrganizations.forEach((organization, index) =>
+    upsertCandidate(organization, `runtimeConfig.organizations[${index}]`)
+  );
+  collectCandidatesFromValue(profile, "profile");
+  collectCandidatesFromValue(profile?.additional_info, "profile.additional_info");
+  collectCandidatesFromValue(profile?.projectedProductContext, "profile.projectedProductContext");
+  collectCandidatesFromValue(profile?.additional_info?.projectedProductContext, "profile.additional_info.projectedProductContext");
+  collectCandidatesFromValue(accessClaims, "accessClaims");
+  collectCandidatesFromValue(idClaims, "idClaims");
+
+  const hintedOrgIds = new Set(orgIdHints.map(normalizeOrganizationIdentifier).filter(Boolean));
+  const options = Array.from(candidateMap.values()).map((candidate, index) => {
+    const name =
+      firstNonEmptyString([
+        candidate.name,
+        candidate.orgId ? `Adobe IMS Org ${candidate.orgId}` : "",
+        candidate.isAdobePass ? "@AdobePass" : "",
+      ]) || "Adobe organization";
+    const orgId = firstNonEmptyString([candidate.orgId]);
+    const userId = firstNonEmptyString([candidate.userId]);
+    const key =
+      buildRestrictedOrgOptionKey({
+        orgId,
+        userId,
+        name,
+      }) || `org-index-${index}`;
+
+    return {
+      key,
+      label:
+        buildRestrictedOrgOptionLabel({
+          name,
+          orgId,
+          userId,
+        }) || `Organization ${index + 1}`,
+      orgId,
+      userId,
+      name,
+      hinted: Boolean(orgId && hintedOrgIds.has(normalizeOrganizationIdentifier(orgId))),
+      source: firstNonEmptyString([candidate.source, "returned-payload"]),
+      isAdobePass: candidate.isAdobePass === true,
+      raw: candidate.raw,
+    };
+  });
+
+  options.sort((left, right) => {
+    if (left.isAdobePass !== right.isAdobePass) {
+      return left.isAdobePass ? -1 : 1;
+    }
+    if (left.hinted !== right.hinted) {
+      return left.hinted ? -1 : 1;
+    }
+    return left.label.localeCompare(right.label);
+  });
+
+  return options;
+}
+
 function buildOrgSwitchStrategies(orgValue) {
   if (!orgValue) {
     return [];
@@ -51992,67 +52564,28 @@ function buildOrgSwitchStrategies(orgValue) {
   return strategies;
 }
 
-function createRestrictedOrgOption(org, index = 0) {
-  const descriptor = toAdobePassOrgDescriptor(org) || {};
-  const isAdobePass = matchesAdobePassOrg(org);
-  const orgId = toEntryValueString(descriptor.orgId);
-  const userId = toEntryValueString(descriptor.userId);
-  const name = firstNonEmptyString([descriptor.name, isAdobePass ? "@AdobePass" : ""]);
-  const keyBase = [orgId, userId, name.toLowerCase()].join("::");
-  const key = keyBase || `org-index-${index}`;
-  const labelSegments = [];
-  if (name) {
-    labelSegments.push(name);
-  }
-  if (orgId) {
-    labelSegments.push(orgId);
-  }
-  if (userId) {
-    labelSegments.push(`user ${userId}`);
-  }
+function buildRestrictedOrgOptions(organizations, sessionData = null, preferredOrg = null) {
+  const currentSession = sessionData && typeof sessionData === "object" ? sessionData : {};
+  const runtimeConfig = getActiveUnderparImsRuntimeConfig();
+  const configuredOrganizations = Array.isArray(runtimeConfig?.organizations) ? runtimeConfig.organizations : [];
+  const normalizedOrganizations = flattenOrganizations([
+    ...(Array.isArray(organizations) ? organizations : []),
+    ...(preferredOrg && typeof preferredOrg === "object"
+      ? [preferredOrg.raw && typeof preferredOrg.raw === "object" ? preferredOrg.raw : preferredOrg]
+      : []),
+  ]);
 
-  return {
-    key,
-    label: labelSegments.join(" | ") || `Organization ${index + 1}`,
-    orgId,
-    userId,
-    name,
-    isAdobePass,
-    raw: org,
-  };
+  return collectRestrictedOrganizationCandidates({
+    profile: resolveLoginProfile(currentSession),
+    accessClaims: parseJwtPayload(currentSession?.accessToken),
+    idClaims: parseJwtPayload(currentSession?.idToken),
+    organizations: normalizedOrganizations,
+    configuredOrganizations,
+  });
 }
 
-function buildRestrictedOrgOptions(organizations) {
-  if (!Array.isArray(organizations) || organizations.length === 0) {
-    return [];
-  }
-
-  const options = [];
-  const seenKeys = new Set();
-  organizations.forEach((org, index) => {
-    const option = createRestrictedOrgOption(org, index);
-    if (!option.orgId && !option.userId && !option.name && !option.isAdobePass) {
-      return;
-    }
-    if (seenKeys.has(option.key)) {
-      return;
-    }
-    seenKeys.add(option.key);
-    options.push(option);
-  });
-
-  options.sort((left, right) => {
-    if (left.isAdobePass !== right.isAdobePass) {
-      return left.isAdobePass ? -1 : 1;
-    }
-    return left.label.localeCompare(right.label);
-  });
-
-  return options;
-}
-
-function updateRestrictedOrgOptions(organizations, preferredOrg = null) {
-  const options = buildRestrictedOrgOptions(organizations);
+function updateRestrictedOrgOptions(organizations, preferredOrg = null, sessionData = null) {
+  const options = buildRestrictedOrgOptions(organizations, sessionData, preferredOrg);
   state.restrictedOrgOptions = options;
 
   if (options.length === 0) {
@@ -52140,7 +52673,7 @@ function updateRestrictedContext(sessionData, options = {}) {
   const recoveryLabel = firstNonEmptyString([
     options.recoveryLabel,
     state.restrictedRecoveryLabel,
-    "Auto-switch attempted but AdobePass access is still denied.",
+    "Choose an Adobe org profile, switch this session, or sign in again to reopen Adobe's profile chooser.",
   ]);
 
   state.restrictedLoginLabel = loginLabel;
@@ -55229,15 +55762,16 @@ async function enforceAdobePassAccess(loginData) {
   let orgFetchFailed = false;
 
   if (organizations.length > 0) {
-    updateRestrictedOrgOptions(organizations, loginData?.adobePassOrg || null);
+    updateRestrictedOrgOptions(organizations, loginData?.adobePassOrg || null, profileSeedData);
   } else {
     try {
       const orgPayload = await fetchOrganizations(loginData.accessToken);
       organizations = flattenOrganizations(orgPayload);
-      updateRestrictedOrgOptions(organizations, loginData?.adobePassOrg || null);
+      updateRestrictedOrgOptions(organizations, loginData?.adobePassOrg || null, profileSeedData);
     } catch (error) {
       orgFetchFailed = true;
       log("Unable to fetch organizations; allowing session as unknown", error);
+      updateRestrictedOrgOptions([], loginData?.adobePassOrg || null, profileSeedData);
     }
   }
 
@@ -55277,52 +55811,41 @@ async function enforceAdobePassAccess(loginData) {
     adobePassOrg: toAdobePassOrgDescriptor(adobePassOrg, normalizedProfile),
   };
 
-  const switched = await attemptAutoSwitchToAdobePass(organizations);
-  if (switched) {
-    let switchedOrgs = organizations;
-    try {
-      const switchedPayload = await fetchOrganizations(switched.accessToken);
-      switchedOrgs = flattenOrganizations(switchedPayload);
-    } catch (error) {
-      log("Unable to refetch organizations after switch", error);
-    }
-
-    const switchedAdobePassOrg = findAdobePassOrg(switchedOrgs) || adobePassOrg;
-    const switchedProfile = resolveLoginProfile(switched);
-    updateRestrictedOrgOptions(switchedOrgs, switchedAdobePassOrg || adobePassOrg);
-    resolved = {
-      ...switched,
-      profile: switchedProfile,
-      imageUrl: resolveLoginImageUrl({
-        ...switched,
-        profile: switchedProfile,
-      }),
-      organizations: switchedOrgs,
-      adobePassOrg: toAdobePassOrgDescriptor(switchedAdobePassOrg, switchedProfile),
-    };
-  }
-
   return { allowed: true, loginData: resolved };
 }
 
-async function ensureRestrictedOrgOptionsFromToken(accessToken, preferredOrg = null) {
+async function ensureRestrictedOrgOptionsFromToken(accessToken, preferredOrg = null, sessionData = null) {
   const token = String(accessToken || "").trim();
   if (!token) {
     return false;
   }
 
+  const seedSession =
+    sessionData && typeof sessionData === "object"
+      ? {
+          ...sessionData,
+          accessToken: firstNonEmptyString([sessionData?.accessToken, token]),
+        }
+      : {
+          accessToken: token,
+        };
+
   try {
     const orgPayload = await fetchOrganizations(token);
     const organizations = flattenOrganizations(orgPayload);
-    updateRestrictedOrgOptions(organizations, preferredOrg);
-    return organizations.length > 0;
+    updateRestrictedOrgOptions(organizations, preferredOrg, {
+      ...seedSession,
+      organizations,
+    });
+    return state.restrictedOrgOptions.length > 0;
   } catch (error) {
     log("Unable to load org options for restricted picker", error);
+    updateRestrictedOrgOptions([], preferredOrg, seedSession);
     if (isReadOrganizationsScopeError(error)) {
       state.restrictedRecoveryLabel =
-        "Adobe did not grant org-picker scope for this session. Use Sign In Again and choose the AdobePass profile directly in Adobe.";
+        "Adobe did not grant org-picker scope for this session. Use Sign In Again to reopen Adobe's profile chooser.";
     }
-    return false;
+    return state.restrictedOrgOptions.length > 0;
   }
 }
 
@@ -55334,18 +55857,19 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
 
   let organizations = resolveCachedOrganizationsFromLoginData(sessionData);
   if (organizations.length > 0) {
-    updateRestrictedOrgOptions(organizations, sessionData?.adobePassOrg || null);
+    updateRestrictedOrgOptions(organizations, sessionData?.adobePassOrg || null, sessionData);
   } else {
     try {
       const orgPayload = await fetchOrganizations(token);
       organizations = flattenOrganizations(orgPayload);
-      updateRestrictedOrgOptions(organizations, sessionData?.adobePassOrg || null);
+      updateRestrictedOrgOptions(organizations, sessionData?.adobePassOrg || null, sessionData);
     } catch (error) {
       log("Unable to load organizations for interactive AdobePass recovery", error);
+      updateRestrictedOrgOptions([], sessionData?.adobePassOrg || null, sessionData);
       if (isReadOrganizationsScopeError(error)) {
         updateRestrictedContext(sessionData, {
           recoveryLabel:
-            "Adobe did not grant org-picker scope for this session. Use Sign In Again and choose the AdobePass profile directly in Adobe.",
+            "Adobe did not grant org-picker scope for this session. Use Sign In Again to reopen Adobe's profile chooser.",
         });
       }
       return false;
@@ -55354,7 +55878,7 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
 
   if (!findAdobePassOrg(organizations)) {
     updateRestrictedContext(sessionData, {
-      recoveryLabel: "No AdobePass org membership was found for this account.",
+      recoveryLabel: "AdobePass was not auto-detected. Pick an Adobe org manually below or sign in again.",
     });
     return false;
   }
@@ -55366,7 +55890,7 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
   });
   if (!switched) {
     updateRestrictedContext(sessionData, {
-      recoveryLabel: "Auto-switch to @AdobePass failed. Select a profile manually or sign in again.",
+      recoveryLabel: "Automatic org switching failed. Select an Adobe org manually or sign in again.",
     });
     return false;
   }
@@ -56095,9 +56619,13 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   if (!enforced.allowed || !enforced.loginData) {
     await clearLoginData();
     resetWorkflowForLoggedOut();
-    await ensureRestrictedOrgOptionsFromToken(sessionData?.accessToken, sessionData?.adobePassOrg || null);
+    await ensureRestrictedOrgOptionsFromToken(
+      sessionData?.accessToken,
+      sessionData?.adobePassOrg || null,
+      sessionData
+    );
     updateRestrictedContext(sessionData, {
-      recoveryLabel: "Unable to verify AdobePass access for this login.",
+      recoveryLabel: "Choose an Adobe org profile and switch this session.",
     });
     state.loginData = null;
     state.restricted = true;
@@ -56145,27 +56673,6 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     const accessDenied = error?.code === "PROGRAMMERS_ACCESS_DENIED";
     const deniedSessionData = enforced.loginData || sessionData;
     const deniedAccessToken = firstNonEmptyString([enforced.loginData?.accessToken, sessionData?.accessToken]);
-    const deniedExpiresAt = Number(enforced.loginData?.expiresAt || sessionData?.expiresAt || 0);
-
-    if (accessDenied && allowDeniedRecovery) {
-      const recovered = await attemptInteractiveAdobePassRecovery({
-        accessToken: deniedAccessToken,
-        expiresAt: deniedExpiresAt,
-        profile: resolveLoginProfile(deniedSessionData),
-        adobePassOrg: deniedSessionData?.adobePassOrg || null,
-      });
-      if (recovered) {
-        setUnderparDiagnosticMarker("activation", {
-          status: "success",
-          source: normalizedSource,
-          phase: "interactive-recovery",
-          programmersCount: Number(state.programmers.length || 0),
-          recovered: true,
-        });
-        clearStatusUnlessCmTenantsPrecheckBlocked();
-        return true;
-      }
-    }
 
     if (accessDenied) {
       await clearLoginData();
@@ -56175,12 +56682,12 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
       clearRefreshTimer();
       await ensureRestrictedOrgOptionsFromToken(
         deniedAccessToken,
-        deniedSessionData?.adobePassOrg || sessionData?.adobePassOrg || null
+        deniedSessionData?.adobePassOrg || sessionData?.adobePassOrg || null,
+        deniedSessionData
       );
       updateRestrictedContext(deniedSessionData, {
-        recoveryLabel: allowDeniedRecovery
-          ? "Auto-switch to @AdobePass was attempted but access is still denied."
-          : "AdobePass access is still denied after auto-switch.",
+        recoveryLabel:
+          "Console access is still denied for this Adobe session. Pick another org or sign in again to choose a different Adobe profile.",
       });
       state.restricted = true;
       setUnderparDiagnosticMarker("activation", {
@@ -68269,16 +68776,16 @@ function renderRestrictedView() {
   els.restrictedLoginState.textContent = state.restrictedLoginLabel || "Sign-in state is unknown.";
   els.restrictedOrgState.textContent = state.restrictedOrgLabel || "Detected org: Unknown org profile";
   els.restrictedRecoveryState.textContent =
-    state.restrictedRecoveryLabel || "Auto-switch to @AdobePass is required for access.";
+    state.restrictedRecoveryLabel || "Choose an Adobe org profile and switch this session.";
 
   const recommended = options.find((option) => option.isAdobePass);
   if (options.length === 0) {
     els.restrictedOrgHint.textContent =
-      "No org profiles were returned from IMS for this Adobe session. Click Sign In Again to reset Adobe sign-in and choose another profile.";
+      "No Adobe org profiles were resolved from the current Adobe session. Click Sign In Again to reopen Adobe's profile chooser.";
   } else if (recommended) {
     els.restrictedOrgHint.textContent = `Recommended profile: ${recommended.label}`;
   } else {
-    els.restrictedOrgHint.textContent = "Select your AdobePass org profile and click Switch Org.";
+    els.restrictedOrgHint.textContent = "Select an Adobe org profile and click Switch Org.";
   }
 }
 

@@ -62,12 +62,18 @@ function loadPopupImsHelpers() {
     "function uniqueSorted(values = []) { return [...new Set((Array.isArray(values) ? values : []).map((value) => String(value || '').trim()).filter(Boolean))].sort(); }",
     "function getZipKeyValueByPath(payload = null, pathExpr = '') { if (!payload || typeof payload !== 'object') { return undefined; } const expr = String(pathExpr || '').trim(); if (!expr) { return undefined; } if (Object.prototype.hasOwnProperty.call(payload, expr)) { return payload[expr]; } const parts = expr.split('.').map((part) => part.trim()).filter(Boolean); if (parts.length === 0) { return undefined; } let node = payload; for (const part of parts) { if (!node || typeof node !== 'object' || !Object.prototype.hasOwnProperty.call(node, part)) { return undefined; } node = node[part]; } return node; }",
     "function readZipKeyValue(payload = null, candidates = []) { for (const candidate of Array.isArray(candidates) ? candidates : []) { const value = getZipKeyValueByPath(payload, candidate); if (typeof value === 'string') { const trimmed = value.trim(); if (trimmed) { return trimmed; } continue; } if (typeof value === 'number' && Number.isFinite(value)) { return String(value); } if (typeof value === 'boolean') { return value ? 'true' : 'false'; } } return ''; }",
+    "function parseJsonText(text, fallback = null) { if (!text || typeof text !== 'string') { return fallback; } try { return JSON.parse(text); } catch { return fallback; } }",
     "function decodeZipKeyPayloadBase64(value = '') { const compact = String(value || '').replace(/\\s+/g, '').replace(/-/g, '+').replace(/_/g, '/'); if (!compact) { return ''; } const remainder = compact.length % 4; const padded = remainder === 0 ? compact : `${compact}${'='.repeat(4 - remainder)}`; const binary = atob(padded); try { const bytes = Uint8Array.from(binary, (entry) => entry.charCodeAt(0)); return new TextDecoder().decode(bytes); } catch { return binary; } }",
     "function parseKeyValueText(rawText = '') { const payload = {}; String(rawText || '').split(/\\r?\\n/).forEach((line) => { const match = line.match(/^\\s*([^=:\\s]+)\\s*[:=]\\s*(.+)\\s*$/); if (!match) { return; } payload[String(match[1] || '').trim()] = String(match[2] || '').trim(); }); return payload; }",
     "function parseZipKeyPayload(rawText = '') { const raw = String(rawText || '').trim(); if (!raw) { throw new Error('ZIP.KEY payload is empty.'); } const prefix = 'ZIPKEY1:'; let payloadText = raw; if (raw.slice(0, prefix.length).toUpperCase() === prefix) { payloadText = raw.slice(prefix.length).trim(); } if (!payloadText) { throw new Error('ZIP.KEY payload is empty.'); } if (payloadText.startsWith('{')) { try { const parsed = JSON.parse(payloadText); if (parsed && typeof parsed === 'object') { return parsed; } } catch { throw new Error('ZIP.KEY JSON payload could not be parsed.'); } } try { const decoded = decodeZipKeyPayloadBase64(payloadText).trim(); if (decoded.startsWith('{')) { const parsed = JSON.parse(decoded); if (parsed && typeof parsed === 'object') { return parsed; } } } catch { } const fromKeyValue = parseKeyValueText(payloadText); if (Object.keys(fromKeyValue).length > 0) { return fromKeyValue; } throw new Error('Unknown ZIP.KEY format. Use ZIPKEY1 base64 JSON, raw JSON, or KEY=VALUE lines.'); }",
     "function uniquePreserveOrder(values = []) { const seen = new Set(); const output = []; for (const value of Array.isArray(values) ? values : []) { const text = String(value || '').trim(); if (!text || seen.has(text)) { continue; } seen.add(text); output.push(text); } return output; }",
     "function parseJwtPayload() { return {}; }",
     "function extractScopeValuesFromTokenClaims() { return []; }",
+    "function readZipKeyRawValue(payload = null, candidates = []) { for (const candidate of Array.isArray(candidates) ? candidates : []) { const value = getZipKeyValueByPath(payload, candidate); if (value === undefined || value === null) { continue; } if (typeof value === 'string' && !value.trim()) { continue; } return value; } return null; }",
+    "function normalizeConfiguredOrganizationsSource(value) { if (Array.isArray(value) || (value && typeof value === 'object')) { return value; } const raw = String(value || '').trim(); if (!raw) { return null; } if (raw.startsWith('[') || raw.startsWith('{')) { const parsed = parseJsonText(raw, null); if (Array.isArray(parsed) || (parsed && typeof parsed === 'object')) { return parsed; } } return raw.split(/[;\\n]+/).map((entry) => entry.trim()).filter(Boolean).map((entry) => { const separatorMatch = entry.match(/^([^|:=]+)\\s*(?:\\||:|=)\\s*(.+)$/); if (separatorMatch) { return { id: separatorMatch[1], label: separatorMatch[2] }; } return { id: entry, label: entry }; }); }",
+    "function collectConfiguredOrganizationEntriesByPrefix(sourcePayload = {}) { if (!sourcePayload || typeof sourcePayload !== 'object') { return []; } const candidatePrefixes = ['services.adobe.ims.organizations.','services.adobe.ims.organization.','services.adobe.ims.orgs.','services.adobe.ims.org.','adobe.ims.organizations.','adobe.ims.organization.','adobe.ims.orgs.','adobe.ims.org.','ims.organizations.','ims.organization.','ims.orgs.','ims.org.','organizations.','organization.','orgs.','org.']; const entries = []; for (const [key, value] of Object.entries(sourcePayload)) { const normalizedKey = String(key || '').trim(); if (!normalizedKey) { continue; } const matchedPrefix = candidatePrefixes.find((prefix) => normalizedKey.startsWith(prefix)); if (!matchedPrefix) { continue; } const organizationId = normalizedKey.slice(matchedPrefix.length).trim(); const organizationLabel = String(value ?? '').trim(); if (!organizationId || !organizationLabel) { continue; } entries.push({ id: organizationId, label: organizationLabel }); } return entries; }",
+    "function normalizeConfiguredOrganizationEntry(entry, index = 0) { const payload = typeof entry === 'string' ? { id: entry, label: entry } : entry && typeof entry === 'object' ? entry : null; if (!payload) { return null; } const id = firstNonEmptyString([payload.id,payload.orgId,payload.orgID,payload.org_id,payload.organizationId,payload.organizationID,payload.organization_id,payload.customerOrgId,payload.customer_org_id,payload.value]); const label = firstNonEmptyString([payload.label,payload.name,payload.title,payload.displayName,payload.organizationName,payload.organization_name,id]); if (!id || !label) { return null; } return { key: `target-org:${String(id).trim().toLowerCase() || index}`, id: String(id).trim(), label: String(label).trim() }; }",
+    "function normalizeConfiguredOrganizations(value, additionalEntries = []) { const sourceValue = normalizeConfiguredOrganizationsSource(value); if (!sourceValue && (!Array.isArray(additionalEntries) || additionalEntries.length === 0)) { return []; } const rawEntries = [...(Array.isArray(sourceValue) ? sourceValue : sourceValue && typeof sourceValue === 'object' ? Object.entries(sourceValue).map(([id, label]) => ({ id, label })) : []), ...(Array.isArray(additionalEntries) ? additionalEntries : [])]; const organizations = []; const seen = new Set(); rawEntries.forEach((entry, index) => { const normalized = normalizeConfiguredOrganizationEntry(entry, index); if (!normalized || seen.has(normalized.key)) { return; } seen.add(normalized.key); organizations.push(normalized); }); return organizations; }",
     extractFunctionSource(source, "normalizeImsScopeList"),
     extractFunctionSource(source, "normalizeImsScopeToken"),
     extractFunctionSource(source, "tokenizeImsScopeList"),
@@ -384,6 +390,46 @@ test("ZIP.KEY-only Adobe IMS imports accept direct adobe.ims.client_id entries",
   assert.equal(result.imsRuntimeConfig.clientId, "underpar-client-id");
   assert.equal(result.imsRuntimeConfig.scope, "openid profile additional_info.projectedProductContext");
   assert.equal(result.imsRuntimeConfig.source, "ZIP.KEY");
+});
+
+test("ZIP.KEY Adobe IMS imports preserve configured org picker entries", () => {
+  const helpers = loadPopupImsHelpers();
+
+  const result = helpers.extractUnderparImsRuntimeConfigFromZipKeyText(
+    JSON.stringify({
+      adobe: {
+        ims: {
+          client_id: "underpar-client-id",
+          organizations: [
+            {
+              id: "@AdobePass",
+              label: "@AdobePass",
+            },
+            {
+              id: "alt-org",
+              label: "Alternate Org",
+            },
+          ],
+        },
+      },
+    })
+  );
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(result.imsRuntimeConfig.organizations)),
+    [
+      {
+        key: "target-org:@adobepass",
+        id: "@AdobePass",
+        label: "@AdobePass",
+      },
+      {
+        key: "target-org:alt-org",
+        id: "alt-org",
+        label: "Alternate Org",
+      },
+    ]
+  );
 });
 
 test("legacy IMS scope bundles clamp to the LoginButton-style PKCE default scope", () => {
@@ -1110,6 +1156,29 @@ test("restricted org extraction accepts shell-style label and value records", ()
   assert.match(extractUserIdSource, /org\?\.userGuid/);
 });
 
+test("restricted org picker merges IMS orgs with profile claims and configured ZIP.KEY orgs", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const buildOptionsSource = extractFunctionSource(popupSource, "buildRestrictedOrgOptions");
+  const collectCandidatesSource = extractFunctionSource(popupSource, "collectRestrictedOrganizationCandidates");
+
+  assert.match(buildOptionsSource, /getActiveUnderparImsRuntimeConfig\(\)/);
+  assert.match(buildOptionsSource, /parseJwtPayload\(currentSession\?\.accessToken\)/);
+  assert.match(buildOptionsSource, /parseJwtPayload\(currentSession\?\.idToken\)/);
+  assert.match(collectCandidatesSource, /configuredOrganizations\.forEach/);
+  assert.match(collectCandidatesSource, /collectCandidatesFromValue\(profile, "profile"\)/);
+  assert.match(collectCandidatesSource, /collectCandidatesFromValue\(profile\?\.additional_info, "profile\.additional_info"\)/);
+  assert.match(collectCandidatesSource, /collectCandidatesFromValue\(accessClaims, "accessClaims"\)/);
+  assert.match(collectCandidatesSource, /collectCandidatesFromValue\(idClaims, "idClaims"\)/);
+});
+
+test("programmer access denial drops into the org picker instead of auto-restarting recovery auth", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const activationSource = extractFunctionSource(popupSource, "activateSession");
+
+  assert.doesNotMatch(activationSource, /attemptInteractiveAdobePassRecovery/);
+  assert.match(activationSource, /ensureRestrictedOrgOptionsFromToken\(\s*deniedAccessToken,[\s\S]*deniedSessionData/);
+});
+
 test("logged-out popup and sidepanel surfaces expose ZIP.KEY import controls", () => {
   const popupHtml = fs.readFileSync(path.join(ROOT, "popup.html"), "utf8");
   const sidepanelHtml = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
@@ -1224,7 +1293,7 @@ test("popup and sidepanel ship the same sparse logged-out sign-in surface after 
   assert.ok(sidepanelHtml.indexOf('id="zip-key-import-view"') < sidepanelHtml.indexOf('id="sign-in-view"'));
 });
 
-test("popup and sidepanel both ship the AdobePass restricted recovery picker surface", () => {
+test("popup and sidepanel both ship the generic restricted org picker surface", () => {
   const sidepanelHtml = fs.readFileSync(path.join(ROOT, "sidepanel.html"), "utf8");
   const popupHtml = fs.readFileSync(path.join(ROOT, "popup.html"), "utf8");
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
@@ -1238,15 +1307,18 @@ test("popup and sidepanel both ship the AdobePass restricted recovery picker sur
     assert.match(htmlSource, /id="restricted-org-switch-btn"/);
     assert.match(htmlSource, /id="restricted-sign-in-btn"/);
     assert.match(htmlSource, /id="restricted-sign-out-btn"/);
+    assert.match(htmlSource, /Adobe Org Picker/);
     assert.match(htmlSource, /Adobe Org Profile/);
     assert.match(htmlSource, /Sign In Again/);
     assert.match(htmlSource, /Sign Out/);
+    assert.doesNotMatch(htmlSource, /For @AdobePass only/);
   }
 
   assert.match(renderRestrictedSource, /!els\.restrictedOrgSelect/);
   assert.match(renderRestrictedSource, /!els\.restrictedOrgSwitchBtn/);
   assert.match(renderRestrictedSource, /!els\.restrictedSignInBtn/);
   assert.match(renderRestrictedSource, /!els\.restrictedSignOutBtn/);
+  assert.doesNotMatch(renderRestrictedSource, /Auto-switch to @AdobePass is required for access\./);
 });
 
 test("sidepanel requestor picker spans the same full workflow width as media company and MVPD", () => {
