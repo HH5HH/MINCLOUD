@@ -1,8 +1,6 @@
 const IMS_IDENTITY_SCOPE = "openid profile";
 const IMS_ORGANIZATION_SCOPE = "openid profile read_organizations";
 const IMS_SCOPE = "openid profile offline_access additional_info.projectedProductContext read_organizations";
-const UNDERPAR_ACTIVATION_REQUIRED_SCOPE = "openid profile additional_info.projectedProductContext";
-const UNDERPAR_RECOVERY_REQUIRED_SCOPE = "openid profile additional_info.projectedProductContext read_organizations";
 const IMS_CONSOLE_ALLOWED_SCOPES = Object.freeze([
   "openid",
   "profile",
@@ -51148,7 +51146,6 @@ async function runUnderparPkceLogin(options = {}) {
   const interactive = options?.interactive !== false;
   const extraParams = options?.extraParams && typeof options.extraParams === "object" ? options.extraParams : {};
   const prompt = normalizeUnderparImsPrompt(options?.prompt, interactive);
-  const minimumGrantedScope = normalizeImsScopeList(firstNonEmptyString([options?.minimumGrantedScope]), "");
   const runtimeConfig = await requireUnderparImsRuntimeConfig();
   const authConfiguration = await fetchUnderparImsOpenIdConfiguration();
   const redirectUri = getUnderparImsRedirectUri();
@@ -51215,19 +51212,6 @@ async function runUnderparPkceLogin(options = {}) {
     );
     const expiresAt = coercePositiveNumber(tokenExpiry?.expiresAt);
     const tokenType = compactStorageString(firstNonEmptyString([String(tokenPayload?.token_type || "").trim()]), 60) || "bearer";
-    const missingGrantedScopeTokens =
-      minimumGrantedScope && requestedScope !== IMS_IDENTITY_SCOPE
-        ? getMissingUnderparImsScopeTokens(returnedScope, minimumGrantedScope)
-        : [];
-    if (missingGrantedScopeTokens.length > 0) {
-      const error = new Error(
-        `Adobe IMS granted insufficient scope. Missing ${missingGrantedScopeTokens.join(", ")}.`
-      );
-      error.code = "INSUFFICIENT_IMS_SCOPE";
-      error.grantedScope = returnedScope;
-      error.requiredScope = minimumGrantedScope;
-      throw error;
-    }
     const mergedImsSession = mergeImsSessionSnapshots(
       mergeImsSessionSnapshots(tokenExpiry?.tokenSnapshot || null, {
         userId: firstNonEmptyString([idTokenClaims?.sub]),
@@ -51635,6 +51619,10 @@ async function fetchOrganizations(accessToken) {
   if (!normalizedAccessToken) {
     throw new Error("Organizations request failed: missing Adobe IMS access token.");
   }
+  const grantedScope = resolveGrantedUnderparImsScope(normalizedAccessToken, "", "");
+  if (getMissingUnderparImsScopeTokens(grantedScope, "read_organizations").length > 0) {
+    throw new Error('Organizations request failed: token does not have the "read_organizations" scope.');
+  }
 
   const clientIdCandidates = getUnderparImsClientIdCandidates(normalizedAccessToken);
   const endpoints = [
@@ -51698,6 +51686,11 @@ async function fetchOrganizations(accessToken) {
   }
 
   throw lastError || new Error("Organizations request failed.");
+}
+
+function isReadOrganizationsScopeError(error) {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /read_organizations/i.test(message);
 }
 
 function collectObjects(value, output = []) {
@@ -55154,7 +55147,6 @@ async function attemptAutoSwitchToAdobePass(organizations, options = {}) {
         interactive,
         allowFallback,
         prompt,
-        minimumGrantedScope: firstNonEmptyString([options?.minimumGrantedScope]),
       });
       if (interactive) {
         resetAvatarStateForInteractiveLogin();
@@ -55279,6 +55271,10 @@ async function ensureRestrictedOrgOptionsFromToken(accessToken, preferredOrg = n
     return organizations.length > 0;
   } catch (error) {
     log("Unable to load org options for restricted picker", error);
+    if (isReadOrganizationsScopeError(error)) {
+      state.restrictedRecoveryLabel =
+        "Adobe did not grant org-picker scope for this session. Use Sign In Again and choose the AdobePass profile directly in Adobe.";
+    }
     return false;
   }
 }
@@ -55299,6 +55295,12 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
       updateRestrictedOrgOptions(organizations, sessionData?.adobePassOrg || null);
     } catch (error) {
       log("Unable to load organizations for interactive AdobePass recovery", error);
+      if (isReadOrganizationsScopeError(error)) {
+        updateRestrictedContext(sessionData, {
+          recoveryLabel:
+            "Adobe did not grant org-picker scope for this session. Use Sign In Again and choose the AdobePass profile directly in Adobe.",
+        });
+      }
       return false;
     }
   }
@@ -55314,7 +55316,6 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
     interactive: true,
     allowFallback: true,
     maxStrategies: 4,
-    minimumGrantedScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE,
   });
   if (!switched) {
     updateRestrictedContext(sessionData, {
@@ -55329,7 +55330,6 @@ async function attemptInteractiveAdobePassRecovery(sessionData) {
     {
       allowDeniedRecovery: false,
       allowTemporaryPageContextTab: false,
-      requiredActivationScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE,
     }
   );
 }
@@ -56036,10 +56036,6 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
     allowTemporaryPageContextTab
   );
   const preferredCmBootstrapTabId = Number(options.preferredCmBootstrapTabId || getRetainedAuthPopupBootstrapTabId() || 0);
-  const requiredActivationScope = normalizeImsScopeList(
-    firstNonEmptyString([options.requiredActivationScope, UNDERPAR_ACTIVATION_REQUIRED_SCOPE]),
-    UNDERPAR_ACTIVATION_REQUIRED_SCOPE
-  );
   setUnderparDiagnosticMarker("activation", {
     status: "pending",
     source: normalizedSource,
@@ -56065,43 +56061,6 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
       source: normalizedSource,
       phase: "access-denied",
       recoveryLabel: "Unable to verify AdobePass access for this login.",
-    });
-    setStatus("", "info");
-    render();
-    return false;
-  }
-
-  const resolvedActivationScope = resolveGrantedUnderparImsScope(
-    firstNonEmptyString([enforced.loginData?.accessToken, sessionData?.accessToken]),
-    firstNonEmptyString([enforced.loginData?.scope, sessionData?.scope]),
-    ""
-  );
-  const missingActivationScopeTokens = getMissingUnderparImsScopeTokens(
-    resolvedActivationScope,
-    requiredActivationScope
-  );
-  if (missingActivationScopeTokens.length > 0) {
-    const deniedSessionData = enforced.loginData || sessionData;
-    const deniedAccessToken = firstNonEmptyString([deniedSessionData?.accessToken, sessionData?.accessToken]);
-    await clearLoginData();
-    resetWorkflowForLoggedOut();
-    state.loginData = null;
-    state.sessionReady = false;
-    clearRefreshTimer();
-    await ensureRestrictedOrgOptionsFromToken(
-      deniedAccessToken,
-      deniedSessionData?.adobePassOrg || sessionData?.adobePassOrg || null
-    );
-    updateRestrictedContext(deniedSessionData, {
-      recoveryLabel: `Adobe IMS granted insufficient scope: ${missingActivationScopeTokens.join(", ")}.`,
-    });
-    state.restricted = true;
-    setUnderparDiagnosticMarker("activation", {
-      status: "restricted",
-      source: normalizedSource,
-      phase: "insufficient-ims-scope",
-      missingScope: missingActivationScopeTokens.join(" "),
-      grantedScope: resolvedActivationScope,
     });
     setStatus("", "info");
     render();
@@ -67995,13 +67954,6 @@ async function signInInteractive(options = {}) {
       interactive: true,
       allowFallback: true,
       prompt: normalizeUnderparImsPrompt(loginOptions?.prompt || "login", true),
-      minimumGrantedScope: normalizeImsScopeList(
-        firstNonEmptyString([
-          loginOptions?.minimumGrantedScope,
-          loginOptions?.forceBrowserLogout === true || state.restricted ? UNDERPAR_RECOVERY_REQUIRED_SCOPE : UNDERPAR_ACTIVATION_REQUIRED_SCOPE,
-        ]),
-        ""
-      ),
     });
     setUnderparDiagnosticMarker("auth", {
       status: "token-acquired",
@@ -68023,10 +67975,6 @@ async function signInInteractive(options = {}) {
       "interactive",
       {
         allowTemporaryPageContextTab: false,
-        requiredActivationScope: firstNonEmptyString([
-          loginOptions?.requiredActivationScope,
-          loginOptions?.forceBrowserLogout === true || state.restricted ? UNDERPAR_RECOVERY_REQUIRED_SCOPE : UNDERPAR_ACTIVATION_REQUIRED_SCOPE,
-        ]),
       }
     );
 
@@ -68095,7 +68043,6 @@ async function refreshSessionManual() {
         interactive: true,
         allowFallback: true,
         prompt: "login",
-        minimumGrantedScope: UNDERPAR_ACTIVATION_REQUIRED_SCOPE,
       });
       usedInteractiveLogin = true;
     }
@@ -68126,7 +68073,6 @@ async function refreshSessionManual() {
       usedInteractiveLogin ? "manual-refresh-interactive" : "manual-refresh",
       {
         allowTemporaryPageContextTab: false,
-        requiredActivationScope: UNDERPAR_ACTIVATION_REQUIRED_SCOPE,
       }
     );
 
@@ -68221,7 +68167,6 @@ async function onRestrictedOrgSwitch() {
           interactive: true,
           allowFallback: true,
           prompt: "login",
-          minimumGrantedScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE,
         });
         resetAvatarStateForInteractiveLogin();
         const profile = await resolveProfileAfterLogin(authData);
@@ -68232,7 +68177,6 @@ async function onRestrictedOrgSwitch() {
           {
             allowDeniedRecovery: false,
             allowTemporaryPageContextTab: false,
-            requiredActivationScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE,
           }
         );
         if (activated) {
@@ -68291,8 +68235,6 @@ async function onRestrictedSignInAgain() {
   await signInInteractive({
     prompt: "login",
     forceBrowserLogout: true,
-    minimumGrantedScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE,
-    requiredActivationScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE,
   });
 }
 

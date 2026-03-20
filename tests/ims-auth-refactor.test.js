@@ -712,7 +712,7 @@ test("silent bootstrap preserves restricted recovery instead of resetting back t
   );
 });
 
-test("interactive recovery paths force Adobe IMS to show the login chooser and retain org-readable scope", () => {
+test("interactive recovery paths force Adobe IMS to show the login chooser without hard-gating activation on helper scopes", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const signInSource = extractFunctionSource(popupSource, "signInInteractive");
   const switchSource = extractFunctionSource(popupSource, "onRestrictedOrgSwitch");
@@ -724,33 +724,33 @@ test("interactive recovery paths force Adobe IMS to show the login chooser and r
   const activationSource = extractFunctionSource(popupSource, "activateSession");
 
   assert.match(popupSource, /const IMS_SCOPE = "openid profile offline_access additional_info\.projectedProductContext read_organizations";/);
-  assert.match(popupSource, /const UNDERPAR_ACTIVATION_REQUIRED_SCOPE = "openid profile additional_info\.projectedProductContext";/);
-  assert.match(popupSource, /const UNDERPAR_RECOVERY_REQUIRED_SCOPE = "openid profile additional_info\.projectedProductContext read_organizations";/);
   assert.match(popupSource, /const IMS_ORGANIZATION_SCOPE = "openid profile read_organizations";/);
   assert.match(popupSource, /const IMS_DEFAULT_LOGOUT_ENDPOINT = `\$\{IMS_ISSUER_URL\}\/ims\/logout`;/);
   assert.match(signInSource, /prompt: normalizeUnderparImsPrompt\(loginOptions\?\.prompt \|\| "login", true\)/);
   assert.match(signInSource, /if \(loginOptions\?\.forceBrowserLogout === true\)/);
   assert.match(signInSource, /await runUnderparImsBrowserLogout\(/);
-  assert.match(signInSource, /minimumGrantedScope: normalizeImsScopeList\(/);
-  assert.match(signInSource, /loginOptions\?\.forceBrowserLogout === true \|\| state\.restricted \? UNDERPAR_RECOVERY_REQUIRED_SCOPE : UNDERPAR_ACTIVATION_REQUIRED_SCOPE/);
+  assert.doesNotMatch(signInSource, /minimumGrantedScope/);
+  assert.doesNotMatch(signInSource, /requiredActivationScope/);
   assert.match(switchSource, /prompt: "login"/);
-  assert.match(switchSource, /minimumGrantedScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE/);
+  assert.doesNotMatch(switchSource, /minimumGrantedScope/);
+  assert.doesNotMatch(switchSource, /requiredActivationScope/);
   assert.match(autoSwitchSource, /const prompt = normalizeUnderparImsPrompt\(options\?\.prompt \|\| \(interactive \? "login" : ""\), interactive\);/);
-  assert.match(autoSwitchSource, /minimumGrantedScope: firstNonEmptyString\(\[options\?\.minimumGrantedScope\]\)/);
-  assert.match(signInAgainSource, /await signInInteractive\(\{[\s\S]*prompt: "login",[\s\S]*forceBrowserLogout: true,[\s\S]*minimumGrantedScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE,[\s\S]*requiredActivationScope: UNDERPAR_RECOVERY_REQUIRED_SCOPE,[\s\S]*\}\);/);
+  assert.doesNotMatch(autoSwitchSource, /minimumGrantedScope/);
+  assert.match(signInAgainSource, /await signInInteractive\(\{[\s\S]*prompt: "login",[\s\S]*forceBrowserLogout: true,[\s\S]*\}\);/);
   assert.match(retrySource, /scope: IMS_ORGANIZATION_SCOPE,\s*reason: "org-scope-fallback"/);
-  assert.match(retrySource, /const minimumGrantedScope = normalizeImsScopeList\(firstNonEmptyString\(\[options\?\.minimumGrantedScope\]\), ""\);/);
-  assert.match(retrySource, /const missingGrantedScopeTokens =/);
-  assert.match(retrySource, /error\.code = "INSUFFICIENT_IMS_SCOPE";/);
+  assert.doesNotMatch(retrySource, /minimumGrantedScope/);
+  assert.doesNotMatch(retrySource, /INSUFFICIENT_IMS_SCOPE/);
   assert.match(logoutSource, /buildUnderparImsLogoutUrl\(/);
   assert.match(logoutSource, /await launchUnderparImsAuthorizationFlow\(logoutUrl, interactive\);/);
+  assert.match(organizationsSource, /const grantedScope = resolveGrantedUnderparImsScope\(normalizedAccessToken, "", ""\);/);
+  assert.match(organizationsSource, /getMissingUnderparImsScopeTokens\(grantedScope, "read_organizations"\)/);
+  assert.match(organizationsSource, /token does not have the "read_organizations" scope/);
   assert.match(organizationsSource, /const clientIdCandidates = getUnderparImsClientIdCandidates\(normalizedAccessToken\);/);
   assert.match(organizationsSource, /credentials: "include"/);
   assert.match(organizationsSource, /headers: buildImsProfileHeaders\(normalizedAccessToken, endpoint\.clientId\)/);
   assert.match(organizationsSource, /const payloadScore = flattenOrganizations\(parsed\)\.length;/);
-  assert.match(activationSource, /const requiredActivationScope = normalizeImsScopeList\(/);
-  assert.match(activationSource, /const missingActivationScopeTokens = getMissingUnderparImsScopeTokens/);
-  assert.match(activationSource, /phase: "insufficient-ims-scope"/);
+  assert.doesNotMatch(activationSource, /requiredActivationScope/);
+  assert.doesNotMatch(activationSource, /insufficient-ims-scope/);
 });
 
 test("vault purge path forces a durable start-shell reset and clears in-memory vault state", () => {
@@ -992,7 +992,7 @@ test("IMS logout URL carries the browser reset parameters needed for recovery re
   assert.equal(parsed.searchParams.get("client_id"), "underpar-client-id");
 });
 
-test("granted IMS scope merges response and claims tokens before activation checks", () => {
+test("granted IMS scope merges response and claims tokens for org diagnostics", () => {
   const helpers = loadPopupImsHelpers();
 
   assert.equal(
