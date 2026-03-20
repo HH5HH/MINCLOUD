@@ -150,6 +150,27 @@ function loadPopupCmActivationHelper() {
   return context.module.exports;
 }
 
+function loadPopupConsoleConfigUrlHelper() {
+  const filePath = path.join(ROOT, "popup.js");
+  const source = fs.readFileSync(filePath, "utf8");
+  const script = [
+    "let underparStateRef = null;",
+    "function mvpdWorkspaceExtractConfigurationVersion(_bootstrapState = null, fallback = 0) { return fallback; }",
+    "function uniquePreserveOrder(values = []) { const seen = new Set(); const output = []; for (const value of Array.isArray(values) ? values : []) { const text = String(value || '').trim(); if (!text || seen.has(text)) { continue; } seen.add(text); output.push(text); } return output; }",
+    extractFunctionSource(source, "getKnownAdobeConsoleConfigurationVersion"),
+    extractFunctionSource(source, "appendAdobeConsoleConfigurationVersion"),
+    extractFunctionSource(source, "buildProgrammerEndpointsForConsoleBase"),
+    "module.exports = { appendAdobeConsoleConfigurationVersion, buildProgrammerEndpointsForConsoleBase };",
+  ].join("\n\n");
+  const context = {
+    module: { exports: {} },
+    exports: {},
+    URL,
+  };
+  vm.runInNewContext(script, context, { filename: filePath });
+  return context.module.exports;
+}
+
 function loadPopupImsAuthLaunchHelper() {
   const filePath = path.join(ROOT, "popup.js");
   const source = fs.readFileSync(filePath, "utf8");
@@ -639,6 +660,22 @@ test("programmer discovery stays on deterministic entity endpoints and console r
   assert.match(roleValueSource, /entry\.authority/);
   assert.match(roleValueSource, /entry\.role/);
   assert.match(roleExtractorSource, /extractAdobeConsoleGrantedAuthorityValue\(entry\)/);
+});
+
+test("programmer discovery keeps configurationVersion=0 on Adobe console entity requests", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const appendConfigVersionSource = extractFunctionSource(popupSource, "appendAdobeConsoleConfigurationVersion");
+  const { appendAdobeConsoleConfigurationVersion, buildProgrammerEndpointsForConsoleBase } = loadPopupConsoleConfigUrlHelper();
+
+  assert.doesNotMatch(appendConfigVersionSource, /normalizedVersion <= 0/);
+  assert.equal(
+    appendAdobeConsoleConfigurationVersion("https://console.auth.adobe.com/rest/api/entity/Programmer", 0),
+    "https://console.auth.adobe.com/rest/api/entity/Programmer?configurationVersion=0"
+  );
+  assert.deepEqual([...buildProgrammerEndpointsForConsoleBase("https://console.auth.adobe.com")], [
+    "https://console.auth.adobe.com/rest/api/entity/Programmer?configurationVersion=0",
+    "https://console.auth.adobe.com/rest/api/entity/Programmer",
+  ]);
 });
 
 test("console endpoint bootstrap initializes underparStateRef before top-level programmer endpoint construction", () => {

@@ -299,7 +299,7 @@ function getKnownAdobeConsoleConfigurationVersion() {
 function appendAdobeConsoleConfigurationVersion(urlValue = "", configurationVersion = getKnownAdobeConsoleConfigurationVersion()) {
   const normalizedUrl = String(urlValue || "").trim();
   const normalizedVersion = Number(configurationVersion || 0);
-  if (!normalizedUrl || !Number.isFinite(normalizedVersion) || normalizedVersion <= 0) {
+  if (!normalizedUrl || !Number.isFinite(normalizedVersion) || normalizedVersion < 0) {
     return normalizedUrl;
   }
 
