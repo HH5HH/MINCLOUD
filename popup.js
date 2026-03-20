@@ -7326,7 +7326,7 @@ function buildPassVaultProgrammerRecord(programmer, services = null, options = {
     updatedAt: now,
     hydratedAt:
       hydrationStatus === UNDERPAR_VAULT_STATUS_COMPLETE ? now : Number(existingRecord?.hydratedAt || 0),
-    lastSelectedAt: now,
+    lastSelectedAt: 0,
     registeredApplicationCount,
     registeredApplicationsByGuid: compactedRegisteredApplicationsByGuid,
     services: servicesSummary,
@@ -9369,88 +9369,6 @@ function hasProgrammerSelectionSnapshot(snapshot = null) {
   );
 }
 
-function getProgrammerSelectionSnapshotIdentity(snapshot = null) {
-  if (!snapshot || typeof snapshot !== "object") {
-    return "";
-  }
-  return String(
-    firstNonEmptyString([snapshot.programmerId, snapshot.programmerName, snapshot.mediaCompanyName]).trim().toLowerCase()
-  );
-}
-
-function buildLastSelectedProgrammerSelectionSnapshotFromPassVault() {
-  let latestProgrammer = null;
-  let latestSelectedAt = 0;
-
-  for (const programmer of Array.isArray(state.programmers) ? state.programmers : []) {
-    const programmerId = String(programmer?.programmerId || "").trim();
-    if (!programmerId) {
-      continue;
-    }
-    const lastSelectedAt = Number(getPassVaultMediaCompanyRecord(programmerId)?.lastSelectedAt || 0);
-    if (!Number.isFinite(lastSelectedAt) || lastSelectedAt <= latestSelectedAt) {
-      continue;
-    }
-    latestSelectedAt = lastSelectedAt;
-    latestProgrammer = programmer;
-  }
-
-  if (!latestProgrammer?.programmerId) {
-    return null;
-  }
-
-  return {
-    programmerId: String(latestProgrammer.programmerId || "").trim(),
-    programmerName: String(latestProgrammer.programmerName || "").trim(),
-    mediaCompanyName: String(latestProgrammer.mediaCompanyName || latestProgrammer.programmerName || "").trim(),
-    requestorId: "",
-    mvpdId: "",
-  };
-}
-
-async function restorePreferredProgrammerSelectionForActivation(previousSelectionSnapshot = null, source = "unknown") {
-  const normalizedSource = String(source || "unknown").trim() || "unknown";
-  const controllerReason = `session-activated:${normalizedSource}`;
-  const snapshots = [];
-
-  if (hasProgrammerSelectionSnapshot(previousSelectionSnapshot)) {
-    snapshots.push(previousSelectionSnapshot);
-  }
-
-  const passVaultSelectionSnapshot = buildLastSelectedProgrammerSelectionSnapshotFromPassVault();
-  if (hasProgrammerSelectionSnapshot(passVaultSelectionSnapshot)) {
-    const passVaultIdentity = getProgrammerSelectionSnapshotIdentity(passVaultSelectionSnapshot);
-    if (!snapshots.some((snapshot) => getProgrammerSelectionSnapshotIdentity(snapshot) === passVaultIdentity)) {
-      snapshots.push(passVaultSelectionSnapshot);
-    }
-  }
-
-  for (const snapshot of snapshots) {
-    const restoreResult = await applyGlobalSelectionSnapshot(snapshot, {
-      controllerReason,
-      mvpdControllerReason: `${controllerReason}-mvpd-restore`,
-    }).catch(() => null);
-    if (restoreResult?.programmerRestored) {
-      return {
-        programmer: resolveSelectedProgrammer(),
-        hydrated: true,
-      };
-    }
-  }
-
-  if (state.programmers.length === 1) {
-    return {
-      programmer: selectProgrammerForController(state.programmers[0], controllerReason),
-      hydrated: false,
-    };
-  }
-
-  return {
-    programmer: null,
-    hydrated: false,
-  };
-}
-
 function findProgrammerForEnvironmentSwitchSnapshot(snapshot = null) {
   if (!snapshot || typeof snapshot !== "object" || !Array.isArray(state.programmers) || state.programmers.length === 0) {
     return null;
@@ -10111,12 +10029,14 @@ async function switchAdobePassEnvironmentInPlace(environment = null, options = {
   }
 
   const switchPromise = (async () => {
-    const selectionSnapshot =
-      options?.selectionSnapshot && typeof options.selectionSnapshot === "object"
+    const shouldRestoreSelection = options?.restoreSelection === true;
+    const selectionSnapshot = shouldRestoreSelection
+      ? options?.selectionSnapshot && typeof options.selectionSnapshot === "object"
         ? {
             ...options.selectionSnapshot,
           }
-        : captureAdobePassEnvironmentSwitchSelectionSnapshot();
+        : captureAdobePassEnvironmentSwitchSelectionSnapshot()
+      : null;
     const retainedLoginData =
       state.loginData && typeof state.loginData === "object"
         ? {
@@ -10213,12 +10133,20 @@ async function switchAdobePassEnvironmentInPlace(environment = null, options = {
         };
       }
 
-      const restoreResult = await applyGlobalSelectionSnapshot(selectionSnapshot, {
-        controllerReason: "environment-switch",
-        mvpdControllerReason: "environment-switch-mvpd-restore",
-        autoSelectFirstRequestor: options?.autoSelectFirstRequestor === true,
-        autoSelectFirstMvpd: options?.autoSelectFirstMvpd === true,
-      });
+      let restoreResult = {
+        programmerRestored: false,
+        requestorRestored: false,
+        mvpdRestored: false,
+        missingSelection: "",
+      };
+      if (shouldRestoreSelection && hasProgrammerSelectionSnapshot(selectionSnapshot)) {
+        restoreResult = await applyGlobalSelectionSnapshot(selectionSnapshot, {
+          controllerReason: "environment-switch",
+          mvpdControllerReason: "environment-switch-mvpd-restore",
+          autoSelectFirstRequestor: options?.autoSelectFirstRequestor === true,
+          autoSelectFirstMvpd: options?.autoSelectFirstMvpd === true,
+        });
+      }
       const missingSelectionLabel = String(restoreResult.missingSelection || "").trim();
       if (missingSelectionLabel) {
         setStatus(
@@ -47252,6 +47180,7 @@ async function applyDegradationQuickSetPreset(panelState, presetKey = "", option
   if (targetEnvironmentKey !== getActiveAdobePassEnvironmentKey()) {
     restoreResult = await switchAdobePassEnvironmentInPlace(targetEnvironmentKey, {
       source: "degradation-quick-set",
+      restoreSelection: true,
       selectionSnapshot,
       autoSelectFirstRequestor: true,
       autoSelectFirstMvpd: options?.autoSelectFirstMvpd === true,
@@ -57155,7 +57084,6 @@ async function applyActiveLoginSession(loginData, options = {}) {
 async function activateSession(sessionData, source = "unknown", options = {}) {
   const activationStartedAt = Date.now();
   const normalizedSource = String(source || "unknown").trim() || "unknown";
-  const activationSelectionSnapshot = captureAdobePassEnvironmentSwitchSelectionSnapshot();
   const allowDeniedRecovery = options.allowDeniedRecovery !== false;
   const allowTemporaryPageContextTab = options.allowTemporaryPageContextTab === true;
   const allowInteractiveConsoleBootstrap = shouldAllowInteractiveConsoleBootstrapForActivation(
@@ -57335,17 +57263,6 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   prefetchCmConsoleBootstrapSummaryInBackground(`session-activated:${source}`, {
     forceRefresh: false,
   });
-  const preferredProgrammerSelection = await restorePreferredProgrammerSelectionForActivation(
-    activationSelectionSnapshot,
-    normalizedSource
-  );
-  const selectedProgrammerForHydration = preferredProgrammerSelection?.programmer || null;
-  if (selectedProgrammerForHydration?.programmerId && preferredProgrammerSelection?.hydrated !== true) {
-    void refreshProgrammerPanels({
-      controllerReason: `session-activated:${source}`,
-      skipCmBootstrap: true,
-    });
-  }
   if (programmersLoadError) {
     const message = String(programmersLoadError?.message || "").trim();
     setStatus(
@@ -70397,9 +70314,6 @@ function applyProgrammerEntities(entities) {
   clearRestV2PreparedLoginState();
   clearCmWorkspaceActivityDebugFlow("programmer-entities-reset", { stopFlow: true });
   populateMediaCompanySelect();
-  if (state.programmers.length === 1) {
-    selectProgrammerForController(state.programmers[0], "single-programmer-auto-select");
-  }
   // Post-login stays GLOBALS-only. Per-company VAULT/runtime restore remains lazy
   // until explicit Media Company selection or environment restore.
 }

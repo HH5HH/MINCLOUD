@@ -630,6 +630,9 @@ test("session activation defers CM tenant hydration and unlocks Media Company se
   assert.match(mediaCompanyLockSource, /return false;/);
   assert.match(mediaCompanyLabelSource, /-- Choose a Media Company --/);
   assert.match(prefetchSource, /ensureCmTenantsPrecheckForActiveSession/);
+  assert.doesNotMatch(activateSource, /captureAdobePassEnvironmentSwitchSelectionSnapshot\(\)/);
+  assert.doesNotMatch(activateSource, /restorePreferredProgrammerSelectionForActivation\(/);
+  assert.doesNotMatch(activateSource, /refreshProgrammerPanels\(\{[\s\S]*session-activated:/);
 });
 
 test("environment restore lets the premium panel path own PassVault hydration", () => {
@@ -663,6 +666,17 @@ test("environment switch reactivation allows temporary CM bootstrap context reco
   assert.match(environmentSwitchSource, /activateSession\(retainedLoginData,\s*"environment-switch",\s*\{/);
   assert.match(environmentSwitchSource, /activateSession\(silent,\s*"environment-switch",\s*\{/);
   assert.match(environmentSwitchSource, /allowTemporaryPageContextTab:\s*true/);
+  assert.match(environmentSwitchSource, /const shouldRestoreSelection = options\?\.restoreSelection === true;/);
+  assert.match(environmentSwitchSource, /if \(shouldRestoreSelection && hasProgrammerSelectionSnapshot\(selectionSnapshot\)\)/);
+});
+
+test("environment-switch selection restore is opt-in and only explicit context-driving flows enable it", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const quickSetSource = extractFunctionSource(popupSource, "applyDegradationQuickSetPreset");
+  const storageListenerSource = extractFunctionSource(popupSource, "registerAdobePassEnvironmentStorageListener");
+
+  assert.match(quickSetSource, /restoreSelection:\s*true/);
+  assert.doesNotMatch(storageListenerSource, /restoreSelection:\s*true/);
 });
 
 test("PassVault storage changes re-seed runtime without force-overwriting active service snapshots", () => {
@@ -1007,11 +1021,12 @@ test("media company selection reuses AdobePass shell page context for applicatio
   );
 });
 
-test("single resolved media company is auto-selected after programmer hydration", () => {
+test("single resolved media company is not auto-selected after programmer hydration", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const applyProgrammersSource = extractFunctionSource(popupSource, "applyProgrammerEntities");
 
-  assert.match(applyProgrammersSource, /if \(state\.programmers\.length === 1\) \{\s*selectProgrammerForController\(state\.programmers\[0\], "single-programmer-auto-select"\);/);
+  assert.doesNotMatch(applyProgrammersSource, /single-programmer-auto-select/);
+  assert.doesNotMatch(applyProgrammersSource, /selectProgrammerForController\(state\.programmers\[0\]/);
 });
 
 test("restricted org labels collapse duplicate AdobePass segments", () => {
@@ -1266,21 +1281,20 @@ test("missing DCR credentials trigger on-demand pass vault compilation instead o
   assert.match(ensureDcrSource, /UnderPAR could not auto-hydrate DCR credentials/);
 });
 
-test("selected programmer hydration is primed early and reused by panel render instead of waiting for first service click", () => {
+test("activation leaves the global selectors user-owned and premium hydration starts only after explicit selection", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const refreshSource = extractFunctionSource(popupSource, "refreshProgrammerPanels");
   const activateSessionSource = extractFunctionSource(popupSource, "activateSession");
-  const restoreSelectionSource = extractFunctionSource(popupSource, "restorePreferredProgrammerSelectionForActivation");
+  const passVaultRecordSource = extractFunctionSource(popupSource, "buildPassVaultProgrammerRecord");
 
   assert.match(popupSource, /async function primeProgrammerServiceHydration\(/);
   assert.match(refreshSource, /backgroundHydrationPromise = primeProgrammerServiceHydration\(programmer, cachedServices/);
   assert.match(refreshSource, /backgroundHydrationPromise =\s*backgroundHydrationPromise \|\|[\s\S]*primeProgrammerServiceHydration\(programmer, initialMergedServices/);
-  assert.match(activateSessionSource, /restorePreferredProgrammerSelectionForActivation\(\s*activationSelectionSnapshot,\s*normalizedSource\s*\)/);
-  assert.match(restoreSelectionSource, /applyGlobalSelectionSnapshot\(snapshot,\s*\{/);
-  assert.match(restoreSelectionSource, /buildLastSelectedProgrammerSelectionSnapshotFromPassVault\(\)/);
-  assert.match(restoreSelectionSource, /state\.programmers\.length === 1/);
-  assert.match(restoreSelectionSource, /selectProgrammerForController\(state\.programmers\[0\], controllerReason\)/);
-  assert.match(activateSessionSource, /refreshProgrammerPanels\(\{[\s\S]*skipCmBootstrap: true/);
+  assert.doesNotMatch(activateSessionSource, /restorePreferredProgrammerSelectionForActivation\(/);
+  assert.doesNotMatch(activateSessionSource, /captureAdobePassEnvironmentSwitchSelectionSnapshot\(\)/);
+  assert.doesNotMatch(activateSessionSource, /selectProgrammerForController\(/);
+  assert.doesNotMatch(activateSessionSource, /refreshProgrammerPanels\(\{/);
+  assert.match(passVaultRecordSource, /lastSelectedAt:\s*0/);
   assert.doesNotMatch(activateSessionSource, /primeProgrammerServiceHydration\(\s*selectedProgrammerForHydration/);
 });
 
