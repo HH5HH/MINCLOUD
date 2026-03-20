@@ -7549,7 +7549,12 @@ function resetPassVaultRuntimeStatePreservingProgrammers(controllerReason = "up-
 async function purgePassVaultFromDevtools() {
   setBusy(true, "Purging UnderPAR vault...");
   setStatus("Purging UnderPAR vault, DCR caches, and saved-query state...", "info");
+  state.sessionMonitorSuppressed = true;
+  cancelPendingBootstrapSession();
   try {
+    await persistManualSignOutHold(true, "vault-purge");
+    await clearDebugFlowStorageFromChromeStorage();
+    purgeAvatarCaches();
     purgeDcrCaches();
     purgeLegacySavedEsmQueryEntriesFromLocalStorage();
     if (chrome?.storage?.local?.remove) {
@@ -7559,9 +7564,12 @@ async function purgePassVaultFromDevtools() {
         LEGACY_CM_TENANTS_CATALOG_STORAGE_KEY,
       ]);
     }
-    resetPassVaultRuntimeStatePreservingProgrammers("up-devtools-vault-purge");
-    const message = "UnderPAR vault purged. Select a Media Company to hydrate from scratch.";
-    setStatus(message, "success");
+    const message = "UnderPAR vault purged. Click Sign In when ready.";
+    await resetToSignedOutState({
+      closeWorkspaceReason: "up-devtools-vault-purge",
+      statusMessage: message,
+      statusType: "success",
+    });
     return {
       purged: true,
       vaultPayload: cloneJsonLikeValue(state.passVault, null),
@@ -7569,6 +7577,7 @@ async function purgePassVaultFromDevtools() {
     };
   } finally {
     setBusy(false);
+    render();
   }
 }
 
@@ -49908,6 +49917,12 @@ function resetWorkflowForLoggedOut() {
   state.mvpdLoadPromiseByRequestor.clear();
   state.restV2AuthContextByRequestor.clear();
   state.restV2PrewarmedAppsByProgrammerId.clear();
+  state.passVault = createEmptyUnderparVaultPayload();
+  state.passVaultLoadPromise = null;
+  state.passVaultPersistPromise = null;
+  state.passVaultPendingStorageWriteMarkers.clear();
+  state.passVaultProgrammerStatusByKey.clear();
+  state.passVaultCompilePromiseByProgrammerKey.clear();
   clearRestV2PreparedLoginState();
   clearEsmWorkspaceRecordingState("logout-reset");
   clearEsmWorkspaceActivityDebugFlow("logout-reset", { stopFlow: true });

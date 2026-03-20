@@ -678,6 +678,26 @@ test("manual sign-out suppresses silent bootstrap until the user explicitly sign
   assert.match(finalizeZipKeySource, /if \(!state\.manualSignOutHold\) \{\s*await bootstrapSession\("zip-key-import"\);/);
 });
 
+test("vault purge path forces a durable start-shell reset and clears in-memory vault state", () => {
+  const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
+  const purgeSource = extractFunctionSource(popupSource, "purgePassVaultFromDevtools");
+  const resetWorkflowSource = extractFunctionSource(popupSource, "resetWorkflowForLoggedOut");
+
+  assert.match(purgeSource, /persistManualSignOutHold\(true,\s*"vault-purge"\)/);
+  assert.match(purgeSource, /clearDebugFlowStorageFromChromeStorage\(\)/);
+  assert.match(purgeSource, /purgeAvatarCaches\(\)/);
+  assert.match(purgeSource, /cancelPendingBootstrapSession\(\)/);
+  assert.match(
+    purgeSource,
+    /resetToSignedOutState\(\{\s*closeWorkspaceReason:\s*"up-devtools-vault-purge",[\s\S]*statusMessage:\s*message,[\s\S]*statusType:\s*"success",?[\s\S]*\}\)/
+  );
+  assert.match(resetWorkflowSource, /state\.passVault = createEmptyUnderparVaultPayload\(\);/);
+  assert.match(resetWorkflowSource, /state\.passVaultLoadPromise = null;/);
+  assert.match(resetWorkflowSource, /state\.passVaultPersistPromise = null;/);
+  assert.match(resetWorkflowSource, /state\.passVaultPendingStorageWriteMarkers\.clear\(\);/);
+  assert.match(resetWorkflowSource, /state\.passVaultCompilePromiseByProgrammerKey\.clear\(\);/);
+});
+
 test("active CM bootstrap uses UnderPAR bearer-derived qualification instead of exc_app seeding", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const requestQualifiedSource = extractFunctionSource(popupSource, "requestQualifiedCmConsoleToken");
