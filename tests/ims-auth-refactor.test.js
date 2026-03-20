@@ -692,11 +692,14 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.match(configExtractorSource, /payload\.configurationInfo/);
   assert.doesNotMatch(configExtractorSource, /for \(const nestedValue of Object\.values\(payload\)\)/);
   assert.match(consoleHeaderSource, /const csrfToken = String\(state\?\.consoleCsrfToken \|\| ""\)\.trim\(\) \|\| "NO-TOKEN";/);
+  assert.match(consoleHeaderSource, /Origin: CM_CONSOLE_APP_ORIGIN/);
+  assert.match(consoleHeaderSource, /Referer: CM_CONSOLE_APP_REFERER/);
   assert.match(consoleHeaderSource, /"AP-Request-Id": generateRequestId\(\)/);
   assert.match(bootstrapEnsureSource, /getPreferredAdobeConsoleAccessTokenCandidate\(\)/);
   assert.match(loadProgrammersSource, /bootstrapState = await ensureConsoleBootstrapState/);
   assert.match(loadProgrammersSource, /allowInteractiveAuthBootstrap: options\.allowInteractiveAuthBootstrap === true/);
   assert.match(fetchBootstrapSource, /Promise\.allSettled\(/);
+  assert.match(fetchBootstrapSource, /fetchAdobeConsoleJsonViaShellPageContext/);
   assert.match(loadProgrammersSource, /const configurationVersion = mvpdWorkspaceExtractConfigurationVersion\(bootstrapState, 0\)/);
   assert.doesNotMatch(loadProgrammersSource, /configurationVersion <= 0/);
   assert.match(loadProgrammersSource, /!bootstrapState \|\| !bootstrapState\.extendedProfile/);
@@ -706,6 +709,7 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.match(fetchProgrammersSource, /getPreferredExperienceCloudConsoleAccessTokenCandidate\(\)/);
   assert.match(fetchProgrammersSource, /const buildHeaderVariants = \(\) =>/);
   assert.match(fetchProgrammersSource, /getAdobeConsoleRequestHeaders\(""\)/);
+  assert.match(fetchProgrammersSource, /fetchAdobeConsoleJsonViaShellPageContext/);
 });
 
 test("programmer endpoint access_denied responses stay on the auth-denied recovery path", () => {
@@ -779,7 +783,6 @@ test("programmer discovery keeps configurationVersion=0 on Adobe console entity 
   );
   assert.deepEqual([...buildProgrammerEndpointsForConsoleBase("https://console.auth.adobe.com")], [
     "https://console.auth.adobe.com/rest/api/entity/Programmer?configurationVersion=0",
-    "https://console.auth.adobe.com/rest/api/entity/Programmer",
   ]);
 });
 

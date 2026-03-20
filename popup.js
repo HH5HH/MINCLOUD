@@ -318,7 +318,6 @@ function buildProgrammerEndpointsForConsoleBase(consoleBase = "") {
   const normalizedConsoleBase = String(consoleBase || DEFAULT_ADOBEPASS_ENVIRONMENT.consoleBase || "").trim();
   return uniquePreserveOrder([
     appendAdobeConsoleConfigurationVersion(`${normalizedConsoleBase}/rest/api/entity/Programmer`),
-    `${normalizedConsoleBase}/rest/api/entity/Programmer`,
   ]);
 }
 
@@ -58843,8 +58842,8 @@ function normalizeApplicationsResponse(payload) {
 function getAdobeConsoleRequestHeaders(accessToken = "") {
   const headers = {
     Accept: "application/json, text/plain, */*",
-    Origin: "https://cdn.experience.adobe.net",
-    Referer: "https://cdn.experience.adobe.net/",
+    Origin: CM_CONSOLE_APP_ORIGIN,
+    Referer: CM_CONSOLE_APP_REFERER,
     "AP-Request-Id": generateRequestId(),
   };
 
@@ -58928,6 +58927,7 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
   }
 
   const timeoutMs = Math.max(1000, Number(options.timeoutMs || PROGRAMMERS_FETCH_TIMEOUT_MS));
+  const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
   const commonRequestOptions = {
     timeoutMs,
     preferAuthenticatedHeaders: true,
@@ -58961,9 +58961,27 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
       : new Error(String(extendedProfileResult.reason || "Console extended profile failed."));
   }
 
-  const extendedProfileResponse = extendedProfileResult.value;
+  let extendedProfileResponse = extendedProfileResult.value;
   const maintenanceStatusResponse = maintenanceStatusResult.status === "fulfilled" ? maintenanceStatusResult.value : null;
   const configurationVersionResponse = configurationVersionResult.status === "fulfilled" ? configurationVersionResult.value : null;
+  let grantedAuthorities = extractAdobeConsoleGrantedAuthorities(extendedProfileResponse?.parsed);
+
+  if (grantedAuthorities.length === 0) {
+    const shellPageExtendedProfile = await fetchAdobeConsoleJsonViaShellPageContext(
+      `${ADOBE_CONSOLE_BASE}/rest/api/user/extendedProfile`,
+      {
+        accessToken: normalizedAccessToken,
+        preferredTabId,
+        allowTemporaryTab: true,
+        timeoutMs,
+      }
+    ).catch(() => null);
+    const shellPageAuthorities = extractAdobeConsoleGrantedAuthorities(shellPageExtendedProfile?.parsed);
+    if (shellPageAuthorities.length > grantedAuthorities.length) {
+      extendedProfileResponse = shellPageExtendedProfile;
+      grantedAuthorities = shellPageAuthorities;
+    }
+  }
 
   const configurationVersion = mvpdWorkspaceExtractConfigurationVersion(configurationVersionResponse?.parsed, 0);
   return {
@@ -58973,7 +58991,7 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
       extendedProfileResponse?.parsed && typeof extendedProfileResponse.parsed === "object"
         ? extendedProfileResponse.parsed
         : null,
-    grantedAuthorities: extractAdobeConsoleGrantedAuthorities(extendedProfileResponse?.parsed),
+    grantedAuthorities,
     maintenanceStatus:
       maintenanceStatusResponse?.parsed && typeof maintenanceStatusResponse.parsed === "object"
         ? maintenanceStatusResponse.parsed
@@ -63810,6 +63828,43 @@ async function findExistingCmReportsAdobeTab() {
   }
 }
 
+async function findExistingExperienceCloudAdobeTab() {
+  const normalizedOrigin = String(CM_CONSOLE_APP_ORIGIN || "").trim().replace(/\/+$/, "");
+  if (!normalizedOrigin) {
+    return null;
+  }
+
+  try {
+    const tabs = await chrome.tabs.query({
+      url: [`${normalizedOrigin}/*`],
+    });
+    const normalizedTabs = Array.isArray(tabs) ? tabs : [];
+    const scored = normalizedTabs
+      .filter((tab) => Number(tab?.id || 0) > 0)
+      .map((tab) => {
+        const url = String(tab?.url || tab?.pendingUrl || "").trim().toLowerCase();
+        let score = Number(tab?.lastAccessed || 0);
+        if (tab?.active === true) {
+          score += 5000;
+        }
+        if (url.startsWith(`${normalizedOrigin.toLowerCase()}/`)) {
+          score += 2400;
+        }
+        if (url.includes("/#/@adobepass/")) {
+          score += 1800;
+        }
+        if (url.includes("/pass/authentication/")) {
+          score += 1200;
+        }
+        return { tab, score };
+      })
+      .sort((left, right) => right.score - left.score);
+    return scored[0]?.tab || null;
+  } catch {
+    return null;
+  }
+}
+
 async function openTemporaryAdobePageContextTarget(targetUrl = "") {
   const normalizedUrl = String(targetUrl || "").trim();
   if (!normalizedUrl) {
@@ -63904,6 +63959,171 @@ async function resolveReusableAdobePageContextTab(preferredTabId = 0) {
   }
 
   return null;
+}
+
+async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options = {}) {
+  if (!chrome.scripting?.executeScript) {
+    return null;
+  }
+
+  const normalizedUrl = String(requestUrl || "").trim();
+  if (!normalizedUrl || !normalizedUrl.startsWith(`${String(ADOBE_CONSOLE_BASE || "").trim()}/rest/api/`)) {
+    return null;
+  }
+
+  const allowTemporaryTab = options.allowTemporaryTab !== false;
+  const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
+  const timeoutMs = Math.max(2000, Number(options.timeoutMs || PROGRAMMERS_FETCH_TIMEOUT_MS));
+  const accessToken = normalizeBearerTokenValue(
+    firstNonEmptyString([options?.accessToken, getPreferredAdobeConsoleAccessTokenCandidate()])
+  );
+  const headerVariants = [];
+  if (accessToken) {
+    headerVariants.push(getAdobeConsoleRequestHeaders(accessToken));
+  }
+  headerVariants.push(getAdobeConsoleRequestHeaders(""));
+
+  let tab = await resolveReusableAdobePageContextTab(preferredTabId);
+  if (!tab?.id) {
+    tab = await findExistingExperienceCloudAdobeTab();
+  }
+
+  let temporaryTarget = null;
+  if (!tab?.id && allowTemporaryTab) {
+    const shellUrl = firstNonEmptyString([
+      getActiveAdobePassEnvironment()?.consoleShellUrl,
+      `${String(CM_CONSOLE_APP_ORIGIN || "").trim().replace(/\/+$/, "")}/`,
+    ]);
+    temporaryTarget = await openTemporaryAdobePageContextTarget(shellUrl);
+    tab = temporaryTarget?.tab || null;
+  }
+
+  const tabId = Number(tab?.id || 0);
+  if (tabId <= 0) {
+    return null;
+  }
+
+  try {
+    const executionResults = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      args: [
+        {
+          requestUrl: normalizedUrl,
+          timeoutMs,
+          headerVariants: headerVariants.map((headers) =>
+            headers && typeof headers === "object" ? { ...headers } : {}
+          ),
+        },
+      ],
+      func: async (config) => {
+        const normalize = (value) => String(value || "").trim();
+        const parseJson = (text) => {
+          try {
+            return JSON.parse(String(text || ""));
+          } catch {
+            return null;
+          }
+        };
+        const fetchJson = async (headers = {}) => {
+          const requestHeaders = {
+            Accept: "application/json, text/plain, */*",
+            ...(headers && typeof headers === "object" ? headers : {}),
+          };
+          if (!normalize(requestHeaders.Authorization || requestHeaders.authorization)) {
+            delete requestHeaders.Authorization;
+            delete requestHeaders.authorization;
+          }
+          delete requestHeaders.Origin;
+          delete requestHeaders.origin;
+          delete requestHeaders.Referer;
+          delete requestHeaders.referer;
+
+          const controller = new AbortController();
+          const timerId = window.setTimeout(
+            () => controller.abort(),
+            Math.max(2000, Number(config?.timeoutMs || 0) || 15000)
+          );
+          try {
+            const response = await fetch(String(config?.requestUrl || ""), {
+              method: "GET",
+              credentials: "include",
+              headers: requestHeaders,
+              signal: controller.signal,
+            });
+            const text = await response.text().catch(() => "");
+            const responseHeaders = {};
+            response.headers.forEach((value, key) => {
+              responseHeaders[key] = value;
+            });
+            return {
+              ok: Boolean(response.ok),
+              status: Number(response.status || 0),
+              statusText: String(response.statusText || ""),
+              url: String(response.url || config?.requestUrl || ""),
+              text,
+              parsed: parseJson(text),
+              headers: responseHeaders,
+            };
+          } catch (error) {
+            return {
+              ok: false,
+              status: 0,
+              statusText: error instanceof Error ? error.message : String(error),
+              url: String(config?.requestUrl || ""),
+              text: "",
+              parsed: null,
+              headers: {},
+            };
+          } finally {
+            window.clearTimeout(timerId);
+          }
+        };
+
+        let lastResult = null;
+        const variants = Array.isArray(config?.headerVariants) ? config.headerVariants : [{}];
+        for (const headers of variants) {
+          const result = await fetchJson(headers);
+          if (result?.ok === true) {
+            return result;
+          }
+          lastResult = result;
+        }
+
+        return lastResult;
+      },
+    });
+
+    const result = executionResults?.[0]?.result;
+    if (!result || typeof result !== "object") {
+      return null;
+    }
+
+    const responseHeaders = result.headers && typeof result.headers === "object" ? result.headers : {};
+    const csrfToken = String(
+      firstNonEmptyString([
+        responseHeaders["x-csrf-token"],
+        responseHeaders["X-CSRF-Token"],
+      ]) || ""
+    ).trim();
+    if (csrfToken) {
+      state.consoleCsrfToken = csrfToken;
+    }
+
+    return {
+      ok: result.ok === true,
+      status: Number(result.status || 0),
+      statusText: String(result.statusText || ""),
+      url: String(result.url || normalizedUrl),
+      text: String(result.text || ""),
+      parsed: result.parsed,
+      headers: responseHeaders,
+    };
+  } catch {
+    return null;
+  } finally {
+    await closeTemporaryAdobePageContextTarget(temporaryTarget);
+  }
 }
 
 async function requestCmConsoleBootstrapCatalogFromReportsPage(options = {}) {
@@ -68816,12 +69036,13 @@ async function fetchProgrammersFromApi(options = {}) {
     ])
   );
   const requireEntities = options.requireEntities !== false;
+  const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
   if (!accessToken || !isProbablyJwt(accessToken)) {
     throw createProgrammersError("Media company load requires a valid UnderPAR Adobe bearer.", "PROGRAMMERS_ACCESS_DENIED");
   }
 
   const endpoints = state.programmersApiEndpoint
-    ? uniquePreserveOrder([appendAdobeConsoleConfigurationVersion(state.programmersApiEndpoint), state.programmersApiEndpoint, ...PROGRAMMER_ENDPOINTS])
+    ? uniquePreserveOrder([appendAdobeConsoleConfigurationVersion(state.programmersApiEndpoint), ...PROGRAMMER_ENDPOINTS])
     : [...PROGRAMMER_ENDPOINTS];
 
   let lastError = null;
@@ -68924,6 +69145,44 @@ async function fetchProgrammersFromApi(options = {}) {
             state.programmersApiEndpoint = endpoint;
             return normalizedEntities;
           }
+        }
+      }
+
+      const pageContextResult = await fetchAdobeConsoleJsonViaShellPageContext(endpoint, {
+        accessToken,
+        preferredTabId,
+        allowTemporaryTab: true,
+        timeoutMs: PROGRAMMERS_FETCH_TIMEOUT_MS,
+      }).catch(() => null);
+
+      if (pageContextResult) {
+        const payload = pageContextResult.parsed;
+        const responseText = String(pageContextResult.text || "");
+        if (pageContextResult.ok) {
+          const normalizedEntities = normalizeProgrammersResponse(payload);
+          if (requireEntities && normalizedEntities.length === 0) {
+            lastError = createProgrammersError(`Endpoint ${endpoint} returned no media companies.`, "PROGRAMMERS_EMPTY");
+          } else {
+            if (normalizedEntities.length > Number(bestEntities?.length || 0)) {
+              bestEntities = normalizedEntities;
+              bestEndpoint = endpoint;
+            }
+            if (normalizedEntities.length > 1 || (!requireEntities && normalizedEntities.length > 0)) {
+              state.programmersApiEndpoint = endpoint;
+              return normalizedEntities;
+            }
+          }
+        } else {
+          const accessDeniedResponse =
+            responseLooksLikeExperienceCloudSignIn(pageContextResult, responseText) ||
+            isAdobeConsoleAccessDeniedResponse(pageContextResult.status, payload, responseText);
+          if (accessDeniedResponse) {
+            denied = true;
+          }
+          lastError = createProgrammersError(
+            `Endpoint ${endpoint} failed (${pageContextResult.status || 0}): ${responseText || pageContextResult.statusText}`,
+            accessDeniedResponse ? "PROGRAMMERS_ACCESS_DENIED" : "PROGRAMMERS_ENDPOINT_FAILED"
+          );
         }
       }
     } catch (error) {
