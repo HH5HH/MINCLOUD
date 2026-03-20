@@ -58279,6 +58279,10 @@ async function refreshProgrammerPanels(options = {}) {
         !hasCmTenantsCatalogEntries() ||
         !tokenSupportsCmConsoleRequests(getPreferredCmRequestAccessTokenCandidate()) ||
         shouldRetryCachedCmService(cachedCmSelectionService));
+    const shouldOpenTemporaryAdobePageContextTab =
+      forcePremiumRefresh ||
+      !cachedServices ||
+      !getCurrentProgrammerApplicationsSnapshot(programmer.programmerId);
     const cmSelectionBootstrapPromise = shouldPrimeCmSelectionBootstrap
       ? ensureCmTenantsPrecheckForActiveSession(`panel-selection:${programmer.programmerId}`, {
           forceRefresh: forcePremiumRefresh,
@@ -58291,7 +58295,7 @@ async function refreshProgrammerPanels(options = {}) {
       )}`,
       {
         preferredTabId: getRetainedAuthPopupBootstrapTabId() || 0,
-        allowTemporaryTab: false,
+        allowTemporaryTab: shouldOpenTemporaryAdobePageContextTab,
       },
       async (pageContextOptions) =>
         ensurePremiumAppsForProgrammer(programmer, {
@@ -59624,9 +59628,24 @@ async function fetchAdobeConsoleJsonWithShellPageContextVariants(urlCandidates, 
   const accessToken = normalizeBearerTokenValue(
     firstNonEmptyString([options.accessToken, getPreferredAdobeConsoleAccessTokenCandidate()])
   );
+  const method = String(options.method || "GET")
+    .trim()
+    .toUpperCase();
+  const headers = options.headers && typeof options.headers === "object" ? { ...options.headers } : {};
+  const body =
+    Object.prototype.hasOwnProperty.call(options, "body") && options.body != null
+      ? typeof options.body === "string"
+        ? options.body
+        : JSON.stringify(options.body)
+      : undefined;
+  const credentials = String(options.credentials || "include");
 
   for (const url of urls) {
     const response = await fetchAdobeConsoleJsonViaShellPageContext(url, {
+      method,
+      headers,
+      body,
+      credentials,
       accessToken,
       preferredTabId,
       preferShellAccessToken: options.preferShellAccessToken !== false,
@@ -59699,16 +59718,27 @@ async function fetchRegisteredApplicationsByEntityRefs(entityRefs = [], contextL
     return [];
   }
 
-  const payload = await fetchAdobeConsoleJsonWithAuthVariants([bulkRetrieveRequest.url], contextLabel, {
-    ...requestOptions,
-    method: "POST",
-    headers: {
-      ...(requestOptions.headers && typeof requestOptions.headers === "object" ? requestOptions.headers : {}),
-      "Content-Type": "application/json",
-    },
-    body: bulkRetrieveRequest.body,
-    preferAuthenticatedHeaders: requestOptions.preferAuthenticatedHeaders !== false,
-  });
+  const payload =
+    (await fetchAdobeConsoleJsonWithShellPageContextVariants([bulkRetrieveRequest.url], contextLabel, {
+      ...requestOptions,
+      method: "POST",
+      headers: {
+        ...(requestOptions.headers && typeof requestOptions.headers === "object" ? requestOptions.headers : {}),
+        "Content-Type": "application/json",
+      },
+      body: bulkRetrieveRequest.body,
+      preferShellAccessToken: true,
+    }).catch(() => null)) ||
+    (await fetchAdobeConsoleJsonWithAuthVariants([bulkRetrieveRequest.url], contextLabel, {
+      ...requestOptions,
+      method: "POST",
+      headers: {
+        ...(requestOptions.headers && typeof requestOptions.headers === "object" ? requestOptions.headers : {}),
+        "Content-Type": "application/json",
+      },
+      body: bulkRetrieveRequest.body,
+      preferAuthenticatedHeaders: requestOptions.preferAuthenticatedHeaders !== false,
+    }));
 
   return normalizeApplicationsResponse(payload?.parsed || payload);
 }
@@ -59758,16 +59788,27 @@ async function fetchApplicationRawByGuid(guid, options = {}) {
   const requestOptions = options && typeof options === "object" ? options : {};
   const bulkRetrieveRequest = buildRegisteredApplicationBulkRetrieveRequest([guid], requestOptions.configurationVersion);
   if (bulkRetrieveRequest) {
-    const bulkPayload = await fetchAdobeConsoleJsonWithAuthVariants([bulkRetrieveRequest.url], "Application raw fetch", {
-      ...requestOptions,
-      method: "POST",
-      headers: {
-        ...(requestOptions.headers && typeof requestOptions.headers === "object" ? requestOptions.headers : {}),
-        "Content-Type": "application/json",
-      },
-      body: bulkRetrieveRequest.body,
-      preferAuthenticatedHeaders: requestOptions.preferAuthenticatedHeaders !== false,
-    }).catch(() => null);
+    const bulkPayload =
+      (await fetchAdobeConsoleJsonWithShellPageContextVariants([bulkRetrieveRequest.url], "Application raw fetch", {
+        ...requestOptions,
+        method: "POST",
+        headers: {
+          ...(requestOptions.headers && typeof requestOptions.headers === "object" ? requestOptions.headers : {}),
+          "Content-Type": "application/json",
+        },
+        body: bulkRetrieveRequest.body,
+        preferShellAccessToken: true,
+      }).catch(() => null)) ||
+      (await fetchAdobeConsoleJsonWithAuthVariants([bulkRetrieveRequest.url], "Application raw fetch", {
+        ...requestOptions,
+        method: "POST",
+        headers: {
+          ...(requestOptions.headers && typeof requestOptions.headers === "object" ? requestOptions.headers : {}),
+          "Content-Type": "application/json",
+        },
+        body: bulkRetrieveRequest.body,
+        preferAuthenticatedHeaders: requestOptions.preferAuthenticatedHeaders !== false,
+      }).catch(() => null));
     if (bulkPayload) {
       const bulkEntities = normalizeApplicationsResponse(bulkPayload?.parsed || bulkPayload);
       const bulkEntity =
@@ -59978,15 +60019,28 @@ async function fetchApplicationsForProgrammer(programmerId, options = {}) {
   let lastError = null;
   if (bulkRetrieveRequest) {
     try {
-      const bulkPayload = await fetchAdobeConsoleJsonWithAuthVariants([bulkRetrieveRequest.url], "Applications load", {
-        timeoutMs: requestTimeoutMs,
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: bulkRetrieveRequest.body,
-        preferAuthenticatedHeaders: true,
-      });
+      const bulkPayload =
+        (await fetchAdobeConsoleJsonWithShellPageContextVariants([bulkRetrieveRequest.url], "Applications load", {
+          timeoutMs: requestTimeoutMs,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: bulkRetrieveRequest.body,
+          accessToken: activeAccessToken,
+          preferredTabId,
+          allowTemporaryPageContextTab,
+          preferShellAccessToken: true,
+        }).catch(() => null)) ||
+        (await fetchAdobeConsoleJsonWithAuthVariants([bulkRetrieveRequest.url], "Applications load", {
+          timeoutMs: requestTimeoutMs,
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: bulkRetrieveRequest.body,
+          preferAuthenticatedHeaders: true,
+        }));
       successCount += 1;
       emitPremiumDecisionDebugEvent(
         {
@@ -64598,6 +64652,7 @@ function getAdobeConsolePageContextBootstrapUrl(requestUrl = "") {
   const isProgrammersRequest = /\/entity\/Programmer(?:[/?#]|$)/i.test(normalizedUrl);
   const isApplicationsRequest =
     /\/applications(?:[/?#]|$)/i.test(normalizedUrl) ||
+    /\/entity\/bulkRetrieve(?:[/?#]|$)/i.test(normalizedUrl) ||
     /\/entity\/RegisteredApplication(?:[/?#]|$)/i.test(normalizedUrl) ||
     /\/registeredApplications(?:[/?#]|$)/i.test(normalizedUrl) ||
     /\/registered-applications(?:[/?#]|$)/i.test(normalizedUrl);
@@ -64678,18 +64733,35 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
   const allowTemporaryTab = options.allowTemporaryTab !== false;
   const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
   const timeoutMs = Math.max(2000, Number(options.timeoutMs || PROGRAMMERS_FETCH_TIMEOUT_MS));
+  const requestMethod = String(options.method || "GET")
+    .trim()
+    .toUpperCase();
+  const customHeaders = options.headers && typeof options.headers === "object" ? { ...options.headers } : {};
+  const requestBody =
+    Object.prototype.hasOwnProperty.call(options, "body") && options.body != null
+      ? typeof options.body === "string"
+        ? options.body
+        : JSON.stringify(options.body)
+      : undefined;
+  const requestCredentials = String(options.credentials || "include");
   const shouldWaitForProgrammersFrame =
-    /\/entity\/Programmer(?:[/?#]|$)|\/applications(?:[/?#]|$)|\/entity\/RegisteredApplication(?:[/?#]|$)|\/registeredApplications(?:[/?#]|$)|\/registered-applications(?:[/?#]|$)|\/config\/history(?:[/?#]|$)/i.test(
+    /\/entity\/Programmer(?:[/?#]|$)|\/applications(?:[/?#]|$)|\/entity\/bulkRetrieve(?:[/?#]|$)|\/entity\/RegisteredApplication(?:[/?#]|$)|\/registeredApplications(?:[/?#]|$)|\/registered-applications(?:[/?#]|$)|\/config\/history(?:[/?#]|$)/i.test(
       normalizedUrl
     );
+  const explicitAuthorization = firstNonEmptyString([customHeaders.Authorization, customHeaders.authorization]);
+  const explicitAccessToken = normalizeBearerTokenValue(String(explicitAuthorization || "").replace(/^Bearer\s+/i, ""));
   const accessToken = normalizeBearerTokenValue(
-    firstNonEmptyString([options?.accessToken, getPreferredAdobeConsoleAccessTokenCandidate()])
+    firstNonEmptyString([explicitAccessToken, options?.accessToken, getPreferredAdobeConsoleAccessTokenCandidate()])
   );
   const headerVariants = [];
+  const buildRequestHeaders = (token = "") => ({
+    ...getAdobeConsoleRequestHeaders(token),
+    ...customHeaders,
+  });
   if (accessToken) {
-    headerVariants.push(getAdobeConsoleRequestHeaders(accessToken));
+    headerVariants.push(buildRequestHeaders(accessToken));
   }
-  headerVariants.push(getAdobeConsoleRequestHeaders(""));
+  headerVariants.push(buildRequestHeaders(""));
 
   const target = await resolveAdobeConsolePageContextTarget(normalizedUrl, {
     preferredTabId,
@@ -64710,6 +64782,9 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
           {
             requestUrl: normalizedUrl,
             timeoutMs,
+            method: requestMethod,
+            body: requestBody,
+            credentials: requestCredentials,
             accessToken,
             headerVariants: headerVariants.map((headers) =>
               headers && typeof headers === "object" ? { ...headers } : {}
@@ -65041,10 +65116,11 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
           );
           try {
             const response = await fetch(String(config?.requestUrl || ""), {
-              method: "GET",
-              credentials: "include",
+              method: String(config?.method || "GET"),
+              credentials: String(config?.credentials || "include"),
               headers: requestHeaders,
               signal: controller.signal,
+              ...(Object.prototype.hasOwnProperty.call(config || {}, "body") && config?.body != null ? { body: config.body } : {}),
             });
             const text = await response.text().catch(() => "");
             const responseHeaders = {};

@@ -1057,11 +1057,16 @@ test("media company selection reuses AdobePass shell page context for applicatio
   assert.match(withTargetSource, /allowTemporaryPageContextTab:\s*resolvedTabId > 0 \? false : allowTemporaryTab/);
   assert.match(pageContextVariantsSource, /fetchAdobeConsoleJsonViaShellPageContext/);
   assert.match(pageContextVariantsSource, /allowTemporaryPageContextTab === true/);
+  assert.match(pageContextVariantsSource, /const method = String\(options\.method \|\| "GET"\)/);
+  assert.match(pageContextVariantsSource, /const body =/);
+  assert.match(pageContextVariantsSource, /credentials = String\(options\.credentials \|\| "include"\)/);
   assert.match(bulkRequestBuilderSource, /rest\/api\/entity\/bulkRetrieve/);
   assert.match(bulkRequestBuilderSource, /configVersion/);
+  assert.match(bulkRetrieveSource, /fetchAdobeConsoleJsonWithShellPageContextVariants\(\[bulkRetrieveRequest\.url\], contextLabel/);
   assert.match(bulkRetrieveSource, /fetchAdobeConsoleJsonWithAuthVariants\(\[bulkRetrieveRequest\.url\], contextLabel/);
   assert.match(fetchApplicationsSource, /fetchAdobeConsoleJsonWithShellPageContextVariants\(\[lookupUrl\], "Applications load"/);
   assert.match(fetchApplicationsSource, /buildRegisteredApplicationBulkRetrieveRequest/);
+  assert.match(fetchApplicationsSource, /fetchAdobeConsoleJsonWithShellPageContextVariants\(\[bulkRetrieveRequest\.url\], "Applications load"/);
   assert.match(fetchApplicationsSource, /fetchAdobeConsoleJsonWithAuthVariants\(\[bulkRetrieveRequest\.url\], "Applications load"/);
   assert.doesNotMatch(fetchApplicationsSource, /entity\/RegisteredApplication\?programmer=/);
   assert.doesNotMatch(fetchApplicationsSource, /registeredApplications\?programmer=/);
@@ -1084,7 +1089,8 @@ test("media company selection reuses AdobePass shell page context for applicatio
   assert.match(hydrateScopesSource, /const allowTemporaryPageContextTab = options\.allowTemporaryPageContextTab === true;/);
   assert.match(refreshPanelsSource, /withAdobeConsolePageContextTarget\(/);
   assert.match(refreshPanelsSource, /\/rest\/api\/applications\?programmer=/);
-  assert.match(refreshPanelsSource, /allowTemporaryTab:\s*false/);
+  assert.match(refreshPanelsSource, /const shouldOpenTemporaryAdobePageContextTab =/);
+  assert.match(refreshPanelsSource, /allowTemporaryTab:\s*shouldOpenTemporaryAdobePageContextTab/);
   assert.match(refreshPanelsSource, /ensurePremiumAppsForProgrammer\(programmer,\s*\{/);
   assert.match(refreshPanelsSource, /allowTemporaryPageContextTab:\s*pageContextOptions\?\.allowTemporaryPageContextTab === true/);
   assert.match(
