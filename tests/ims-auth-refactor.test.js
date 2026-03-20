@@ -161,12 +161,13 @@ function loadPopupConsoleConfigUrlHelper() {
   const source = fs.readFileSync(filePath, "utf8");
   const script = [
     "let underparStateRef = null;",
-    "function mvpdWorkspaceExtractConfigurationVersion(_bootstrapState = null, fallback = 0) { return fallback; }",
     "function uniquePreserveOrder(values = []) { const seen = new Set(); const output = []; for (const value of Array.isArray(values) ? values : []) { const text = String(value || '').trim(); if (!text || seen.has(text)) { continue; } seen.add(text); output.push(text); } return output; }",
+    extractFunctionSource(source, "mvpdWorkspaceExtractConfigurationVersion"),
     extractFunctionSource(source, "getKnownAdobeConsoleConfigurationVersion"),
     extractFunctionSource(source, "appendAdobeConsoleConfigurationVersion"),
     extractFunctionSource(source, "buildProgrammerEndpointsForConsoleBase"),
-    "module.exports = { appendAdobeConsoleConfigurationVersion, buildProgrammerEndpointsForConsoleBase };",
+    "function setBootstrapState(nextBootstrapState = null) { underparStateRef = nextBootstrapState && typeof nextBootstrapState === 'object' ? { consoleBootstrapState: nextBootstrapState } : null; }",
+    "module.exports = { mvpdWorkspaceExtractConfigurationVersion, getKnownAdobeConsoleConfigurationVersion, appendAdobeConsoleConfigurationVersion, buildProgrammerEndpointsForConsoleBase, setBootstrapState };",
   ].join("\n\n");
   const context = {
     module: { exports: {} },
@@ -676,6 +677,8 @@ test("console configuration version is sourced dynamically from console bootstra
   const fetchProgrammersSource = extractFunctionSource(popupSource, "fetchProgrammersFromApi");
   const fetchBootstrapSource = extractFunctionSource(popupSource, "fetchAdobeConsoleBootstrapState");
   const configVersionSource = extractFunctionSource(popupSource, "getKnownAdobeConsoleConfigurationVersion");
+  const configExtractorSource = extractFunctionSource(popupSource, "mvpdWorkspaceExtractConfigurationVersion");
+  const consoleHeaderSource = extractFunctionSource(popupSource, "getAdobeConsoleRequestHeaders");
   const bootstrapEnsureSource = extractFunctionSource(popupSource, "ensureConsoleBootstrapState");
   const fetchConsoleSource = extractFunctionSource(popupSource, "fetchAdobeConsoleJsonWithAuthVariants");
 
@@ -685,6 +688,11 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.match(popupSource, /let underparStateRef = null;/);
   assert.match(popupSource, /underparStateRef = state;/);
   assert.doesNotMatch(configVersionSource, /typeof state/);
+  assert.match(configExtractorSource, /payload\.configurationVersion/);
+  assert.match(configExtractorSource, /payload\.configurationInfo/);
+  assert.doesNotMatch(configExtractorSource, /for \(const nestedValue of Object\.values\(payload\)\)/);
+  assert.match(consoleHeaderSource, /const csrfToken = String\(state\?\.consoleCsrfToken \|\| ""\)\.trim\(\) \|\| "NO-TOKEN";/);
+  assert.match(consoleHeaderSource, /"AP-Request-Id": generateRequestId\(\)/);
   assert.match(bootstrapEnsureSource, /getPreferredAdobeConsoleAccessTokenCandidate\(\)/);
   assert.match(loadProgrammersSource, /bootstrapState = await ensureConsoleBootstrapState/);
   assert.match(loadProgrammersSource, /allowInteractiveAuthBootstrap: options\.allowInteractiveAuthBootstrap === true/);
@@ -742,9 +750,29 @@ test("programmer discovery stays on deterministic entity endpoints and console r
 test("programmer discovery keeps configurationVersion=0 on Adobe console entity requests", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const appendConfigVersionSource = extractFunctionSource(popupSource, "appendAdobeConsoleConfigurationVersion");
-  const { appendAdobeConsoleConfigurationVersion, buildProgrammerEndpointsForConsoleBase } = loadPopupConsoleConfigUrlHelper();
+  const {
+    mvpdWorkspaceExtractConfigurationVersion,
+    getKnownAdobeConsoleConfigurationVersion,
+    appendAdobeConsoleConfigurationVersion,
+    buildProgrammerEndpointsForConsoleBase,
+    setBootstrapState,
+  } = loadPopupConsoleConfigUrlHelper();
 
   assert.doesNotMatch(appendConfigVersionSource, /normalizedVersion <= 0/);
+  assert.equal(
+    mvpdWorkspaceExtractConfigurationVersion({
+      configurationVersion: 0,
+      fetchedAt: 1773987269048,
+      extendedProfile: { userId: "123" },
+    }, 0),
+    0
+  );
+  setBootstrapState({
+    configurationVersion: 0,
+    fetchedAt: 1773987269048,
+    extendedProfile: { userId: "123" },
+  });
+  assert.equal(getKnownAdobeConsoleConfigurationVersion(), 0);
   assert.equal(
     appendAdobeConsoleConfigurationVersion("https://console.auth.adobe.com/rest/api/entity/Programmer", 0),
     "https://console.auth.adobe.com/rest/api/entity/Programmer?configurationVersion=0"

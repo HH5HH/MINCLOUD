@@ -39286,44 +39286,70 @@ function mvpdWorkspaceCollectFlatEntries(sourceKey, value, options = {}) {
 }
 
 function mvpdWorkspaceExtractConfigurationVersion(payload = null, fallback = 0) {
+  const fallbackValue = Number.isFinite(Number(fallback)) ? Number(fallback) : 0;
+  const coerceConfigurationVersion = (value) => {
+    if (typeof value === "number") {
+      return Number.isFinite(value) && value >= 0 ? value : null;
+    }
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return null;
+      }
+      const match = trimmed.match(/^\d+$/);
+      return match ? Number(match[0]) : null;
+    }
+    return null;
+  };
+
   if (payload == null) {
-    return Number(fallback || 0);
+    return fallbackValue;
   }
-  if (typeof payload === "number") {
-    return Number.isFinite(payload) ? payload : Number(fallback || 0);
-  }
-  if (typeof payload === "string") {
-    const match = payload.match(/\\d+/);
-    return match ? Number(match[0]) : Number(fallback || 0);
+  const directPrimitive = coerceConfigurationVersion(payload);
+  if (directPrimitive !== null) {
+    return directPrimitive;
   }
   if (Array.isArray(payload)) {
     for (const item of payload) {
-      const nested = mvpdWorkspaceExtractConfigurationVersion(item, 0);
-      if (nested > 0) {
+      const nested = mvpdWorkspaceExtractConfigurationVersion(item, Number.NaN);
+      if (Number.isFinite(nested) && nested >= 0) {
         return nested;
       }
     }
-    return Number(fallback || 0);
+    return fallbackValue;
   }
   if (typeof payload === "object") {
-    const direct = Number(
-      payload.configurationVersion ||
-        payload.latestActivatedConsoleConfigurationVersion ||
-        payload.version ||
-        payload.value ||
-        0
-    );
-    if (Number.isFinite(direct) && direct > 0) {
-      return direct;
+    const directFieldCandidates = [
+      payload.configurationVersion,
+      payload.latestActivatedConsoleConfigurationVersion,
+      payload.configuration_version,
+      payload.latest_activated_console_configuration_version,
+      payload.version,
+      payload.value,
+    ];
+    for (const candidate of directFieldCandidates) {
+      const direct = coerceConfigurationVersion(candidate);
+      if (direct !== null) {
+        return direct;
+      }
     }
-    for (const nestedValue of Object.values(payload)) {
-      const nested = mvpdWorkspaceExtractConfigurationVersion(nestedValue, 0);
-      if (nested > 0) {
+
+    const nestedCandidates = [
+      payload.configurationInfo,
+      payload.configuration_info,
+      payload.data,
+      payload.response,
+      payload.result,
+      payload.body,
+    ];
+    for (const nestedValue of nestedCandidates) {
+      const nested = mvpdWorkspaceExtractConfigurationVersion(nestedValue, Number.NaN);
+      if (Number.isFinite(nested) && nested >= 0) {
         return nested;
       }
     }
   }
-  return Number(fallback || 0);
+  return fallbackValue;
 }
 
 function mvpdWorkspaceCollectSectionEntries(entries = [], pattern, maxEntries = 200) {
@@ -58819,17 +58845,15 @@ function getAdobeConsoleRequestHeaders(accessToken = "") {
     Accept: "application/json, text/plain, */*",
     Origin: "https://cdn.experience.adobe.net",
     Referer: "https://cdn.experience.adobe.net/",
-    "ap-request-id": generateRequestId(),
+    "AP-Request-Id": generateRequestId(),
   };
 
   if (accessToken) {
     headers.Authorization = `Bearer ${accessToken}`;
   }
 
-  const csrfToken = String(state?.consoleCsrfToken || "").trim();
-  if (csrfToken) {
-    headers["X-CSRF-Token"] = csrfToken;
-  }
+  const csrfToken = String(state?.consoleCsrfToken || "").trim() || "NO-TOKEN";
+  headers["X-CSRF-Token"] = csrfToken;
 
   return headers;
 }
