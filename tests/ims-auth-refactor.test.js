@@ -50,6 +50,7 @@ function loadPopupImsHelpers() {
   const filePath = path.join(ROOT, "popup.js");
   const source = fs.readFileSync(filePath, "utf8");
   const script = [
+    'const IMS_LEGACY_DEFAULT_SCOPE = "openid profile offline_access additional_info.projectedProductContext read_organizations";',
     'const IMS_SCOPE = "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function";',
     'const UNDERPAR_ACTIVATION_REQUIRED_SCOPE = "openid profile additional_info.projectedProductContext";',
     'const UNDERPAR_RECOVERY_REQUIRED_SCOPE = "openid profile additional_info.projectedProductContext read_organizations";',
@@ -485,6 +486,20 @@ test("ZIP.KEY-only Adobe IMS imports accept direct adobe.ims.client_id entries",
   assert.equal(result.imsRuntimeConfig.clientId, "underpar-client-id");
   assert.equal(result.imsRuntimeConfig.scope, "openid profile additional_info.projectedProductContext");
   assert.equal(result.imsRuntimeConfig.source, "ZIP.KEY");
+});
+
+test("legacy UnderPAR ZIP.KEY scope bundle upgrades to the LoginButton consent scope set", () => {
+  const helpers = loadPopupImsHelpers();
+
+  const result = helpers.extractUnderparImsRuntimeConfigFromZipKeyText([
+    "adobe.ims.client_id=underpar-client-id",
+    "adobe.ims.scope=openid profile offline_access additional_info.projectedProductContext read_organizations",
+  ].join("\n"));
+
+  assert.equal(
+    result.imsRuntimeConfig.scope,
+    "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function"
+  );
 });
 
 test("ZIP.KEY Adobe IMS imports preserve configured org picker entries", () => {

@@ -1,5 +1,6 @@
 const IMS_IDENTITY_SCOPE = "openid profile";
 const IMS_ORG_DISCOVERY_SCOPE = "read_organizations";
+const IMS_LEGACY_DEFAULT_SCOPE = "openid profile offline_access additional_info.projectedProductContext read_organizations";
 const IMS_ORGANIZATION_SCOPE = "openid profile AdobeID read_organizations additional_info.projectedProductContext additional_info.job_function";
 const IMS_SCOPE =
   "openid profile AdobeID read_organizations offline_access additional_info.projectedProductContext additional_info.job_function";
@@ -1416,7 +1417,11 @@ function normalizeUnderparVaultImsRuntimeConfigRecord(value = null) {
       ]),
     ]) || ""
   ).trim();
-  const sanitizedScope = sanitizeUnderparImsScopeForCredential(rawScope || IMS_SCOPE);
+  const shouldUpgradeLegacyConfiguredScope =
+    normalizeImsScopeList(rawScope, "") === normalizeImsScopeList(IMS_LEGACY_DEFAULT_SCOPE, "");
+  const sanitizedScope = sanitizeUnderparImsScopeForCredential(
+    shouldUpgradeLegacyConfiguredScope ? IMS_SCOPE : rawScope || IMS_SCOPE
+  );
   const organizations = normalizeConfiguredOrganizations(
     isRuntimeRecord ? source?.organizations : readZipKeyRawValue(source, [
       "services.adobe.ims.organizations",
