@@ -57039,27 +57039,17 @@ async function activateSession(sessionData, source = "unknown", options = {}) {
   }
 
   resetCmTenantsPrecheckState();
-  const consoleShellTokenResult = await requestQualifiedExperienceCloudConsoleToken({
-    existingToken: enforced.loginData?.experienceCloudAccessToken,
-    seedToken: enforced.loginData?.accessToken,
-    requireFresh: false,
-    allowSilentAuth: false,
-  }).catch(() => null);
-  const consoleScopedLoginData = mergeExperienceCloudConsoleTokenIntoLoginData(
-    enforced.loginData,
-    consoleShellTokenResult
-  );
   const consoleAccessToken = normalizeBearerTokenValue(
     firstNonEmptyString([
-      consoleShellTokenResult?.accessToken,
-      consoleScopedLoginData?.experienceCloudAccessToken,
+      state.consoleBootstrapState?.shellSnapshot?.imsToken,
+      enforced.loginData?.experienceCloudAccessToken,
       getPreferredExperienceCloudConsoleAccessTokenCandidate(),
-      consoleScopedLoginData?.accessToken,
+      enforced.loginData?.accessToken,
     ])
   );
-  const normalizedLoginDataPromise = resolveNormalizedLoginData(consoleScopedLoginData, {
+  const normalizedLoginDataPromise = resolveNormalizedLoginData(enforced.loginData, {
     fetchProfile: true,
-    resetBootstrapTokens: !Boolean(consoleShellTokenResult?.accessToken),
+    resetBootstrapTokens: true,
     fallbackAdobePassOrg: enforced.loginData.adobePassOrg || getDefaultAdobePassOrgDescriptor(),
   });
 
@@ -58946,69 +58936,84 @@ async function fetchAdobeConsoleBootstrapState(accessToken = "", options = {}) {
 
   const timeoutMs = Math.max(1000, Number(options.timeoutMs || PROGRAMMERS_FETCH_TIMEOUT_MS));
   const preferredTabId = Number(options.preferredTabId || getRetainedAuthPopupBootstrapTabId() || 0);
+  let shellSnapshot = null;
+  let extendedProfileResponse = null;
+  let maintenanceStatusResponse = null;
+  let configurationVersionResponse = null;
+  let grantedAuthorities = [];
+  const fetchViaShellPageContext = async (endpoint) =>
+    fetchAdobeConsoleJsonViaShellPageContext(endpoint, {
+      accessToken: normalizedAccessToken,
+      preferredTabId,
+      allowTemporaryTab: true,
+      timeoutMs,
+    }).catch(() => null);
+
+  const [shellPageExtendedProfile, shellPageMaintenanceStatus, shellPageConfigurationVersion] =
+    await Promise.all([
+      fetchViaShellPageContext(`${ADOBE_CONSOLE_BASE}/rest/api/user/extendedProfile`),
+      fetchViaShellPageContext(`${ADOBE_CONSOLE_BASE}/rest/api/admin/maintenance/status`),
+      fetchViaShellPageContext(`${ADOBE_CONSOLE_BASE}/rest/api/config/latestActivatedConsoleConfigurationVersion`),
+    ]);
+
+  shellSnapshot = normalizeExperienceCloudShellSnapshot(shellPageExtendedProfile?.shell);
+  if (shellSnapshot && state.loginData) {
+    state.loginData = mergeExperienceCloudShellSnapshotIntoLoginData(state.loginData, shellSnapshot);
+  }
+
+  if (shellPageExtendedProfile?.ok && shellPageExtendedProfile?.parsed && typeof shellPageExtendedProfile.parsed === "object") {
+    extendedProfileResponse = shellPageExtendedProfile;
+    grantedAuthorities = extractAdobeConsoleGrantedAuthorities(shellPageExtendedProfile.parsed);
+  }
+  if (shellPageMaintenanceStatus?.ok) {
+    maintenanceStatusResponse = shellPageMaintenanceStatus;
+  }
+  if (shellPageConfigurationVersion?.ok) {
+    configurationVersionResponse = shellPageConfigurationVersion;
+  }
+
+  const resolvedConsoleAccessToken = normalizeBearerTokenValue(
+    firstNonEmptyString([shellSnapshot?.imsToken, normalizedAccessToken])
+  );
   const commonRequestOptions = {
     timeoutMs,
     preferAuthenticatedHeaders: true,
     allowInteractiveAuthBootstrap: options.allowInteractiveAuthBootstrap === true,
-    headers: {
-      Authorization: `Bearer ${normalizedAccessToken}`,
-    },
+    headers: resolvedConsoleAccessToken
+      ? {
+          Authorization: `Bearer ${resolvedConsoleAccessToken}`,
+        }
+      : {},
   };
 
-  const [extendedProfileResult, maintenanceStatusResult, configurationVersionResult] = await Promise.allSettled([
-    fetchAdobeConsoleJsonWithAuthVariants(
+  if (!extendedProfileResponse) {
+    extendedProfileResponse = await fetchAdobeConsoleJsonWithAuthVariants(
       [`${ADOBE_CONSOLE_BASE}/rest/api/user/extendedProfile`],
       "Console extended profile",
       commonRequestOptions
-    ),
-    fetchAdobeConsoleJsonWithAuthVariants(
+    );
+    grantedAuthorities = extractAdobeConsoleGrantedAuthorities(extendedProfileResponse?.parsed);
+  }
+
+  if (!maintenanceStatusResponse) {
+    maintenanceStatusResponse = await fetchAdobeConsoleJsonWithAuthVariants(
       [`${ADOBE_CONSOLE_BASE}/rest/api/admin/maintenance/status`],
       "Console maintenance status",
       commonRequestOptions
-    ),
-    fetchAdobeConsoleJsonWithAuthVariants(
+    ).catch(() => null);
+  }
+
+  if (!configurationVersionResponse) {
+    configurationVersionResponse = await fetchAdobeConsoleJsonWithAuthVariants(
       [`${ADOBE_CONSOLE_BASE}/rest/api/config/latestActivatedConsoleConfigurationVersion`],
       "Console configuration version",
       commonRequestOptions
-    ),
-  ]);
-
-  if (extendedProfileResult.status !== "fulfilled") {
-    throw extendedProfileResult.reason instanceof Error
-      ? extendedProfileResult.reason
-      : new Error(String(extendedProfileResult.reason || "Console extended profile failed."));
-  }
-
-  let extendedProfileResponse = extendedProfileResult.value;
-  const maintenanceStatusResponse = maintenanceStatusResult.status === "fulfilled" ? maintenanceStatusResult.value : null;
-  const configurationVersionResponse = configurationVersionResult.status === "fulfilled" ? configurationVersionResult.value : null;
-  let grantedAuthorities = extractAdobeConsoleGrantedAuthorities(extendedProfileResponse?.parsed);
-  let shellSnapshot = null;
-
-  if (grantedAuthorities.length === 0 || !tokenSupportsExperienceCloudConsole(normalizedAccessToken)) {
-    const shellPageExtendedProfile = await fetchAdobeConsoleJsonViaShellPageContext(
-      `${ADOBE_CONSOLE_BASE}/rest/api/user/extendedProfile`,
-      {
-        accessToken: normalizedAccessToken,
-        preferredTabId,
-        allowTemporaryTab: true,
-        timeoutMs,
-      }
     ).catch(() => null);
-    shellSnapshot = normalizeExperienceCloudShellSnapshot(shellPageExtendedProfile?.shell);
-    if (shellSnapshot && state.loginData) {
-      state.loginData = mergeExperienceCloudShellSnapshotIntoLoginData(state.loginData, shellSnapshot);
-    }
-    const shellPageAuthorities = extractAdobeConsoleGrantedAuthorities(shellPageExtendedProfile?.parsed);
-    if (shellPageAuthorities.length > grantedAuthorities.length) {
-      extendedProfileResponse = shellPageExtendedProfile;
-      grantedAuthorities = shellPageAuthorities;
-    }
   }
 
   const configurationVersion = mvpdWorkspaceExtractConfigurationVersion(configurationVersionResponse?.parsed, 0);
   return {
-    accessToken: firstNonEmptyString([shellSnapshot?.imsToken, normalizedAccessToken]),
+    accessToken: firstNonEmptyString([shellSnapshot?.imsToken, resolvedConsoleAccessToken]),
     fetchedAt: Date.now(),
     extendedProfile:
       extendedProfileResponse?.parsed && typeof extendedProfileResponse.parsed === "object"
@@ -64091,7 +64096,7 @@ async function openTemporaryAdobePageContextTarget(targetUrl = "") {
       const createdWindow = await chrome.windows.create({
         url: normalizedUrl,
         focused: false,
-        state: "minimized",
+        state: "normal",
         width: 480,
         height: 640,
       });
@@ -64298,6 +64303,9 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
           let imsOrgs = [];
           let imsClientId = "";
           let imsProfile = null;
+          const sourceLooksShellish = /(?:^|\.)(?:__)?(?:exc)?shell(?:configuration)?(?:\.|$)|shellconfiguration|gainsight|runtime/i.test(
+            String(sourcePath || "")
+          );
           try {
             const nestedToken = safeGetProperty(value, "token");
             imsToken = normalize(
@@ -64359,11 +64367,15 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
           } catch {
             return null;
           }
+          if (!sourceLooksShellish && !imsToken) {
+            return null;
+          }
           if (!imsToken && !imsOrg && !imsOrgName && imsOrgs.length === 0 && !imsProfile) {
             return null;
           }
           const score =
             (isJwt(imsToken) ? 120 : imsToken ? 60 : 0) +
+            (sourceLooksShellish ? 80 : 0) +
             (imsOrg ? 24 : 0) +
             (imsOrgName ? 18 : 0) +
             (imsOrgs.length > 0 ? 16 : 0) +
@@ -64382,22 +64394,17 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
           };
         };
         const findBestShellSnapshot = () => {
-          const namedWindowEntries = Object.keys(window)
-            .filter((key) => /shell|ims|adobe|profile/i.test(String(key || "")))
-            .slice(0, 80)
-            .map((key) => [`window.${key}`, safeGetProperty(window, key)]);
           const rootEntries = [
             ["window.__shellConfiguration", window.__shellConfiguration],
             ["window.shellConfiguration", window.shellConfiguration],
             ["window.__excShellConfiguration", window.__excShellConfiguration],
             ["window.__adobeShellConfiguration", window.__adobeShellConfiguration],
-            ["window.__INITIAL_STATE__", window.__INITIAL_STATE__],
-            ["window.__PRELOADED_STATE__", window.__PRELOADED_STATE__],
-            ["window.__APOLLO_STATE__", window.__APOLLO_STATE__],
-            ["window.__data__", window.__data__],
-            ["window.adobeIMS", window.adobeIMS],
-            ["window.adobeid", window.adobeid],
-            ...namedWindowEntries,
+            ["window.__INITIAL_STATE__.shellConfiguration", safeGetProperty(safeGetProperty(window, "__INITIAL_STATE__"), "shellConfiguration")],
+            ["window.__INITIAL_STATE__.shell", safeGetProperty(safeGetProperty(window, "__INITIAL_STATE__"), "shell")],
+            ["window.__PRELOADED_STATE__.shellConfiguration", safeGetProperty(safeGetProperty(window, "__PRELOADED_STATE__"), "shellConfiguration")],
+            ["window.__PRELOADED_STATE__.shell", safeGetProperty(safeGetProperty(window, "__PRELOADED_STATE__"), "shell")],
+            ["window.__runtime.shellConfiguration", safeGetProperty(safeGetProperty(window, "__runtime"), "shellConfiguration")],
+            ["window.__excRuntime.shellConfiguration", safeGetProperty(safeGetProperty(window, "__excRuntime"), "shellConfiguration")],
           ];
           const visited = new WeakSet();
           const candidates = [];
@@ -64424,7 +64431,7 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
             return false;
           };
           const visit = (value, sourcePath = "", depth = 0) => {
-            if (depth > 4 || visitedCount >= 400 || shouldSkipObject(value)) {
+            if (depth > 3 || visitedCount >= 180 || shouldSkipObject(value)) {
               return;
             }
             visited.add(value);
@@ -64447,11 +64454,20 @@ async function fetchAdobeConsoleJsonViaShellPageContext(requestUrl = "", options
           candidates.sort((left, right) => Number(right?.score || 0) - Number(left?.score || 0));
           return candidates[0] || null;
         };
+        const isReadyShellSnapshot = (snapshot = null) =>
+          Boolean(
+            snapshot &&
+              isJwt(snapshot.imsToken) &&
+              (snapshot.imsOrg ||
+                (Array.isArray(snapshot.imsOrgs) && snapshot.imsOrgs.length > 0) ||
+                snapshot.imsProfile?.userId ||
+                snapshot.imsProfile?.email)
+          );
         const waitForShellSnapshot = async () => {
           const maxWaitMs = Math.max(250, Math.min(5000, Math.floor(Math.max(0, Number(config?.timeoutMs || 0)) / 2)));
           const deadline = Date.now() + maxWaitMs;
           let bestSnapshot = findBestShellSnapshot();
-          while ((!bestSnapshot || !isJwt(bestSnapshot.imsToken)) && Date.now() < deadline) {
+          while (!isReadyShellSnapshot(bestSnapshot) && Date.now() < deadline) {
             await new Promise((resolve) => window.setTimeout(resolve, 120));
             bestSnapshot = findBestShellSnapshot();
           }
@@ -69538,6 +69554,49 @@ async function fetchProgrammersFromApi(options = {}) {
   let silentRefreshAttempted = false;
   for (const endpoint of endpoints) {
     try {
+      const pageContextResult = await fetchAdobeConsoleJsonViaShellPageContext(endpoint, {
+        accessToken,
+        preferredTabId,
+        allowTemporaryTab: true,
+        timeoutMs: PROGRAMMERS_FETCH_TIMEOUT_MS,
+      }).catch(() => null);
+
+      if (pageContextResult) {
+        const payload = pageContextResult.parsed;
+        const responseText = String(pageContextResult.text || "");
+        if (pageContextResult.ok) {
+          const normalizedEntities = normalizeProgrammersResponse(payload);
+          if (requireEntities && normalizedEntities.length === 0) {
+            lastError = createProgrammersError(`Endpoint ${endpoint} returned no media companies.`, "PROGRAMMERS_EMPTY");
+          } else {
+            if (normalizedEntities.length > Number(bestEntities?.length || 0)) {
+              bestEntities = normalizedEntities;
+              bestEndpoint = endpoint;
+            }
+            if (normalizedEntities.length > 0 || !requireEntities) {
+              state.programmersApiEndpoint = endpoint;
+              return normalizedEntities;
+            }
+          }
+        } else {
+          const accessDeniedResponse =
+            responseLooksLikeExperienceCloudSignIn(pageContextResult, responseText) ||
+            isAdobeConsoleAccessDeniedResponse(pageContextResult.status, payload, responseText);
+          if (accessDeniedResponse) {
+            denied = true;
+            lastError = createProgrammersError(
+              `Endpoint ${endpoint} failed (${pageContextResult.status || 0}): ${responseText || pageContextResult.statusText}`,
+              "PROGRAMMERS_ACCESS_DENIED"
+            );
+            continue;
+          }
+          lastError = createProgrammersError(
+            `Endpoint ${endpoint} failed (${pageContextResult.status || 0}): ${responseText || pageContextResult.statusText}`,
+            "PROGRAMMERS_ENDPOINT_FAILED"
+          );
+        }
+      }
+
       const buildHeaderVariants = () => {
         const variants = [];
         if (accessToken) {
@@ -69634,43 +69693,6 @@ async function fetchProgrammersFromApi(options = {}) {
         }
       }
 
-      const pageContextResult = await fetchAdobeConsoleJsonViaShellPageContext(endpoint, {
-        accessToken,
-        preferredTabId,
-        allowTemporaryTab: true,
-        timeoutMs: PROGRAMMERS_FETCH_TIMEOUT_MS,
-      }).catch(() => null);
-
-      if (pageContextResult) {
-        const payload = pageContextResult.parsed;
-        const responseText = String(pageContextResult.text || "");
-        if (pageContextResult.ok) {
-          const normalizedEntities = normalizeProgrammersResponse(payload);
-          if (requireEntities && normalizedEntities.length === 0) {
-            lastError = createProgrammersError(`Endpoint ${endpoint} returned no media companies.`, "PROGRAMMERS_EMPTY");
-          } else {
-            if (normalizedEntities.length > Number(bestEntities?.length || 0)) {
-              bestEntities = normalizedEntities;
-              bestEndpoint = endpoint;
-            }
-            if (normalizedEntities.length > 1 || (!requireEntities && normalizedEntities.length > 0)) {
-              state.programmersApiEndpoint = endpoint;
-              return normalizedEntities;
-            }
-          }
-        } else {
-          const accessDeniedResponse =
-            responseLooksLikeExperienceCloudSignIn(pageContextResult, responseText) ||
-            isAdobeConsoleAccessDeniedResponse(pageContextResult.status, payload, responseText);
-          if (accessDeniedResponse) {
-            denied = true;
-          }
-          lastError = createProgrammersError(
-            `Endpoint ${endpoint} failed (${pageContextResult.status || 0}): ${responseText || pageContextResult.statusText}`,
-            accessDeniedResponse ? "PROGRAMMERS_ACCESS_DENIED" : "PROGRAMMERS_ENDPOINT_FAILED"
-          );
-        }
-      }
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
     }

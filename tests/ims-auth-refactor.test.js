@@ -542,24 +542,18 @@ test("activation reuses cached organization payloads from the PKCE login handoff
   assert.doesNotMatch(enforceAccessSource, /let organizations = \[\];/);
 });
 
-test("activation qualifies an Experience Cloud shell token before console programmer discovery", () => {
+test("activation defers console token resolution to shell-first bootstrap before programmer discovery", () => {
   const popupSource = fs.readFileSync(path.join(ROOT, "popup.js"), "utf8");
   const activateSource = extractFunctionSource(popupSource, "activateSession");
-  const qualifyShellTokenSource = extractFunctionSource(popupSource, "requestQualifiedExperienceCloudConsoleToken");
-  const mergeShellTokenSource = extractFunctionSource(popupSource, "mergeExperienceCloudConsoleTokenIntoLoginData");
   const consoleTokenPreferenceSource = extractFunctionSource(popupSource, "getPreferredAdobeConsoleAccessTokenCandidate");
 
-  assert.match(qualifyShellTokenSource, /requestExperienceCloudConsoleTokenViaValidateToken/);
-  assert.match(qualifyShellTokenSource, /requestExperienceCloudConsoleTokenViaImsCheck/);
-  assert.match(qualifyShellTokenSource, /qualified:existing-experience-cloud/);
   assert.match(consoleTokenPreferenceSource, /getPreferredExperienceCloudConsoleAccessTokenCandidate\(\)/);
   assert.match(consoleTokenPreferenceSource, /getPreferredPrimaryImsAccessTokenCandidate\(\)/);
-  assert.match(mergeShellTokenSource, /experienceCloudAccessToken: accessToken/);
-  assert.match(activateSource, /const consoleShellTokenResult = await requestQualifiedExperienceCloudConsoleToken/);
-  assert.match(activateSource, /const consoleScopedLoginData = mergeExperienceCloudConsoleTokenIntoLoginData/);
-  assert.match(activateSource, /consoleScopedLoginData\?\.experienceCloudAccessToken/);
+  assert.match(activateSource, /state\.consoleBootstrapState\?\.shellSnapshot\?\.imsToken/);
+  assert.match(activateSource, /enforced\.loginData\?\.experienceCloudAccessToken/);
   assert.match(activateSource, /await loadProgrammersData\(consoleAccessToken/);
-  assert.match(activateSource, /resetBootstrapTokens: !Boolean\(consoleShellTokenResult\?\.accessToken\)/);
+  assert.match(activateSource, /resetBootstrapTokens: true/);
+  assert.doesNotMatch(activateSource, /requestQualifiedExperienceCloudConsoleToken/);
 });
 
 test("sign out path revokes Adobe tokens before clearing session state", () => {
@@ -734,7 +728,8 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.match(bootstrapEnsureSource, /getPreferredAdobeConsoleAccessTokenCandidate\(\)/);
   assert.match(loadProgrammersSource, /bootstrapState = await ensureConsoleBootstrapState/);
   assert.match(loadProgrammersSource, /allowInteractiveAuthBootstrap: options\.allowInteractiveAuthBootstrap === true/);
-  assert.match(fetchBootstrapSource, /Promise\.allSettled\(/);
+  assert.match(fetchBootstrapSource, /const fetchViaShellPageContext = async \(endpoint\) =>/);
+  assert.match(fetchBootstrapSource, /await Promise\.all\(\[/);
   assert.match(fetchBootstrapSource, /fetchAdobeConsoleJsonViaShellPageContext/);
   assert.match(loadProgrammersSource, /const configurationVersion = mvpdWorkspaceExtractConfigurationVersion\(bootstrapState, 0\)/);
   assert.doesNotMatch(loadProgrammersSource, /configurationVersion <= 0/);
@@ -743,10 +738,12 @@ test("console configuration version is sourced dynamically from console bootstra
   assert.match(fetchConsoleSource, /variants\.push\(getAdobeConsoleRequestHeaders\(""\)\)/);
   assert.match(fetchProgrammersSource, /state\.loginData\?\.experienceCloudAccessToken/);
   assert.match(fetchProgrammersSource, /getPreferredExperienceCloudConsoleAccessTokenCandidate\(\)/);
+  assert.match(fetchProgrammersSource, /const pageContextResult = await fetchAdobeConsoleJsonViaShellPageContext/);
   assert.match(fetchProgrammersSource, /const buildHeaderVariants = \(\) =>/);
   assert.match(fetchProgrammersSource, /getAdobeConsoleRequestHeaders\(""\)/);
   assert.match(fetchProgrammersSource, /fetchAdobeConsoleJsonViaShellPageContext/);
-  assert.match(fetchBootstrapSource, /grantedAuthorities\.length === 0 \|\| !tokenSupportsExperienceCloudConsole\(normalizedAccessToken\)/);
+  assert.match(fetchBootstrapSource, /shellPageExtendedProfile/);
+  assert.match(fetchBootstrapSource, /shellSnapshot\?\.imsToken/);
   assert.match(fetchBootstrapSource, /mergeExperienceCloudShellSnapshotIntoLoginData\(state\.loginData,\s*shellSnapshot\)/);
   assert.match(loadProgrammersSource, /const resolvedConsoleAccessToken = normalizeBearerTokenValue\(/);
   assert.match(loadProgrammersSource, /firstNonEmptyString\(\[bootstrapState\?\.accessToken,\s*normalizedAccessToken\]\)/);
@@ -859,15 +856,20 @@ test("shell page context harvests the unified shell IMS session before console e
   const shellFetchSource = extractFunctionSource(popupSource, "fetchAdobeConsoleJsonViaShellPageContext");
   const shellMergeSource = extractFunctionSource(popupSource, "mergeExperienceCloudShellSnapshotIntoLoginData");
   const activationSource = extractFunctionSource(popupSource, "activateSession");
+  const tempTargetSource = extractFunctionSource(popupSource, "openTemporaryAdobePageContextTarget");
 
   assert.match(shellFetchSource, /isProgrammersRequest \? getActiveAdobePassEnvironment\(\)\?\.consoleProgrammersUrl/);
   assert.match(shellFetchSource, /const shellSnapshot = await waitForShellSnapshot\(\);/);
+  assert.match(shellFetchSource, /window\.__shellConfiguration/);
+  assert.match(shellFetchSource, /window\.shellConfiguration/);
+  assert.match(shellFetchSource, /const isReadyShellSnapshot = \(snapshot = null\) =>/);
   assert.match(shellFetchSource, /if \(isJwt\(shellSnapshot\?\.imsToken\)\) \{\s*pushVariant\(\{\s*Authorization: `Bearer \$\{shellSnapshot\.imsToken\}`,/);
   assert.match(shellFetchSource, /shell: normalizedShellSnapshot/);
   assert.match(shellMergeSource, /tokenSupportsExperienceCloudConsole\(normalizedShellSnapshot\.imsToken\)/);
   assert.match(shellMergeSource, /organizations: mergedOrganizations/);
   assert.match(activationSource, /mergeExperienceCloudShellSnapshotIntoLoginData\(/);
   assert.match(activationSource, /state\.consoleBootstrapState\?\.shellSnapshot/);
+  assert.match(tempTargetSource, /state: "normal"/);
 });
 
 test("restricted org labels collapse duplicate AdobePass segments", () => {
